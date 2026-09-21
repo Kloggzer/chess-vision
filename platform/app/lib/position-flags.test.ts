@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { gemessen } from "@/lib/test-fixtures";
 
 let dir: string;
 beforeEach(async () => {
@@ -9,7 +10,7 @@ beforeEach(async () => {
   await mkdir(path.join(dir, "reports"), { recursive: true });
   vi.doMock("@/lib/data", () => ({ dataDir: () => dir }));
   vi.resetModules();
-  (globalThis as { __chesslabPositionFlags?: Map<string, unknown> }).__chesslabPositionFlags?.clear();
+  (globalThis as { __chesslabMeasurements?: Map<string, unknown> }).__chesslabMeasurements?.clear();
 });
 afterEach(() => vi.doUnmock("@/lib/data"));
 
@@ -24,7 +25,7 @@ const row = (square: string, dev: number) =>
 test("the independent temporal score survives loading without becoming coverage", async () => {
   const { loadPositionFlags } = await load();
   await write(JSON.stringify({ ...JSON.parse(row("a2", 18)), reason: "temporal", temporal_score: 0.43 }));
-  expect((await loadPositionFlags()).rows[0]).toMatchObject({
+  expect(gemessen(await loadPositionFlags()).rows[0]).toMatchObject({
     reason: "temporal", temporal_score: 0.43, dev: 18, matte_cov: 0.02,
   });
 });
@@ -33,9 +34,8 @@ test("die größte Abweichung zuerst — dort ist am ehesten wirklich etwas ande
   const { loadPositionFlags } = await load();
   await write(`${HEAD}\n${row("a2", 18.4)}\n${row("a3", 41.2)}\n`);
 
-  const { rows, present } = await loadPositionFlags();
+  const { rows } = gemessen(await loadPositionFlags());
 
-  expect(present).toBe(true);
   expect(rows.map((r) => [r.square, r.dev])).toEqual([
     ["a3", 41.2],
     ["a2", 18.4],
@@ -46,19 +46,28 @@ test("die größte Abweichung zuerst — dort ist am ehesten wirklich etwas ande
   });
 });
 
-test("keine Datei ist `present: false` — die Lane rendert `—`, nicht 0", async () => {
+test("keine Datei ist NICHT GEMESSEN — die Lane rendert `—`, nicht 0", async () => {
   const { loadPositionFlags, positionFlagsPath } = await load();
   expect(positionFlagsPath()).toBe(path.join(dir, "reports", "position-flags.jsonl"));
-  expect(await loadPositionFlags()).toEqual({ rows: [], present: false, unmeasured: [] });
+  expect(await loadPositionFlags()).toEqual({ measured: false });
 });
 
-test("Kopfzeile, halbe Zeile und Zeile ohne Messwert werden übersprungen, nicht fatal", async () => {
+test("Kopfzeile, halber Schwanz und Zeile ohne Messwert werden übersprungen, nicht fatal", async () => {
   const { loadPositionFlags } = await load();
-  await write(`${HEAD}\n{"session_id": "rg-g", "square"\n{"session_id": "rg-g", "square": "a2"}\n${row("a3", 9)}\n`);
+  await write(`${HEAD}\n{"session_id": "rg-g", "square": "a2"}\n${row("a3", 9)}\n{"session_id": "rg-g", "squ`);
 
-  const { rows } = await loadPositionFlags();
+  const { rows } = gemessen(await loadPositionFlags());
 
   expect(rows.map((r) => r.square)).toEqual(["a3"]);
+});
+
+/** Eine kaputte Zeile MITTENDRIN kann kein Schreiber erklaeren. Sie still zu ueberspringen machte
+ *  aus der Messung eine mit WENIGER Treffern, und die Lane sah keinen Unterschied. */
+test("eine kaputte Zeile mittendrin ist keine Messung mit weniger Treffern", async () => {
+  const { loadPositionFlags } = await load();
+  await write(`${HEAD}\n{"session_id": "rg-g", "square"\n${row("a3", 9)}\n`);
+
+  await expect(loadPositionFlags()).rejects.toThrow(/beschaedigte/);
 });
 
 test("eine Aufnahme ohne `settle-scan` steht in der Kopfzeile und wird weitergereicht", async () => {
@@ -66,7 +75,7 @@ test("eine Aufnahme ohne `settle-scan` steht in der Kopfzeile und wird weiterger
   const head = '{"_settle_limit": 15.0, "_unmeasured": ["rg-a", "rg-b"]}';
   await write(`${head}\n${row("a2", 18.4)}\n`);
 
-  const { unmeasured, rows } = await loadPositionFlags();
+  const { unmeasured, rows } = gemessen(await loadPositionFlags());
 
   expect(unmeasured).toEqual(["rg-a", "rg-b"]);
   expect(rows).toHaveLength(1);
@@ -76,5 +85,5 @@ test("eine Kopfzeile aus der Zeit vor dem Feld behauptet nicht, alles sei gemess
   const { loadPositionFlags } = await load();
   await write(`${HEAD}\n${row("a2", 18.4)}\n`);
 
-  expect((await loadPositionFlags()).unmeasured).toEqual([]);
+  expect(gemessen(await loadPositionFlags()).unmeasured).toEqual([]);
 });

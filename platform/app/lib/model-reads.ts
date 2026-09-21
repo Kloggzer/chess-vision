@@ -3,7 +3,6 @@
  * (`chesslab realgames model-read <name> --model <run dir>`). It carries no verdict of its own:
  * the rows are `probs` beside the FEN's word, and `lib/query.ts` asks the questions.
  */
-import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir } from "@/lib/data";
 import {
@@ -14,7 +13,7 @@ import {
   topRead,
   DISAGREE,
 } from "@/lib/query";
-import { jsonlRows } from "@/lib/jsonl";
+import { loadMeasurement, type Measurement } from "@/lib/measurement";
 
 export { acceptLabel, DISAGREE, matches, readKey, topRead };
 export type { ModelRead };
@@ -22,12 +21,9 @@ export type { ModelRead };
 /** The header line. `model` is `null` only on a file whose first line was never written. */
 type ReadHeader = { model: string | null; classes: string[]; writtenAt: string | null };
 
-export type ModelReads = {
-  rows: ModelRead[];
-  header: ReadHeader;
-  /** `false` = no model has read this session — not measured, which is not the same as nothing. */
-  present: boolean;
-};
+export type ModelReadsValue = { rows: ModelRead[]; header: ReadHeader };
+/** `measured: false` = no model has read this session — not measured, which is not nothing. */
+export type ModelReads = Measurement<ModelReadsValue>;
 
 const NO_HEADER: ReadHeader = { model: null, classes: [], writtenAt: null };
 
@@ -39,42 +35,29 @@ function parseHeader(obj: Record<string, unknown>): ReadHeader {
   return { model: str(obj, "_model"), classes, writtenAt: str(obj, "_written_at") };
 }
 
-/** Mtime-keyed to avoid re-parsing the corpus per hot reload (REVIEW.md S12). */
-type Cache = Map<string, { key: string; value: ModelReads }>;
-const cache: Cache = ((globalThis as { __chesslabModelReads?: Cache }).__chesslabModelReads ??= new Map());
-
 function readsPath(name: string): string {
   return path.join(gameDir(checkName(name, "game name")), "model-reads.jsonl");
 }
 
-export async function loadModelReads(name: string): Promise<ModelReads> {
-  const file = readsPath(name);
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
-  const hit = cache.get(file);
-  if (hit?.key === key) return hit.value;
+/** Mtime-keyed to avoid re-parsing the corpus per hot reload (REVIEW.md S12). */
+export function loadModelReads(name: string): Promise<ModelReads> {
+  return loadMeasurement(readsPath(name), parse);
+}
 
-  let text: string;
-  try {
-    text = await readFile(file, "utf8");
-  } catch (e) {
-    // `present: false` heisst "der Producer lief nie", und die Lane schreibt dafuer `—`.
-    // Ein Lesefehler darf das nicht behaupten (wie `lib/position-flags.ts`), sonst ist eine
-    // unlesbare Datei eine Aussage — und der Cache haelt sie bis zur naechsten mtime.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    const missing: ModelReads = { rows: [], header: NO_HEADER, present: false };
-    cache.set(file, { key, value: missing });
-    return missing;
-  }
-
+function parse(lines: Record<string, unknown>[]): ModelReadsValue {
   const rows: ModelRead[] = [];
   let header = NO_HEADER;
-  for (const obj of jsonlRows(text)) {
+  for (const obj of lines) {
     if ("_model" in obj || "_classes" in obj) header = parseHeader(obj);
     else rows.push(obj as unknown as ModelRead);
   }
-  const value: ModelReads = { rows, header, present: true };
-  cache.set(file, { key, value });
-  return value;
+  return { rows, header };
+}
+
+/** Die Zeilen, oder leer, wenn kein Modell gelesen hat — wer nur zaehlt, fragt nicht nach `—`. */
+export async function modelReadRows(name: string): Promise<ModelRead[]> {
+  const m = await loadModelReads(name);
+  return m.measured ? m.value.rows : [];
 }
 
 export type ReadCensus = {
@@ -89,7 +72,8 @@ export type ReadCensus = {
 };
 
 export async function readCensus(name: string): Promise<ReadCensus> {
-  const { rows, header, present } = await loadModelReads(name);
+  const reads = await loadModelReads(name);
+  const { rows, header } = reads.measured ? reads.value : { rows: [], header: NO_HEADER };
   const frames = new Set<string>();
   for (const row of rows) frames.add(row.frame);
   return {
@@ -98,7 +82,7 @@ export async function readCensus(name: string): Promise<ReadCensus> {
     frames: [...frames].sort(),
     model: header.model,
     writtenAt: header.writtenAt,
-    present,
+    present: reads.measured,
   };
 }
 

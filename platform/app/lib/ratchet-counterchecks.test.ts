@@ -1,9 +1,9 @@
 /** Je eine EINGEPFLANZTE Gegenprobe, wie `tests/test_ratchet_counterchecks.py` und
  *  `CommentBudgetCounterCheckTest.kt`: geprueft wird der ERKENNER, nicht die Liste — ein Verstoss
- *  MUSS zaehlen, ein erlaubter Fall darf es NICHT. Alle vier lagen an derselben Stelle falsch:
+ *  MUSS zaehlen, ein erlaubter Fall darf es NICHT. Alle lagen an derselben Stelle falsch:
  *  ein Vorkommen in einem Text oder Kommentar galt als Code (`@/ratchet-detect`). */
 import { expect, test } from "vitest";
-import { commentRunIn, jsonlCutsIn, routeImportsIn, writeDoorsIn } from "@/ratchet-detect";
+import { commentRunIn, jsonlCutsIn, measurementDoorsIn, routeImportsIn, writeDoorsIn } from "@/ratchet-detect";
 
 const NL = String.fromCharCode(92) + "n";
 const laeuft = (body: string) => `${body}
@@ -68,4 +68,42 @@ test("ein zu langer Kommentarblock zaehlt, ein Text mit `//`-Zeilen nicht", () =
   const literal = ["const hilfe = `", "// 1", "// 2", "// 3", "// 4", "// 5", "// 6", "`;"].join("\n");
   expect(commentRunIn(literal), "Zeilen in einem Template-Literal sind kein Kommentarblock").toBe(0);
   expect(commentRunIn('const p = "a/*b";\ncode();\nmehr();\nnoch();\nund();\nfertig();')).toBe(0);
+});
+
+// --- Mess-Tueren --------------------------------------------------------------------------
+
+/** Die FORM, nicht eine Schreibweise: jede Art, ein gescheitertes Lesen zu einer leeren Antwort
+ *  zu machen, muss zaehlen. Genau hier lag der Routen-Erkenner falsch — er suchte `post(`. */
+test("jede Form des geschluckten Lesefehlers zaehlt", () => {
+  const planted = [
+    'const t = await readFile(f, "utf8").catch(() => "");',
+    "const rows = await loadFlags().catch(() => []);",
+    "const m = await loadMatte(n).catch(() => new Map());",
+    "const r = await loadModelReads(n).catch(() => ({ rows: [] }));",
+    "const r = await loadModelReads(n).catch((e) => ({ rows: [], header: null }));",
+    "const x = await readFile(f).catch(function () { return null; });",
+    "let s;\ntry { s = await loadSession(n); } catch { s = null; }",
+    "try { return jsonlRowsStrict(f, await readFile(f)); } catch (e) { return []; }",
+    "for (const o of jsonlRows(text)) { use(o); }",
+  ];
+  for (const form of planted) expect(measurementDoorsIn(form), form).toBeGreaterThan(0);
+});
+
+test("wer den Fehler DURCHLAESST oder gar nicht liest, faellt nicht in die Liste", () => {
+  // Der Bauplan selbst: ENOENT ist die einzige leere Antwort, alles andere wirft.
+  expect(measurementDoorsIn(
+    'let t;\ntry { t = await readFile(f, "utf8"); } catch (e) { if (e.code !== "ENOENT") throw e; return MISSING; }',
+  )).toBe(0);
+  // Ein Verzeichnis, das es nicht gibt, ist keine Messung.
+  expect(measurementDoorsIn("const names = await readdir(dir).catch(() => []);")).toBe(0);
+  expect(measurementDoorsIn("await rm(tmp, { force: true }).catch(() => {});")).toBe(0);
+  // Ein `catch`, der eine Antwort BAUT statt zu schweigen, ist kein geschluckter Fehler.
+  expect(measurementDoorsIn('try { await readFile(f); } catch { return { fehler: String(e) }; }')).toBe(0);
+});
+
+test("ein geschluckter Lesefehler im Kommentar oder in einer Zeichenkette zaehlt nicht", () => {
+  expect(measurementDoorsIn('// frueher: readFile(f).catch(() => "")')).toBe(0);
+  expect(measurementDoorsIn('/** Nicht mehr: loadFlags().catch(() => []) */')).toBe(0);
+  expect(measurementDoorsIn('const hinweis = "readFile(f).catch(() => \'\')";')).toBe(0);
+  expect(measurementDoorsIn("const hilfe = `for (const o of jsonlRows(t)) {}`;")).toBe(0);
 });

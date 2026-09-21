@@ -56,6 +56,16 @@ test("der Schreiber prueft, statt dem Browser zu glauben", () => {
 test("eine halb geschriebene Zeile ist kein Urteil und kippt das Ledger nicht", async () => {
   const { appendFile } = await import("node:fs/promises");
   await appendUnusableCells([cell("e5")]);
-  await appendFile(unusableCellsPath(NAME), '{"session_id": "rg-\n');
+  // Ohne Umbruch dahinter: das ist der Schwanz eines laufenden `appendRows`, nicht Beschaedigung.
+  await appendFile(unusableCellsPath(NAME), '{"session_id": "rg-');
   expect([...(await unusableCells(NAME))]).toEqual(["000100|e5"]);
+});
+
+/** Wie das Schwesterledger `review-notes.ts`: eine kaputte Zeile MITTENDRIN zu ueberspringen
+ *  verliert ein Urteil lautlos, und die Zelle steht danach wieder in der Lane. */
+test("eine kaputte Zeile mittendrin verliert kein Urteil lautlos", async () => {
+  const { appendFile } = await import("node:fs/promises");
+  await appendUnusableCells([cell("e5")]);
+  await appendFile(unusableCellsPath(NAME), '{"session_id": "rg-\n');
+  await expect(unusableCells(NAME)).rejects.toThrow(/beschaedigte/);
 });

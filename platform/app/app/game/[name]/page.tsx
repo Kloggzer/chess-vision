@@ -10,7 +10,7 @@ import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { jobHistory, jobLogTail, type Job } from "@/lib/jobs";
 import { loadMeta } from "@/lib/meta";
-import { boardProgressOf, loadModelReads, readKey, type ReadCensus } from "@/lib/model-reads";
+import { boardProgressOf, modelReadRows, readKey, type ReadCensus } from "@/lib/model-reads";
 import { bareFrames } from "@/lib/queues";
 import { sessionDir, sessionId } from "@/lib/session";
 
@@ -32,7 +32,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: Game
   ]);
   const decided = await judgedKeys(name);
   const { census, boards, done } = await boardProgressOf(name, decided.keys());
-  const { rows } = await loadModelReads(name);
+  const rows = await modelReadRows(name);
   const info: GameInfo = {
     name,
     sessionId: sessionId(name),

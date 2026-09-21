@@ -17,7 +17,7 @@ import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/correc
 import { type HandFlag, loadHandFlags } from "@/lib/hand-flags";
 import { type FrameHand, handKey, loadFrameHands } from "@/lib/frame-hands";
 import { isArchived } from "@/lib/meta";
-import { loadModelReads, topRead, type ModelRead } from "@/lib/model-reads";
+import { modelReadRows, topRead, type ModelRead } from "@/lib/model-reads";
 import { frameReviews, matteWanted, unusableBoards } from "@/lib/review-notes";
 import { recordedAt } from "@/lib/queues";
 import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session";
@@ -207,12 +207,14 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const unusableCell: string[][] = [];
   const handScanned: boolean[] = [];
   const gateRows = await loadFrameHands();
+  // Nie gescannt = keine Aussage; die Karte fragt `handScanned`, nicht die leere Map.
+  const hands = gateRows.measured ? gateRows.value : { rows: new Map<string, FrameHand>(), scannedSessions: new Set<string>() };
   const auditRows = await loadAuditFlags();
   const handRows = await loadHandFlags();
   const positionRows = await loadPositionFlags();
   const ruleRows = await loadCorrectionViolations();
   const violated = new Map<string, Map<string, CorrectionViolation>>();
-  for (const row of ruleRows.rows) {
+  for (const row of ruleRows.measured ? ruleRows.value.rows : []) {
     const byStem = violated.get(row.session_id) ?? new Map<string, CorrectionViolation>();
     byStem.set(row.frame, row);
     violated.set(row.session_id, byStem);
@@ -226,12 +228,15 @@ export async function loadLabelStream(): Promise<LabelStream> {
     let session;
     try {
       session = await loadSession(name);
-    } catch {
-      continue; // not exported yet — the chain owes this one an `export-session`
+    } catch (e) {
+      // ENOENT heisst "der Export lief nie" — die Kette schuldet dieser Aufnahme ein
+      // `export-session`. Jeder ANDERE Fehler nahm sie hier lautlos aus `progress.boards`.
+      if ((e as { code?: string })?.code !== "ENOENT") throw e;
+      continue;
     }
     const id = sessionId(name);
-    const [{ rows }, judged, unusable, matte, wanted, useless] = await Promise.all([
-      loadModelReads(name).catch(() => ({ rows: [] as ModelRead[] })),
+    const [rows, judged, unusable, matte, wanted, useless] = await Promise.all([
+      modelReadRows(name),
       judgedKeys(name),
       unusableBoards(id),
       loadMatte(name),
@@ -317,11 +322,11 @@ export async function loadLabelStream(): Promise<LabelStream> {
     ])));
     frameHands.push(Object.fromEntries(
       stems.flatMap((row) => {
-        const hand = gateRows.rows.get(handKey(id, row.stem));
+        const hand = hands.rows.get(handKey(id, row.stem));
         return hand ? [[row.stem, hand] as const] : [];
       }),
     ));
-    handScanned.push(gateRows.scannedSessions.has(id));
+    handScanned.push(hands.scannedSessions.has(id));
     unusableCell.push([...useless]);
     cells.push(...controlCells(index, stems, byStem, judged));
     for (const row of await recentVerdicts(name, RECENT_MAX)) {
@@ -339,11 +344,11 @@ export async function loadLabelStream(): Promise<LabelStream> {
     boards,
     cells,
     recent: recent.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, RECENT_MAX),
-    audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
-    auditStaleSince: auditRows.staleSince,
-    hands: handRows.present ? handCells(handRows.rows, bySession) : null,
-    positions: positionRows.present ? positionCells(positionRows.rows, bySession) : null,
-    positionsUnmeasured: positionRows.unmeasured,
+    audit: auditRows.measured ? auditCells(auditRows.value.rows, bySession) : null,
+    auditStaleSince: auditRows.measured ? auditRows.value.staleSince : undefined,
+    hands: handRows.measured ? handCells(handRows.value.rows, bySession) : null,
+    positions: positionRows.measured ? positionCells(positionRows.value.rows, bySession) : null,
+    positionsUnmeasured: positionRows.measured ? positionRows.value.unmeasured : [],
     decided,
     reads: { boards: readBoards },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },

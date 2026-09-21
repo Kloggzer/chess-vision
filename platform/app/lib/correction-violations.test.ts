@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { gemessen } from "@/lib/test-fixtures";
 
 let dir: string;
 beforeEach(async () => {
@@ -9,7 +10,7 @@ beforeEach(async () => {
   await mkdir(path.join(dir, "reports"), { recursive: true });
   vi.doMock("@/lib/data", () => ({ dataDir: () => dir }));
   vi.resetModules();
-  (globalThis as { __chesslabViolations?: Map<string, unknown> }).__chesslabViolations?.clear();
+  (globalThis as { __chesslabMeasurements?: Map<string, unknown> }).__chesslabMeasurements?.clear();
 });
 afterEach(() => vi.doUnmock("@/lib/data"));
 
@@ -23,8 +24,7 @@ const ROW =
 test("a row carries its rules and the squares its corrections touched", async () => {
   const { loadCorrectionViolations } = await load();
   await write(`${ROW}\n`);
-  const { rows, present } = await loadCorrectionViolations();
-  expect(present).toBe(true);
+  const { rows } = gemessen(await loadCorrectionViolations());
   expect(rows).toEqual([
     {
       session_id: "rg-2026-08-08-11-55-19",
@@ -36,10 +36,10 @@ test("a row carries its rules and the squares its corrections touched", async ()
   ]);
 });
 
-test("no file is `present: false`, which is what the chip renders as — instead of 0", async () => {
+test("no file is NOT MEASURED, which is what the chip renders as `—` — instead of 0", async () => {
   const { loadCorrectionViolations, correctionViolationsPath } = await load();
   expect(correctionViolationsPath()).toBe(path.join(dir, "reports", "correction-violations.jsonl"));
-  expect(await loadCorrectionViolations()).toEqual({ rows: [], present: false });
+  expect(await loadCorrectionViolations()).toEqual({ measured: false });
 });
 
 test("a half-written line, a rule-less row and a correction-less row are skipped, not fatal", async () => {
@@ -52,14 +52,14 @@ test("a half-written line, a rule-less row and a correction-less row are skipped
       '{"session_id": "rg-a", "fra',
     ].join("\n"),
   );
-  const { rows } = await loadCorrectionViolations();
+  const { rows } = gemessen(await loadCorrectionViolations());
   expect(rows.map((r) => r.frame)).toEqual(["000822"]);
 });
 
 test("the read path is mtime-keyed, so a re-run of the audit is seen", async () => {
   const { loadCorrectionViolations } = await load();
   await write(`${ROW}\n`);
-  expect((await loadCorrectionViolations()).rows).toHaveLength(1);
+  expect(gemessen(await loadCorrectionViolations()).rows).toHaveLength(1);
   await write("");
-  expect((await loadCorrectionViolations()).rows).toEqual([]);
+  expect(gemessen(await loadCorrectionViolations()).rows).toEqual([]);
 });

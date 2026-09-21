@@ -1,0 +1,28 @@
+# Stellen, an denen ein gescheitertes LESEN zu einer leeren Antwort wird, statt durch
+# lib/measurement.ts zu gehen. "Nicht gemessen" ist etwas anderes als "gemessen null", und ein
+# Lesefehler ist keins von beidem - fuenf Geschwister-Leser beantworteten das am 2026-09-21 je
+# fuer sich falsch, und der Cache hielt die Luege bis zur naechsten mtime.
+# Gezaehlt wird die FORM, nicht die Schreibweise: ein `.catch(...)` oder `catch {}` hinter einem
+# Lesen, das nichts weiterreicht und nichts BAUT, und jeder Aufruf des verlustbehafteten
+# `jsonlRows` (der wirft die Diagnose von `readJsonl` weg - `jsonlRowsStrict` tut das nicht).
+# Darf nur SCHRUMPFEN - lib/measurement-doors.test.ts wacht darueber. Testdateien zaehlen nicht:
+# ein Test baut sein eigenes Fixture und erfindet dabei keine Lesepolitik.
+# Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
+1 lib/atomic.ts  # liest die Datei, die es gleich unter Stempel-Riegel schreibt; leer IST dort ein gueltiger Vorzustand
+2 lib/capture-plan.ts  # JSON, kein JSONL: ein FEHLENDER Bericht ist ein ungelaufener Befehl und wird als solcher angezeigt
+4 lib/chain.ts  # Sprossen-Zustand: eine fehlende Artefaktdatei IST die Antwort "noch nicht gelaufen"
+1 lib/corpus-query.ts  # unlesbares log.jsonl nimmt die Aufnahme absichtlich aus der Antwort, statt den Phasenfilter still abzuschalten
+2 lib/corpus.ts  # stroemt ueber ein 57-MB-Manifest und traegt seine Schwanz-Politik seit 2026-09-17 selbst
+1 lib/data.ts  # reference.pgn: kein PGN ist "keine Referenz", der einzige Zustand, den die Seite kennt
+1 lib/heavy-lock.ts  # die Sperre selbst; sie unterscheidet `null` und `"unreadable"` schon von Hand
+3 lib/ingest.ts  # Transfer-Ledger des Telefons; die Kommentare an den Stellen begruenden die leere Antwort
+5 lib/jobs.ts  # Job-LOGS fuer die Anzeige, keine Messung: ein halber Log ist der laufende Prozess
+1 lib/meta.ts  # ui.json ist reine Oberflaeche (Titel, archiviert), kein Messwert
+1 lib/packs.ts  # summary.json eines Packs; ohne sie ist der Pack kein Pack und faellt aus der Liste
+2 lib/progress.ts  # session.yaml und der Log-SCHWANZ; beide melden `null`, nicht 0
+1 lib/queues.ts  # fehlende candidate.json heisst "noch nicht kandidiert" und wird so gerendert
+1 lib/review-notes.ts  # wirft schon auf die kaputte Zeile MITTENDRIN; der Treffer ist das ENOENT-leer beim Widerruf
+1 lib/stored.ts  # lib/stored-half-line.bughunt.test.ts pinnt die Toleranz ausdruecklich - Umstellung ist eine eigene Entscheidung
+2 app/confirm/[name]/page.tsx  # fehlende candidate.json/PGN sind eigene Zustaende der Seite
+2 app/game/[name]/page.tsx  # dito
+2 app/page.tsx  # dito

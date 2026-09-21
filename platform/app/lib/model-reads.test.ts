@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { acceptLabel, boardProgress, boardProgressOf, DISAGREE, loadModelReads, matches, readCensus } from "@/lib/model-reads";
-import { tempDataRoot } from "@/lib/test-fixtures";
+import { gemessen, tempDataRoot } from "@/lib/test-fixtures";
 
 /** The producer's own shape (`occluded_model.read_session`), header line included. */
 const LINES = [
@@ -22,8 +22,7 @@ async function withFile(lines: string[], name = "g") {
 
 test("header and rows, in the producer's order", async () => {
   await withFile(LINES);
-  const { rows, header, present } = await loadModelReads("g");
-  expect(present).toBe(true);
+  const { rows, header } = gemessen(await loadModelReads("g"));
   expect(header).toEqual({
     model: "data/models/d16-f0",
     classes: ["empty", "wP", "wR"],
@@ -37,13 +36,13 @@ test("header and rows, in the producer's order", async () => {
 test("no file is NOT MEASURED, and every count says so instead of claiming zero", async () => {
   const root = await tempDataRoot("model-reads");
   await mkdir(path.join(root, "recordings", "g"), { recursive: true });
-  expect(await loadModelReads("g")).toMatchObject({ rows: [], present: false });
+  expect(await loadModelReads("g")).toEqual({ measured: false });
   expect(await readCensus("g")).toMatchObject({ present: false, boards: 0, cells: 0, model: null });
 });
 
 test("a file whose header was never written still yields its rows", async () => {
   await withFile(LINES.slice(1));
-  const { rows, header } = await loadModelReads("g");
+  const { rows, header } = gemessen(await loadModelReads("g"));
   expect(rows).toHaveLength(3);
   expect(header).toEqual({ model: null, classes: [], writtenAt: null });
 });

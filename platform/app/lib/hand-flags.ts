@@ -1,10 +1,9 @@
 /** `data/reports/hand-flags.jsonl` (READ ONLY), von `chesslab realgames hand-flags`: Zellen, die
  *  der Occlusion-Kopf für verdeckt hält und die Matte für frei. Eigene Lane statt Audit, weil dort
  *  Klassen entschieden werden und `occluded` gemessen statt gelabelt ist (`audit-flags.ts`). */
-import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
-import { jsonlRows } from "@/lib/jsonl";
+import { loadMeasurement, type Measurement } from "@/lib/measurement";
 
 export type HandFlag = {
   session_id: string;
@@ -17,42 +16,21 @@ export type HandFlag = {
   matte_cov: number | null;
 };
 
-export type HandFlags = {
-  rows: HandFlag[];
-  /** `false` = der Producer lief noch nicht; die Lane rendert `—`, nie eine leere Liste. */
-  present: boolean;
-};
+/** `measured: false` = der Producer lief noch nicht; die Lane rendert `—`, nie eine leere Liste. */
+export type HandFlags = Measurement<{ rows: HandFlag[] }>;
 
 function handFlagsPath(): string {
   return path.join(dataDir(), "reports", "hand-flags.jsonl");
 }
 
-type Cache = Map<string, { key: string; value: HandFlags }>;
-/** Angepinnt wie `lib/jobs.ts:56` — eine Modul-Map parst sonst bei jedem Hot Reload neu. */
-const cache: Cache = ((globalThis as { __chesslabHandFlags?: Cache }).__chesslabHandFlags ??= new Map());
-
 /** Die Behauptung des Modells absteigend: die sicherste Verdeckung zuerst. */
-export async function loadHandFlags(): Promise<HandFlags> {
-  const file = handFlagsPath();
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
-  const hit = cache.get(file);
-  if (hit?.key === key) return hit.value;
+export function loadHandFlags(): Promise<HandFlags> {
+  return loadMeasurement(handFlagsPath(), parse);
+}
 
-  let text: string;
-  try {
-    text = await readFile(file, "utf8");
-  } catch (e) {
-    // `present: false` heisst "der Producer lief nie", und die Lane schreibt dafuer `—`.
-    // Ein Lesefehler darf das nicht behaupten (wie `lib/position-flags.ts`), sonst ist eine
-    // unlesbare Datei eine Aussage — und der Cache haelt sie bis zur naechsten mtime.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    const missing: HandFlags = { rows: [], present: false };
-    cache.set(file, { key, value: missing });
-    return missing;
-  }
-
+function parse(lines: Record<string, unknown>[]): { rows: HandFlag[] } {
   const rows: HandFlag[] = [];
-  for (const o of jsonlRows(text)) {
+  for (const o of lines) {
     // Die Kopfzeile trägt `_cut`/`_written_at` und kein `square` — sie ist kein Flag.
     if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
     // `cov`: Schreibweise vor 2026-09-16, hiess im Nachbarbericht das Gegenteil.
@@ -71,7 +49,5 @@ export async function loadHandFlags(): Promise<HandFlags> {
     });
   }
   rows.sort((a, b) => b.model_cov - a.model_cov);
-  const value: HandFlags = { rows, present: true };
-  cache.set(file, { key, value });
-  return value;
+  return { rows };
 }

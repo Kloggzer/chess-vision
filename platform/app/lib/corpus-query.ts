@@ -5,7 +5,7 @@
  */
 import { isIdentity } from "@/lib/classes";
 import { liveGames } from "@/lib/label-stream";
-import { loadModelReads } from "@/lib/model-reads";
+import { modelReadRows } from "@/lib/model-reads";
 import {
   DISAGREE,
   acceptLabel,
@@ -42,7 +42,7 @@ export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryA
   let cells = 0;
 
   for (const name of await liveGames()) {
-    const { rows } = await loadModelReads(name).catch(() => ({ rows: [] }));
+    const rows = await modelReadRows(name);
     if (rows.length === 0) continue;
     for (const klass of classesSeen(rows)) classes.add(klass);
     // Only when asked for: `loadSession` parses a log the query itself has no use for.

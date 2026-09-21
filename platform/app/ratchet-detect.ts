@@ -1,4 +1,4 @@
-/** Die ERKENNER der vier Web-Ratschen, herausgezogen, damit eine Gegenprobe einen Verstoss
+/** Die ERKENNER der fuenf Web-Ratschen, herausgezogen, damit eine Gegenprobe einen Verstoss
  *  EINPFLANZEN kann (`lib/ratchet-counterchecks.test.ts`). Liegt bewusst neben `lib/` und `app/`:
  *  die Ratschen gehen diese zwei Baeume ab, ihre eigenen Muster wuerden sich sonst selbst zaehlen. */
 
@@ -196,4 +196,76 @@ function lineIndex(text: string): (at: number) => number {
     }
     return lo;
   };
+}
+
+// --- Mess-Tueren -----------------------------------------------------------------------------
+
+/** Die leeren Antworten, in denen „nie gemessen" steckt, ohne dass es dasteht. */
+const EMPTY =
+  /^\s*\(?\s*(\[\s*\]|\{\s*\}|null|undefined|""|''|``|0|false|new Map\(\s*\)|new Set\(\s*\)|\{[^{}]*(\[\s*\]|new Map\(\s*\)|new Set\(\s*\))[^{}]*\})\s*\)?\s*$/;
+/** Ein Lesen, dessen Scheitern eine MESSUNG betrifft — `stat`/`readdir` sind Verzeichnisfragen. */
+const READS = /\b(readFile|readJsonl|jsonlRows|jsonlRowsStrict|loadMeasurement|load[A-Z]\w*)\s*(\(|<)/;
+
+/** Wie `withoutComments`, aber der INHALT von Zeichenketten faellt auch weg: ein
+ *  `.catch(() => "")` in einem Hinweistext ist kein Leser. Laenge und Umbrueche bleiben. */
+function codeOnly(text: string): string {
+  let out = "";
+  for (const s of spans(text)) {
+    const piece = text.slice(s.from, s.to);
+    if (s.kind === "comment") out += piece.replace(/[^\n]/g, " ");
+    else if (s.kind === "string")
+      out += piece[0] + piece.slice(1, -1).replace(/[^\n]/g, " ") + (piece.length > 1 ? piece.at(-1) : "");
+    else out += piece;
+  }
+  return out;
+}
+
+/** Das Argument des `.catch(`, ueber die Klammern abgezaehlt statt ueber ein gieriges Muster. */
+function catchArg(text: string, at: number): string {
+  const open = text.indexOf("(", at);
+  return open < 0 ? "" : text.slice(open + 1, closingParen(text, open));
+}
+
+/** Was ein `catch`-Griff ZURUECKGIBT — Pfeil oder `function`. Der Routen-Erkenner sah
+ *  `post<{...}>(...)` nicht, weil er EINE Schreibweise suchte statt der Form; hier zaehlen beide. */
+function handlerResult(body: string): string | null {
+  const arrow = body.indexOf("=>");
+  if (arrow >= 0 && !/\bfunction\b/.test(body.slice(0, arrow))) return body.slice(arrow + 2);
+  if (!/^\s*(async\s+)?function\b/.test(body)) return null;
+  const hits = [...body.matchAll(/\breturn\b([^;}]*)/g)];
+  return hits.length === 1 ? hits[0][1] : null;
+}
+
+/** Ein Griff SCHLUCKT, wenn er nichts weiterreicht und nichts baut: kein `throw`, und was er
+ *  zurueckgibt oder zuweist ist leer. Ein `catch`, der einen Fehler MELDET, ist keine Tuer. */
+function swallows(handler: string): boolean {
+  if (/\bthrow\b/.test(handler)) return false;
+  const values = [
+    ...[...handler.matchAll(/\breturn\b([^;}]*)/g)].map((m) => m[1]),
+    ...[...handler.matchAll(/(?<![=!<>])=(?![=>])([^;}]*)/g)].map((m) => m[1]),
+  ].filter((v) => v.trim().length > 0);
+  return values.length === 0 ? true : values.every((v) => EMPTY.test(v));
+}
+
+/** Die FORM, die die Politik fuenfmal neu erfand: ein gescheitertes LESEN wird zu einer leeren
+ *  Antwort, und „nicht gemessen" ist danach von „gemessen null" nicht zu unterscheiden. */
+export function measurementDoorsIn(source: string): number {
+  const text = codeOnly(source);
+  let n = [...text.matchAll(/\bjsonlRows\s*\(/g)].length;
+  for (const m of text.matchAll(/\.catch\s*\(/g)) {
+    const at = m.index ?? 0;
+    const result = handlerResult(catchArg(text, at + m[0].length - 1));
+    if (result === null || !EMPTY.test(result)) continue;
+    if (READS.test(text.slice(Math.max(0, at - 240), at))) n += 1;
+  }
+  for (const m of text.matchAll(/\btry\s*\{/g)) {
+    const open = text.indexOf("{", m.index ?? 0);
+    const body = loopBody(text, open);
+    if (!READS.test(body)) continue;
+    const after = text.slice(open + body.length);
+    const c = /^\s*\}\s*catch\s*(\([^)]*\))?\s*\{/.exec(after);
+    if (!c) continue;
+    if (swallows(loopBody(after, after.indexOf("{", c[0].length - 1)))) n += 1;
+  }
+  return n;
 }

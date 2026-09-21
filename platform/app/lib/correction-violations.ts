@@ -3,10 +3,9 @@
  * frames whose CORRECTED board breaks a rule occlusion cannot cause. It proves the PAIR is wrong,
  * never which half — a stale FEN with a right correction trips the same wire as the reverse.
  */
-import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
-import { jsonlRows } from "@/lib/jsonl";
+import { loadMeasurement, type Measurement } from "@/lib/measurement";
 
 export type CorrectionViolation = {
   session_id: string;
@@ -18,19 +17,12 @@ export type CorrectionViolation = {
   corrections: Record<string, string>;
 };
 
-export type CorrectionViolations = {
-  rows: CorrectionViolation[];
-  /** `false` = the audit has not run; the lane renders `—` and says so. */
-  present: boolean;
-};
+/** `measured: false` = the audit has not run; the lane renders `—` and says so. */
+export type CorrectionViolations = Measurement<{ rows: CorrectionViolation[] }>;
 
 export function correctionViolationsPath(): string {
   return path.join(dataDir(), "reports", "correction-violations.jsonl");
 }
-
-type Cache = Map<string, { key: string; value: CorrectionViolations }>;
-/** Pinned like `lib/jobs.ts:56` — a module-level Map re-parses on every hot reload. */
-const cache: Cache = ((globalThis as { __chesslabViolations?: Cache }).__chesslabViolations ??= new Map());
 
 const labels = (v: unknown): Record<string, string> => {
   const out: Record<string, string> = {};
@@ -41,27 +33,13 @@ const labels = (v: unknown): Record<string, string> => {
 };
 
 /** File order, which is session then frame — the stream re-orders them anyway. */
-export async function loadCorrectionViolations(): Promise<CorrectionViolations> {
-  const file = correctionViolationsPath();
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
-  const hit = cache.get(file);
-  if (hit?.key === key) return hit.value;
+export function loadCorrectionViolations(): Promise<CorrectionViolations> {
+  return loadMeasurement(correctionViolationsPath(), parse);
+}
 
-  let text: string;
-  try {
-    text = await readFile(file, "utf8");
-  } catch (e) {
-    // `present: false` heisst "der Producer lief nie", und die Lane schreibt dafuer `—`.
-    // Ein Lesefehler darf das nicht behaupten (wie `lib/position-flags.ts`), sonst ist eine
-    // unlesbare Datei eine Aussage — und der Cache haelt sie bis zur naechsten mtime.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    const missing: CorrectionViolations = { rows: [], present: false };
-    cache.set(file, { key, value: missing });
-    return missing;
-  }
-
+function parse(lines: Record<string, unknown>[]): { rows: CorrectionViolation[] } {
   const rows: CorrectionViolation[] = [];
-  for (const o of jsonlRows(text)) {
+  for (const o of lines) {
     if (typeof o.session_id !== "string" || !Array.isArray(o.violations)) continue;
     const corrections = labels(o.corrections);
     // A row without a corrected square carries no verdict a human could rule on, and the board
@@ -75,7 +53,5 @@ export async function loadCorrectionViolations(): Promise<CorrectionViolations> 
       corrections,
     });
   }
-  const value: CorrectionViolations = { rows, present: true };
-  cache.set(file, { key, value });
-  return value;
+  return { rows };
 }

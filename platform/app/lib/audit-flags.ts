@@ -6,11 +6,11 @@
  * labels a row carries, ranked by `margin`. Its absence is a `—` chip, never an empty lane
  * pretending to be finished.
  */
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { dataDir } from "@/lib/data";
-import { jsonlRows } from "@/lib/jsonl";
+import { loadMeasurement, type Measurement } from "@/lib/measurement";
 
 export type AuditFlag = {
   session_id: string;
@@ -25,18 +25,15 @@ export type AuditFlag = {
   margin: number;
 };
 
-export type AuditFlags = {
-  rows: AuditFlag[];
-  /** `false` = the producer has not run; the lane renders `—` and says so. */
-  present: boolean;
-  /**
-   * Set when a matte or a model read is NEWER than the flags — the lane then shows work the
-   * producer would no longer flag. On 2026-08-26 that was a five-day-old file whose coverage
-   * filter had run before the mattes existed: 4 878 flags, mostly hands, against 728 after a
-   * rebuild. Silence about it cost an entire review pass.
-   */
-  staleSince?: string;
-};
+/**
+ * `staleSince` is set when a matte or a model read is NEWER than the flags — the lane then shows
+ * work the producer would no longer flag. On 2026-08-26 that was a five-day-old file whose
+ * coverage filter had run before the mattes existed: 4 878 flags, mostly hands, against 728 after
+ * a rebuild. Silence about it cost an entire review pass.
+ */
+export type AuditFlagsValue = { rows: AuditFlag[]; staleSince?: string };
+/** `measured: false` = the producer has not run; the lane renders `—` and says so. */
+export type AuditFlags = Measurement<AuditFlagsValue>;
 
 function auditFlagsPath(): string {
   return path.join(dataDir(), "reports", "audit-flags.jsonl");
@@ -56,10 +53,6 @@ async function newestInput(): Promise<number> {
   return stamps.length ? Math.max(...stamps) : 0;
 }
 
-type Cache = Map<string, { key: string; value: AuditFlags }>;
-/** Pinned like `lib/jobs.ts:56` — a module-level Map re-parses on every hot reload. */
-const cache: Cache = ((globalThis as { __chesslabAuditFlags?: Cache }).__chesslabAuditFlags ??= new Map());
-
 const num = (v: unknown, fallback: number) => (typeof v === "number" ? v : fallback);
 
 /** Margin-descending, which is the order the lane works in — the surest disagreements first. */
@@ -67,27 +60,14 @@ export async function loadAuditFlags(): Promise<AuditFlags> {
   const file = auditFlagsPath();
   const own = await stat(file).then((s) => s, () => null);
   const newest = await newestInput();
-  const key = own ? `${own.mtimeMs}:${own.size}:${newest}` : `none:${newest}`;
-  const hit = cache.get(file);
-  if (hit?.key === key) return hit.value;
-  const staleSince =
-    own && newest > own.mtimeMs ? new Date(newest).toISOString() : undefined;
+  const staleSince = own && newest > own.mtimeMs ? new Date(newest).toISOString() : undefined;
+  // Der Stempel der EINGABEN gehoert in den Schluessel: die Flags altern, ohne sich zu bewegen.
+  return loadMeasurement(file, (lines) => parse(lines, staleSince), String(newest));
+}
 
-  let text: string;
-  try {
-    text = await readFile(file, "utf8");
-  } catch (e) {
-    // `present: false` heisst "der Producer lief nie", und die Lane schreibt dafuer `—`.
-    // Ein Lesefehler darf das nicht behaupten (wie `lib/position-flags.ts`), sonst ist eine
-    // unlesbare Datei eine Aussage — und der Cache haelt sie bis zur naechsten mtime.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    const missing: AuditFlags = { rows: [], present: false };
-    cache.set(file, { key, value: missing });
-    return missing;
-  }
-
+function parse(lines: Record<string, unknown>[], staleSince: string | undefined): AuditFlagsValue {
   const rows: AuditFlag[] = [];
-  for (const o of jsonlRows(text)) {
+  for (const o of lines) {
     if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
     // 11 088 of 36 891 rows read `occluded`, which the 14-class audit models still emit. That
     // claim is measured now (`matte.jsonl` -> coverage) and unwritable, so agreeing with it
@@ -120,7 +100,5 @@ export async function loadAuditFlags(): Promise<AuditFlags> {
       a.predicted.localeCompare(b.predicted) ||
       b.margin - a.margin,
   );
-  const value: AuditFlags = { rows, present: true, staleSince };
-  cache.set(file, { key, value });
-  return value;
+  return { rows, ...(staleSince !== undefined ? { staleSince } : {}) };
 }

@@ -7,8 +7,15 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { onTestFinished } from "vitest";
+import type { Measurement } from "@/lib/measurement";
 
 export const BOARD_SIZE = 928;
+
+/** Der Wert einer Messung, die gelaufen SEIN MUSS — sonst prueft der Test die leere Antwort. */
+export function gemessen<T>(m: Measurement<T>): T {
+  if (!m.measured) throw new Error("erwartet: gemessen, bekommen: nie gelaufen");
+  return m.value;
+}
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 /** Eine Wurzel je Test, `CHESSLAB_DATA_DIR` gesetzt, und wieder weg — 45 von 55 Dateien liessen

@@ -12,7 +12,7 @@ import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
-import { jsonlRows } from "@/lib/jsonl";
+import { jsonlRowsStrict } from "@/lib/jsonl";
 
 /** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
 export type Correction = {
@@ -126,7 +126,7 @@ async function ledgerRows(name: string, ledger: Ledger): Promise<Parsed> {
     if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return "";
   });
-  for (const line of jsonlRows(text)) {
+  for (const line of jsonlRowsStrict(file, text)) {
     const row = line as unknown as CorrectionRow;
     const session = bySession.get(row.session_id) ?? new Map<string, Standing>();
     const cell = `${row.frame}|${row.square}`;

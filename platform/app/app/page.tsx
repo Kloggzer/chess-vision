@@ -4,7 +4,7 @@ import { jobs, type Job } from "@/lib/jobs";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { isArchived, loadMeta } from "@/lib/meta";
-import { boardProgressOf, loadModelReads, readKey } from "@/lib/model-reads";
+import { boardProgressOf, modelReadRows, readKey } from "@/lib/model-reads";
 import { bareFrames, splitQueues, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
 import { BareBundles } from "./bare-bundles";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 async function progress(name: string) {
   const decided = await judgedKeys(name);
   const { census, boards, done } = await boardProgressOf(name, decided.keys());
-  const { rows } = await loadModelReads(name);
+  const rows = await modelReadRows(name);
   return {
     boards,
     boardsDone: done,

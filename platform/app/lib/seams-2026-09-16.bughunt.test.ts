@@ -5,7 +5,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
+import { gemessen, tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -68,9 +68,9 @@ test("ein `matte_cov: null` heisst UNGEMESSEN und darf keine 0 werden", async ()
     '{"_settle_limit": 45.0, "_seen_min": 0.5, "_visible_max": 0.15, "_unmeasured": []}\n' +
     '{"session_id": "rg-g", "frame": "000100", "square": "e2", "fen_label": "wP", "ply": 3, ' +
     '"dev": 41.2, "matte_cov": null, "seen": true, "reason": "timing"}\n');
-  forget("__chesslabPositionFlags");
+  forget("__chesslabMeasurements");
   const { loadPositionFlags } = await import("@/lib/position-flags");
-  expect((await loadPositionFlags()).rows[0].matte_cov).toBeNull();
+  expect(gemessen(await loadPositionFlags()).rows[0].matte_cov).toBeNull();
 });
 
 /**
@@ -84,8 +84,8 @@ test.fails("das Wort des Menschen (`judged`) ueberlebt das Lesen der Audit-Flags
     '{"session_id": "rg-g", "frame": "000100", "square": "d8", "fen_label": "bK", ' +
     '"predicted": "bQ", "prob": 0.91, "judged": "bQ", "margin": 0.77, "fold": "interim", ' +
     '"model": "p4a-80-clahe", "ts": "2026-09-16T10:00:00+00:00"}\n');
-  forget("__chesslabAuditFlags");
+  forget("__chesslabMeasurements");
   const { loadAuditFlags } = await import("@/lib/audit-flags");
-  const row = (await loadAuditFlags()).rows[0] as unknown as Record<string, unknown>;
+  const row = gemessen(await loadAuditFlags()).rows[0] as unknown as Record<string, unknown>;
   expect(row.judged).toBe("bQ");
 });

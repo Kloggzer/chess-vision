@@ -8,7 +8,7 @@ import path from "node:path";
 import { appendRows } from "@/lib/atomic";
 import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
-import { jsonlRows } from "@/lib/jsonl";
+import { jsonlRowsStrict } from "@/lib/jsonl";
 
 export type UnusableCell = { session_id: string; frame: string; square: string; unusable: boolean };
 type Row = UnusableCell & { ts: string };
@@ -64,7 +64,7 @@ export async function unusableCells(name: string): Promise<Set<string>> {
   // Ein Lesefehler ist keine Aussage: als "" gelesen kehrt jede Zelle, die ein Mensch als
   // unlesbar abgehakt hat, in die Lane zurueck — gecacht bis zur naechsten mtime.
   const text = key === "none" ? "" : await readFile(file, "utf8");
-  for (const line of jsonlRows(text)) {
+  for (const line of jsonlRowsStrict(file, text)) {
     const row = line as unknown as Row;
     if (row.session_id !== id) continue;
     const cell = `${row.frame}|${row.square}`;

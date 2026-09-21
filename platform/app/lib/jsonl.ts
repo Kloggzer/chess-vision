@@ -40,7 +40,19 @@ export function readJsonl(text: string): JsonlRead {
   return { rows, tail, corrupt };
 }
 
-/** Nur die Zeilen — fuer Leser, die eine kaputte Zeile ohnehin nur ueberspringen wuerden. */
+/**
+ * Die Zeilen, und die kaputte MITTENDRIN als FEHLER. Kein Schreiber kann sie erklaeren, und still
+ * uebersprungen wird aus einer Messung eine mit weniger Treffern, aus einem Ledger eins mit
+ * weniger Urteilen — von aussen nicht zu unterscheiden. Der halbe SCHWANZ faellt weiter weg.
+ */
+export function jsonlRowsStrict(where: string, text: string): Record<string, unknown>[] {
+  const read = readJsonl(text);
+  if (read.corrupt > 0) throw new Error(`${where}: ${read.corrupt} beschaedigte Zeile(n)`);
+  return read.rows;
+}
+
+/** Nur die Zeilen, die Diagnose weg. NICHT fuer Mess- und Urteilspfade — `platform/app/
+ *  measurement-doors.txt` haelt fest, wer das noch tut, und die Liste darf nur schrumpfen. */
 export function jsonlRows(text: string): Record<string, unknown>[] {
   return readJsonl(text).rows;
 }
