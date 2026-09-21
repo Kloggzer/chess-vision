@@ -272,6 +272,7 @@ class TrackerStack<T>(
                 cornerSink = seed.alignmentSink,
                 cachedMarkers = seed.cachedMarkerDetections,
                 onRectificationChanged = { host.submit(EngineAction.RectificationChanged) },
+                calibrated = seed.corners,
             ),
             timings,
             seed.nowMs,

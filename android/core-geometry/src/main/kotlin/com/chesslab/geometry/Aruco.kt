@@ -212,6 +212,7 @@ fun boardCornersForFrame(
     minMarkers: Int? = null,
     detectScale: Double = 1.0,
     detector: BoardMarkerDetector? = null,
+    anchor: List<DoubleArray>? = null,
 ): List<DoubleArray>? {
     val needed = minMarkers ?: tracker.params.defaultMinMarkers
     val det =
@@ -219,23 +220,31 @@ fun boardCornersForFrame(
             ?: BoardMarkerDetector().use {
                 it.detectBoardMarkers(frame, geom.markerDict, corner = MARKER_CORNER_CENTER, detectScale = detectScale)
             }
-    return boardCornersFromMarkers(det, geom, tracker, needed)
+    return boardCornersFromMarkers(det, geom, tracker, needed, anchor)
 }
 
-/** Resolve an already-detected marker map through the same stateful smoother as live detection. */
+/**
+ * Same stateful smoother as live detection. `anchor` KEEPS a never-measured corner where it is;
+ * without one, three markers reconstruct the fourth affinely — 57 px off on `2026-09-19-16-26-22`.
+ */
 fun boardCornersFromMarkers(
     detected: Map<Int, DoubleArray>,
     geom: BoardGeometry,
     tracker: MarkerTracker,
     minMarkers: Int = tracker.params.defaultMinMarkers,
+    anchor: List<DoubleArray>? = null,
 ): List<DoubleArray>? {
     tracker.update(detected)
     val pts = tracker.points()
-    return if (pts.size < minMarkers) {
-        null
-    } else {
-        resolveBoardCorners(completeSingleSeed(pts, tracker.status()), geom.boardSize)?.first
-    }
+    if (pts.size < minMarkers) return null
+    // An anchor covers every corner, so `completeSingleSeed` has nothing left to reconstruct.
+    val known =
+        if (anchor != null && anchor.size == QUAD_CORNERS) {
+            (0 until QUAD_CORNERS).associateWith { pts[it] ?: anchor[it] }
+        } else {
+            completeSingleSeed(pts, tracker.status())
+        }
+    return resolveBoardCorners(known, geom.boardSize)?.first
 }
 
 /**

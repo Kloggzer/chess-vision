@@ -11,6 +11,7 @@ import com.chesslab.geometry.MarkerTracker
 import com.chesslab.geometry.applyGridCorrection
 import com.chesslab.geometry.boardCornersForFrame
 import com.chesslab.geometry.boardCornersFromMarkers
+import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.geometry.gridCorrection
 import com.chesslab.geometry.improveQuad
@@ -164,7 +165,7 @@ class TrackerCoordinator<T>(
         pipeline.onGeometryChanged(next.geometry)
         pipeline.corners = next.corners
         pipeline.setProfile(next.profileName, next.delivered.width, next.delivered.height)
-        align.reset(next.delivered)
+        align.reset(next.delivered, next.corners)
     }
 
     private val pending = AtomicReference<PendingCalibration?>(null)
@@ -225,8 +226,18 @@ class LiveAlign(
      * Vorgabe leer; live haengt daran die Pixel-Referenz (`docs/verifier-stall.md`).
      */
     private val onRectificationChanged: () -> Unit = {},
+    /** The calibrated quad this run starts on — the only corner values measured with every marker. */
+    calibrated: FloatArray? = null,
 ) {
     private var tracker = MarkerTracker()
+
+    /**
+     * Where a corner stays while its marker has never been read. Seeded from the calibration and
+     * carried forward by every accepted align — `boardCornersFromMarkers`.
+     */
+    @Volatile
+    private var anchor: List<DoubleArray>? = calibrated?.let(::cornersFromFlat)
+
     private val markerDetector = BoardMarkerDetector()
     private var frames = 0L
     private var size: DeliveredSize? = null
@@ -286,8 +297,9 @@ class LiveAlign(
         val frame = sample.frame
         val alignedAfterFrame = frames
         cachedMarkers?.let { markers ->
-            val corners = boardCornersFromMarkers(markers(frames), geometry(), tracker)
+            val corners = boardCornersFromMarkers(markers(frames), geometry(), tracker, anchor = anchor)
             corners?.let {
+                anchor = it
                 val corrected = cornersToFlat(onGrid(frame, it))
                 onCorners(corrected)
                 cornerSink?.invoke(alignedAfterFrame, corrected)
@@ -305,9 +317,17 @@ class LiveAlign(
             try {
                 runCatching {
                     val corners =
-                        boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale, detector = markerDetector)
+                        boardCornersForFrame(
+                            frame,
+                            geometry(),
+                            current,
+                            detectScale = cfg.alignScale,
+                            detector = markerDetector,
+                            anchor = anchor,
+                        )
                     // Before `onGrid`, which would measure a correction against the pose that is gone.
                     corners?.takeIf { startedAt == generation }?.let {
+                        anchor = it
                         val corrected = cornersToFlat(onGrid(frame, it))
                         onCorners(corrected)
                         cornerSink?.invoke(alignedAfterFrame, corrected)
@@ -369,9 +389,14 @@ class LiveAlign(
      * A new calibration invalidates the smoothed markers and the grid correction with them — that
      * correction is a property of THIS board under THIS lens.
      */
-    fun reset(delivered: DeliveredSize) {
+    fun reset(
+        delivered: DeliveredSize,
+        corners: FloatArray? = null,
+    ) {
         generation += 1
         tracker = MarkerTracker()
+        // A recalibration is a fresh measurement of every corner; keep the old anchor only without one.
+        corners?.let { anchor = cornersFromFlat(it) }
         size = delivered
         correction = null
         correctionTried = false
