@@ -1600,3 +1600,24 @@ Der Fix ist ein Einzeiler (`vis_counts` auf `classification_eligible`), verschie
 Gewichte und damit jedes kuenftige Training. **Empfehlung: beim naechsten ohnehin anstehenden
 Rezeptschnitt mitnehmen, nicht dafuer allein einen schneiden** — 2,80 % liegen unter dem
 8-%-Anker, der schon als Grenzfall galt.
+
+## 39. `cleanCommitsOnly` befoerdern? (2026-09-21, gemessen, eine Zahl fehlt)
+
+Der Knopf steht per Vorgabe auf AUS und laesst einen Blick mit Hand drin weder bestaetigen noch
+verwerfen. Gemessen:
+
+| | `15-50-28` | `16-26-22` | Zehner-Satz |
+|---|---|---|---|
+| aus (heute) | 17/70/**6** | 55/4/0 | 396/3/0, 8 Desync |
+| an | **87/0/0** | 55/4/0 | **396/3/0, 8 Desync** |
+
+Auf dem Zehner-Satz kostet er **nichts**, auch nicht an Commit-Verzug (Median 0,27 s, p90 0,97,
+max 3,10 -- Ziffer fuer Ziffer). Auf handreichem Material holt er **70 Treffer** und nimmt **6
+Phantome** weg.
+
+**Die eine fehlende Zahl:** der Verzug auf `-Satz v2`. "Kostet nichts" heisst auf dem Zehner-Satz
+nur "hat nie gegriffen" (24 verdeckte Frames auf 11 001), und der Preis dieses Knopfes faellt genau
+dort an, wo er greift. Die zwei Aufnahmen haben keine `retime`-Referenz unter
+`tmp/retime/<name>.json`; das ist ein Lauf, kein Raetsel.
+
+**Empfehlung:** Verzug messen, dann befoerdern. Zahlen: `docs/handreiches-material-2026-09-21.md`.
