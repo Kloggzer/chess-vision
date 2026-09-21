@@ -229,10 +229,14 @@ def per_session_metrics(rows: list[dict], classes: list[str],
         vrs = [r for r, _, _ in visible]
         vts = [t for _, t, _ in visible]
         vps = [p for _, _, p in visible]
-        out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok) if ok else 0.0,
+        # Leerer Nenner ist `None` wie bei `visible_piece_acc` daneben: eine Aufnahme ohne eine
+        # einzige benotungsfaehige Zelle ist ungemessen, nicht perfekt falsch. `None` statt `nan`,
+        # weil die Zahlen woertlich nach `eval_<split>.json` gehen und JSON kein `nan` kennt.
+        out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok) if ok else None,
                     "visible_piece_acc": (sum(t == p_ for t, p_ in vis) / len(vis)) if vis else None,
-                    "board_acc": board_accuracy(boards),
-                    "occupied_board_acc": occupancy_board_acc(vrs, classes, vts, vps)}
+                    "board_acc": board_accuracy(boards) if boards else None,
+                    "occupied_board_acc": (occupancy_board_acc(vrs, classes, vts, vps)
+                                           if vrs else None)}
     return out
 
 

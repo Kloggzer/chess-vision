@@ -304,8 +304,11 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     vis_occ_n = int(vis_occ.sum())
     return {
         "val_coverage_mae": float(np.abs(cov_pred - cov_true).mean()),
-        "val_coverage_recall": occ_tp / occ_want if occ_want else 0.0,
-        "val_coverage_precision": occ_tp / occ_hit if occ_hit else 0.0,
+        # Leerer Nenner ist `nan` wie bei den `val_visible_*` darunter: EINE Schreibweise je
+        # Datei, und `metrics.jsonl` hat sie schon — 0,0 hiesse "nichts gefunden" statt
+        # "nichts zu finden". `sweep_report`/`compare_arms` lesen die Spalte bereits als `nan`.
+        "val_coverage_recall": occ_tp / occ_want if occ_want else float("nan"),
+        "val_coverage_precision": occ_tp / occ_hit if occ_hit else float("nan"),
         "val_visible_acc": float((pred_cls[visible] == true_cls[visible]).mean())
         if vis_n else float("nan"),
         "val_visible_occupied_acc": float((pred_occ[visible] == true_occ[visible]).mean())

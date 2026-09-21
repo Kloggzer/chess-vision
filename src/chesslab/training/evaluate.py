@@ -79,6 +79,9 @@ def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
     Ein unqualifizierter Name ist KORPUSWEIT, ein `visible_*` misst nur, was der Verlust lernt.
     Bis 2026-09-15 kam beides aus derselben sichtbar-gefilterten Rechnung und war bitgleich,
     waehrend `board_acc` daneben schon korpusweit war (`docs/offene-entscheidungen.md` 13).
+    Eine Ausnahme bleibt: `occupied_board_acc` ist entgegen der Regel NICHT korpusweit (es kommt
+    aus `occupancy_board_acc(vis_rows, ...)`); der Schluessel bleibt, weil Referenzzahlen an ihm
+    haengen, und `visible_occupied_board_acc` daneben nennt dieselbe Zahl richtig.
     """
     from .data import occupancy_piece_breakdown
 
@@ -93,6 +96,7 @@ def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
             "square_acc": (sum(hits) / len(hits)) if hits else 0.0,
             "visible_square_acc": res["square_acc"], "occupied_acc": every["occupied_acc"],
             "occupied_board_acc": occ_bacc,
+            "visible_occupied_board_acc": occ_bacc,
             "visible_piece_acc": bd["piece_acc"],
             "visible_occupied_acc": bd["occupied_acc"],
             "visible_type_err": bd["type_err"],
@@ -300,11 +304,9 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         for sid, m in sorted(per_session.items(),
                              key=lambda kv: (kv[1].get("visible_piece_acc") is None,
                                              kv[1].get("visible_piece_acc") or 0.0)):
-            vp = m.get("visible_piece_acc")
-            piece = f"{vp:.4f}" if vp is not None else "  —   "
-            print(f"  {sid:<34} piece {piece}  board {m['board_acc']:.4f}  "
-                  f"occ {m['occupied_board_acc']:.4f}  square {m['square_acc']:.4f}  "
-                  f"({m['crops']} crops)")
+            print(f"  {sid:<34} piece {_fmt(m.get('visible_piece_acc'))}  "
+                  f"board {_fmt(m.get('board_acc'))}  occ {_fmt(m.get('occupied_board_acc'))}  "
+                  f"square {_fmt(m.get('square_acc'))}  ({m['crops']} crops)")
         for key, sp in spread.items():
             print(f"Streuung {key}: {sp['min']:.4f} bis {sp['max']:.4f} "
                   f"(Median {sp['median']:.4f}, Spanne {sp['range']:.4f}, {sp['n']} Sessions)")
@@ -337,6 +339,11 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 #: The one batch the tracker ever infers: 64 squares of a board, read in a single call.
 #: Baked into the exported graph — see `_export_onnx` for why it must not be dynamic.
 ONNX_BATCH = 64
+
+
+def _fmt(v: float | None) -> str:
+    """Eine ungemessene Zahl ist ein Strich, keine 0,0 — `per_session_metrics` sagt dazu `None`."""
+    return f"{v:.4f}" if v is not None else "  —   "
 
 
 def session_spread(per_session: dict[str, dict]) -> dict[str, dict]:

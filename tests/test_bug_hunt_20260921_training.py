@@ -145,8 +145,6 @@ def test_the_config_names_the_erase_probability_the_run_really_drew():
     assert _aug_of(AUGMENT, None, 0.3) == {"erase_p": AUGMENT.erase_p, "neighbour_p": 0.3}
 
 
-@pytest.mark.xfail(strict=True, reason="bekannt und bewusst offen: der Fix aendert Zahlen in "
-                                       "bestehenden metrics.jsonl/eval-Dateien — Nutzerentscheid")
 def test_a_session_without_a_single_visible_cell_reports_no_accuracy():
     """`visible_piece_acc` sagt korrekt `None`, `square_acc` und `board_acc` daneben sagen 0,0.
 
@@ -161,8 +159,6 @@ def test_a_session_without_a_single_visible_cell_reports_no_accuracy():
     assert m["square_acc"] is None and m["board_acc"] is None
 
 
-@pytest.mark.xfail(strict=True, reason="bekannt und bewusst offen: der Fix aendert Zahlen in "
-                                       "bestehenden metrics.jsonl — Nutzerentscheid")
 def test_coverage_recall_without_a_single_covered_cell_is_not_zero():
     """Leerer Nenner: `max(1.0, want.sum())` macht aus "nichts zu finden" ein "nichts gefunden"."""
     import torch
@@ -174,8 +170,6 @@ def test_coverage_recall_without_a_single_covered_cell_is_not_zero():
     assert coverage_metrics(logits, target)["occ_recall"] is None
 
 
-@pytest.mark.xfail(strict=True, reason="derselbe leere Nenner eine Ebene hoeher; der Fix aendert "
-                                       "Zahlen in bestehenden metrics.jsonl — Nutzerentscheid")
 def test_the_epoch_record_uses_one_convention_for_an_empty_denominator():
     """In EINEM Datensatz zwei Konventionen: `val_visible_*` melden `nan`, wenn nichts zu messen
     war, `val_coverage_recall`/`-precision` daneben melden 0,0 — also den schlechtesten Wert."""

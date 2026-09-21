@@ -109,12 +109,15 @@ class OcclusionLoss(nn.Module):
 
 
 def coverage_metrics(logits: torch.Tensor, target: torch.Tensor,
-                     threshold: float = 0.5) -> dict[str, float]:
-    """How well the coverage output tracks the truth: mean error, plus recall/precision at a cut."""
+                     threshold: float = 0.5) -> dict[str, float | None]:
+    """How well the coverage output tracks the truth: mean error, plus recall/precision at a cut.
+
+    Leerer Nenner heisst `None` (nicht 0,0, und nicht `nan` — JSON kennt es nicht).
+    """
     _, cov, _ = split_targets(target)
     pred = torch.sigmoid(logits[:, -1])
     hit, want = pred > threshold, cov > threshold
-    tp = float((hit & want).sum())
+    tp, n_want, n_hit = float((hit & want).sum()), float(want.sum()), float(hit.sum())
     return {"occ_mae": float((pred - cov).abs().mean()),
-            "occ_recall": tp / max(1.0, float(want.sum())),
-            "occ_precision": tp / max(1.0, float(hit.sum()))}
+            "occ_recall": tp / n_want if n_want else None,
+            "occ_precision": tp / n_hit if n_hit else None}
