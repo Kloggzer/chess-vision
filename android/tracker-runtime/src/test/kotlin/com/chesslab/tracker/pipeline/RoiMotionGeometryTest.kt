@@ -6,9 +6,8 @@ import org.junit.jupiter.api.Test
 import kotlin.math.hypot
 
 /**
- * The arithmetic of `_roi_motion`. The OpenCV half (warp / resize / blur) needs natives that
- * `:app`'s unit tests do not have (STATUS D05b-2); what is asserted here is the geometry, the
- * change score and the buffer lifecycle, i.e. everything that can be got wrong silently.
+ * The arithmetic of `_roi_motion` -- geometry, change score, buffer lifecycle. The OpenCV half
+ * needs natives `:app`'s unit tests do not have (STATUS D05b-2).
  */
 class RoiMotionGeometryTest {
     private val square = floatArrayOf(100f, 100f, 300f, 100f, 300f, 300f, 100f, 300f)
@@ -63,6 +62,19 @@ class RoiMotionGeometryTest {
         motion.onConfigChanged(TrackerConfig(motionMargin = 0.20))
         // Without the reset this would score 100.0 against a region that no longer exists.
         assertEquals(0.0, motion.scoreRoi(moved))
+    }
+
+    /**
+     * The previous plane is also the buffer that gets overwritten: without the size check the
+     * copy runs into the old, smaller array instead of scoring 0.0 and starting over.
+     */
+    @Test
+    fun `a roi of a different size scores zero and becomes the new reference`() {
+        val motion = RoiMotion(margin = 0.10, pxThr = 20.0)
+        motion.scoreRoi(ByteArray(100))
+        assertEquals(0.0, motion.scoreRoi(ByteArray(400) { 200.toByte() }))
+        // The larger plane really replaced the smaller one — else the next score is against nothing.
+        assertEquals(100.0, motion.scoreRoi(ByteArray(400)))
     }
 
     @Test
