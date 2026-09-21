@@ -242,13 +242,15 @@
   eine Route zeigt, die es nicht mehr gibt. Ein Test zaehlt, wenn er `@/app/<pfad>/route`
   importiert. Bewusst die ROUTEN und nicht die Gesamtabdeckung: die Hoehe sagt wenig
   (`core-engine` stand bei 92 % und trug vier Stellungs-Fehler), die Routen sind die duennste
-  Stelle und tragen den Handy-Weg. **Stand 2026-09-16: 0 von 29 ohne Test** — die Liste ist leer,
-  und die Ratsche haelt sie so. Sie hielt an dem Tag 18.
+  Stelle und tragen den Handy-Weg. **Stand 2026-09-21: 0 von 29 ohne Test** — die Liste ist leer,
+  und die Ratsche haelt sie so. Sie hielt am 2026-09-16 noch 18. Der ERKENNER dahinter zaehlte bis
+  2026-09-21 allerdings auch einen Routen-Pfad in einer Zeichenkette, einen auskommentierten Import
+  und `describe.skip` als "getestet"; seitdem `platform/app/ratchet-detect.ts` mit Gegenprobe.
 - **JSONL-Ratsche (2026-09-16):** `lib/jsonl.ts` ist der eine Leser fuer `.jsonl` in der Web-App
   — Leerzeile ueberspringen, halb geschriebene letzte Zeile ueberspringen, nur Objekte. Wer selbst
   in Zeilen schneidet, beantwortet diese drei Fragen neu und lag dabei schon mehrfach daneben;
   `platform/app/jsonl-readers.txt` listet die Schnitte, die es noch tun — 2026-09-16 waren es 24 in
-  11 Dateien, nachgezaehlt 2026-09-17 ueber die Eintragszeilen **11 in 6 Dateien** —, und darf
+  11 Dateien, nachgezaehlt 2026-09-21 **11 Stellen in 7 Dateien** —, und darf
   nur SCHRUMPFEN (`lib/jsonl-ratchet.test.ts`); Testdateien zaehlen nicht mit, die zerlegen ihr
   eigenes Fixture. Erste Naht der Vertrags-Familien, Punkt 21 der Entscheidungsvorlage.
 - **Die Treuhand fuer JSON (2026-09-16):** jeder Schreib- und Lesevorgang auf `.json`/`.jsonl`
@@ -266,8 +268,10 @@
   `read_jsonl` + `write_rows` BYTEGLEICH — erst danach durften die Aufrufer ihre rohen Zeilen
   aufgeben.
   **Auch `scripts/` faellt unter beide Ratschen** (2026-09-16): dort waren es 61 Leser und 36
-  Schreiber, jetzt 13 und 7 — nachgezaehlt 2026-09-17 ueber die `scripts/`-Zeilen beider
-  Ratschen: **13 Leser, 8 Schreiber**.
+  Schreiber, heute deutlich weniger. Nachgezaehlt 2026-09-21 ueber die `scripts/`-Zeilen beider
+  Ratschen, mit ausdruecklicher Basis: **16 Leser-Stellen in 11 Dateien, 8 Schreiber-Stellen in
+  8 Dateien**. Die "13 Leser" vom 2026-09-17 nannten keine Basis und passen zu keiner der beiden
+  Zaehlweisen — wer eine dieser Zahlen zitiert, sagt dazu, ob er Stellen oder Dateien meint.
 - **Drei Sprachen, dieselbe Politik (2026-09-16):** `src/chesslab/ioutil.py`,
   `platform/app/lib/jsonl.ts` + `lib/atomic.ts`, `android/tracker-runtime/.../io/Jsonl.kt`.
   Ueberall entscheidet der ZEILENUMBRUCH, ueberall wird ueber eine Nebendatei geschrieben und die
