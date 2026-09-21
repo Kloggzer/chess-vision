@@ -85,3 +85,17 @@ Kein Gütemaß — im Trace gibt es keine Wahrheit. Gemessen ist die Übereinsti
 3. Bis dahin: **kein Kandidat sollte `motionPxThr` weiter nach oben schieben.** Er steuert über
    `× 4` die Verdeckungsschwelle mit, und der beste Kandidat der Budget-Suche hätte sie für
    21 Frames Latenz auf 166 gehoben.
+
+## Nachtrag 2026-09-21: der Befund gilt für ALLE drei Hand-Wachen
+
+Die Frage wurde danach systematisch gestellt — jede der zehn booleschen Wachen der Engine
+einzeln abgeschaltet, jedes Mal der volle Satz (`docs/wachen-ablation-2026-09-21.md`). Vier
+bewegen keine Ziffer, und **drei davon sind genau die Hand- und Verdeckungswachen**:
+`baselineOcclusion`, `gridHandGate`, `modelHandGate`.
+
+Damit ist der Befund oben nicht mehr ein Einzelfall, sondern das Muster: der Satz kann diese
+Achse als Ganzes nicht beurteilen. Zum Vergleich, was er SEHR WOHL sieht — `cnnVerify` aus
+kostet **266 Treffer**, `cnnEvalOnSettle` elf plus 13 Desync-Episoden.
+
+Die richtige Lesart bleibt die von oben: nicht "das CNN fängt es auf", sondern "in diesem
+Material stand nichts auf dem Spiel".
