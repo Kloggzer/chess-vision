@@ -132,6 +132,7 @@ class CnnObserver(
     val counters: String
         get() =
             "attempts=$attempts noClassifier=$noClassifier noCrops=$noCrops emitted=$emitted " +
+                "priorFailed=$priorFailed " +
                 "gateOff=$gateOff gateBusy=$gateBusy gatePaused=$gatePaused " +
                 "gateInterval=$gateInterval gateUnwanted=$gateUnwanted"
 
@@ -139,6 +140,11 @@ class CnnObserver(
     private var noClassifier = 0L
     private var noCrops = 0L
     private var emitted = 0L
+
+    /** Observations that WANTED a prior and ran without one — see [possibleFor]. */
+    private var priorFailed = 0L
+
+    private var lastPriorFailure: String? = null
 
     /**
      * Frames the observer declined, by gate — the largest UNCOUNTED drop in the CNN path until
@@ -322,7 +328,16 @@ class CnnObserver(
     /** Null at lambda 0 (so no board is built) and on a cold start, where there is no prior to have. */
     private fun possibleFor(fen: String?): Map<String, Set<String>>? {
         if (priorFor(attachedSpec) <= 0.0 || fen == null) return null
-        return runCatching { possibleLabels(fen) }.getOrNull()
+        // Ein Fehlschlag sieht am Snapshot aus wie "Prior nicht gewollt". Gezaehlt, damit die
+        // Zeile den Unterschied traegt, und einmal je Ursache gemeldet statt je Frame.
+        return runCatching { possibleLabels(fen) }.getOrElse {
+            priorFailed += 1
+            if (it.message != lastPriorFailure) {
+                lastPriorFailure = it.message
+                log.warn("CNN prior unavailable for \"$fen\" — inference continues WITHOUT it", it)
+            }
+            null
+        }
     }
 
     private fun runObservation(startFen: String?) {

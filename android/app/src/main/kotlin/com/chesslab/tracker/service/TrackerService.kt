@@ -65,6 +65,7 @@ import com.chesslab.tracker.settings.FrameRateMode
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.settings.cameraLook
+import com.chesslab.tracker.settings.withLiveKnobsOf
 import com.chesslab.tracker.speech.MoveAnnouncer
 import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.sync.SETTLE_MINUTES
@@ -139,6 +140,9 @@ class TrackerService :
 
     /** Gelieferte Frames, nur fuer das einmalige Nachstimmen auf die echte Rate. */
     private var deliveredFrames = 0L
+
+    /** Der ROHE Stand, mit dem der laufende Stack gebaut wurde — Bezugspunkt fuer [liveConfig]. */
+    private var runStored: TrackerConfig? = null
     private val timings = StageTimings(logLine = AndroidTrackerLog(PERF_TAG)::debug)
     private val cnnProbe = CnnRuntimeProbe()
 
@@ -153,6 +157,7 @@ class TrackerService :
     private val stacks =
         StackSwitch {
             val gridArm = gridArmFor(modelSpec)
+            runStored = settings.config.value
             TrackerStack(
                 TrackerSeed(
                     engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps),
@@ -387,9 +392,11 @@ class TrackerService :
                 available = BuildConfig.DEBUG,
                 header = ::sourceWorkProfileHeader,
             )
-        settings.submit = {
-            // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
-            val cfg = engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps)
+        settings.submit = { stored ->
+            // Der Bezug ist der Stand des LAUFS, nicht der gespeicherte: restart-pflichtige Felder
+            // wirken sonst halb (`liveConfig`), und die Ableitungen sind nicht idempotent.
+            val run = runStored ?: stored
+            val cfg = liveConfig(run, stored, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps)
             stacks.current?.host?.submit(EngineAction.UpdateConfig(cfg))
         }
         camera =
@@ -767,6 +774,19 @@ internal fun engineConfig(
         .withCoverageGateOf(spec)
         .copy(taintIdentityThr = TAINT_IDENTITY_THR)
         .atFrameRate(effectiveFrameRate(rate, deliveredFps))
+
+/**
+ * Was eine LAUFENDE Engine annehmen darf: die Konfiguration des Laufs mit den zwoelf live
+ * erlaubten Knoepfen darueber. Gemessen aus dem ROHEN Stand, nie aus einem schon abgeleiteten.
+ */
+internal fun liveConfig(
+    runStored: TrackerConfig,
+    stored: TrackerConfig,
+    geometry: BoardGeometry,
+    spec: ModelSpec?,
+    rate: FrameRateMode,
+    deliveredFps: Double? = null,
+): TrackerConfig = engineConfig(runStored.withLiveKnobsOf(stored), geometry, spec, rate, deliveredFps)
 
 // Gemessen 2026-09-19: ohne das galt `Rxc8` als Hand und kostete 19,5 s. 0,5 loest es, 0,7 nicht
 // mehr. Hier und nicht in `TrackerConfig`, weil die Vorgabe dort jede Python-Paritaet umwirft.
