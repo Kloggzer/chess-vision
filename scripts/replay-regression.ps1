@@ -14,7 +14,8 @@ param(
     [Parameter(Mandatory)][string]$Tag,
     [string]$Binary = "",
     [string]$Extra = "",
-    [int]$MaxParallel = 2
+    [int]$MaxParallel = 2,
+    [ValidateSet("v1", "v2", "beide")][string]$Satz = "v1"
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -34,10 +35,29 @@ $recs = @(
     "VID_20260726_233432", "VID_20260727_233929", "VID_20260802_222203", "VID_20260802_222741",
     "VID_20260824_153751", "VID_20260824_154327"
 )
+# test-v2: die zwei handreichen Partien vom 2026-09-19, als EIGENER Satz. Sie gehoeren
+# ausdruecklich NICHT in den Zehner: der traegt Zahlen (Champ-Vergleich, 128-gegen-80, das
+# Ausduenn-Urteil), und wer seinen Inhalt aendert, macht jede davon unvergleichbar.
+$v2 = @("2026-09-19-15-50-28", "2026-09-19-16-26-22")
+if ($Satz -eq "v2") { $recs = $v2 } elseif ($Satz -eq "beide") { $recs = $recs + $v2 }
+# Telefon-Sitzungen legen ihr Video unter files\sessions\<id>\. candidate.json nennt den Pfad
+# selbst -- die einzige Quelle, die nicht raet.
+function Resolve-Video([string]$rec) {
+    $flach = Join-Path $root "data\recordings\$rec\video.mp4"
+    if (Test-Path $flach) { return $flach }
+    $cand = Join-Path $root "data\recordings\$rec\candidate.json"
+    if (Test-Path $cand) {
+        $rel = (Get-Content -Raw -Encoding UTF8 $cand | ConvertFrom-Json).video
+        if ($rel) {
+            $voll = Join-Path (Join-Path $root "data") $rel
+            if (Test-Path $voll) { return $voll }
+        }
+    }
+    throw "no video for $rec (neither recordings\$rec\video.mp4 nor candidate.json:video)"
+}
 $pending = @()
 foreach ($r in $recs) {
-    $video = Join-Path $root "data\recordings\$r\video.mp4"
-    if (-not (Test-Path $video)) { throw "no video: $video" }
+    $video = Resolve-Video $r
     $words = @("replay", $video, "score", "name=$r") + @($Extra -split " " | Where-Object { $_ })
     $pending += [pscustomobject]@{ Name = $r; Args = $words; Log = Join-Path $logDir "$r.log" }
 }
@@ -56,7 +76,7 @@ while ($pending.Count -gt 0 -or $running.Count -gt 0) {
     }
     $running = $still
 }
-Write-Output ("{0,-22} {1,4} {2,5}  {3}" -f "recording", "exit", "s", "found/missed/invented/beyond · alarms")
+Write-Output ("{0,-22} {1,4} {2,5}  {3}" -f "recording", "exit", "s", "found/missed/invented/beyond | alarms")
 foreach ($x in ($results | Sort-Object { $_.Run.Name })) {
     $log = Get-Content $x.Run.Log -ErrorAction SilentlyContinue
     $f = ($log | Select-String "found (\d+):" | Select-Object -First 1)
@@ -70,7 +90,7 @@ foreach ($x in ($results | Sort-Object { $_.Run.Name })) {
     $rv = if ($r) { [int]$r.Matches[0].Groups[1].Value } else { 0 }
     $s = if ($f) { "$($f.Matches[0].Groups[1].Value)/$($m.Matches[0].Groups[1].Value)/$($i.Matches[0].Groups[1].Value)/$bv" } else { "no score" }
     # Die Plies liegen schon in `found`; die Zahl sagt nur, wie viele davon der Lauf anders sortiert hat.
-    if ($rv -gt 0) { $s = "$s · $rv reordered" }
-    Write-Output ("{0,-22} {1,4} {2,5}  {3} · {4} alarm" -f $x.Run.Name, $x.Exit, $x.Sec, $s, $a)
+    if ($rv -gt 0) { $s = "$s | $rv reordered" }
+    Write-Output ("{0,-22} {1,4} {2,5}  {3} | {4} alarm" -f $x.Run.Name, $x.Exit, $x.Sec, $s, $a)
 }
-Write-Output ("total {0}s · {1}" -f [int]((Get-Date) - $started).TotalSeconds, $logDir)
+Write-Output ("total {0}s | {1}" -f [int]((Get-Date) - $started).TotalSeconds, $logDir)

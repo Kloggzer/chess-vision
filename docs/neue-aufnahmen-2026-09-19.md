@@ -66,3 +66,41 @@ frischem Material den Befund aus `docs/doppelcommits-2026-09-19.md`: Doppelcommi
 Der `cnn_pair` bei ply 55 von `16-26-22` ist `Rxc8+`+`Qxc8` mit 0 ms Abstand — dieselbe Partie,
 aus der `data/recordings/rxr-c8-20260919` geschnitten ist. Beide Aufnahmen liefen noch mit dem
 Build VOR dem Taint-Fix.
+
+## Nachtrag 2026-09-21: als `test-v2` aufgenommen — und der Replay trackt sie nicht
+
+Der Nutzer hat entschieden: **rein in den Messsatz**, nicht ins Training. Umgesetzt als EIGENER
+Satz, nicht als Erweiterung der Zehn — `scripts/replay-regression.ps1 -Satz v2` (oder `beide`).
+Der erste Versuch hatte sie an die Zehn angehängt; das verstößt gegen die Regel zwei Absätze
+weiter oben und wurde zurückgenommen. Die Zehn tragen Zahlen, ihr Inhalt bleibt.
+
+**Kein Labeln nötig:** beide tragen `reference.pgn` und ein `candidate.json` mit `confirmed: true`.
+Sie fehlten im Satz nur, weil das Skript ihr Video flach unter `data/recordings/<name>/video.mp4`
+suchte — Telefon-Sitzungen legen es unter `files/sessions/<id>/`, und `candidate.json` nennt den
+Pfad selbst. `Resolve-Video` liest ihn jetzt dort. Die frühere Notiz „ohne `video.mp4`, die Messung
+geht nur über den Stored-Session-Weg" war also falsch.
+
+### Der Befund: 0 von 59 Zügen, bei 3 903 Frames
+
+| Aufnahme | found | missed | invented |
+|---|---:|---:|---:|
+| `2026-09-19-15-50-28` | 17 | 70 | 6 |
+| `2026-09-19-16-26-22` | **0** | 59 | 0 |
+
+**Das ist ein Werkzeug-Befund, kein Engine-Befund**, und es wird ausdrücklich nicht als Aussage
+über die Engine zitiert. Die Belege dagegen:
+
+- Das **Telefon selbst** hat dieselbe Partie live getrackt, 59/59, und `retime` bestätigt jeden Zug
+  mit einem fremden Modell (Übereinstimmung 1,00).
+- Im Replay steht `motion=0.0000` über den **ganzen** Lauf — der Bewegungssensor schlägt nie an.
+- `cnnAgree=0.984` gegen die Grundstellung, `changed=[c4=3.1 b5=2.3 …]`: der Replay sieht ein
+  praktisch **statisches Brett**, während 59 Züge gespielt werden.
+- Jede Entscheidung bleibt bei `ply=0`, `why=STUCK no_legal_move`.
+
+Die Ursache ist offen. Kandidaten, in dieser Reihenfolge zu prüfen: ob `video.mp4` der Sitzung
+dasselbe Bild trägt wie der Analyse-Strom, aus dem die Ecken stammen; ob die Zeitachse
+(`timeline.jsonl` liegt ebenfalls verschachtelt) gebraucht wird und fehlt; ob die Geometrie aus
+`candidate.json` statt aus dem Label-Plan-Scan genommen werden muss. `markers_seen` nennt nur drei
+der vier Marker, Marker 1 nie.
+
+**Bis das geklärt ist, misst `test-v2` nichts** — und die Zahlen oben gehören in keine Auswertung.
