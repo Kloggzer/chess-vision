@@ -41,12 +41,21 @@ def session_hands(entries: list[dict], scan: list[dict], session_id: str) -> lis
     return out
 
 
+def unscanned(entries: list[dict], scan: list[dict]) -> int:
+    """Exportierte Frames OHNE Scan-Zeile. `--no-scan`/`spread_indices` setzt Indizes, die der
+    Scan (jeder dritte) nie gesehen hat; `session_hands` laesst sie weg, und danach liest sich
+    ungemessen wie handfrei — genau die Luege, die `_sessions` je Aufnahme schon loest."""
+    seen = {int(row["idx"]) for row in scan}
+    return sum(1 for e in entries if int(Path(e["frame"]).stem) not in seen)
+
+
 def frame_hands() -> dict:
     """Ueber jede exportierte Session mit einem Scan. -> Zusammenfassung und Pfad."""
     from .framescan import GATE_THR, SCAN_STRIDE, read_scan
     from .labeling import read_log, read_session_meta
 
     rows, per_session, scanned, without = [], {}, [], []
+    blind: dict[str, int] = {}
     for path in sorted(config.DATA.recordings.glob("*/log.jsonl")):
         session_dir = path.parent
         if not (session_dir / "session.yaml").is_file():
@@ -57,14 +66,19 @@ def frame_hands() -> dict:
             without.append(session_dir.name)
             continue
         scanned.append(session_id)
-        found = session_hands(read_log(session_dir), scan, session_id)
+        entries = read_log(session_dir)
+        if (blind_here := unscanned(entries, scan)):
+            blind[session_dir.name] = blind_here
+        found = session_hands(entries, scan, session_id)
         rows.extend(found)
         if found:
             per_session[session_dir.name] = len(found)
     # `_sessions` traegt die GEMESSENEN: nur dort heisst eine fehlende Zeile "keine Hand". Ohne sie
     # waere jede ungescannte Aufnahme still handfrei, und das ist die Luege, die der Report loest.
     header = {"_gate_thr": GATE_THR, "_stride": SCAN_STRIDE, "_sessions": sorted(scanned),
+              "_unscanned": dict(sorted(blind.items())),
               "_written_at": datetime.now(UTC).isoformat()}
     out = write_flags(config.DATA.reports / FLAGS_FILE, rows, header)
     return {"path": out, "frames": len(rows), "sessions": len(scanned),
-            "per_session": per_session, "without_scan": without}
+            "per_session": per_session, "without_scan": without,
+            "unscanned_frames": dict(sorted(blind.items()))}

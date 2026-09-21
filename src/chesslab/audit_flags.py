@@ -185,6 +185,9 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
     skipped: list[dict] = []
     scanned = 0
     dropped_covered = 0
+    #: Aufnahmen ohne `matte.jsonl`: `covered_cells` ist dort LEER, also faellt unter `--visible`
+    #: keine Zelle weg — nicht weil sie frei sind, sondern weil niemand nachgesehen hat.
+    without_matte: list[str] = []
     for path in sorted(rec.glob("*/model-reads.jsonl")):
         model, rows, classes = read_proposals(path)
         reason = None
@@ -213,6 +216,8 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
             # Modell. Die Helligkeit kommt aus den Reads (`bright`), wo sie gemessen wurde.
             from .training.occlusion import CELL_DARK_MIN
 
+            if not (path.parent / "matte.jsonl").is_file():
+                without_matte.append(rows[0]["session_id"])
             covered = covered_cells(path.parent)
             dark = {(r["frame"], r["square"]) for r in rows
                     if 0 <= r.get("bright", -1) < CELL_DARK_MIN}
@@ -240,6 +245,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
         "coverage_scope": "visible" if visible_only else "any",
         "dropped_by_scope": dropped_type,
         "dropped_as_covered": dropped_covered,
+        "without_matte": sorted(without_matte),
         "sessions": sessions,
         "skipped": skipped,
         "per_class": dict(sorted(per_class.items(), key=lambda kv: (-kv[1], kv[0]))),

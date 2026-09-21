@@ -1117,6 +1117,11 @@ def realgames_frame_hands() -> None:
     if r["without_scan"]:
         print(f"  ! ohne scan.jsonl uebersprungen ({len(r['without_scan'])}): "
               f"{', '.join(r['without_scan'][:6])} — `chesslab realgames scan <name>`")
+    if r["unscanned_frames"]:
+        total = sum(r["unscanned_frames"].values())
+        print(f"  ! {total} exportierte Frames ohne Scan-Zeile in "
+              f"{len(r['unscanned_frames'])} Aufnahmen — dort heisst keine Zeile UNGEMESSEN, "
+              "nicht handfrei")
 
 
 @realgames_app.command("position-flags")
@@ -1184,6 +1189,10 @@ def realgames_audit_flags(
         print(f"[i] scope={r['scope']}: {r['dropped_by_scope']} type/colour flags left out")
     if r["dropped_as_covered"]:
         print(f"[i] coverage={r['coverage_scope']}: {r['dropped_as_covered']} covered cells left out")
+    if r["without_matte"]:
+        print(f"  ! {len(r['without_matte'])} Aufnahmen ohne matte.jsonl: "
+              f"{', '.join(r['without_matte'][:6])} — deren Zellen sind nicht sichtbar GEMESSEN, "
+              "nur ungefiltert")
     if r["flags_on_judged"]:
         print(f"[i] {r['flags_on_judged']} davon auf Zellen, die ein Mensch schon beurteilt hat "
               "— dort widerspricht das Modell dem Urteil, nicht der FEN.")
