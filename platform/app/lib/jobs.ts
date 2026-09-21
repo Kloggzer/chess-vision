@@ -67,7 +67,9 @@ export type Job = {
 
 /** The process in the slot right now — held so Stopp can kill it, not just decline the next. */
 type Live = { name: string; child: ChildProcess };
-type Queue = { jobs: Map<string, Job>; running: Promise<void>; live: Live | null; stopped: Set<string> };
+type Queue = { jobs: Map<string, Job>; running: Promise<void>; live: Live | null; stopped: Set<string>;
+               /** Die Ledger-Schreibvorgaenge, einer nach dem anderen — siehe `appendRow`. */
+               ledger: Promise<void> };
 
 /**
  * Survives the dev server's module reloads — a queue that resets on every hot reload would start a
@@ -78,10 +80,12 @@ const queue: Queue = ((globalThis as { __chesslabJobs?: Queue }).__chesslabJobs 
   running: Promise.resolve(),
   live: null,
   stopped: new Set(),
+  ledger: Promise.resolve(),
 });
 // An object pinned by older code lacks the fields added since (see `drain`).
 queue.live ??= null;
 queue.stopped ??= new Set();
+queue.ledger ??= Promise.resolve();
 
 export function jobsDir(): string {
   return path.join(inboxDir(), "jobs");
@@ -304,10 +308,18 @@ async function guard(job: Job, run: () => Promise<void>): Promise<void> {
 
 /** The ledger line alone — a row that names no slot (`holdExport`) never enters the queue. */
 async function appendRow(job: Job): Promise<void> {
-  await mkdir(jobsDir(), { recursive: true });
-  // `pid` is what lets a SECOND server tell "a job died with its process" from "another process is
-  // running this right now" — without it every foreign row read as a corpse (see `restartedRows`).
-  await appendRows(path.join(inboxDir(), "jobs.jsonl"), [{ ...job, pid: process.pid }]);
+  // Einer nach dem anderen: `appendRows` prueft erst den Schwanz und haengt DANACH an, und die
+  // `running`-Zeile geht als `void record(...)` los. Gleichzeitig geschrieben landete sie hinter
+  // der `done`-Zeile — nach einem Neustart las `restarted()` den fertigen Schritt als Leiche.
+  const mine = queue.ledger.then(async () => {
+    await mkdir(jobsDir(), { recursive: true });
+    // `pid` is what lets a SECOND server tell "a job died with its process" from "another process
+    // is running this right now" — without it every foreign row read as a corpse (`restarted`).
+    await appendRows(path.join(inboxDir(), "jobs.jsonl"), [{ ...job, pid: process.pid }]);
+  });
+  // Ein Fehler darf die Reihe nicht vergiften — der naechste Schreiber kommt trotzdem dran.
+  queue.ledger = mine.catch(() => undefined);
+  return mine;
 }
 
 async function record(job: Job): Promise<void> {
