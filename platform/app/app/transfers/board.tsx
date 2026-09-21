@@ -191,6 +191,10 @@ export function TransferBoard() {
             }
           : current,
       );
+    } catch (error) {
+      // Ohne diesen Zweig war ein abgebrochener POST eine unbehandelte Rejection: der Knopf ging
+      // zurueck auf "Aufnahme labeln", und nichts auf der Seite sagte, dass nichts passiert ist.
+      setNote(String(error));
     } finally {
       setStarting(null);
     }

@@ -128,6 +128,9 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
       const answer = await post<{ dequeued: boolean }>(`/api/zuege/${games[index].name}`, { action: "undo", kept });
       setNote({ kind: "undone", name: games[index].name, dequeued: answer.dequeued });
     } catch (error) {
+      // Die Bestaetigung steht noch: sie hier zu vergessen heisst, dass das naechste Vorwaerts
+      // erneut committet und der gehaltene Export unbemerkt weiterlaeuft.
+      setCommitted((c) => ({ ...c, [index]: live }));
       setNote({ kind: "error", text: String(error) });
     }
   }
@@ -139,6 +142,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
     const rest = Object.fromEntries(Object.entries(decisions).filter(([k]) => !k.startsWith(`${index}:`)));
     const next = new Set(dropped);
     next.add(index);
+    const held = committed;
     setDecisions(rest);
     setDropped(next);
     setCommitted((c) => without(c, index));
@@ -149,6 +153,12 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
       // A boundary that already fired has an export on hold; the flag must take that back too.
       if (committed[index]) await post(`/api/zuege/${game.name}`, { action: "release" });
     } catch (error) {
+      // Zurueck an den Platz: die Aufnahme blieb sonst den Rest der Sitzung weg, waehrend auf der
+      // Platte kein Flag steht und der gehaltene Export weiterlaeuft.
+      setDecisions(decisions);
+      setDropped(dropped);
+      setCommitted(held);
+      setAt(at);
       setNote({ kind: "error", text: String(error) });
     }
   }

@@ -6,7 +6,8 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { writeFileAtomic } from "@/lib/atomic";
+import { stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
+import { serialize } from "@/lib/serialize";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
 import { parseReference, type Reference } from "@/lib/pgn";
 
@@ -186,6 +187,14 @@ export async function framePng(name: string, stem: string): Promise<Buffer> {
  */
 export async function writeConfirmation(name: string, kept: number[], drop: number[] = []): Promise<number[]> {
   const file = path.join(gameDir(name), "candidate.json");
+  // Lesen-rechnen-ersetzen: ohne Riegel lasen zwei Streichungen denselben Stand und die zweite
+  // vereinigte sich mit einer Liste ohne die erste — `struck_plies` verlor ein MENSCHLICHES
+  // Urteil. Der Riegel sieht nur diesen Prozess, der Stempel darunter auch jeden anderen.
+  return serialize(file, () => confirmUnlocked(name, file, kept, drop));
+}
+
+async function confirmUnlocked(name: string, file: string, kept: number[], drop: number[]): Promise<number[]> {
+  const stamp = await stampOf(file);
   const text = await readFile(file, "utf8");
   const doc = JSON.parse(text, function (_key, value, context?: { source?: string }) {
     return typeof value === "number" && context?.source
@@ -220,6 +229,7 @@ export async function writeConfirmation(name: string, kept: number[], drop: numb
   doc.reviewed_plies = plies;
   if (struck.length > 0) doc.struck_plies = struck;
 
-  await writeFileAtomic(file, JSON.stringify(doc, null, 2) + "\n");
+  await writeFileAtomicGuarded(file, JSON.stringify(doc, null, 2) + "\n", stamp,
+    `${name}: candidate.json wurde waehrend der Bestaetigung von aussen geschrieben`);
   return plies;
 }

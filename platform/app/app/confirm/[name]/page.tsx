@@ -142,7 +142,13 @@ export default async function ConfirmPage({
         ) : null}
       </p>
 
-      <ConfirmReview cards={cards} gallery={gallery} name={name} />
+      <ConfirmReview
+        cards={cards}
+        gallery={gallery}
+        name={name}
+        reviewedPlies={candidate.reviewed_plies ?? []}
+        struckPlies={candidate.struck_plies ?? []}
+      />
 
       <ReferenceEditor name={name} text={referenceText} />
 

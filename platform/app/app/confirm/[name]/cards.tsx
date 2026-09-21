@@ -13,22 +13,29 @@ import {
   type Zoom,
 } from "@/app/confirm/board-frames";
 import { CompareBar, useCompareView } from "@/app/confirm/compare";
+import { keptCards, struckCards } from "@/lib/confirm-kept";
 import type { ReviewCard } from "@/lib/review-cards";
 
 export function ConfirmReview({
   name,
   cards,
   gallery,
+  reviewedPlies,
+  struckPlies,
 }: {
   name: string;
   /** The plies that disagree with the reference — one card per commit frame, with a verdict. */
   cards: ReviewCard[];
   /** The plies the reference already vouched for — same series, read-only. */
   gallery: ReviewCard[];
+  /** Was schon in `candidate.json` steht. Ohne das schickte ein zweiter Klick eine LEERE Liste,
+   *  und `writeConfirmation` ersetzt `reviewed_plies` — das menschliche Urteil war weg. */
+  reviewedPlies: number[];
+  struckPlies: number[];
 }) {
-  const [kept, setKept] = useState<Record<number, boolean>>({});
+  const [kept, setKept] = useState<Record<number, boolean>>(() => keptCards(cards, reviewedPlies));
   /** Gallery cards the human struck: the LCS matched the SAN, the board says the move is wrong. */
-  const [dropped, setDropped] = useState<Record<number, boolean>>({});
+  const [dropped, setDropped] = useState<Record<number, boolean>>(() => struckCards(gallery, struckPlies));
   const [zoom, setZoom] = useState<Zoom | null>(null);
   const [state, setState] = useState<"idle" | "writing" | string>("idle");
   /** Which of a card's stems is showing, keyed by card id — judged and viewed ids never collide. */

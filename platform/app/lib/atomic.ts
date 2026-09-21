@@ -4,6 +4,7 @@
  * seit je ueber tmp+rename; dies ist dieselbe Bewegung als eine Funktion.
  */
 import { appendFile, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { serialize } from "@/lib/serialize";
 
 /** Eigene Zwischendatei je Schreibvorgang: unter EINEM `${file}.tmp` raeumte der `catch` des
  *  Abbrechers die halb geschriebene Datei eines anderen weg, und der verlor sein `rename` mit
@@ -57,10 +58,16 @@ export async function writeFileAtomicGuarded(
  */
 export async function appendRows(file: string, rows: unknown[]): Promise<number> {
   if (rows.length === 0) return 0;
-  const text = await readFile(file, "utf8").catch(() => "");
-  if (text !== "" && !text.endsWith("\n")) {
-    await writeFileAtomic(file, text.slice(0, text.lastIndexOf("\n") + 1));
-  }
-  await appendFile(file, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
-  return rows.length;
+  // Der Riegel gehoert HIERHER, nicht an jeden Aufrufer: Lesen, Kuerzen und Anhaengen sind drei
+  // Schritte, und ohne ihn ersetzte der zweite Schreiber die Datei aus seinem aelteren Lesestand
+  // (auf Windows scheiterte sein `rename` stattdessen mit EPERM). `serialize` ist NICHT
+  // wiedereintrittsfaehig — wer aussen auf denselben Pfad riegelt, verklemmt sich.
+  return serialize(file, async () => {
+    const text = await readFile(file, "utf8").catch(() => "");
+    if (text !== "" && !text.endsWith("\n")) {
+      await writeFileAtomic(file, text.slice(0, text.lastIndexOf("\n") + 1));
+    }
+    await appendFile(file, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+    return rows.length;
+  });
 }

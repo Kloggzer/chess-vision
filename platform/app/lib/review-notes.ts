@@ -52,14 +52,12 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
   if (rows.length === 0) return 0;
   const ts = new Date().toISOString().replace(/\.\d+Z$/, "+00:00");
   const file = reviewNotesPath();
-  // Unter demselben Riegel wie der Widerruf: der liest die GANZE Datei und schreibt sie neu,
-  // ein Anhaengen dazwischen waere danach weg.
-  return serialize(file, async () => {
-    await mkdir(path.dirname(file), { recursive: true });
-    await appendRows(file, rows.map((r) => ({ ...r, ts })));
-    cache.delete(file);
-    return rows.length;
-  });
+  // Den Riegel haelt `appendRows` selbst, auf demselben Schluessel wie der Widerruf — hier noch
+  // einmal darauf zu serialisieren verklemmte sich (`serialize` ist nicht wiedereintrittsfaehig).
+  await mkdir(path.dirname(file), { recursive: true });
+  await appendRows(file, rows.map((r) => ({ ...r, ts })));
+  cache.delete(file);
+  return rows.length;
 }
 
 /**

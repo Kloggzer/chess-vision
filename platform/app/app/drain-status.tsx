@@ -47,7 +47,8 @@ const [status, setStatus] = useState<DrainStatus | null>(null);
         if (r.ok) setStatus(answer);
         else setNote(answer.error ?? r.statusText);
       })
-      .catch(() => undefined)
+      // Ein stiller `catch` liess den Knopf zurueckschnappen, als waere der Auftrag gelaufen.
+      .catch((error: unknown) => setNote(String(error)))
       .finally(() => setBusy(false));
   }, []);
 

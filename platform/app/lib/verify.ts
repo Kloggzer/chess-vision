@@ -78,8 +78,12 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
     let session;
     try {
       session = await loadSession(name);
-    } catch {
-      continue; // no exported log — nothing to put the alpha against
+    } catch (e) {
+      // ENOENT heisst "der Export lief nie" und die Aufnahme zaehlt nirgends mit. Jeder ANDERE
+      // Fehler (kaputte Zeile, fehlende `clock.fps`) nahm sie hier lautlos aus `progress` — der
+      // Nenner der Kopfzeile stand dann ueber einer anderen Grundgesamtheit, ohne es zu sagen.
+      if ((e as { code?: string })?.code !== "ENOENT") throw e;
+      continue;
     }
     const id = sessionId(name);
     const [unusable, reviews, fixed, recutAt] = await Promise.all([
