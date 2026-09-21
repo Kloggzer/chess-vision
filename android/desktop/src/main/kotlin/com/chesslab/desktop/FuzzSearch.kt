@@ -146,6 +146,38 @@ private val WACHE =
         Scene(plies = 6, handFrames = 30, handSquares = 16, handCoverage = 0.5, obsEvery = 5),
     )
 
+/**
+ * `fuzz ablate <knopf>` — dieselbe Frage wie `scripts/guard_ablation.ps1`, aber synthetisch:
+ * welche Zustaende bewegt das Abschalten? Der Regressionssatz braucht dafuer 18 Minuten je Wache
+ * und merkt bei `baselineOcclusion` NICHTS (`docs/baseline-occlusion-off.md`).
+ */
+internal fun fuzzAblate(args: List<String>) {
+    val knopf = args.firstOrNull() ?: error("fuzz ablate <knopf> [aus=0]")
+    val aus = args.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+    val an = wacheZustaende(TrackerConfig())
+    val ohne = wacheZustaende(TrackerConfig().withOverrides(mapOf(knopf to aus)))
+
+    val alle = (an.keys + ohne.keys).filterNot { it.startsWith("note:") }.sorted()
+    val bewegt = alle.filter { an[it] != ohne[it] }
+    println("$knopf = $aus gegen die Vorgabe, ueber ${WACHE.size} feste Szenen")
+    if (bewegt.isEmpty()) {
+        println("  KEIN Zustand bewegt sich — der Fuzzer sieht diese Wache nicht")
+        return
+    }
+    println("  %-26s %8s %8s".format("Zustand", "an", "aus"))
+    for (z in bewegt) println("  %-26s %8d %8d".format(z, an[z] ?: 0, ohne[z] ?: 0))
+}
+
+private fun wacheZustaende(config: TrackerConfig): Map<String, Int> {
+    val total = HashMap<String, Int>()
+    for ((i, scene) in WACHE.withIndex()) {
+        for ((state, hits) in fuzzRun(config, scene, seed = (i + 1).toLong()).reached) {
+            total.merge(state, hits, Int::plus)
+        }
+    }
+    return total
+}
+
 /** `fuzz check <knopf>=<wert> ...` — sind die Netze noch scharf? Sekunden statt eines Replays. */
 internal fun fuzzCheck(args: List<String>) {
     val overrides =

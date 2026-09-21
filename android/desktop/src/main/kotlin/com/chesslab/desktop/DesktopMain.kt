@@ -55,7 +55,11 @@ fun main(args: Array<String>) {
     // gerenderten Pixeln und braucht die Natives deshalb auch.
     if (args.firstOrNull() == "fuzz") {
         NativeCv.require()
-        return if (args.getOrNull(1) == "check") fuzzCheck(args.drop(2)) else fuzzVerb(args.drop(1))
+        return when (args.getOrNull(1)) {
+            "check" -> fuzzCheck(args.drop(2))
+            "ablate" -> fuzzAblate(args.drop(2))
+            else -> fuzzVerb(args.drop(1))
+        }
     }
     NativeCv.require()
     when (args.firstOrNull()) {
