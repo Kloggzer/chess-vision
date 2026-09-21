@@ -341,7 +341,10 @@ class TrackerEngine(
         if (config.detSize != previous.detSize || config.overhang != previous.overhang) {
             state.rebuildBoxes()
         }
-        if (config.detSize != previous.detSize) {
+        // Jeder Knopf, der die MESSEBENE verschiebt, macht die Referenz unvergleichbar -- nicht nur
+        // die Groesse. `diffClaheClip` baut in der Runtime den CLAHE-Operator neu, und der naechste
+        // Frame traefe sonst unter neuer Grauwert-Transformation auf eine Referenz von vorher.
+        if (config.detSize != previous.detSize || config.diffClaheClip != previous.diffClaheClip) {
             state.discardVisualReference()
         }
     }

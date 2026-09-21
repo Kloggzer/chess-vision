@@ -2,7 +2,6 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.TrackerEngine
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
 /**
@@ -10,7 +9,6 @@ import org.junit.jupiter.api.Test
  * baut CLAHE neu, `updateConfig` verwirft die Referenz aber nur bei geaendertem `detSize`.
  */
 class ClaheReferenceStaleBugTest {
-    @Disabled("BUG: eine live geaenderte Messebene laesst eine unvergleichbare Referenz stehen — Fix braucht einen Replay-Lauf")
     @Test
     fun `a changed clahe clip discards the visual reference`() {
         val engine = TrackerEngine(detectConfig())
