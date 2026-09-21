@@ -6,8 +6,8 @@
 
 ## Aufnahmen — was der Regressionssatz nicht hat (2026-09-05)
 
-Stand gemessen 2026-09-14: `docs/regression-reference.md` (385 gefunden, 14 verfehlt, **1**
-erfunden, 6 Alarme). `222203` mit 3 Referenz-Plies wertlos, `233929` verliert das Ende an die zu
+Stand gemessen 2026-09-21: `docs/regression-reference.md` (396 gefunden, 3 verfehlt, **0**
+erfunden, 8 Desync-Episoden) — die 385/14/1 galten vor der Champion-Beförderung `29b7dbc6`. `222203` mit 3 Referenz-Plies wertlos, `233929` verliert das Ende an die zu
 frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App (Ecken, Timeline,
 `settings.json` liegen dann bei), jede mit **2 s Stillstand nach dem letzten Zug**:
 

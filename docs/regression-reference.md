@@ -1,118 +1,56 @@
-# Referenzstand des Regressionssatzes — 2026-09-14
+# Referenzstand des Regressionssatzes — 2026-09-21
 
 Die Zahlen, gegen die ein neuer Lauf sich rechtfertigt. Wer sie ersetzt, schreibt Datum, Commit und
 Bedingungen dazu — ein Referenzstand ohne die ist keiner.
 
+> Der Stand vom 2026-09-14 (385/14/1, 6 Alarme) galt **vor** der Champion-Beförderung `29b7dbc6`
+> und vor `priorOnTempered`. Er steht in der Git-Historie dieser Datei; hier stehen nur die Zahlen,
+> die heute gelten.
+
 ## Wie er entstanden ist
 
-    .\scripts\replay-regression.ps1 -Tag alarm-base
+    .\scripts\replay-regression.ps1 -Tag baseline-an
 
-Gemessen am 2026-09-14, 08:13–08:24 (683 s, 2 JVMs parallel, warmer `tmp/obs-cache`). Baum auf
-`f7e2cf1a`, aber `Alarm.kt` auf `d8453566` zurueckgesetzt — verhaltensgleich mit `d8453566`, weil
-das der einzige Engine-Eingriff des Commits ist. Modell und `candidate.json` wie im Skript
-vorgegeben. Logs: `tmp/batch/alarm-base/`.
+Baum nach `29b7dbc6` (sechs beförderte Vorgaben: `motionThr 0.219`, `motionPxThr 34.544`,
+`motionMargin 0.0274`, `motionHoldS 0.1592`, `commitHoldS 0.0632`, `maxChanged 5`). Der Prior kommt
+aus der `config.json` des Modells (`prior_lambda`, 5,04–7,02 je Modell), **nicht** aus `prior=` —
+das Banner sagt deshalb seit `4570206c` `prior=modell` statt `prior=0.0`. Modell `p4a-80-clahe`.
+Logs: `tmp/batch/baseline-an/`.
 
 ## Der Stand
 
-| Aufnahme | gefunden | verfehlt | erfunden | jenseits | Alarme | s |
-|---|---|---|---|---|---|---|
-| 2026-08-07-13-52-38 | 25 | 0 | 0 | 0 | 1 | 108 |
-| 2026-08-08-00-39-57 | 67 | 0 | 0 | 0 | 1 | 118 |
-| 2026-08-08-11-55-19 | 15 | 0 | 0 | 3 | 1 | 27 |
-| 2026-08-08-11-59-12 | 73 | 0 | 0 | 164 | 0 | 233 |
-| VID_20260726_233432 | 21 | 0 | 0 | 0 | 0 | 34 |
-| VID_20260727_233929 | 7 | 3 | 0 | 0 | 1 | 26 |
-| VID_20260802_222203 | 3 | 0 | 0 | 0 | 1 | 95 |
-| VID_20260802_222741 | 22 | 11 | 1 | 0 | 1 | 122 |
-| VID_20260824_153751 | 35 | 0 | 0 | 0 | 0 | 89 |
-| VID_20260824_154327 | 117 | 0 | 0 | 0 | 0 | 269 |
-| **Summe** | **385** | **14** | **1** | **167** | **6** | **683** |
+| Aufnahme | gefunden | verfehlt | erfunden | Desync-Episoden |
+|---|---:|---:|---:|---:|
+| 2026-08-07-13-52-38 | 25 | 0 | 0 | 0 |
+| 2026-08-08-00-39-57 | 67 | 0 | 0 | 1 |
+| 2026-08-08-11-55-19 | 15 | 0 | 0 | 0 |
+| 2026-08-08-11-59-12 | 73 | 0 | 0 | 0 |
+| VID_20260726_233432 | 21 | 0 | 0 | 0 |
+| VID_20260727_233929 | 7 | 3 | 0 | 2 |
+| VID_20260802_222203 | 3 | 0 | 0 | 5 |
+| VID_20260802_222741 | 33 | 0 | 0 | 0 |
+| VID_20260824_153751 | 35 | 0 | 0 | 0 |
+| VID_20260824_154327 | 117 | 0 | 0 | 0 |
+| **Summe** | **396** | **3** | **0** | **8** |
 
-## Erster A/B dagegen: der Alarm-Kern-Fix (`f7e2cf1a`), 2026-09-14
+## Der Lauf ist reproduzierbar — gemessen, nicht angenommen
 
-Punktgleich, Zeile fuer Zeile: 385 / 14 / 1 / 167 und 6 Alarme in beiden Armen, 689 s statt 683.
-Logs: `tmp/batch/alarm-after/`.
+Ein zweiter Lauf DERSELBEN Konfiguration (`abl-kontrolle`, 2026-09-21) liefert **+0/+0/+0/+0**
+gegen diese Tabelle. Ein Unterschied von einer einzigen Desync-Episode ist damit ein echter
+Effekt und kein Rauschen — das ist die Auflösung, mit der die Wachen-Ablation arbeitet
+(`docs/wachen-ablation-2026-09-21.md`).
 
-Verhaltensrelevant unterscheiden sich die Logs an **genau einer** Stelle im ganzen Satz —
-`2026-08-07-13-52-38`, Ply 25:
+## Zwei Spalten, die man leicht falsch liest
 
-    base:  REJECT e1c1 by=rejected why=ALARM latched on a1,c1,e1
-    after: REJECT e1c1 by=rejected why=ALARM latched on c1,e1
+- **Die Alarmspalte des Skripts zählt `ALARM latched`-ZEILEN**, also abgelehnte Entscheidungen
+  unter einem stehenden Latch — nicht Episoden. Der Champion sah darin mit 7 gegen 5 schlechter
+  aus, während seine Desync-Episoden von 15 auf 8 fielen. `scripts/compare_regression.py` stellt
+  beide nebeneinander; die Spalte im Skript bleibt, weil jede zitierte Zahl an ihr hängt.
+- **`11-59-12` zählt Nachlauf hinter der Referenz als „invented"** — eine Eigenheit der Aufnahme,
+  keine Erfindung der Engine.
 
-Der transiente Extrafeld faellt weg, das Urteil bleibt. Alles Uebrige sind Zeitmessungen und
-`obs-cache`-Treffer (der zweite Arm laeuft auf dem warmen Cache des ersten).
+## Was dieser Satz NICHT messen kann
 
-**Was das heisst und was nicht:** kein Phantom dazu, keins verloren — der Fix ist auf diesem Satz
-punktneutral. Er ist damit NICHT als Verbesserung belegt, sondern als unschaedlich. Der Satz
-enthaelt nur diesen einen Fall, in dem Kern und letzte Beobachtung auseinandergehen; wer die
-Wirkung messen will, braucht Material mit rotierenden Konflikten.
-
-## Zweiter A/B: der kubische Crop-Warp (`a99ff156`), 2026-09-14
-
-Punktgleich mit dem Referenzstand: 385 / 14 / 1 / 167 und 6 Alarme, Zeile fuer Zeile identisch.
-Logs: `tmp/batch/warp-cubic/`.
-
-**Und der Cache beweist, dass wirklich jeder Crop anders ist:** der Referenzlauf hatte 4 418
-Treffer bei 3 Fehlschlaegen, dieser **0 Treffer bei 4 421** — `tmp/obs-cache` ist nach Crop-Bytes
-gekeyt. Die 1 171 s statt 683 s sind dieser kalte Cache, keine langsamere Engine.
-
-**Was das heisst:** kein Crop ist mehr derselbe, und das Modell faellt trotzdem dieselben Urteile.
-Die Umstellung ist auf diesem Satz unschaedlich — und das Modell ist robuster gegen die
-Schaerfe-Domaene, als die Laplace-Zahl vermuten liesse. Es ist KEIN Beleg fuer einen Gewinn; der
-zeigt sich erst, wenn ein Modell auf kubisch geschnittenen Crops TRAINIERT wird
-(`docs/warp-resampling.md`).
-
-## Wie die Spalten zu lesen sind
-
-- **erfunden ist das Veto.** Ein Phantom disqualifiziert einen Kandidaten, verfehlte Zuege sind
-  verrechenbar. Der Referenzstand traegt genau eines, in `VID_20260802_222741`.
-- **jenseits ist kein Fehler.** Das ist, was das Video nach dem Ende des Labels noch gespielt hat;
-  `11-59-12` traegt damit konstruktionsbedingt 164 und `11-55-19` drei. Nur Phantome INNERHALB der
-  Referenz zaehlen gegen einen Lauf.
-- **Die beiden Aufnahmen mit Verlusten sind bekannt.** `VID_20260727_233929` verliert seine letzten
-  Plies, weil die Kamera zu frueh stoppt (`docs/recordings.md`), und `VID_20260802_222203` traegt
-  nur drei Referenz-Plies und misst deshalb fast nichts.
-- **Alarme sind eine Beobachtung, kein Urteil.** Der Alarm sperrt Erholung und Resync; wer an ihm
-  dreht, verschiebt beide. Sie stehen hier, damit eine Verschiebung auffaellt.
-
-## Zeiten sind nur bei ruhigem Rechner vergleichbar
-
-683 s gelten fuer zwei parallele JVMs auf einem sonst unbelasteten Rechner mit warmem Cache. Kalt
-dauert es deutlich laenger. Die Sekunden gehoeren zur Nachvollziehbarkeit, nicht zur Bewertung.
-
-## Zweiter A/B: das `coverage_gate` von 0,5 auf 0,25, 2026-09-14
-
-**Punktgleich, Aufnahme fuer Aufnahme: 385 / 14 / 1 / 167 und 6 Alarme in beiden Armen**
-(1 036 s gegen 1 098 s). Logs: `tmp/batch/gate050/` und `tmp/batch/gate025/`.
-
-Der Basis-Arm reproduziert den Stand oben Ziffer fuer Ziffer, obwohl der Baum seither vier
-Engine-Fixes (Stellungs-Scoping der Evidenz, `frameSeq`, die zwei Reset-Pfade) und den kubischen
-CROP-Warp traegt. Keiner davon bewegt den Satz — der Sicht-Latch-Fix war ausdruecklich als
-"am ehesten zeitverschiebend" gemeldet und ist es nicht.
-
-**Das Gate wirkt trotzdem nachweislich**, es entscheidet nur nichts anderes:
-
-| | Gate 0,5 | Gate 0,25 | Delta |
-|---|---|---|---|
-| verdeckte Zellen gesamt | 184 827 | 216 231 | **+17,0 %** |
-| Schnitt je Beobachtung | 4,49 | 5,26 | +0,76 |
-| Beobachtungen mit mindestens einer Flagge | 14 939 | 15 317 | +2,5 % |
-
-Ueber 41 136 Beobachtungen maskiert die schaerfere Schwelle **31 404 Zellen mehr** aus der
-Evidenz. Die Gitter-Maske des modellfreien Arms bleibt dabei unveraendert — die Differenz kommt
-ausschliesslich aus dem CNN-Arm, wie beabsichtigt. Ausserhalb der `occl=`-Zaehler unterscheiden
-sich die Logs nur in Zeitmessungen.
-
-**Was das heisst:** die zusaetzlich maskierten Zellen waren fuer keinen Commit entscheidend; die
-Verify-Leiter und das Settle-Gate trugen diese Frames ohnehin. Das Gate kauft hier keine
-Verbesserung, sondern Sicherheit gegen einen Fall, den dieser Satz nicht enthaelt — Reads, die zu
-28–70 % falsch sind und unter 0,5 als Evidenz zaehlen durften. Das eine Phantom in
-`VID_20260802_222741` bleibt und kommt damit NICHT aus einer verdeckten Zelle.
-
-**Nicht noch einmal messen.** Ein gemessenes Null ist ein Ergebnis; der Satz ist gegen die
-Schwelle unempfindlich. Wer die Wirkung des Gates sehen will, braucht Material mit Haenden ueber
-entscheidenden Feldern, nicht diesen Satz.
-
-**Und wie man es misst:** `withCoverageGateOf(spec)` laeuft NACH den `set:`-Overrides und
-ueberschreibt sie — `set:pOccludedThr=` ist wirkungslos. Der einzige Weg ist, das Asset selbst zu
-stempeln (`scripts/stage_model_asset.py --stamp`), zwei Laeufe zu fahren und zurueckzustempeln.
+24 verdeckte Frames auf 11 001 (0,2 %). Alle drei Hand- und Verdeckungswachen
+(`baselineOcclusion`, `gridHandGate`, `modelHandGate`) lassen sich abschalten, ohne dass sich eine
+Ziffer bewegt. Wer an ihnen arbeitet, misst hier nichts — `docs/wachen-ablation-2026-09-21.md`.
