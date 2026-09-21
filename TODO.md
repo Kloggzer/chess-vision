@@ -190,14 +190,16 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   in einem 220-dp-Container ist jeder Aktionsknopf ≥ 48 dp. Robolectric + `compose-ui-test`.
 - **Schema 5** (2026-09-04) setzt die Tracker-Knöpfe auf dem Handy einmal zurück; `boardSize` misst
   sich neu. Beim nächsten Start prüfen.
-- **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21). Beim Partiestart wählbar: EINE Seite darf Hilfe
-  anfordern, mit einem Kontingent (sein Beispiel: Schwarz drei Mal). Angefordert wird per SPRACHE,
-  der Tipp kommt von der Engine — „XYZ ist der beste Zug", „pass auf deinen Turm auf", und bei
-  vorhandenem Matt „du hast Matt in n". Boden wird gerade erhoben (was an Stockfish, Review und
-  Audio schon da ist); Entwurf danach. Offen und wichtig: wie viel der Tipp verrät (ein Zug ist
-  eine andere Partie als ein Warnhinweis), ob das Kontingent pro Partie oder pro Phase gilt, und
-  ob das Mikrofon neben der Kamera läuft — die Kamera hat in diesem Projekt genau EINEN Besitzer,
-  ein zweites Binding fror den Feed ein.
+- **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21). Entwurf liegt: `docs/tipps-auf-zuruf-entwurf.md`.
+  Kurz: Stockfish liegt als natives Binary im APK und rechnet besten Zug, SAN und Mattdistanz
+  bereits; `MateLineResolver` spielt die Mattlinie aus; Text-to-Speech ist **fertig** (Queue,
+  Audio-Fokus mit Ducking, de/en). Speech-to-Text gibt es **nirgends** — kein `RECORD_AUDIO`, kein
+  Ton ausser TTS. Drei Stufen: (1) Tipp auf Knopfdruck, gesprochen UND geschrieben — kostet fast
+  nichts, weil jede Rechnung schon laeuft; (2) Zuhoeren per Druck-zum-Sprechen, was Strom, Thermik
+  und Sich-selbst-Hoeren umgeht; (3) Warnhinweise („pass auf deinen Turm auf") als eigenes Feature,
+  denn Bedrohungserkennung existiert nicht. **Drei Entscheidungen beim Nutzer:** wie viel ein Tipp
+  verraet, ob das Kontingent pro Partie oder pro Phase gilt, und ob ein Tipp die Engine hochfahren
+  darf, wenn `gateBlock` sie wegen Hitze oder Akku gerade geopfert hat.
 
 ## Offene Fragen
 
