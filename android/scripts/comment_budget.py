@@ -18,10 +18,16 @@ SKIP = {"build", "bin", "third_party", ".gradle"}
 
 
 def blocks(path: Path) -> int:
-    """Runs of >= LIMIT consecutive comment lines. `//`, `/*` and KDoc continuations all count."""
-    found = run = 0
+    """Runs of >= LIMIT consecutive comment lines; `//`, `/*` and KDoc continuations count.
+
+    A line inside a raw string does NOT -- keep this in step with `commentBlocks` in
+    CommentBudgetTest.kt, or the ratchet and its regenerator disagree forever.
+    """
+    found = run = quotes = 0
     for line in path.read_text(encoding="utf-8").splitlines():
-        if line.lstrip().startswith(("//", "*", "/*")):
+        started = quotes % 2 == 1
+        quotes += line.count('"""')
+        if not started and line.lstrip().startswith(("//", "*", "/*")):
             run += 1
         else:
             found += run >= LIMIT

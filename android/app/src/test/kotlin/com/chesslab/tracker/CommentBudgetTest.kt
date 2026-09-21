@@ -52,21 +52,7 @@ class CommentBudgetTest {
             .associate { it.toRelativeString(ROOT).replace(File.separatorChar, '/') to blocks(it) }
             .filterValues { it > 0 }
 
-    /** Runs of consecutive comment lines. Line comments, block openers and KDoc bodies all count. */
-    private fun blocks(file: File): Int {
-        var found = 0
-        var run = 0
-        file.forEachLine { line ->
-            val text = line.trimStart()
-            if (text.startsWith("//") || text.startsWith("*") || text.startsWith("/*")) {
-                run++
-            } else {
-                if (run >= LIMIT) found++
-                run = 0
-            }
-        }
-        return found + if (run >= LIMIT) 1 else 0
-    }
+    private fun blocks(file: File): Int = commentBlocks(file.readText())
 
     private fun sources(): List<File> =
         ROOT
@@ -74,6 +60,28 @@ class CommentBudgetTest {
             .onEnter { it.name !in SKIP }
             .filter { it.extension == "kt" && it.path.replace(File.separatorChar, '/').contains("/src/") }
             .toList()
+}
+
+/**
+ * Laeufe aufeinanderfolgender Kommentarzeilen; Zeilen in einem rohen String zaehlen NICHT --
+ * `startsWith` allein las die als Kommentar (`CommentBudgetCounterCheckTest`).
+ */
+internal fun commentBlocks(text: String): Int {
+    var found = 0
+    var run = 0
+    var quotes = 0
+    for (line in text.lineSequence()) {
+        val started = quotes % 2 == 1
+        quotes += Regex("\"\"\"").findAll(line).count()
+        val body = line.trimStart()
+        if (!started && (body.startsWith("//") || body.startsWith("*") || body.startsWith("/*"))) {
+            run++
+        } else {
+            if (run >= LIMIT) found++
+            run = 0
+        }
+    }
+    return found + if (run >= LIMIT) 1 else 0
 }
 
 /** Keep in sync with `LIMIT` in `android/scripts/comment_budget.py`. */

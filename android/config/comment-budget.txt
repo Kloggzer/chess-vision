@@ -489,7 +489,6 @@ tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/FrameSizeGuardRequ
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/NoiseFloorRearmBudgetTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/NoiseFloorTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/PlaneRingTest.kt 1
-tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/RoiMotionGeometryTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/StageFuzzProfileTest.kt 2
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/StageTimingsTest.kt 2
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/record/BugHunt20260914bRecorderTest.kt 1

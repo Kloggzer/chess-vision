@@ -1543,3 +1543,20 @@ Episoden von 15 auf 8 fielen und drei Anker-Ausfaelle verschwanden.
 `scripts/optimise_knobs.py` zaehlt seit 2026-09-20 die Episode (`board desynced`). Die Spalte
 im Skript **nicht** umdefinieren: jede im Projekt zitierte Referenzzahl haengt an ihr. Eine
 zweite Spalte danebenstellen.
+
+## 33. Die Kommentar-Ratsche zaehlt Bloecke, nicht ihre Laenge (2026-09-21)
+
+`CommentBudgetTest.commentBlocks` und sein Python-Zwilling `android/scripts/comment_budget.py`
+zaehlen, WIE VIELE Laeufe von 5+ Kommentarzeilen eine Datei traegt. Ein bereits gebuchter Block
+darf damit von 5 auf 50 Zeilen wachsen, ohne dass sich eine Zahl bewegt — die Ratsche verspricht
+"no file gains a long comment block" und kann genau das nicht sehen.
+
+Der Python-Zwilling in `tests/test_comment_budget.py` macht es anders herum: er bucht die LAENGE
+des schlimmsten Blocks. Das ist die schaerfere Zahl, und sie ist auch die ehrlichere.
+
+Die Umstellung ist aber keine Zeile, sondern eine Migration: `config/comment-budget.txt` traegt
+heute Anzahlen, unter der Laengen-Regel werden daraus groessere Zahlen — und die Ratsche laesst
+Eintraege ausdruecklich nur SCHRUMPFEN. Ein Wechsel muss die Datei also einmal neu setzen und
+dabei die Regel fuer diesen einen Commit aussetzen. Bewusst nicht nebenbei gemacht;
+`CommentBudgetCounterCheckTest.einWachsenderBlockBleibtEineEins` haelt die Blindstelle bis dahin
+sichtbar fest, statt sie in Prosa zu verstecken.
