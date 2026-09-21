@@ -100,6 +100,17 @@ class StatusUiModelTest {
         assertFalse(trackingUiState(status(state = STATE_MOVING)).boardTinted)
     }
 
+    /** Ein Alarm schlaegt die Hand. Umgekehrt meldete der Kopf „Hand ueberm Brett", waehrend
+     *  die Engine jeden Zug sperrt — der einzige Kanal, der das sagt, sagte das Falsche. */
+    @Test
+    fun aLatchedAlarmOutranksAHandOverTheBoard() {
+        val alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)
+
+        val ui = trackingUiState(status(state = STATE_OCCLUDED, fps = 12.0, alarm = alarm))
+
+        assertEquals(TrackerLabel.POSITION_LOST, ui.state)
+    }
+
     @Test
     fun theInfoLineShowsWhatTheResolverAlreadyDecided() {
         // Changed 2026-08-01. This used to re-rank `stuckReason` above `status.note` — a SECOND

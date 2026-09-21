@@ -419,7 +419,7 @@ fun TextAction(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    TextButton(onClick = onClick, enabled = enabled, modifier = modifier) {
+    TextButton(onClick = onClick, enabled = enabled, modifier = modifier.heightIn(min = Touch.min)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,

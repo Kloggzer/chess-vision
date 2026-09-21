@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.ui.Figure
@@ -88,9 +89,17 @@ private fun KnobSlider(
     onValue: (Double) -> Unit,
 ) {
     val low = if (knob.isOptional) knob.min - knob.step else knob.min
+    // Waehrend des Ziehens nur lokal. `onValueChange` feuert je Compose-Frame, und jeder Wert war
+    // ein DataStore-Schreibvorgang UND ein `UpdateConfig` in der Aktions-Queue der Engine.
+    var dragged by remember(knob.key) { mutableStateOf<Float?>(null) }
     Slider(
-        value = (if (value.isNaN()) low else value).toFloat(),
-        onValueChange = { onValue(it.toDouble()) },
+        modifier = Modifier.testTag(KNOB_SLIDER_TAG),
+        value = dragged ?: (if (value.isNaN()) low else value).toFloat(),
+        onValueChange = { dragged = it },
+        onValueChangeFinished = {
+            dragged?.let { onValue(it.toDouble()) }
+            dragged = null
+        },
         valueRange = low.toFloat()..knob.max.toFloat(),
     )
 }
@@ -148,3 +157,6 @@ private val BYTE_SCALE_KEYS = setOf("motionPxThr", "darkLumaThr", "censusThr", "
 private val PERCENT_KEYS = setOf("motionMargin", "minGridLineCoverage", "cnnConfThr", "cnnMinAgreement")
 private val BOARD_SQUARE_KEYS = setOf("minConfidentBoard", "minConfidentRecovery")
 private val READING_KEYS = setOf("verifyWindow", "desyncObsN", "verifyObsVotes")
+
+/** Wie `EVAL_WHITE_TAG`: der Regler ist sonst nicht adressierbar (`KnobSliderThrottleTest`). */
+internal const val KNOB_SLIDER_TAG = "knobSlider"

@@ -138,11 +138,10 @@ class TrackerService :
 
     private val cameraRate = CameraRate()
 
-    /** Gelieferte Frames, nur fuer das einmalige Nachstimmen auf die echte Rate. */
-    private var deliveredFrames = 0L
+    private val rateRetune = RateRetune()
 
-    /** Der ROHE Stand, mit dem der laufende Stack gebaut wurde — Bezugspunkt fuer [liveConfig]. */
-    private var runStored: TrackerConfig? = null
+    /** Der ROHE Stand SAMT Bildrate, mit dem der laufende Stack gebaut wurde — siehe [liveConfig]. */
+    private var runSeed: RunSeed? = null
     private val timings = StageTimings(logLine = AndroidTrackerLog(PERF_TAG)::debug)
     private val cnnProbe = CnnRuntimeProbe()
 
@@ -157,7 +156,7 @@ class TrackerService :
     private val stacks =
         StackSwitch {
             val gridArm = gridArmFor(modelSpec)
-            runStored = settings.config.value
+            runSeed = RunSeed(settings.config.value, settings.appSettings.value.frameRate)
             TrackerStack(
                 TrackerSeed(
                     engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps),
@@ -325,6 +324,9 @@ class TrackerService :
             // Resume is only ever a tap in a visible app, so starting the FGS here is allowed.
             startForeground(NOTIFICATION_ID, notification.build("waiting", moves), ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
             camera.resume()
+            // `onCameraStopped` hat den EMA verworfen; ohne das bliebe `motionThr` fuer immer auf
+            // die eingestellte Rate geeicht statt auf die wirklich gelieferte.
+            rateRetune.rearm()
         } else {
             camera.stop()
             publisher.onCameraStopped()
@@ -395,8 +397,7 @@ class TrackerService :
         settings.submit = { stored ->
             // Der Bezug ist der Stand des LAUFS, nicht der gespeicherte: restart-pflichtige Felder
             // wirken sonst halb (`liveConfig`), und die Ableitungen sind nicht idempotent.
-            val run = runStored ?: stored
-            val cfg = liveConfig(run, stored, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps)
+            val cfg = liveConfig(runSeed, stored, settings.appSettings.value.frameRate, geometry, modelSpec, cameraRate.fps)
             stacks.current?.host?.submit(EngineAction.UpdateConfig(cfg))
         }
         camera =
@@ -411,8 +412,7 @@ class TrackerService :
                     publisher.onCameraFrame()
                     // `motionThr` ist ein Anteil gegen das VORHERIGE Bild und muss mit der
                     // ECHTEN Periode skalieren, nicht der eingestellten (gemessen 7,5 statt 15).
-                    deliveredFrames += 1
-                    if (retuneDue(deliveredFrames, settings.appSettings.value.frameRate, cameraRate.fps)) {
+                    if (rateRetune.onFrame(settings.appSettings.value.frameRate, cameraRate.fps)) {
                         settings.submit(settings.config.value)
                     }
                     // Dropped, not queued, while a restart swaps the stack: `StackSwitch` detaches
@@ -588,6 +588,8 @@ class TrackerService :
      */
     private fun swapStack() =
         camera.runOnAnalyzer {
+            // Ein Neustart darf eine ANDERE eingestellte Rate tragen — der Abgleich gehoert zum Lauf.
+            rateRetune.rearm()
             stacks.restart()
             stacks.current?.let { stack ->
                 stack.cropTap.enabled = debugOn
@@ -775,18 +777,48 @@ internal fun engineConfig(
         .copy(taintIdentityThr = TAINT_IDENTITY_THR)
         .atFrameRate(effectiveFrameRate(rate, deliveredFps))
 
-/**
- * Was eine LAUFENDE Engine annehmen darf: die Konfiguration des Laufs mit den zwoelf live
- * erlaubten Knoepfen darueber. Gemessen aus dem ROHEN Stand, nie aus einem schon abgeleiteten.
- */
+/** Der Stand, mit dem der laufende Stapel gebaut wurde. Die BILDRATE gehoert dazu: sie ist
+ *  restart-pflichtig und skaliert `motionThr` ueber `atFrameRate`. */
+internal data class RunSeed(
+    val config: TrackerConfig,
+    val rate: FrameRateMode,
+)
+
+/** Was eine LAUFENDE Engine annehmen darf: der Stand des Laufs mit den zwoelf Live-Knoepfen
+ *  darueber. Die Rate kommt aus [run], nicht aus [storedRate] — sonst verschob eine umgestellte,
+ *  aber nicht neu gestartete Bildrate `motionThr` auf eine Rate, die die Kamera nicht liefert. */
 internal fun liveConfig(
-    runStored: TrackerConfig,
+    run: RunSeed?,
     stored: TrackerConfig,
+    storedRate: FrameRateMode,
     geometry: BoardGeometry,
     spec: ModelSpec?,
-    rate: FrameRateMode,
     deliveredFps: Double? = null,
-): TrackerConfig = engineConfig(runStored.withLiveKnobsOf(stored), geometry, spec, rate, deliveredFps)
+): TrackerConfig {
+    val seed = run ?: RunSeed(stored, storedRate)
+    return engineConfig(seed.config.withLiveKnobsOf(stored), geometry, spec, seed.rate, deliveredFps)
+}
+
+/** Der Abgleich auf die WIRKLICH gelieferte Rate, je Lauf einmal — `CameraRate` faellt beim
+ *  Anhalten der Kamera auf 0 zurueck, und ein Neustart baut mit einer anderen eingestellten
+ *  Rate (gemessen 7,5 statt 15). */
+internal class RateRetune {
+    // Der Analyzer zaehlt, der Kamera-Schalter bewaffnet neu — zwei Threads auf derselben Zahl.
+    @Volatile
+    private var frames = 0L
+
+    fun onFrame(
+        rate: FrameRateMode,
+        delivered: Double,
+    ): Boolean {
+        frames += 1
+        return retuneDue(frames, rate, delivered)
+    }
+
+    fun rearm() {
+        frames = 0L
+    }
+}
 
 // Gemessen 2026-09-19: ohne das galt `Rxc8` als Hand und kostete 19,5 s. 0,5 loest es, 0,7 nicht
 // mehr. Hier und nicht in `TrackerConfig`, weil die Vorgabe dort jede Python-Paritaet umwirft.

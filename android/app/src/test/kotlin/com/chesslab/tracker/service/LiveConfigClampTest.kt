@@ -25,7 +25,7 @@ class LiveConfigClampTest {
         val run = TrackerConfig(boardSize = 928, cnnVerify = true, verifyWindow = 4)
         val stored = run.copy(cnnVerify = false, verifyWindow = 9)
 
-        val out = liveConfig(run, stored, geometry, null, FrameRateMode.FPS30)
+        val out = liveConfig(RunSeed(run, FrameRateMode.FPS30), stored, FrameRateMode.FPS30, geometry, null)
 
         assertTrue("der Beobachter laeuft weiter — die Engine darf nicht schon diff-only sein", out.cnnVerify)
         assertEquals("auch der Confirmer wird einmal beim Stackbau gebaut", 4, out.verifyWindow)
@@ -36,7 +36,7 @@ class LiveConfigClampTest {
         val run = TrackerConfig(boardSize = 928, motionThr = 0.25, diffClaheClip = 2.0)
         val stored = run.copy(motionThr = 0.40, diffClaheClip = 3.5)
 
-        val out = liveConfig(run, stored, geometry, null, FrameRateMode.FPS30)
+        val out = liveConfig(RunSeed(run, FrameRateMode.FPS30), stored, FrameRateMode.FPS30, geometry, null)
 
         assertEquals(0.40, out.motionThr, 1e-9)
         assertEquals(3.5, out.diffClaheClip, 1e-9)
@@ -48,7 +48,7 @@ class LiveConfigClampTest {
         // die Ebene wechselt live mit, und `FrameLoop` weist eine Ebene ab, die den Boxen widerspricht.
         val run = TrackerConfig(boardSize = 800)
 
-        val out = liveConfig(run, run, BoardGeometry(boardSize = 928), null, FrameRateMode.FPS30)
+        val out = liveConfig(RunSeed(run, FrameRateMode.FPS30), run, FrameRateMode.FPS30, BoardGeometry(boardSize = 928), null)
 
         assertEquals(928, out.boardSize)
     }
@@ -57,7 +57,7 @@ class LiveConfigClampTest {
     fun `the frame-rate correction is applied once, not on top of itself`() {
         val run = TrackerConfig(boardSize = 928, motionThr = 0.25)
 
-        val out = liveConfig(run, run, geometry, null, FrameRateMode.FPS15)
+        val out = liveConfig(RunSeed(run, FrameRateMode.FPS15), run, FrameRateMode.FPS15, geometry, null)
 
         assertEquals("halbe Rate heisst doppelt, nicht vierfach", 0.5, out.motionThr, 1e-9)
     }

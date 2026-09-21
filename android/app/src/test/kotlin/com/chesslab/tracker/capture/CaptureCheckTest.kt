@@ -43,6 +43,15 @@ class CaptureCheckTest {
         assertEquals(Check.UNSURE, got.getValue("c8"))
     }
 
+    /** Ein unsicherer Read, dessen Klasse zufaellig stimmt, ist trotzdem keine Bestaetigung:
+     *  die Reihenfolge der beiden Zweige entscheidet das, und nichts hielt sie fest. */
+    @Test
+    fun anUnconfidentReadThatHappensToMatchIsStillNoConfirmation() {
+        val got = checkPlacement(listOf(target("c8", "wQ")), listOf(read("c8", "wQ", conf = 0.3, confident = false)))
+
+        assertEquals(Check.UNSURE, got.getValue("c8"))
+    }
+
     @Test
     fun withoutReadsNothingIsClaimed() {
         val got = checkPlacement(listOf(target("c8", "wQ")), emptyList())

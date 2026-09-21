@@ -36,6 +36,18 @@ class CaptureProfileTest {
     }
 
     @Test
+    fun `a rate that ran free is not as asked`() {
+        // Kein gepinnter AE-Bereich heisst, die Automatik durfte die Periode strecken — genau der
+        // stille Rueckfall, den diese Zeile rot faerben soll.
+        assertFalse(observed(DeliveredSize(3840, 2160, 0)).copy(aeFpsRange = null).asAsked)
+    }
+
+    @Test
+    fun `the game path's bit rate is not as asked`() {
+        assertFalse(observed(DeliveredSize(3840, 2160, 0)).copy(bitRate = requested.bitRate / 2).asAsked)
+    }
+
+    @Test
     fun `nothing delivered is never as asked`() {
         assertFalse(observed(null).asAsked)
     }

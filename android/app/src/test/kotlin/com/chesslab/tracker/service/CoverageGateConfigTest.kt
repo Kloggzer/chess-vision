@@ -1,6 +1,7 @@
 package com.chesslab.tracker.service
 
 import android.app.Application
+import com.chesslab.cnn.calibratedConfThr
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.cnn.modelConfigJson
@@ -54,6 +55,19 @@ class CoverageGateConfigTest {
         assertEquals("pOccludedThr should remain at default 0.5", 0.5, result.pOccludedThr, 0.01)
     }
 
+    /** Die Huerde reist durch die Temperatur (`calibratedConfThr`): alle sieben Modelle sind
+     *  ueberkonfident, also forderte `cnnConfThr = 0.85` real 48 bis 70 %. */
+    @Test
+    fun withCoverageGateOfTranslatesTheConfidenceHurdleThroughTheTemperature() {
+        val spec = ModelSpec.parse(modelConfigJson(coverageGate = 0.25, extra = TEMPERED))
+        val config = TrackerConfig(cnnConfThr = 0.85)
+
+        val result = config.withCoverageGateOf(spec) { }
+
+        assertEquals(calibratedConfThr(0.85, spec.temperature, spec.classes.size), result.cnnConfThr, 1e-12)
+        assertTrue("eine ueberkonfidente Temperatur senkt die Huerde", result.cnnConfThr < 0.85)
+    }
+
     /**
      * Ohne die Spalte ist `pOccluded` immer 0,0 — eine Schwelle dagegen zu ziehen bewegt eine
      * Zahl, gegen die nie etwas verglichen wird, und schaltet still den modellfreien Arm scharf.
@@ -67,3 +81,6 @@ class CoverageGateConfigTest {
         assertEquals("a gate without coverage_output gattert gegen 0,0", 0.5, result.pOccludedThr, 0.01)
     }
 }
+
+/** Gemessen 1,26-1,76 ueber die sieben ausgelieferten Modelle. */
+private const val TEMPERED = ""","temperature": 1.5"""
