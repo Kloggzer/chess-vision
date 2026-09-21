@@ -59,9 +59,6 @@ def test_donor_pack_size_still_reads_out_size_for_a_file_backed_donor(tmp_path):
     assert _donor_pack_size(paths.datasets / "donor-files", paths) == (128, 128)
 
 
-@pytest.mark.xfail(strict=True, reason="Verweigern statt Vorgaben zu erben aendert Verhalten: "
-                                       "bestehende `--like`-Aufrufe auf alten Spendern brechen "
-                                       "dann laut ab. Fund benannt, Fix nicht gebaut.")
 def test_like_refuses_a_donor_that_cannot_state_its_policy(tmp_path):
     """Ein Spender ohne `split:`/`dedup:` liefert ueberall `None`.
 
@@ -74,18 +71,20 @@ def test_like_refuses_a_donor_that_cannot_state_its_policy(tmp_path):
     _dataset(paths, "legacy", [{"path": "x", "label": "empty", "out_size": [80, 80]}],
              {"name": "legacy", "rotations": [0]})
 
-    with pytest.raises(ValueError, match="seed|policy|Politik"):
+    with pytest.raises(ValueError, match="dedup|split"):
         _donor_policy("legacy", paths)
 
 
-def test_a_legacy_donor_hands_back_an_unusable_seed_today(tmp_path):
-    """Die Gegenprobe zum xfail darueber — so sieht der Fund heute aus."""
+def test_a_donor_that_states_its_policy_still_hands_it_over(tmp_path):
+    """Die Gegenprobe: nur der SPRACHLOSE Spender wird verweigert, ein vollstaendiger nicht."""
     paths = config.Paths(root=tmp_path)
     _dataset(paths, "legacy2", [{"path": "x", "label": "empty", "out_size": [80, 80]}],
-             {"name": "legacy2", "rotations": [0]})
+             {"name": "legacy2", "rotations": [0],
+              "dedup": {"per_cell_cap": 256, "phash_enabled": False, "phash_hamming": 6},
+              "split": {"val_frac": 0.15, "test_frac": 0.15, "seed": 7}})
 
     pol = _donor_policy("legacy2", paths)
-    assert pol["seed"] is None and pol["per_cell_cap"] is None
+    assert (pol["seed"], pol["per_cell_cap"]) == (7, 256)
 
 
 def test_started_at_compares_the_two_writers_on_one_clock():

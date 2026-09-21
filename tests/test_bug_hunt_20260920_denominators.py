@@ -40,6 +40,11 @@ def test_matte_audit_nennt_nur_die_geprueften_matten(tmp_path, monkeypatch, caps
     for f in ("f1", "f2"):
         (rec / "boards").mkdir(parents=True, exist_ok=True)
         (rec / "boards" / f"{f}.webp").write_bytes(b"")
+    # Die Zellmasse stehen in der Log-Zeile, nicht in der Bildform: `gray.shape[0]` ist 952 bei
+    # `board_size` 928, und ohne die zwei Zahlen rastert der Sensor mit 119 statt 116 px.
+    _write(rec / "log.jsonl",
+           [{"frame": f"{f}.jpg", "board": f"boards/{f}.webp", "board_size": 928,
+             "board_border": 12} for f in ("f1", "f2", "f3")])
 
     seen = iter([{"e4"}, set()])
     monkeypatch.setattr(matte_audit, "cv2", _FakeCv2())

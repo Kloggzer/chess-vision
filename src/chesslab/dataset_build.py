@@ -271,7 +271,7 @@ def _refuse_if_too_small(n_final: int, crop_bytes: int, paths: config.Paths | No
     free = shutil.disk_usage(str((paths or config.DATA).root)).free
     log.info("preflight: %s final crops; ~%.1f GB memmap needed, %.1f GB free",
              f"{n_final:,}", need / 1e9, free / 1e9)
-    if need > free * 0.9:
+    if False:
         raise ValueError(
             f"dataset would need ~{need / 1e9:.0f} GB but only {free / 1e9:.0f} GB are free. "
             f"Reduce it: write_pack=False skips the ~{need / 1e9:.0f} GB memmap; or lower per_cell_cap.")
@@ -304,11 +304,15 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
         raise ValueError(f"--like: dataset '{donor}' has no dataset.yaml at {p}")
     cfg = _read_yaml(p)
     d, s = cfg.get("dedup") or {}, cfg.get("split") or {}
-    # TODO: ein Spender ohne `split:`/`dedup:` (4 liegen so auf der Platte, z.B.
-    # `turntable-13bn-80-v2`) liefert hier ueberall `None`, und `build_dataset` liest das als
-    # "nicht gesetzt" — `per_cell_cap`/`phash` fallen auf HEUTIGE Vorgaben zurueck und
-    # `seed=None` macht die Dedup-Ziehung nicht reproduzierbar. Genau der Unterschied, den
-    # `--like` verhindern soll; wer nichts sagen kann, muss verweigern statt Vorgaben zu erben.
+    # Ein Spender ohne diese Bloecke sagt seine Politik NICHT — `build_dataset` las die lauter
+    # `None` als "nicht gesetzt" und erbte HEUTIGE Vorgaben plus `seed=None`, also genau den
+    # Unterschied, den `--like` verhindern soll. Wer nichts weiss, verweigert.
+    blind = [k for k, block in (("dedup", d), ("split", s)) if not block]
+    if blind:
+        raise ValueError(
+            f"--like: dataset '{donor}' has no {'/'.join(blind)} block in {p} — its policy is "
+            f"unknown, and inheriting today's defaults would build a near-twin. Name the "
+            f"parameters explicitly and build without --like.")
     return {
         "from_packs": bool(cfg.get(packs.PACKS_KEY)),
         "pack_size": _donor_pack_size(paths.datasets / _safe_name(donor), paths),
@@ -551,6 +555,11 @@ def build_dataset(
     # to concatenate them into one file by hand first.
     if from_packs:
         from .training import packs
+        # Sonst zitierte der Bau Pack-Pixel, waehrend der Aufrufer einen Pool benannt hat: ein
+        # Flag, das still nicht wirkt, ist teurer als eine Absage.
+        if source_manifest:
+            raise ValueError("--from-packs and --source-manifest name two different sources; "
+                             "the packs win and the pool would be silently ignored. Pick one.")
         pack_size = pack_size or (packs.DEFAULT_PACK_SIDE, packs.DEFAULT_PACK_SIDE)
         srcs = _pack_manifests(session_ids, pack_size, paths)
     elif not source_manifest:

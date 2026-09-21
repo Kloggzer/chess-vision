@@ -127,12 +127,18 @@ def acquire(lock: Path, job: str, name: str) -> dict | None:
                           **({"boot": boot.isoformat()} if boot else {}),
                           **({"uptime": round(up, 1)} if up is not None else {})}, indent=2)
     # Ein Lock, das VOR unserem Versuch schon dalag, ist tot (`held_by` sagte frei) und darf weg;
-    # eines, das WAEHREND des Versuchs entsteht, gehoert einem Mitbewerber — Pruefen-dann-Schreiben
-    # liess sonst beide gewinnen.
-    _break_stale(lock, observed)
-    if _claim(lock, payload):
-        return None
-    return held_by(lock) or _read_lock(lock) or {"job": job, "name": name}
+    # eines, das WAEHREND des Versuchs entsteht, gehoert einem Mitbewerber.
+    # Zweimal, weil ein gescheiterter `_claim` nur heisst "die Datei lag JETZT da": verschwindet
+    # sie gleich darauf, meldete der Rueckfall unten den EIGENEN Auftrag als Halter.
+    for _ in range(2):
+        _break_stale(lock, observed)
+        if _claim(lock, payload):
+            return None
+        info = held_by(lock) or _read_lock(lock)
+        if info is not None:
+            return info
+        observed = _raw(lock)
+    return {"job": job, "name": name}
 
 
 def _read_lock(lock: Path) -> dict | None:

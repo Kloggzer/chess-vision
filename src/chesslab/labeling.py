@@ -385,9 +385,11 @@ def read_unusable_cells(session_dir: Path) -> set[tuple[str, str, str]]:
 
 
 def clean_frames(session_dir: Path) -> set[str]:
-    """Die Stems, deren Coverage GEMESSEN null ist: kein `dirty_reason` im Log und keine
-    Matte-Zeile. Der Hand-Gate hat dort nichts gefunden, `boards/` ist sein sauberer Stapel —
-    das ist eine Aussage, waehrend SAMs Absage (Zeile ohne `coverage`) eine Luecke ist.
+    """Die Stems, deren Coverage GEMESSEN null ist: nichts im Log nennt den Frame schmutzig und
+    keine Matte-Zeile steht dazu. Der Hand-Gate hat dort nichts gefunden, `boards/` ist sein
+    sauberer Stapel — das ist eine Aussage, waehrend SAMs Absage (Zeile ohne `coverage`) eine
+    Luecke ist. Geprueft wird DIESELBE Menge wie in `iter_session_crops`: `dirty` und ein
+    geliehenes Mesh (`carried`, zu 94,5 % eine Hand) sind kein gemessenes Null.
     """
     from .ioutil import read_jsonl
 
@@ -397,7 +399,8 @@ def clean_frames(session_dir: Path) -> set[str]:
     hat_zeile = {str(row.get("frame"))
                  for row in read_jsonl(Path(session_dir) / "matte.jsonl")}
     return {Path(str(row.get("frame"))).stem for row in read_jsonl(log)
-            if not row.get("dirty_reason")
+            if not row.get("dirty_reason") and not row.get("dirty")
+            and row.get("grid_lines_source") != "carried"
             and Path(str(row.get("frame"))).stem not in hat_zeile}
 
 

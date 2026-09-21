@@ -20,8 +20,8 @@ import cv2
 
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import read_log, usable_board
-from chesslab.sessions import _profile_for_session, read_session_meta
+from chesslab.labeling import _profile_for_session, read_session_meta, usable_board
+from chesslab.sessions import read_log
 
 
 def board_path(rec: Path, frame: str) -> Path | None:
@@ -42,7 +42,7 @@ def main() -> int:
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    found = checked = noboard = 0
+    found = checked = noboard = nogeometry = 0
     # `open("w")` KUERZT den veroeffentlichten Bericht sofort beim Start; ein abgebrochener
     # Lauf liess ihn halb da, und `matte_audit_montage.py` liest ihn mit `json.loads` je Zeile.
     tmp = out.with_name(out.name + ".tmp")
@@ -59,12 +59,24 @@ def main() -> int:
             # Das Brett traegt seinen Rand MIT: `gray.shape[0]` ist 952 bei `board_size` 928.
             # Ohne die zwei Zahlen aus der Log-Zeile rastert der Sensor mit 119 statt 116 px und
             # benennt Felder bis zu einer Viertelzelle daneben (gefunden 2026-09-21).
-            profile = _profile_for_session(read_session_meta(rec), None)
-            log = {pathlib.Path(x["frame"]).stem: x for x in read_log(rec)}
+            # Der Fehler waren die ZELLMASSE, und die stehen in der Log-Zeile. Das Profil dient
+            # nur `usable_board` und der Seite; fehlt es, laeuft die Pruefung ohne beides weiter
+            # statt auszufallen -- so war es vorher auch, und es wird gezaehlt.
+            profile = None
+            try:
+                profile = _profile_for_session(read_session_meta(rec), None)
+            except (FileNotFoundError, KeyError, ValueError):
+                nogeometry += 1
+            try:
+                log = {pathlib.Path(x["frame"]).stem: x for x in read_log(rec)}
+            except FileNotFoundError:
+                # Ohne Log gibt es die Zellmasse nicht. Das ist NICHT gemessen, nicht sauber.
+                nogeometry += 1
+                continue
             hits = seen = 0
             for r in blind:
                 entry = log.get(r["frame"])
-                if entry is None or not usable_board(entry, profile):
+                if entry is None or (profile is not None and not usable_board(entry, profile)):
                     noboard += 1
                     continue
                 p = board_path(rec, r["frame"])
@@ -76,7 +88,7 @@ def main() -> int:
                 gray = cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2GRAY)
                 squares = sorted(hand_squares(missing_edges(
                     gray, board_size=entry["board_size"], pad=entry["board_border"],
-                    white_pov=profile.white_pov,
+                    **({"white_pov": profile.white_pov} if profile is not None else {}),
                 )))
                 checked += 1
                 seen += 1
@@ -93,10 +105,12 @@ def main() -> int:
     os.replace(tmp, out)
     if not checked:
         # "0 von 0" las sich wie ein Ergebnis. Nichts gemessen ist kein Befund.
-        print(f"\nkeine blinde Matte geprueft (ohne Brett: {noboard}) — nichts gemessen -> {out}")
+        print(f"\nkeine blinde Matte geprueft (ohne Brett: {noboard}, ohne Profil: "
+              f"{nogeometry}) — nichts gemessen -> {out}")
         return 1
     print(f"\n{found} von {checked} blinden Matten werden vom Rillen-Sensor widersprochen"
-          + (f" ({noboard} ohne Brett uebersprungen)" if noboard else "") + f" -> {out}")
+          + (f" ({noboard} ohne Brett uebersprungen)" if noboard else "")
+          + (f" ({nogeometry} ohne Profil, Seite ungeprueft)" if nogeometry else "") + f" -> {out}")
     return 0
 
 

@@ -1642,12 +1642,15 @@ def occluders_status(
     from .sessions import all_sessions
 
     names = [name] if name else [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
-    gaps = other = orphans = 0
+    gaps = other = orphans = failed = 0
     for n in names:
         try:
             res = matte_mod.matte_status(n)
         except Exception as exc:  # noqa: BLE001
-            print(f"[--] {n}: {exc}")
+            # Laut und im Exit-Code: ungezaehlt ist nicht null, und die Summe darunter las eine
+            # unlesbare Aufnahme bisher als "keine Luecken" (wie `recut-coverage` es nicht tut).
+            print(f"[FAIL] {n}: {exc}")
+            failed += 1
             continue
         gaps += len(res["missing"])
         other += len(res["missing_other"])
@@ -1657,7 +1660,9 @@ def occluders_status(
             print(f"[!!] {n}: {res['matted']}/{res['dirty']} gemattet, "
                   f"{len(res['missing'])} fehlen{rest}, {len(res['orphans'])} Waisen")
     tail = f", {other} nur mit --reason all" if other else ""
-    print(f"[OK] {len(names)} Aufnahmen: {gaps} fehlende Matten{tail}, {orphans} Waisen")
+    print(f"[{'!!' if failed else 'OK'}] {len(names) - failed} von {len(names)} Aufnahmen "
+          f"gemessen: {gaps} fehlende Matten{tail}, {orphans} Waisen")
+    _exit_on_bulk_failures(failed)
 
 
 @occluders_app.command("alpha-worker")
