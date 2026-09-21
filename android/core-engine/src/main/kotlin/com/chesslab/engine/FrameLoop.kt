@@ -149,7 +149,10 @@ internal class FrameLoop(
             state.note = NOTE_WAITING_CLEAR
             return
         }
-        if (ref != null && (state.state == STATE_MOVING || state.occlGridActive)) {
+        // AUS heisst: kein Nachschub fuer die Verdeckungs-Fristen und kein Schattenveto. Die
+        // Fristen laufen danach von selbst ab, der Rest der Schleife bleibt unberuehrt.
+        if (!cfg.baselineOcclusion) state.shadowVetoed = 0L
+        if (cfg.baselineOcclusion && ref != null && (state.state == STATE_MOVING || state.occlGridActive)) {
             val result =
                 state.baselineScratch.baselineOcclusionAndShadow(
                     input.grayDet,

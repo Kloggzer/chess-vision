@@ -76,6 +76,9 @@ data class TrackerConfig(
     // alternation (every 2nd frame). 333 → 267 ms median at 15 fps, no score change on 12 recordings.
     val verifyObserveNow: Boolean = true,
     val occlusionColorThr: Double = 3.0,
+    /** Der engine-eigene Verdeckungs- UND Schattenarm. AUS laesst nur den Modell-Kopf uebrig --
+     *  zum Messen, was er allein traegt (`docs/baseline-occlusion-off.md`). */
+    val baselineOcclusion: Boolean = true,
     val minGridLineCoverage: Double = 0.5,
     val diffClaheClip: Double = 2.0,
     val requireMotionForMove: Boolean = true,

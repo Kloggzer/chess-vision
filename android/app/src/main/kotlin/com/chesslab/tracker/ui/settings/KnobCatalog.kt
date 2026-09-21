@@ -63,6 +63,12 @@ val NOT_A_SETTING: Map<String, String> =
             "because the diff channel alone has demonstrably stopped making progress. Measured 2026-08-24, a " +
             "player moved while in check and the tracker refused the same Kf1 seventy times in nine seconds " +
             "without one whole-board read, so the illegal-move alarm could never fire.",
+        "baselineOcclusion" to
+            "A measuring switch, not a preference: OFF removes the engine's OWN occlusion and shadow arms and " +
+            "leaves only the model's coverage head, to find out what that head carries alone. Nobody should " +
+            "ship with it off — the two arms are independent evidence, and the shipped coverage head is a " +
+            "per-CELL regression (F1 0.958) that misses more than half of the FRAMES a human would call " +
+            "occluded (`docs/occlusion-gate.md`).",
         "pOccludedThr" to
             "Measured, not chosen: the coverage above which a square stops counting as a witness follows from " +
             "the MODEL's accuracy there, so each model brings its own as `coverage_gate` and the app applies " +

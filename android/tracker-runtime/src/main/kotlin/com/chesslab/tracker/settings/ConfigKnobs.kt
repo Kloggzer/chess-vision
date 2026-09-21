@@ -93,6 +93,12 @@ val KNOBS: List<Knob> =
         Knob("minConfidentBoard", INT, { it.minConfidentBoard.toDouble() }, { c, v -> c.copy(minConfidentBoard = v.toInt()) }),
         Knob("minConfidentRecovery", INT, { it.minConfidentRecovery.toDouble() }, { c, v -> c.copy(minConfidentRecovery = v.toInt()) }),
         Knob("cnnColorAxis", BOOL, { if (it.cnnColorAxis) 1.0 else 0.0 }, { c, v -> c.copy(cnnColorAxis = v != 0.0) }),
+        Knob(
+            "baselineOcclusion",
+            BOOL,
+            { bool(it.baselineOcclusion) },
+            { c, v -> c.copy(baselineOcclusion = v != 0.0) },
+        ),
         Knob("motionMargin", DOUBLE, { it.motionMargin }, { c, v -> c.copy(motionMargin = v) }),
         Knob("overhang", DOUBLE, { it.overhang }, { c, v -> c.copy(overhang = v) }),
         Knob("alignEvery", INT, { it.alignEvery.toDouble() }, { c, v -> c.copy(alignEvery = v.toInt()) }),
