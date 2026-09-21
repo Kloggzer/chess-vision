@@ -36,8 +36,14 @@
   `p4a-80-clahe` the `DEFAULT_MODEL`. All seven declare `coverage_output` — 13 class logits plus an
   INDEPENDENT coverage sigmoid in column 13 (`Observations.kt`, `Preprocess.kt`). Where it is
   declared, `TrackerService` switches the model-free arm OFF
-  (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both. The two arms have
-  never been measured against each other (`docs/class-scheme.md`).
+  (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both.
+  **Measured 2026-09-21** (`docs/baseline-occlusion-off.md`): with BOTH engine arms off the
+  regression set comes out digit for digit identical (396/3/0, 8 desyncs), so that set cannot
+  judge this axis at all — it carries 24 occluded frames out of 11 001, while the two 2026-09-19
+  recordings carry 875 of 988. Where both arms do run, their agreement rides on `motionPxThr`
+  (the baseline threshold is `motionPxThr × 4`): 73,8 % at 20, but **26,5 % under the promoted
+  champion's 34,544**, whose veto also fires on 68,7 % fewer frames. "The CNN caught it" is NOT
+  what the identical run shows — it shows nothing was at stake in this material.
   **The threshold rides in the model, not the engine, and all seven now carry a MEASURED one
   (2026-09-14):** `coverage_gate` in the model's `config.json`, read by `ModelSpec`, applied onto
   `TrackerConfig.pOccludedThr`. Measured on the 12 recordings all seven held out, 104 337 piece
