@@ -13,7 +13,7 @@
   temporal-pass`, between `matte` and `model-read`. SAM is the base; the sensor only ADOPTS frames
   SAM never cut (SAM then re-cuts them) and UPSERTS whole frames where SAM found nothing — never a
   cell-level merge (user, 2026-09-11). `docs/sensor-audit.md`.
-- **Board store (2026-08-17):** a session keeps `boards/*.webp` (the rectified frame under its own quad), not source frames — 96 GB → 4.5 GB. It is the raster BOTH `crop_square` and `/api/cell` cut from. The row carries `board_size`/`board_border`; a reader that assumes its own scale cuts up to 59 px off. The board is written STRAIGHT (`realgames.straighten_boards`, 2026-08-21) and the row says so with `board_straightened`; every cut afterwards is a plain rectangle. A hand over the grooves makes a frame's own mesh worse than none (15.6 px against 16.1 raw), so a hand frame borrows the five nearest CLEAN frames' meshes — the camera does not move. Never straighten a second time.
+- **Board store (2026-08-17):** a session keeps `boards/*.webp` (the rectified frame under its own quad), not source frames — 96 GB → 4.5 GB. It is the raster BOTH `crop_square` and `/api/cell` cut from. The row carries `board_size`/`board_border`; a reader that assumes its own scale cuts up to 59 px off. The board is written STRAIGHT (`realgames.straighten_boards`, 2026-08-21) and the row says so with `board_straightened`; every cut afterwards is a plain rectangle. A hand over the grooves makes a frame's own mesh worse than none (15.6 px against 16.1 raw), so `meshes_for_boards` pools ONE per-line median mesh over every frame with `grid_lines` and without `hand_seen`, and hands the same mesh to all of them — the camera does not move. (There is no five-neighbour borrowing; that wording described a design that was never built.) Never straighten a second time.
 - **Calibration:**
     - optics: measured by `:desktop undistort` into `lens.json`, NOT in the pipeline — see below.
     - `calibrate`: Board geometry (ArUco + Grid-Fit). ArUco is only "Coarse"; Grid provides accuracy. Markerless Cold Start is **not** supported.
@@ -61,7 +61,7 @@
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** per-session crop counts via `manifest_cache.py` (mtime-keyed); its web callers went with the FastAPI layer.
-- **Comments:** Target is **3 lines**. Up to **5** when it genuinely does not fit — 5 will be enforced soon. Comments say *why*, never what the code already says. Longer prose belongs in `docs/` with a one-line pointer. **Default is NO comment**: a small function (handler, wrapper, one-purpose helper) whose name plus imports tell the story gets none, and a comment longer than its function is wrong — delete it, don't trim it (User, 2026-08-15: "der kommentar ist länger als die funktion und sagt genau nichts").
+- **Comments:** Target is **3 lines**, and the limit is enforced in all three languages since 2026-09-15. **The three guards are off by one and it matters:** Kotlin fails at `run >= LIMIT`, so a block of exactly 5 is already a violation; TS and Python fail at `worst > LIMIT`, so 5 passes and 6 fails. Same constant, different threshold — write for the Kotlin rule and you are safe everywhere. Comments say *why*, never what the code already says. Longer prose belongs in `docs/` with a one-line pointer. **Default is NO comment**: a small function (handler, wrapper, one-purpose helper) whose name plus imports tell the story gets none, and a comment longer than its function is wrong — delete it, don't trim it (User, 2026-08-15: "der kommentar ist länger als die funktion und sagt genau nichts").
 
 ## Known Pitfalls (Critical)
 
@@ -123,6 +123,11 @@
   `metrics.jsonl`, und Quervergleiche laufen über `chesslab eval --dataset <gemeinsamer>`.
   Aus demselben Grund kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
   2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
+  **Deckungsgleich mit dem Verlust sind sie trotzdem nicht (gemessen 2026-09-21):** `train.py`
+  zaehlt ueber `coverage <= PIECE_VISIBLE_MAX`, `OcclusionLoss` maskiert ZUSAETZLICH auf
+  `brightness < CELL_DARK_MIN` (25,0). Das sind 1,83 % weitere Zeilen, groesster Einzelfehler
+  2,80 % (bN, alle schwarzen Klassen unterbewertet), Spreizung 11,58x -> 11,43x. Unter dem
+  8-%-Anker, also kein eigener Rezeptschnitt wert — `docs/klassengewichte-2026-09-21.md`.
 - **Die 0,15 ist gegen den RILLEN-Sensor geeicht, nicht gegen das Bild (gemessen 2026-09-16).**
   Erstmals gemessen (val+test, 84 608 Zellen), ab wann das Modell die Figur wirklich nicht mehr
   liest: im Band 0,15-0,25 noch **74 %** richtig, bei 0,25-0,40 **67 %**, bei 0,40-0,60 noch
@@ -137,7 +142,8 @@
 - **Die gespeicherte `coverage` driftet gegen ihre Crops (gemessen 2026-09-16).** Sie ist ein
   Schnappschuss vom Matten; ein Re-Export verschiebt die Ecken, `crop_square` schneidet mit den
   neuen, die Zahl bleibt stehen. 13 von 24 Aufnahmen betroffen (der Nenner ist seitdem gewachsen:
-  2026-09-17 tragen **25** Aufnahmen eine `matte.jsonl`; die Drift selbst ist nicht nachgerechnet), 0,10 % der Zellen ueberqueren
+  2026-09-21 tragen **27** Aufnahmeverzeichnisse eine `matte.jsonl` -- 29 Dateien minus zwei
+  Sicherungen unter `_pre-scan-20260906/`; die Drift selbst ist nicht nachgerechnet), 0,10 % der Zellen ueberqueren
   dabei `PIECE_VISIBLE_MAX` — fast alle auf der Grundreihe und als Totalkipper von 0,000 auf 1,000.
   `chesslab occluders recut-coverage --all` rechnet sie aus den Alphas neu (kein SAM, Minuten).
   **Nach jedem Re-Export faellig** — seit 2026-09-21 erinnert die Kette daran: jede neue
@@ -192,8 +198,10 @@
   heute 916 bzw. 915 MB statt 617/616, weil `manifest.jsonl.mono` und `.before-prune` daneben
   liegen geblieben sind — kein Memmap ist zurueck), `bake_pack` kennt keinen Session-Pack. **Ein Pack ist
   unveränderlich, aber nicht automatisch aktuell**: ein Pack vom 2026-09-05 trug 3 333 Zeilen zu
-  viel und Pixel bis 68 Graustufen daneben, und nichts hütet das — nach einem Re-Slice die Packs
-  der Aufnahme wegwerfen. Migration, Platzrechnung und was `-clahe` blockiert:
+  viel und Pixel bis 68 Graustufen daneben. **Gehuetet wird es inzwischen**: `_rewritten_since_pack`
+  vergleicht `(mtime, size)` jedes Crops gegen `crop_fingerprint` aus `packed_meta` — ausser bei
+  `mm://`-Zeilen (keine Datei zum Vergleichen) und Altpacks ohne Fingerabdruck. Nach einem
+  Re-Slice trotzdem die Packs der Aufnahme wegwerfen. Migration, Platzrechnung und was `-clahe` blockiert:
   `docs/session-packs.md`.
 
 ### 3. Android & Build
@@ -213,7 +221,10 @@
   3.0–4.4, both 0.4–0.7. On a 116 px cell the mesh's 1 px is under a percent, so the lens is not
   worth its own fit per recording. `:desktop undistort` still exists and still refuses the phone
   (k1 ≈ 0). The FIT lives in Kotlin (`LensFit.fitLens`), the model rides in `lens.json`, and
-  `warp_padded(..., lens=)` is the seam — nothing passes it today. Python's `lens.py` and the
+  `warp_padded(..., lens=)` is the seam. The WIRING exists (`alignment.warp_for_grid`,
+  `realgames.grid_line_fracs`, `sessions.py` reads a `lens.json` via `LensModel.from_receipt`) —
+  what is missing is the file: `find data -name lens.json` gives zero, so the value is `None`
+  everywhere. Python's `lens.py` and the
   whole `calib.npz` path went on 2026-08-21: it solved from many board POSES, which a fixed
   mount cannot give, so it always refused.
 
@@ -226,8 +237,9 @@
   Bildrate anfasst, muss `motionThr` mitziehen: `TrackerService.engineConfig()` tut das mit
   `× 30 / fps`, und die Kopplung ist am Regressions-Satz gemessen.
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
-- **Abdeckung:** erstmals gemessen 2026-09-14 — Python 67,1 %, Kotlin 64,7 % ohne `:app`,
-  Web `lib/` 73,9 %. Die drei Aufrufe und die zwei Fallen (pytest-cov toetet den CUDA-Graph-Test,
+- **Abdeckung (Stand 2026-09-14, seitdem NICHT neu gemessen):** Python 67,1 %, Kotlin 64,7 % ohne
+  `:app`, Web `lib/` 73,9 %. Seit 2026-09-20 sind 69 Testdateien dazugekommen, die Zahlen sind
+  also mit hoher Sicherheit zu niedrig — wer sie zitiert, misst sie neu. Die drei Aufrufe und die zwei Fallen (pytest-cov toetet den CUDA-Graph-Test,
   `:app` lieferte keinen Kover-Bericht, solange `ModelSpecTest` rot war — seit den gemessenen
   `coverage_gate`s ist er gruen, die Falle ist also zu): `docs/test-coverage-2026-09-14.md`.
 - **Producer order:** `session settle-scan` writes `settle_dev`/`settle_seen`; only then does
@@ -247,7 +259,8 @@
   importiert. Bewusst die ROUTEN und nicht die Gesamtabdeckung: die Hoehe sagt wenig
   (`core-engine` stand bei 92 % und trug vier Stellungs-Fehler), die Routen sind die duennste
   Stelle und tragen den Handy-Weg. **Stand 2026-09-21: 0 von 29 ohne Test** — die Liste ist leer,
-  und die Ratsche haelt sie so. Sie hielt am 2026-09-16 noch 18. Der ERKENNER dahinter zaehlte bis
+  und die Ratsche haelt sie so. Sie hielt bei ihrer Anlage am 2026-09-15 noch 18 und war am
+  2026-09-16 in drei Commits auf 0. Der ERKENNER dahinter zaehlte bis
   2026-09-21 allerdings auch einen Routen-Pfad in einer Zeichenkette, einen auskommentierten Import
   und `describe.skip` als "getestet"; seitdem `platform/app/ratchet-detect.ts` mit Gegenprobe.
 - **JSONL-Ratsche (2026-09-16):** `lib/jsonl.ts` ist der eine Leser fuer `.jsonl` in der Web-App
@@ -259,8 +272,10 @@
   eigenes Fixture. Erste Naht der Vertrags-Familien, Punkt 21 der Entscheidungsvorlage.
 - **Die Treuhand fuer JSON (2026-09-16):** jeder Schreib- und Lesevorgang auf `.json`/`.jsonl`
   laeuft durch `chesslab.ioutil` — `read_jsonl` (halbe LETZTE Zeile faellt weg, eine kaputte
-  MITTENDRIN wirft, `newline=""` weil 1127 der 1329 Dateien CRLF trugen; nachgemessen 2026-09-17 ueber alle
-  `.jsonl` unter dem Repo ohne `.git/node_modules/tmp/.venv/tools`: **1 139 von 1 368**, 217 nur-LF), `write_rows`/`write_json`
+  MITTENDRIN wirft, `newline=""` weil die grosse Mehrheit CRLF traegt; nachgezaehlt 2026-09-21 ueber alle
+  `.jsonl` unter dem Repo ohne `.git/node_modules/tmp/.venv/tools`, entschieden an den ersten
+  64 KB: **1 563 Dateien, davon 1 307 CRLF, 242 nur-LF, 14 leer**. Die fruehere Angabe
+  "1 139 von 1 368, 217 nur-LF" ging nie auf), `write_rows`/`write_json`
   (Nebendatei, dann umhaengen), `append_rows` (repariert erst den abgerissenen Schwanz),
   `update_rows`/`write_rows_guarded` (Stempel-Riegel, `Contested` statt stiller Ueberschreibung).
   `read_jsonl` liest `utf-8-sig`: PowerShells `Out-File` stempelt hier ein BOM, und eines liess
@@ -306,11 +321,16 @@
 - **Der Regressionssatz fuhr bis 2026-09-17 mit `prior=0`, das Handy mit `4.0`.** Vier gruene
   Laeufe deckten den Pfad nicht, auf dem `applyPrior` liegt — gemessen auf `prior=4`:
 
-  | Lauf | found | missed | invented | Alarme |
+  | Lauf | found | missed | invented | Alarm-ZEILEN |
   |---|---|---|---|---|
   | Referenz, prior 0, ohne Temperatur | 385 | 14 | 1 | 6 |
   | prior 4, OHNE Temperatur | 394 | 5 | 4 | 8 |
   | **prior 4, MIT Temperatur** | **396** | **3** | **0** | **5** |
+
+  **Diese Tabelle ist historisch.** Der geltende Referenzstand ist `docs/regression-reference.md`
+  (396/3/0 bei **8 Desync-Episoden**, Stand 2026-09-21, nach `29b7dbc6` und `priorOnTempered`).
+  Die letzte Spalte zaehlt `ALARM latched`-ZEILEN, nicht Episoden — genau die Verwechslung, vor
+  der weiter unten gewarnt wird.
 
   Auf dem Pfad, den das Geraet wirklich faehrt, nimmt die Temperatur **jedes Phantom** weg.
   **Aber der Grund ist ein Nebeneffekt**: `applyPrior` rechnet auf getemperten Wahrscheinlichkeiten,
@@ -328,11 +348,12 @@
   erste Bestaetigungslauf exakt auf der Referenz blieb. Ob 5,98 der RICHTIGE Wert ist, weiss
   niemand; das waere eine Schwellenkurve wie bei den `coverage_gate`s, und die ist jetzt
   moeglich, weil die Zahl an einer Stelle steht und nicht mehr mit T mitwandert.
-  `TemperatureParityTest` haelt vier Befunde
-  derselben Wurzel (`applyPrior`, `invalidMass`, `PROMO_CNN_CONFIDENCE`, die Besetzt-Achse von
-  `calibratedConfThr`) als `@Disabled` fest — **keine Zahl eicht beide Achsen gleich**:
+  `TemperatureParityTest` haelt DREI Befunde
+  derselben Wurzel (`invalidMass`, `PROMO_CNN_CONFIDENCE`, die Besetzt-Achse von
+  `calibratedConfThr`) als `@Disabled` fest — der vierte, `applyPrior`, ist seit 2026-09-17
+  erledigt und liegt als drei gruene Tests in `PriorStrengthTest` — **keine Zahl eicht beide Achsen gleich**:
   `pEmpty` ist eine Klasse, `pOcc` die Summe von zwoelf.
-- **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement fires at **5** consecutive comment lines since 2026-09-15, the same hard limit TS and Python carry; target is still 3. Note that a Kotlin KDoc's `/**` and `*/` count, so 5 is three prose lines. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
+- **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement fires at **5** consecutive comment lines since 2026-09-15, the same hard limit TS and Python carry; target is still 3. Note that a Kotlin KDoc's `/**` and `*/` count, so 5 is three prose lines. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — budget entries may only shrink. **All three counters were blind to string literals until 2026-09-21** (a `#`/`//`/`/*` inside a string read as a comment); see `docs/nachtschicht-2026-09-21.md`.
 
 ## Training: der Feed ist nicht mehr der Engpass (2026-09-07)
 - **`--num-workers 2`, nicht 8.** `config.DEFAULT_NUM_WORKERS` steht weiter auf 8; das ist seit
