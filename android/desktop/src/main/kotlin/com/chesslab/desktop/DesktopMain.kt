@@ -370,7 +370,8 @@ internal fun replayRun(
             options
                 .trackerConfig(geometry, live = camera != null, emulatedFps = (source.fps / stride).takeIf { stride > 1 })
                 .withCoverageGateOf(spec, options.overrides.keys)
-        println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
+        // Der Prior des Modells verwirft ein `prior=` still; das Banner nennt den WIRKSAMEN Wert.
+        println("board located from its markers: ${geometry.boardSize} px warp  ·  ${options.withPriorOf(spec)}")
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")
         val publisher = StatusPublisher(scope)
@@ -426,6 +427,7 @@ internal fun replayRun(
                         replayStartFrame,
                         options.limitFrames,
                         recorded?.size,
+                        spec?.priorLambda ?: options.priorLambda,
                     ),
                     tolerant = options.visualCachePartial,
                 )

@@ -28,6 +28,14 @@ class VisualCacheSignatureRangeTest {
         assertNotEquals(sig(recordedFrames = 900), sig(recordedFrames = 901))
     }
 
+    /** Die abgelegten Zeilen sind prior-konditioniert; ohne den Prior in der Signatur las ein
+     *  Lauf mit anderer Staerke — oder ohne sie — die Wahrscheinlichkeiten einer fremden Rechnung. */
+    @Test
+    fun `ein anderer Prior ist ein anderer Cache`() {
+        assertNotEquals(sig(priorLambda = 0.0), sig(priorLambda = 6.02))
+        assertNotEquals(sig(priorLambda = 5.04), sig(priorLambda = 6.02))
+    }
+
     @Test
     fun `the same range signs the same`() {
         assert(
@@ -40,6 +48,7 @@ class VisualCacheSignatureRangeTest {
         startFrame: Long = 0,
         limitFrames: Int? = null,
         recordedFrames: Int? = null,
+        priorLambda: Double = 0.0,
     ): String =
         visualCacheSignature(
             TrackerConfig(),
@@ -52,5 +61,6 @@ class VisualCacheSignatureRangeTest {
             startFrame = startFrame,
             limitFrames = limitFrames,
             recordedFrames = recordedFrames,
+            priorLambda = priorLambda,
         )
 }

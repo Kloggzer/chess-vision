@@ -15,12 +15,24 @@
 
 ## Warum das geht
 
-`CropFrameStore.CachedVisual` traegt `observation` und `gridOccluded`. Beide haengen an
-(Frame, Ecken, Geometrie, Modell) — an **keinem Engine-Knopf**. `gridOccludedSquares` nimmt gar
-keine `TrackerConfig`, sein Pad kommt aus `cropBorderPx(gridGeom)`.
+`CropFrameStore.CachedVisual` traegt `observation` und `gridOccluded`. `gridOccludedSquares` nimmt
+gar keine `TrackerConfig`, sein Pad kommt aus `cropBorderPx(gridGeom)`.
+
+**Korrektur 2026-09-21: "an keinem Engine-Knopf" war falsch.** `CnnObserver.runObservation` legt die
+Beobachtung ab, NACHDEM `observationFromProbs(..., possibleFor(startFen), priorFor(spec))` den
+Legalitaets-Prior gerechnet hat — die Maske haengt an der aktuellen Stellung der Engine. Gemessen am
+Cache von `VID_20260726_233432` (Modell `p4a-80-clahe`, `prior_lambda` aus der `config.json`):
+schon bei `seq 2` weichen **64 von 64** Feldern von der rohen Zeile ab. Ein A/B, in dem Arm B einen
+Ply frueher oder spaeter committet, liest ab da die Maske einer Stellung, in der B nicht steht.
+Seitdem traegt `visualCacheSignature` `prior=<lambda>` und `VisualObservationCache.VERSION` steht
+auf **7** — aeltere Dateien werden abgelehnt statt falsch gelesen, und das ist gewollt.
+
+Offen und daneben gefunden: `ParallelVisualPrepass.submit` rechnet OHNE `possible`/`priorLambda` und
+vergleicht bitweise gegen den Cache, also scheitert `visualworkers=` heute reproduzierbar mit
+"parallel visual result differs from baseline at seq 2".
 
 Die Datei traegt einen Kopf mit Videopfad, -groesse, -datum, Modell und
-`visualCacheSignature(...)` ueber Geometrie, Quad, Ausrichtung, Bildrate. Ein Cache aus einem
+`visualCacheSignature(...)` ueber Geometrie, Quad, Ausrichtung, Bildrate und Prior-Staerke. Ein Cache aus einem
 anderen Zuschnitt kann also nicht still gelesen werden — die Absicherung war schon da.
 
 ## Die Gegenprobe

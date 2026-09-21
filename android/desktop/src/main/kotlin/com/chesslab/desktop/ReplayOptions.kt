@@ -4,6 +4,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.atFrameRate
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
+import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.settings.ConfigCodec
 import com.chesslab.tracker.settings.KNOBS
 import kotlinx.serialization.json.Json
@@ -33,6 +34,8 @@ data class ReplayOptions(
     val probeSquare: String? = null,
     /** Experimental legal-placement prior weight; zero is off. */
     val priorLambda: Double = 0.0,
+    /** Was das Modell deklariert, NUR fuers Banner — gesetzt von [withPriorOf]. */
+    val modelPriorLambda: Double? = null,
     /** New raw/invalid safety, or false to reproduce the historical conditioned-everywhere path. */
     val priorSafety: Boolean = true,
     /**
@@ -220,11 +223,16 @@ data class ReplayOptions(
         }
     }
 
-    /** Ohne `prior=` gewinnt `prior_lambda` aus der `config.json` des Modells
-     *  (`CnnObserver.priorFor`: `spec?.priorLambda ?: priorLambda`). Die 0,0 hier ist dann der
-     *  UNGENUTZTE Rueckfall — sie als Laufzahl zu drucken meldet einen Prior, der nicht gilt. */
+    /** `prior_lambda` aus der `config.json` des Modells gewinnt IMMER
+     *  (`CnnObserver.priorFor`: `spec?.priorLambda ?: priorLambda`), auch gegen ein `prior=`.
+     *  Das Banner nennt den wirksamen Wert; [withPriorOf] sagt dazu, was verworfen wurde. */
     private val priorBanner: String
-        get() = if (priorLambda > 0.0) "$priorLambda" else "modell"
+        get() =
+            when {
+                modelPriorLambda != null -> "$modelPriorLambda(modell)"
+                priorLambda > 0.0 -> "$priorLambda"
+                else -> "modell"
+            }
 
     @Suppress("CyclomaticComplexMethod")
     override fun toString(): String =
@@ -242,6 +250,17 @@ data class ReplayOptions(
             (if (visualWorkers > 0) " visualworkers=$visualWorkers" else "") +
             (if (workProfile) " workprofile" else "") +
             overrides.entries.joinToString("") { " set:${it.key}=${it.value}" }
+}
+
+/** Die Staerke reitet im MODELL (`prior_lambda`), wie `coverage_gate`: ein `prior=` daneben ist
+ *  folgenlos, und ungesagt misst ein Sweep an jedem Punkt dasselbe. */
+internal fun ReplayOptions.withPriorOf(
+    spec: ModelSpec?,
+    warn: (String) -> Unit = { println("warn: $it") },
+): ReplayOptions {
+    val declared = spec?.priorLambda ?: return this
+    if (priorLambda > 0.0) warn("prior=$priorLambda wird vom prior_lambda des Modells ($declared) verworfen")
+    return copy(modelPriorLambda = declared)
 }
 
 /**

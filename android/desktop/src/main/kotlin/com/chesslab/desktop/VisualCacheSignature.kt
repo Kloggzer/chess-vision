@@ -6,8 +6,8 @@ import java.io.File
 import java.util.zip.CRC32
 
 /**
- * Only inputs that can change cached observations or LiveAlign outputs.
- * Engine thresholds consume these observations but cannot change them.
+ * Only inputs that can change cached observations or LiveAlign outputs — der Legalitaets-Prior
+ * gehoert dazu, er wird VOR dem Ablegen gerechnet (`docs/visual-cache-2026-09-20.md`).
  *
  * ONE config, the run's: the second `alignConfig` parameter read the settings repository, so a
  * cache built under a `config=` recording's alignment knobs signed itself as a defaults run.
@@ -23,6 +23,7 @@ internal fun visualCacheSignature(
     startFrame: Long,
     limitFrames: Int?,
     recordedFrames: Int?,
+    priorLambda: Double,
 ): String =
     listOf(
         "observer=${config.cnnVerify},${config.observerIntervalS}",
@@ -40,6 +41,10 @@ internal fun visualCacheSignature(
         "start=$startFrame",
         "limit=${limitFrames ?: -1}",
         "recorded=${recordedFrames ?: -1}",
+        // Die Zeilen tragen die PRIOR-KONDITIONIERTEN Wahrscheinlichkeiten (`CnnObserver` reicht
+        // `possibleFor(fen)` und die Staerke durch), und die Maske haengt an der Stellungsfolge
+        // der Engine — ein A/B auf einem Knopf, der einen Ply verschiebt, liest sonst fremde.
+        "prior=$priorLambda",
     ).joinToString("|")
 
 /**

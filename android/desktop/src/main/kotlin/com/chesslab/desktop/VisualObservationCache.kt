@@ -266,8 +266,9 @@ internal class VisualObservationCache private constructor(
 
         private const val MAGIC = 0x43564F31
 
-        // 6: `pOcc` is stored derived, and its denominator changed on 2026-09-05 — older files carry stale values.
-        private const val VERSION = 6
+        // 7: die Zeilen sind prior-konditioniert, und erst seit 2026-09-21 steht der Prior in der
+        // Signatur — aeltere Dateien wurden ohne ihn geschrieben und sind nicht zuzuordnen.
+        private const val VERSION = 7
         private const val RECORD_OBSERVATION = 1
         private const val RECORD_ALIGNMENT = 2
         private const val CORNER_VALUES = 8
