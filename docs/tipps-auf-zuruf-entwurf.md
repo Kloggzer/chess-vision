@@ -62,6 +62,48 @@ eine andere Rechnung. Machbar wäre sie aus vorhandenen Teilen — eine Suche au
 vertauschtem Anzugsrecht zeigt, was der Gegner gerade droht —, aber das ist Entwurfsarbeit und
 nicht „auch noch dazu".
 
+## Nachtrag: der ZWECK ist Ausgleich, nicht Analyse (Nutzer, 2026-09-21)
+
+> „Ich dachte das wäre ein Feature um Kinder oder schwächere gegen starke Spieler zu unterstützen
+> … ich dachte als keyword Hilfe wäre genug."
+
+Das ändert drei Dinge, und eine meiner Empfehlungen kippt damit.
+
+**Der Zweck beantwortet meine erste „Entscheidung" von selbst.** Wenn ein Kind gegen einen starken
+Spieler bestehen soll, ist der beste Zug, klar gesagt, genau richtig — ein Hinweis in der Art von
+„pass auf deinen Turm auf" nützt jemandem nichts, der noch nicht sieht, *warum*. Und das
+**Kontingent IST der Ausgleichsregler**: drei Tipps sind ein Handicap wie Springer-Vorgabe, keine
+Sparmaßnahme. Das gehört in den Start-Dialog als das, was es ist.
+
+**Und es kippt meine Empfehlung „Druck-zum-Sprechen".** Ich hatte den Knopf vorgeschlagen, weil er
+Strom, Thermik und Selbsthören umgeht. Für diesen Zweck ist er falsch: **die Hände des Spielers
+sind am Brett.** Zum Telefon zu greifen ist genau das Ereignis, gegen das dieser Tracker den
+ganzen Tag kämpft — eine Hand über dem Brett ist Verdeckung, und im schlimmsten Fall committet die
+Engine dabei etwas Falsches. Ein Kind, das nach dem Handy greift, um Hilfe zu holen, stört die
+Aufnahme, die es gerade hilft. Sprache ist hier kein Komfort, sondern die einzige Eingabe, die das
+Brett nicht anfasst.
+
+**Ein einzelnes Schlüsselwort ist ein kleineres Problem als freie Sprache** — dafür gibt es
+Schlüsselwort-Erkenner, die klein genug fürs Gerät sind. Das Zuhören selbst bleibt aber der Preis.
+
+### Der Ausweg, der aus dem Projekt selbst fällt: ein Zeitfenster
+
+Das Telefon muss nicht die ganze Partie zuhören. Es weiß, **wer am Zug ist** (`TrackerStatus.fen`)
+und **wann ein Zug fertig gesetzt ist** (`MoveCommitted`). Das Mikrofon braucht also nur zu laufen:
+
+- wenn die **unterstützte Seite am Zug** ist,
+- **nachdem** der Gegenzug committet und der Ansager fertig gesprochen hat,
+- **bis** der eigene Zug committet ist.
+
+Das halbiert die Hörzeit auf die Denkzeit einer Seite, löst das Selbsthören **strukturell**
+(der Ansager spricht im geschlossenen Fenster) und respektiert die Rangordnung von `gateBlock`:
+wird es warm, schweigt das Mikrofon zuerst — mit einem hörbaren Hinweis, damit ein Kind nicht
+vergeblich ruft.
+
+Ob das den Strom trägt, ist offen und nicht geraten: für Mikrofonbetrieb gibt es in diesem Repo
+keine Messung. Das Fenster macht die Frage aber beantwortbar, statt sie zu umgehen — man misst
+eine Partie mit und eine ohne, wie `docs/battery.md` es für die Bildrate vormacht.
+
 ## Der Vorschlag: in drei Stufen, die einzeln Wert haben
 
 **Stufe 1 — Tipp auf Knopfdruck, gesprochen und geschrieben.**
@@ -72,10 +114,10 @@ als Karte, damit ein stumm geschaltetes Telefon den Tipp nicht verschluckt.
 Das ist das ganze Feature bis auf das Mikrofon — und es kostet fast nichts, weil jede Rechnung
 schon läuft.
 
-**Stufe 2 — Zuhören, per Druck-zum-Sprechen.**
-Ein Knopf, der das Mikrofon *für die Dauer des Drucks* öffnet. Das umgeht die Stromfrage, den
-Thermik-Konflikt und das Sich-selbst-Hören vollständig, weil der Ansager in dieser Zeit ohnehin
-nicht spricht. Eine Hotword-Erkennung („Hey Chesslab") umgeht nichts davon.
+**Stufe 2 — Zuhören im Zeitfenster, Schlüsselwort „Hilfe".**
+Nicht Druck-zum-Sprechen (die Hände sind am Brett) und nicht dauerhaft, sondern genau in der
+eigenen Denkzeit: Fenster auf, wenn der Gegenzug committet und der Ansager geschwiegen hat, zu,
+wenn der eigene Zug steht. Ein Schlüsselwort genügt, freie Sprache ist nicht nötig.
 
 **Stufe 3 — Warnhinweise.**
 Bedrohungserkennung als eigene Rechnung, eigener Entwurf, eigene Messung.
