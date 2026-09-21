@@ -67,6 +67,21 @@ def collect(reads_name, sessions):
     return out
 
 
+def schwelle(bands, need):
+    """Die Baender, die die Schwelle tragen — der ZUSAMMENHAENGENDE Lauf ab 0.
+
+    Ein spaeteres gutes Band rettet kein durchgefallenes davor, sonst waechst die Schwelle ueber
+    ein Loch hinweg. Gewertet wird die Wilson-Untergrenze: duenne Baender sollen sie nicht
+    aufweichen.
+    """
+    good = []
+    for b in bands:
+        if b[4] < need:
+            break
+        good.append(b)
+    return good
+
+
 def main():
     reads_name = sys.argv[1] if len(sys.argv) > 1 else "model-reads.jsonl"
     sessions = sys.argv[2:] or ["2026-08-08-00-39-57", "2026-08-08-11-55-19"]
@@ -89,19 +104,15 @@ def main():
     print()
     for lam in LAMBDAS:
         need = lam / (1 + lam)
-        # Der ZUSAMMENHAENGENDE Lauf ab 0 — ein spaeteres gutes Band rettet kein
-        # durchgefallenes davor. Gewertet wird die Untergrenze: duenne Baender sollen die
-        # Schwelle nicht aufweichen.
-        good = []
-        for b in bands:
-            if b[4] < need:
-                break
-            good.append(b)
+        good = schwelle(bands, need)
         edge = f"{good[-1][1]:.2f}" if good else "-"
         kept = sum(b[2] for b in good)
         print(f"lambda {lam}: braucht {100*need:.0f} % -> Schwelle {edge:>5}"
               f"   ({kept} von {len(rows)} Reads bleiben, {100*kept/len(rows):.0f} %)")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    # `main()` blank: die `[FAIL]`-Absage gab 1 zurueck und der Prozess trotzdem 0 — ein
+    # aufrufendes Skript las den Lauf ohne Occlusion-Kopf als gelungene Ableitung.
+    raise SystemExit(main())
