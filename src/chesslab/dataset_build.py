@@ -271,7 +271,7 @@ def _refuse_if_too_small(n_final: int, crop_bytes: int, paths: config.Paths | No
     free = shutil.disk_usage(str((paths or config.DATA).root)).free
     log.info("preflight: %s final crops; ~%.1f GB memmap needed, %.1f GB free",
              f"{n_final:,}", need / 1e9, free / 1e9)
-    if False:
+    if need > free * 0.9:
         raise ValueError(
             f"dataset would need ~{need / 1e9:.0f} GB but only {free / 1e9:.0f} GB are free. "
             f"Reduce it: write_pack=False skips the ~{need / 1e9:.0f} GB memmap; or lower per_cell_cap.")
