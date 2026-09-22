@@ -147,3 +147,39 @@ diesem Projekt schon zweimal echte Partien zerlegt.
 Ein Tipp muss deshalb an die Stellung gebunden sein, aus der er gerechnet wurde, und verfallen,
 wenn sie nicht mehr gilt — dieselbe Disziplin, die `VerifySingle` für CNN-Schnappschüsse fordert
 (`snap.fen != pend.fen` darf nicht abstimmen).
+
+## Entschieden 2026-09-22: der Nutzer fragt, das Telefon bietet nichts an
+
+> "Es ist ja nicht nur so das kinder das feature nutzen können sollen aber alle Spieler die die
+> Hilfe anhaben, dann soll gerne einfach nach Hilfe gefragt werden können. Muss nicht aktiv
+> passieren." — und praeziser: "Muss nicht präventiv vom Handy kommen sondern aktiv vom Nutzer"
+
+Damit sind zwei Fragen weg, und eine dritte stellt sich anders.
+
+**Die Richtung steht: HOLSCHULD, keine Bringschuld.** Das Telefon meldet sich nie von sich aus.
+Kein praeventiver Hinweis, keine automatische Warnung, kein "du koenntest". Das ist der billigere
+und der bessere Weg zugleich: ein Vorschlag, den niemand angefordert hat, muesste bei jeder
+Stellung neu entscheiden, ob er jetzt angebracht ist — eine Rechnung, die es nicht gibt, und ein
+Urteil, das der App nicht zusteht.
+
+**Der Nutzerkreis ist groesser als gedacht.** Nicht "Kindermodus", sondern jede Seite, die Hilfe
+eingeschaltet hat. Der Start-Dialog spricht deshalb neutral von Hilfe und Kontingent.
+
+**Die dritte Frage aus dem Entwurf — "wie viel verraet ein Tipp?" — bleibt offen, aber sie
+blockiert nichts mehr.** Stufe 1 liefert den besten Zug und "Matt in n"; ob es daneben je eine
+leisere Sorte Tipp gibt ("pass auf deinen Turm auf"), ist Stufe 3 und hat weiter keine Rechnung.
+
+### Zwei Vorgaben, die ich selbst gesetzt habe
+
+Beide folgen bestehenden Konventionen dieses Projekts, keine davon braucht eine Messung.
+
+1. **Das Kontingent gilt pro PARTIE.** Das Beispiel des Nutzers ("schwarz 3 mal") liest sich so,
+   und es ist die Regel, die man ohne Nachschlagen im Kopf behaelt.
+2. **Ein Tipp kehrt die Rangordnung von `gateBlock` nicht um.** Hat das Gate die Analyse wegen
+   Hitze, Akku oder zu langsamer Bildrate abgeschaltet, gibt es eine hoerbare und sichtbare
+   Absage — und das Kontingent wird NICHT verbraucht. Der Kommentar an der Stelle sagt seit je
+   "analysis is what gets sacrificed, every time"; ein Tipp-Feature, das das umdreht, waere eine
+   Produktentscheidung, und der Nutzer hat sie nicht getroffen.
+
+Dieselbe Regel gilt fuer einen Tipp, dessen Stellung nicht mehr gilt (moeglicher Rueckzieher,
+stehender Alarm-Latch): er verfaellt, und er kostet nichts.
