@@ -45,6 +45,10 @@ def trained_on_val(run: Path) -> bool:
 
 
 def main() -> int:
+    # `check=False` ohne Auswertung liess einen abgestuerzten `eval` als gelungen durchgehen: die
+    # Zeile fehlte in der Tabelle, der Rueckgabecode blieb 0, und die Luecke sah aus wie ein Lauf,
+    # der nichts zu melden hatte.
+    failed = []
     for run, dataset in RUNS:
         p = Path(run)
         if not (p / "best.pt").exists():
@@ -54,10 +58,15 @@ def main() -> int:
             print(f"[SKIP] {run}: hatte {VAL} im Training - nicht vergleichbar")
             continue
         print(f"\n=== {run} gegen {dataset} ===", flush=True)
-        subprocess.run([CHESSLAB, "eval", "--run", run, "--dataset", dataset, "--split", "val",
-                        "--split-file", "split-pin.json"], check=False,
-                       env={**os.environ, "CC": TCC, "OPENBLAS_NUM_THREADS": "1"})
-    return 0
+        rc = subprocess.run([CHESSLAB, "eval", "--run", run, "--dataset", dataset, "--split", "val",
+                             "--split-file", "split-pin.json"], check=False,
+                            env={**os.environ, "CC": TCC, "OPENBLAS_NUM_THREADS": "1"}).returncode
+        if rc != 0:
+            print(f"[FAIL] {run}: eval endete mit {rc} - keine Zahl, kein Vergleich")
+            failed.append(run)
+    if failed:
+        print(f"\n{len(failed)} Laeufe ohne Ergebnis: {', '.join(failed)}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

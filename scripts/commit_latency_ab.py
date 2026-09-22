@@ -26,11 +26,19 @@ def score(log):
 
 
 def compare(base, cand):
+    """One row per recording of the BASE batch — an unpaired one is named, never dropped.
+
+    A silent `continue` kept every printed number honest and the SUM wrong: the reader added up
+    a different set of recordings than the header promised.
+    """
     out = []
     for trace in sorted(base.glob("*.jsonl")):
         name = trace.stem
         other = cand / trace.name
         if not other.exists():
+            out.append({"recording": name, "base": score(base / f"{name}.log"),
+                        "cand": dict.fromkeys(SCORE_KEYS), "paired": 0, "missing": "cand",
+                        "medianSavedMs": None, "maxSavedMs": None, "minSavedMs": None})
             continue
         a, b = commits(trace), commits(other)
         saved = [a[k] - b[k] for k in a if k in b]
@@ -54,5 +62,7 @@ if __name__ == "__main__":
         med = "-" if r["medianSavedMs"] is None else f"{r['medianSavedMs']:6.0f}"
         mx = "-" if r["maxSavedMs"] is None else f"{r['maxSavedMs']:5.0f}"
         mn = "-" if r["minSavedMs"] is None else f"{r['minSavedMs']:5.0f}"
-        print(f"{r['recording']:22} {fmt(r['base']):16} {fmt(r['cand']):16} {r['paired']:5} {med} {mx} {mn}")
+        mark = "  <-- fehlt im Kandidaten" if r.get("missing") else ""
+        print(f"{r['recording']:22} {fmt(r['base']):16} {fmt(r['cand']):16} "
+              f"{r['paired']:5} {med} {mx} {mn}{mark}")
     write_json(args.cand / "ab.json", rows, indent=1)

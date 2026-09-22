@@ -24,12 +24,21 @@ ARMS = {
 SEEDS = (42, 43, 44)
 METRIC = "val_visible_piece_acc"
 TAIL = 20
+#: Das Rezept aller Arme; ein Lauf mit weniger Epochen ist nicht rangfaehig.
+EPOCHS = 60
 
 
-def tail_mean(run: Path) -> float | None:
+def tail_mean(run: Path, epochs: int = EPOCHS) -> float | None:
+    """Wie der Zwilling in `compare_arms`: EINDEUTIGE, LUECKENLOSE Epochen 0..epochs-1.
+
+    Zeilen zaehlen reicht nicht — ein fortgesetzter Lauf schreibt seine ersten Epochen ein
+    zweites Mal und kam so als vollstaendig durch (2 von 307 `metrics.jsonl` auf der Platte).
+    """
     if not (run / "metrics.jsonl").is_file():
         return None
     rows = read_jsonl(run / "metrics.jsonl")
+    if sorted(r["epoch"] for r in rows if "epoch" in r) != list(range(epochs)):
+        return None
     vals = [r[METRIC] for r in rows if METRIC in r]
     if len(vals) < TAIL:
         return None

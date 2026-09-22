@@ -37,16 +37,35 @@ def manifest_of(dataset: str, override: str = "") -> Path:
 
 
 def tally(dataset: str, manifest: str = "") -> Counter:
+    """Nur die Belege — der Nenner steht in `counts`."""
+    return counts(dataset, manifest)[0]
+
+
+def counts(dataset: str, manifest: str = "") -> tuple[Counter, dict]:
+    """Belege je (Figur, Feldfarbe, Helligkeitsband) — und der Nenner, auf dem sie ruhen.
+
+    `coverage is None` heisst NICHT GEMESSEN. Als 0,0 gelesen ging jede ungemessene Zelle als
+    sauber sichtbarer Beleg durch: neun Datensaetze auf der Platte tragen Figurenzellen, die zu
+    100 % ungemessen sind, und fuer die meldete der Bericht einen gedeckten Korpus ohne Deckung.
+    Sie zaehlen weiter mit — aber die Zahl steht daneben, statt im Wort "vorhanden" zu stecken.
+    """
     from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
     seen: Counter = Counter()
+    pieces = unmeasured = 0
     for r in iter_jsonl(manifest_of(dataset, manifest)):
-        if r["label"] == "empty" or float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
+        if r["label"] == "empty":
+            continue
+        pieces += 1
+        cov = r.get("coverage")
+        if cov is None:
+            unmeasured += 1
+        elif float(cov) > PIECE_VISIBLE_MAX:
             continue
         b = r.get("brightness")
         seen[(r["label"], str(r.get("square_color") or "?"),
               band_of(None if b is None else float(b)))] += 1
-    return seen
+    return seen, {"piece_rows": pieces, "coverage_unmeasured": unmeasured}
 
 
 def gaps(seen: Counter) -> list[dict]:
@@ -139,17 +158,21 @@ def main() -> int:
     ap.add_argument("--no-axes", action="store_true", help="Nur die Luecken, ohne Achsenblock.")
     args = ap.parse_args()
 
-    seen = tally(args.dataset, args.manifest)
+    seen, denom = counts(args.dataset, args.manifest)
     g = gaps(seen)
     by_fix = Counter(x["fix"] for x in g)
     print(f"{args.dataset}: {len(g)} duenne Zellen von {len(PIECES) * 2 * len(BANDS)} "
           f"({by_fix['Stellung']} ueber eine Stellung erreichbar, {by_fix['Licht']} nur ueber Licht)")
+    if denom["coverage_unmeasured"]:
+        share = 100 * denom["coverage_unmeasured"] / max(1, denom["piece_rows"])
+        print(f"! {denom['coverage_unmeasured']} von {denom['piece_rows']} Figurenzellen sind NICHT "
+              f"gemattet ({share:.1f} %) — sie zaehlen hier als sichtbar mit.")
     print(f"\n{'Figur':6s} {'Feld':6s} {'Band':12s} {'vorhanden':>10s} {'Korpus im Band':>15s}  Hebel")
     for x in g[:20]:
         print(f"{x['piece']:6s} {x['square_color']:6s} {x['band']:12s} {x['have']:10d} "
               f"{x['corpus_in_band']:15d}  {x['fix']}")
 
-    payload = {"dataset": args.dataset, "thin_below": THIN, "gaps": g}
+    payload = {"dataset": args.dataset, "thin_below": THIN, "gaps": g, "denominator": denom}
     if not args.no_axes:
         payload["axes"] = axes(args.dataset, args.manifest)
         a = payload["axes"]

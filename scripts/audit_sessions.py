@@ -14,9 +14,13 @@ physische Situation, egal wie viele Frames darauf zeigen.
 import argparse
 import collections
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fold_per_session import finished  # noqa: E402
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
@@ -56,7 +60,8 @@ def main():
     for run in sorted(Path(args.folds).iterdir()):
         if not (run / "metrics.jsonl").is_file():
             continue
-        if len(read_jsonl(run / "metrics.jsonl")) < 60:
+        if not finished(run):
+            print(f"[--] {run.name} ist nicht 0..59 durchgelaufen, uebersprungen")
             continue
         fold = run.name.split("-")[-1]
         split = json.loads((dd / f"split-{fold}.json").read_text(encoding="utf-8"))

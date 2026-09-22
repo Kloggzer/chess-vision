@@ -20,6 +20,19 @@ from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import open_packed_rows
 
 
+def finished(run: Path, epochs: int = 60) -> bool:
+    """Wie `compare_arms.tail_mean`: EINDEUTIGE, LUECKENLOSE Epochen 0..epochs-1.
+
+    Zeilen zaehlen reicht nicht — ein fortgesetzter Lauf schreibt seine ersten Epochen ein
+    zweites Mal und kam so als fertiger Fold in die Tabelle (2 von 307 `metrics.jsonl` auf der
+    Platte haben genau diese Form).
+    """
+    p = run / "metrics.jsonl"
+    if not p.is_file():
+        return False
+    return sorted(r["epoch"] for r in read_jsonl(p) if "epoch" in r) == list(range(epochs))
+
+
 def missing_sessions(expected, out):
     """Die Zusage ist "jede Session genau einmal" — `duplicate_sessions` prueft nur die eine
     Haelfte. Eine Test-Session ohne sichtbare Zeile fiel per `continue` aus der Tabelle, ohne
@@ -67,8 +80,8 @@ def main():
     for run in sorted(Path(args.folds).iterdir()):
         if not (run / "metrics.jsonl").is_file():
             continue
-        if len(read_jsonl(run / "metrics.jsonl")) < 60:
-            print(f"[--] {run.name} laeuft noch, uebersprungen")
+        if not finished(run):
+            print(f"[--] {run.name} ist nicht 0..59 durchgelaufen, uebersprungen")
             continue
         fold = run.name.split("-")[-1]
         split = json.loads((dd / f"split-{fold}.json").read_text(encoding="utf-8"))
