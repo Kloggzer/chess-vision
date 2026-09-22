@@ -107,7 +107,9 @@ fun score(
     // has phantoms, and those stay phantoms.
     val beyond = if (missed.isEmpty()) tail else emptyList()
     if (beyond.isEmpty()) invented += tail
-    val lag = found.filter { it.first.frame >= 0 }.map { it.second.frame - it.first.frame }
+    // BEIDE Seiten muessen gemessen sein: -1 heisst "kein Frame", nicht "Frame -1", und ein Lag
+    // daraus waere eine erfundene Zahl im Median.
+    val lag = found.filter { it.first.frame >= 0 && it.second.frame >= 0 }.map { it.second.frame - it.first.frame }
     return Score(found, missed, invented, beyond, reordered, lag)
 }
 

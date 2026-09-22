@@ -7,6 +7,8 @@ import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 private val NEWLINE = Regex("\r?\n")
 
@@ -50,6 +52,20 @@ object Jsonl {
 }
 
 /**
+ * Eigene Nebendatei je Schreibvorgang, wie `chesslab.ioutil._side_file` und `lib/atomic.ts`: unter
+ * EINEM `<name>.tmp` schreiben zwei Vorgaenge in dieselbe Datei und das Ziel bekommt den Mischmasch.
+ */
+internal fun sideFile(file: File): File = sideFiles(file)
+
+internal val defaultSideFiles: (File) -> File = { File(it.parentFile, "${it.name}.$SIDE_TAG-${SIDE_SEQ.incrementAndGet()}.tmp") }
+
+/** Nur Tests hebeln das aus — sie koennen den Namen sonst nicht vorhersagen und nicht blockieren. */
+internal var sideFiles: (File) -> File = defaultSideFiles
+
+private val SIDE_TAG = UUID.randomUUID().toString().take(8)
+private val SIDE_SEQ = AtomicLong()
+
+/**
  * Temp file + move. If the move cannot be atomic on this filesystem we still never truncate the
  * destination first — a copy over a complete temp file is the next best guarantee.
  */
@@ -57,7 +73,7 @@ fun writeAtomic(
     file: File,
     text: String,
 ) {
-    val tmp = File(file.parentFile, "${file.name}.tmp")
+    val tmp = sideFile(file)
     // Das Umhaengen gehoert MIT in die Klammer: scheitert es, bliebe die Nebendatei sonst liegen.
     runCatching {
         tmp.writeText(text)

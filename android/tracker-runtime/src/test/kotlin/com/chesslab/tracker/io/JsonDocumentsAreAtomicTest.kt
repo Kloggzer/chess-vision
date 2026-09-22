@@ -8,6 +8,7 @@ import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.sync.TRANSFER_MARK
 import com.chesslab.tracker.sync.TransferMark
 import com.chesslab.tracker.sync.writeMark
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -22,7 +23,15 @@ class JsonDocumentsAreAtomicTest {
     lateinit var dir: File
 
     /** Ein Verzeichnis, wo die Nebendatei hin muss: der Schreibversuch scheitert VOR dem Ziel. */
-    private fun blockTmp(name: String) = File(dir, "$name.tmp").mkdirs()
+    private fun blockTmp(name: String) {
+        File(dir, "$name.tmp").mkdirs()
+        sideFiles = { File(dir, "$name.tmp") }
+    }
+
+    @AfterEach
+    fun restoreSideFiles() {
+        sideFiles = defaultSideFiles
+    }
 
     @Test
     fun `settings json is written through a side file`() {

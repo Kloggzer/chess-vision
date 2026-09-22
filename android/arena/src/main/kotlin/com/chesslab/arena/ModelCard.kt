@@ -2,6 +2,7 @@ package com.chesslab.arena
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -19,11 +20,13 @@ class ModelCard(
 ) {
     private fun number(key: String): Double? = metrics[key]?.jsonPrimitive?.doubleOrNull
 
+    /** Was keine Zahl ist, ist NICHT GEMESSEN — als 0.0 stuende es als schwaechste Klasse ganz oben. */
     private val recall: Map<String, Double>
         get() =
             metrics["recall"]
                 ?.jsonObject
-                ?.mapValues { it.value.jsonPrimitive.doubleOrNull ?: 0.0 }
+                ?.mapNotNull { (key, value) -> (value as? JsonPrimitive)?.doubleOrNull?.let { key to it } }
+                ?.toMap()
                 .orEmpty()
 
     /** The headline plus the weakest [worst] classes, as printable lines. */

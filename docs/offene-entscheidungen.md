@@ -1714,3 +1714,36 @@ ganz oder teilweise auf 15-fps-Material, sind die Sekunden bis zu doppelt so lan
 Kurve (flach nach dem ersten Punkt) ändert sich dadurch nicht, die Aussage über `cnnCooldownS`
 schon. **Zu entscheiden:** die Messung auf einem benannten Aufnahmesatz wiederholen, oder die
 Sekundenspalte der Tabelle als „bei 30 fps" kennzeichnen und die Paarzahlen als Frames lesen.
+
+## `arena list`/`score` nennen die Referenz-HERKUNFT nicht (2026-09-22)
+
+`truthOf` nimmt die LAENGERE der beiden Quellen, und `arena list` druckt danach nur eine Zahl
+("21 plies"). `arena list` sieht 13 Aufnahmen mit `video.mp4` und `candidate.json`; **8 davon tragen keine
+`reference.pgn`**, dort ist die Referenz allein die Ausgabe eines frueheren Tracker-Laufs. Zwei
+Referenzen sind nachweislich falsch: `VID_20260802_222741` (CANDIDATE-ONLY) endet mit
+`Nxf3+@7425`, das im Video nie passiert — dort stehen c6 und Matt bis Qxd7#; und
+`VID_20260726_233432` fuehrt Nf3/e5 vor e4, wahre Ordnung 1.e4 e5 2.Nf3 auf den Frames
+240/280/360 — die Aufnahme hat zwar eine `reference.pgn`, die den Streit entscheidet, nur sagt
+die Ausgabe nicht, dass sie es war. Ein Lauf
+gegen diese zwei meldet Phantome, die keine sind, und die Ausgabe sagt nicht, dass die Referenz
+selbst strittig ist.
+
+**Kein Fix gebaut.** Welche Referenz vertrauenswuerdig ist, ist ein menschliches Urteil und kein
+Messwert; es in den Code zu schreiben hiesse, eine Liste von Hand zu pflegen, die niemand pflegt.
+Die BUNDLED-Frames sind getrennt davon behandelt (`Truth.kt`, 54 von 1242 Plies) — das ist eine
+Eigenschaft der Datei und messbar, die Ordnung ist es nicht.
+**Zu entscheiden:** ein Feld `reference: pgn|candidate` in die Ausgabe von `list` und `score`,
+oder eine `reference.md` je Aufnahme, die den Streit benennt und die `arena` mitdruckt.
+
+## `writeAtomic` ist unter Windows nicht nebenlaeufig (gemessen 2026-09-22)
+
+Mit eigener Nebendatei je Schreibvorgang (Parity zu `chesslab.ioutil._side_file` und
+`lib/atomic.ts::tmpFor`) reisst das Ziel nicht mehr. Was bleibt, ist die Plattform: vier Straenge
+auf EINER Zieldatei liefern reihenweise `AccessDeniedException` beim `Files.move`, weil Windows
+das Ersetzen einer Datei verweigert, die ein anderer Strang gerade ersetzt. Auf dem Telefon
+(ext4, `rename(2)`) tritt das nicht auf, und dort laeuft nur EIN Prozess — gemeldet wird es
+trotzdem, weil `:arena` und `:desktop` dieselbe Funktion unter Windows benutzen.
+
+**Kein Fix gebaut.** Eine Sperre je Zieldatei waere die Antwort, aber sie gehoert dann in alle drei
+Sprachen und nicht nur hier. **Zu entscheiden:** Sperre je Pfad in `io/Jsonl.kt`, oder die Regel
+festschreiben, dass ein Pfad genau einen Schreiber hat.

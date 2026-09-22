@@ -31,24 +31,31 @@ fun truthOf(dir: File): List<TruthPly> {
     return pgn.mapIndexed { i, san -> TruthPly(san, candidate.getOrNull(i)?.takeIf { it.san == san }?.frame ?: -1) }
 }
 
-/** The label run's plies, each with the frame it committed on. Empty when there is no candidate. */
+/**
+ * The label run's plies with their commit frame — a frame carrying SEVERAL plies is a backlog
+ * flush, not a measurement, so it goes out as -1 (54 of 1242; 6 of 8 on `2026-08-30-14-33-02`).
+ */
 private fun candidatePlies(dir: File): List<TruthPly> {
     val file = File(dir, "candidate.json")
     if (!file.isFile) return emptyList()
     val moves = Json.parseToJsonElement(file.readText()).jsonObject["moves"]?.jsonArray ?: return emptyList()
-    return moves.map { row ->
-        TruthPly(
-            san =
-                row.jsonObject
-                    .getValue("san")
-                    .jsonPrimitive.content,
-            frame =
-                row.jsonObject["frame"]
-                    ?.jsonPrimitive
-                    ?.content
-                    ?.toIntOrNull() ?: -1,
-        )
-    }
+    val raw =
+        moves.map { row ->
+            TruthPly(
+                san =
+                    row.jsonObject
+                        .getValue("san")
+                        .jsonPrimitive.content,
+                frame =
+                    row.jsonObject["frame"]
+                        ?.jsonPrimitive
+                        ?.content
+                        ?.toIntOrNull() ?: -1,
+            )
+        }
+    val perFrame = raw.filter { it.frame >= 0 }.groupingBy { it.frame }.eachCount()
+    val bundled = perFrame.filterValues { it > 1 }.keys
+    return raw.map { if (it.frame in bundled) it.copy(frame = -1) else it }
 }
 
 /** The mainline SANs of `reference.pgn`, normalised through chesslib so they compare against a run's. */

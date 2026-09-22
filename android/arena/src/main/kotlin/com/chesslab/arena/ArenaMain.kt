@@ -1,5 +1,9 @@
 package com.chesslab.arena
 
+import com.chesslab.tracker.io.Jsonl
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 import java.util.Locale
@@ -93,24 +97,21 @@ private fun runVerb(args: List<String>) {
 /** Score a ply list produced anywhere — including by a tracker written outside this JVM. */
 private fun scoreVerb(args: List<String>) {
     require(args.size >= 2) { "usage: arena score <plies.jsonl> <recording>" }
-    val plies =
-        File(args[0])
-            .readLines()
-            .filter { it.isNotBlank() }
-            .map { line ->
-                RunPly(
-                    san = SAN_KEY.find(line)?.groupValues?.get(1) ?: error("no san in: $line"),
-                    frame =
-                        FRAME_KEY
-                            .find(line)
-                            ?.groupValues
-                            ?.get(1)
-                            ?.toLong() ?: -1,
-                    tsMs = 0.0,
-                )
-            }
-    report(truthOf(recordingDir(args[1])), plies)
+    report(truthOf(recordingDir(args[1])), readPlies(File(args[0])))
 }
+
+/**
+ * Durch [Jsonl], nicht durch eine Regex auf rohen Zeilen: dort wurde eine kaputte Zeile MITTENDRIN
+ * zu einem Ply mit `frame = -1` — dem Wert, der sonst "nicht gemessen" heisst.
+ */
+internal fun readPlies(file: File): List<RunPly> =
+    Jsonl.rows(file).map { row ->
+        RunPly(
+            san = row["san"]?.jsonPrimitive?.contentOrNull ?: error("no san in: $row"),
+            frame = row["frame"]?.jsonPrimitive?.longOrNull ?: -1,
+            tsMs = 0.0,
+        )
+    }
 
 /**
  * `dump` — the model's per-frame reading of the board as text, for a tracker that is not written
@@ -249,9 +250,6 @@ fun fixed(
     value: Double,
     digits: Int,
 ): String = String.format(Locale.ROOT, "%.${digits}f", value)
-
-private val SAN_KEY = Regex("\"san\"\\s*:\\s*\"([^\"]+)\"")
-private val FRAME_KEY = Regex("\"frame\"\\s*:\\s*(-?\\d+)")
 
 private const val DEFAULT_TRACKER = "com.chesslab.arena.agent.YourTracker"
 private const val DEFAULT_ALIGN = 30
