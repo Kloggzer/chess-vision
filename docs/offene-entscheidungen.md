@@ -1601,7 +1601,17 @@ Gewichte und damit jedes kuenftige Training. **Empfehlung: beim naechsten ohnehi
 Rezeptschnitt mitnehmen, nicht dafuer allein einen schneiden** — 2,80 % liegen unter dem
 8-%-Anker, der schon als Grenzfall galt.
 
-## 39. `cleanCommitsOnly` befoerdern? (2026-09-21, gemessen, eine Zahl fehlt)
+## 39. `cleanCommitsOnly` befoerdern? — ERLEDIGT, befoerdert 2026-09-22
+
+> **Gebaut und gemessen.** Der Knopf steht seit `4ffe21f5` per Vorgabe auf AN. Die fehlende Zahl
+> (Commit-Verzug auf `-Satz v2`) liegt vor: 142 statt 72 Plies bei identischem Median von 0,33 s,
+> p90 sogar besser. Am Zehner-Satz 396/3/0 und 8 Desync in der SUMME — aber auf vier Aufnahmen je
+> um eine Episode verschoben, die sich gegenseitig aufheben. Mein frueherer Satz "greift dort nie"
+> war damit falsch: er greift, er gewinnt und verliert nur gleich viel
+> (`docs/handreiches-material-2026-09-21.md`).
+
+Der urspruengliche Stand, zur Nachvollziehbarkeit:
+
 
 Der Knopf steht per Vorgabe auf AUS und laesst einen Blick mit Hand drin weder bestaetigen noch
 verwerfen. Gemessen:
