@@ -46,16 +46,20 @@ export type CorpusIndex = {
   written_at: string;
 };
 
+/** Nur ENOENT ist eine Eigenschaft des Datensatzes. Eine DA-liegende, aber unlesbare Datei ist
+ *  eine Stoerung — als „nicht da" gemeldet waere sie eine sachlich falsche Aussage. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 export type DatasetMeta = { classMode: string | null };
 
 /** `class_mode` out of `dataset.yaml` — one scalar off one line, so no YAML parser is pulled in. */
 export async function loadDatasetMeta(name: string): Promise<DatasetMeta> {
-  try {
-    const text = await readFile(path.join(datasetDir(name), "dataset.yaml"), "utf8");
-    return { classMode: /^class_mode:[ \t]*(\S+)/m.exec(text)?.[1] ?? null };
-  } catch {
-    return { classMode: null };
-  }
+  const text = await readFile(path.join(datasetDir(name), "dataset.yaml"), "utf8").catch(absentOnly);
+  if (text === null) return { classMode: null };
+  return { classMode: /^class_mode:[ \t]*(\S+)/m.exec(text)?.[1] ?? null };
 }
 
 /** What a snapshot's labels mean. `other` is anything that is not the piece scheme (occupancy). */
@@ -89,22 +93,15 @@ export type DatasetEntry = { name: string; split: Split | null };
 
 /** Every directory under `data/datasets/`; `split` is null for the packs built without one. */
 export async function listDatasets(): Promise<DatasetEntry[]> {
-  let entries;
-  try {
-    entries = await readdir(datasetsDir(), { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const entries = await readdir(datasetsDir(), { withFileTypes: true }).catch(absentOnly);
+  if (entries === null) return [];
   const names = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
   return Promise.all(names.map(async (name) => ({ name, split: await loadSplit(name) })));
 }
 
 async function loadSplit(name: string): Promise<Split | null> {
-  try {
-    return JSON.parse(await readFile(path.join(datasetDir(name), "split.json"), "utf8")) as Split;
-  } catch {
-    return null;
-  }
+  const text = await readFile(path.join(datasetDir(name), "split.json"), "utf8").catch(absentOnly);
+  return text === null ? null : (JSON.parse(text) as Split);
 }
 
 type Tally = { rows: number; sessions: Record<string, SessionCounts>; coverage: CoverageTally | null };

@@ -10,6 +10,13 @@ import path from "node:path";
 import { dataDir } from "@/lib/data";
 import { sessionLogs } from "@/lib/pool";
 
+/** Nur ENOENT ist eine Eigenschaft des Packs. Eine DA-liegende, aber unlesbare Zusammenfassung
+ *  ist eine Stoerung — als „kein Pack" gemeldet verschwindet der Pack aus der Liste. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 type Counts = { frames: number | null; crops: number | null };
 export type PackSummary = {
   /** `accepted` = packs from 2026-08-14 on, `clean` = the older key set, no quarantine column. */
@@ -62,25 +69,18 @@ export function decidedRatio(summary: PackSummary): Decided | null {
 export type Bundle = { name: string; pack: PackSummary | null; variants: string[] };
 
 async function packSummary(dir: string): Promise<PackSummary | null> {
-  try {
-    return readSummary(JSON.parse(await readFile(path.join(dir, "summary.json"), "utf8")));
-  } catch {
-    return null;
-  }
+  const text = await readFile(path.join(dir, "summary.json"), "utf8").catch(absentOnly);
+  return text === null ? null : readSummary(JSON.parse(text));
 }
 
 /** Every bundle that carries at least one pack, canonical first, siblings named but not added up. */
 export async function listPacks(): Promise<Bundle[]> {
   const root = path.join(dataDir(), "recordings");
-  let games;
-  try {
-    games = await readdir(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const games = await readdir(root, { withFileTypes: true }).catch(absentOnly);
+  if (games === null) return [];
   const bundles: Bundle[] = [];
   for (const game of games.filter((e) => e.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-    const dirs = (await readdir(path.join(root, game.name), { withFileTypes: true }).catch(() => []))
+    const dirs = ((await readdir(path.join(root, game.name), { withFileTypes: true }).catch(absentOnly)) ?? [])
       .filter((e) => e.isDirectory() && e.name.startsWith("training-pack"))
       .map((e) => e.name)
       .sort();

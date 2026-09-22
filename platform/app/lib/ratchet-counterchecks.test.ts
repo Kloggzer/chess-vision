@@ -89,14 +89,37 @@ test("jede Form des geschluckten Lesefehlers zaehlt", () => {
   for (const form of planted) expect(measurementDoorsIn(form), form).toBeGreaterThan(0);
 });
 
+/** Der Erkenner zeigte auf den FUNKTIONSNAMEN und schloss `readdir`/`stat` als
+ *  „Verzeichnisfrage" aus — im Pool entscheidet genau `readdir`, ob der gemessene Korpus null
+ *  Aufnahmen hat. Entscheidend ist, ob eine MESSPOPULATION entsteht. */
+test("ein Verzeichnis-Lesen zaehlt, sobald daraus eine Messpopulation wird", () => {
+  const planted = [
+    "const games = await readdir(recordings).catch(() => []);\nreturn games.length;",
+    "const names = await readdir(dir).catch(() => [] as string[]);",
+    "let e;\ntry { e = await readdir(root, { withFileTypes: true }); } catch { return []; }",
+    'const key = await stat(log).then((s) => s.mtimeMs, () => "none");\nif (key === "none") return null;',
+  ];
+  for (const form of planted) expect(measurementDoorsIn(form), form).toBeGreaterThan(0);
+});
+
+/** Eine strukturierte Leere ist dieselbe Luege wie `null`: das Feld, das die Messung traegt,
+ *  ist leer, und die Huelle drumherum macht sie nur unsichtbar. */
+test("eine strukturierte Leere hinter einem Lesen zaehlt", () => {
+  const planted = [
+    'try { return meta(await readFile(f, "utf8")); } catch { return { classMode: null }; }',
+    'try { return parse(n, JSON.parse(await readFile(f, "utf8"))); } catch { return { file: n, runs: [] }; }',
+  ];
+  for (const form of planted) expect(measurementDoorsIn(form), form).toBeGreaterThan(0);
+});
+
 test("wer den Fehler DURCHLAESST oder gar nicht liest, faellt nicht in die Liste", () => {
   // Der Bauplan selbst: ENOENT ist die einzige leere Antwort, alles andere wirft.
   expect(measurementDoorsIn(
     'let t;\ntry { t = await readFile(f, "utf8"); } catch (e) { if (e.code !== "ENOENT") throw e; return MISSING; }',
   )).toBe(0);
-  // Ein Verzeichnis, das es nicht gibt, ist keine Messung.
-  expect(measurementDoorsIn("const names = await readdir(dir).catch(() => []);")).toBe(0);
   expect(measurementDoorsIn("await rm(tmp, { force: true }).catch(() => {});")).toBe(0);
+  // Ein `stat`, dessen Antwort nur da/nicht-da ist, misst nichts — daraus wird keine Population.
+  expect(measurementDoorsIn("const present = await stat(f).then(() => true, () => false);")).toBe(0);
   // Ein `catch`, der eine Antwort BAUT statt zu schweigen, ist kein geschluckter Fehler.
   expect(measurementDoorsIn('try { await readFile(f); } catch { return { fehler: String(e) }; }')).toBe(0);
 });

@@ -207,10 +207,93 @@ function lineIndex(text: string): (at: number) => number {
 // --- Mess-Tueren -----------------------------------------------------------------------------
 
 /** Die leeren Antworten, in denen „nie gemessen" steckt, ohne dass es dasteht. */
-const EMPTY =
-  /^\s*\(?\s*(\[\s*\]|\{\s*\}|null|undefined|""|''|``|0|false|new Map\(\s*\)|new Set\(\s*\)|\{[^{}]*(\[\s*\]|new Map\(\s*\)|new Set\(\s*\))[^{}]*\})\s*\)?\s*$/;
-/** Ein Lesen, dessen Scheitern eine MESSUNG betrifft — `stat`/`readdir` sind Verzeichnisfragen. */
+const SCALAR_EMPTY = /^(\[\s*\]|\{\s*\}|null|undefined|""|''|``|0|false|new Map\(\s*\)|new Set\(\s*\))$/;
 const READS = /\b(readFile|readJsonl|jsonlRows|jsonlRowsStrict|loadMeasurement|load[A-Z]\w*)\s*(\(|<)/;
+/** „Verzeichnisfrage" war keine sichere Kategorie: im Pool entscheidet `readdir`, ob der gemessene
+ *  Korpus null Aufnahmen hat. Entscheidend ist nicht der Name, sondern ob eine MESSPOPULATION
+ *  entsteht — eine leere Sammlung, oder ein Merkposten, der die Aufnahme aus ihr nimmt. */
+const DIR_READS = /\b(readdir|stat)\s*\(/;
+const COLLECTION = /^(\[\s*\]|new Map\(\s*\)|new Set\(\s*\))$/;
+
+/** Zerlegt an Kommas der OBERSTEN Ebene; Klammern, Klammerpaare und Zeichenketten bleiben heil. */
+function topLevelParts(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === "`") i = endOfString(text, i) - 1;
+    else if ("([{".includes(c)) depth += 1;
+    else if (")]}".includes(c)) depth -= 1;
+    else if (c === "," && depth === 0) {
+      out.push(text.slice(from, i));
+      from = i + 1;
+    }
+  }
+  out.push(text.slice(from));
+  return out;
+}
+
+/** Klammern und ein nachgestelltes `as T` weg: `() => [] as string[]` ist dieselbe leere Liste. */
+function bare(raw: string): string {
+  let v = raw.trim();
+  for (;;) {
+    if (v.startsWith("(") && closingParen(v, 0) === v.length - 1) v = v.slice(1, -1).trim();
+    else if (/\sas\s[\w.[\]<>|\s]+$/.test(v)) v = v.replace(/\sas\s[\w.[\]<>|\s]+$/, "").trim();
+    else return v;
+  }
+}
+
+function fieldsOf(v: string): string[] {
+  if (!v.startsWith("{") || !v.endsWith("}")) return [];
+  return topLevelParts(v.slice(1, -1)).filter((p) => p.includes(":")).map((p) => p.slice(p.indexOf(":") + 1));
+}
+
+/** Eine strukturierte Leere zaehlt mit: `{ classMode: null }` und `{ file: n, runs: [] }` sind
+ *  von einer gemessenen Null nicht zu unterscheiden. Ein Feld MIT Inhalt rettet das Objekt. */
+function isEmptyAnswer(raw: string): boolean {
+  const v = bare(raw);
+  return SCALAR_EMPTY.test(v) || fieldsOf(v).some(isEmptyAnswer);
+}
+
+/** Eine leere SAMMLUNG heisst „null Zeilen gemessen"; `null`/`false` heisst „nicht da". Nur das
+ *  erste macht aus einem gescheiterten `readdir`/`stat` eine Messpopulation. */
+function isPopulation(raw: string): boolean {
+  const v = bare(raw);
+  return COLLECTION.test(v) || fieldsOf(v).some(isPopulation);
+}
+
+/** Der Merkposten-Fall: `const k = await stat(f).then(stamp, () => null); if (k === null) return null;`
+ *  — die Antwort ist keine Sammlung, aber sie NIMMT die Aufnahme aus der Messpopulation. */
+function gatesOut(scope: string, after: string, answer: string): boolean {
+  const name = [...scope.matchAll(/\b(?:const|let|var)\s+(\w+)\s*=/g)].at(-1)?.[1];
+  if (name === undefined) return false;
+  const guard = new RegExp(String.raw`\bif\s*\(\s*` + name + String.raw`\s*===\s*([^)]+)\)\s*return\b([^;]*)`);
+  const hit = guard.exec(after.slice(0, 200));
+  return hit !== null && bare(hit[1]) === bare(answer) && isEmptyAnswer(hit[2]);
+}
+
+function dirDoor(scope: string, after: string, answers: string[]): boolean {
+  return DIR_READS.test(scope) && answers.some((a) => isPopulation(a) || gatesOut(scope, after, a));
+}
+
+/** Der Ausdruck ab `from` bis zum `;` der obersten Ebene. Ein Muster auf `[^;}]` schnitt
+ *  `return { file: n, runs: [] }` mitten im Objekt ab und hielt es danach fuer nicht leer. */
+function valueAfter(text: string, from: number): string {
+  let depth = 0;
+  for (let i = from; i < text.length; i += 1) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === "`") i = endOfString(text, i) - 1;
+    else if ("([{".includes(c)) depth += 1;
+    else if (")]}".includes(c) && (depth -= 1) < 0) return text.slice(from, i);
+    else if (c === ";" && depth === 0) return text.slice(from, i);
+  }
+  return text.slice(from);
+}
+
+function returnedValues(body: string): string[] {
+  return [...body.matchAll(/\breturn\b/g)].map((m) => valueAfter(body, (m.index ?? 0) + m[0].length));
+}
 
 /** Wie `withoutComments`, aber der INHALT von Zeichenketten faellt auch weg: ein
  *  `.catch(() => "")` in einem Hinweistext ist kein Leser. Laenge und Umbrueche bleiben. */
@@ -238,19 +321,19 @@ function handlerResult(body: string): string | null {
   const arrow = body.indexOf("=>");
   if (arrow >= 0 && !/\bfunction\b/.test(body.slice(0, arrow))) return body.slice(arrow + 2);
   if (!/^\s*(async\s+)?function\b/.test(body)) return null;
-  const hits = [...body.matchAll(/\breturn\b([^;}]*)/g)];
-  return hits.length === 1 ? hits[0][1] : null;
+  const hits = returnedValues(body);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 /** Ein Griff SCHLUCKT, wenn er nichts weiterreicht und nichts baut: kein `throw`, und was er
  *  zurueckgibt oder zuweist ist leer. Ein `catch`, der einen Fehler MELDET, ist keine Tuer. */
-function swallows(handler: string): boolean {
-  if (/\bthrow\b/.test(handler)) return false;
+function swallowed(handler: string): string[] | null {
+  if (/\bthrow\b/.test(handler)) return null;
   const values = [
-    ...[...handler.matchAll(/\breturn\b([^;}]*)/g)].map((m) => m[1]),
-    ...[...handler.matchAll(/(?<![=!<>])=(?![=>])([^;}]*)/g)].map((m) => m[1]),
+    ...returnedValues(handler),
+    ...[...handler.matchAll(/(?<![=!<>])=(?![=>])/g)].map((m) => valueAfter(handler, (m.index ?? 0) + 1)),
   ].filter((v) => v.trim().length > 0);
-  return values.length === 0 ? true : values.every((v) => EMPTY.test(v));
+  return values.length === 0 || values.every(isEmptyAnswer) ? values : null;
 }
 
 /** Die FORM, die die Politik fuenfmal neu erfand: ein gescheitertes LESEN wird zu einer leeren
@@ -258,20 +341,25 @@ function swallows(handler: string): boolean {
 export function measurementDoorsIn(source: string): number {
   const text = codeOnly(source);
   let n = [...text.matchAll(/\bjsonlRows\s*\(/g)].length;
-  for (const m of text.matchAll(/\.catch\s*\(/g)) {
+  for (const m of text.matchAll(/\.(catch|then)\s*\(/g)) {
     const at = m.index ?? 0;
-    const result = handlerResult(catchArg(text, at + m[0].length - 1));
-    if (result === null || !EMPTY.test(result)) continue;
-    if (READS.test(text.slice(Math.max(0, at - 240), at))) n += 1;
+    const args = topLevelParts(catchArg(text, at + m[0].length - 1));
+    // `.then(ok, beiFehler)` ist derselbe Griff wie `.catch` — nur das zweite Argument zaehlt.
+    const handler = m[1] === "catch" ? args[0] : args.length > 1 ? args[1] : undefined;
+    const result = handler === undefined ? null : handlerResult(handler);
+    if (result === null) continue;
+    const scope = text.slice(Math.max(0, at - 240), at);
+    const after = text.slice(closingParen(text, at + m[0].length - 1));
+    if (READS.test(scope) ? isEmptyAnswer(result) : dirDoor(scope, after, [result])) n += 1;
   }
   for (const m of text.matchAll(/\btry\s*\{/g)) {
     const open = text.indexOf("{", m.index ?? 0);
     const body = loopBody(text, open);
-    if (!READS.test(body)) continue;
     const after = text.slice(open + body.length);
     const c = /^\s*\}\s*catch\s*(\([^)]*\))?\s*\{/.exec(after);
     if (!c) continue;
-    if (swallows(loopBody(after, after.indexOf("{", c[0].length - 1)))) n += 1;
+    const values = swallowed(loopBody(after, after.indexOf("{", c[0].length - 1)));
+    if (values !== null && (READS.test(body) || dirDoor(body, after, values))) n += 1;
   }
   return n;
 }

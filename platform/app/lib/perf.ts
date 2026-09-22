@@ -9,6 +9,13 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
 
+/** Nur ENOENT ist eine Eigenschaft des Berichts. Eine DA-liegende, aber unlesbare Datei ist eine
+ *  Stoerung — als `runs: []` gemeldet wird sie danach ganz weggefiltert. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 type Confusion = { true: string; pred: string; count: number };
 export type PerfRun = {
   /** From the file's own `model` key, or the key a grouped file files its metrics under. */
@@ -103,21 +110,11 @@ export async function sweepLog(): Promise<{ file: string; present: boolean }> {
 }
 
 export async function loadPerf(): Promise<PerfFile[]> {
-  let entries;
-  try {
-    entries = await readdir(perfDir(), { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const entries = await readdir(perfDir(), { withFileTypes: true }).catch(absentOnly);
+  if (entries === null) return [];
   const names = entries.filter((e) => e.isFile() && e.name.endsWith(".json")).map((e) => e.name).sort();
   const files = await Promise.all(
-    names.map(async (name) => {
-      try {
-        return parsePerf(name, JSON.parse(await readFile(path.join(perfDir(), name), "utf8")));
-      } catch {
-        return { file: name, runs: [] };
-      }
-    }),
+    names.map(async (name) => parsePerf(name, JSON.parse(await readFile(path.join(perfDir(), name), "utf8")))),
   );
   return files.filter((file) => file.runs.length > 0);
 }

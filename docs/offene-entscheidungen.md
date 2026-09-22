@@ -2099,3 +2099,34 @@ Niveau liegt rund drei Punkte tiefer (rho 0,904 / 0,849 / 0,797 / 0,798). Die Au
 Punkt (0,20 s, 261 776 Paare, rho 0,905); alles weitere faellt unter die 200-Paar-Grenze, ein
 eigener Kurvenverlauf ist daraus nicht zu lesen. Tabelle und Satzliste:
 `docs/emission-correlation.md`.
+
+## Die Mess-Ratsche sah die Pool-Form nicht (2026-09-22)
+
+`ratchet-detect.ts::measurementDoorsIn` schloss `stat` und `readdir` ausdruecklich aus
+(„Verzeichnisfragen") und erkannte strukturierte Leeren wie `{ classMode: null }` oder
+`{ file: n, runs: [] }` nicht. Beides trifft genau den Korpus-Weg: dort entscheidet `readdir`,
+ob der gemessene Korpus null Aufnahmen hat. Der Erkenner zeigt jetzt auf die FORM — ein
+Verzeichnis-Lesen zaehlt, wenn die leere Antwort eine Sammlung ist oder wenn ein Merkposten die
+Aufnahme aus der Population nimmt; ein reines da/nicht-da (`stat(f).then(() => true, () => false)`)
+zaehlt weiter nicht. Gegenproben: `lib/ratchet-counterchecks.test.ts`.
+
+**Umgestellt im selben Gang:** `lib/corpus.ts` (`loadSplit`, `loadDatasetMeta`, `listDatasets`),
+`lib/packs.ts` (`packSummary`, `listPacks`), `lib/perf.ts` (`loadPerf`) — nur ENOENT bleibt eine
+Eigenschaft des Artefakts, alles andere wirft. Vorher wurde ein da-liegendes, aber kaputtes
+`split.json` zu „ohne split.json" gemeldet. Heute ohne Fall, nachgezaehlt: 43 gueltige
+`split.json` von 54 Datensatzverzeichnissen, 18 von 18 Pack-Zusammenfassungen, 20 Perf-Dateien
+mit 22 Laeufen. Test: `lib/unreadable-artefacts.bughunt-2026-09-22d.test.ts`, mit Gegenprobe rot
+gesehen.
+
+**OFFEN — sieben Stellen, die der erweiterte Erkenner neu SIEHT und die niemand umgestellt hat:**
+`lib/audit-flags.ts` (2), `lib/chain.ts` (+2), `lib/data.ts` (1), `lib/ingest.ts` (+1),
+`lib/matte.ts` (1), `lib/provenance.ts` (1), `lib/stored.ts` (+3). Alle je Stelle angesehen,
+keine ist harmlos: ein gescheitertes `readdir` heisst dort „keine Eingaben" / „keine Frames" /
+„niemand hat gemalt". Sie lagen ausserhalb des Auftragsschnitts und stehen deshalb mit Grund im
+Ledger — die Ratsche ist an dieser Stelle GEWACHSEN statt geschrumpft, und das ist die Schuld,
+die hier offen bleibt.
+
+**Weiter BLIND:** ein `.catch(namedHandler)` mit einem Griff, der anderswo definiert ist
+(der Erkenner sieht nur den Namen), ein geschluckter Fehler, dessen leere Antwort erst zwei
+Funktionen spaeter zur Population wird, und ein `stat`-Merkposten, dessen Sperre nicht als
+`if (x === C) return <leer>` dasteht.
