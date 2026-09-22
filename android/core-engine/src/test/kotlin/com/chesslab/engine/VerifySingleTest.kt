@@ -563,6 +563,21 @@ class VerifySingleTest {
     }
 
     @Test
+    fun alternatingReadingsCannotOutliveTheVerifyWindow() {
+        // `verifyTimeoutS` nennt sich im eigenen Kommentar die Wanduhr-Grenze des Verifys, aber
+        // sie stand als letzte Sprosse: traf eine fruehere zu, ohne ihre Stimmen zu bekommen,
+        // wurde sie nie erreicht -- und `lastTickS` frischt jeder Blick wieder auf.
+        val state = pendingState(verifyWindow = 4)
+        val shadowing = VerifyEvaluator(match = true)
+        val ghostObs = VerifyObs(mapOf("e4" to false, "e2" to true), mapOf("e4" to true, "e2" to true))
+        repeat(6) { i ->
+            if (state.pending == null) return@repeat
+            if (i % 2 == 0) state.glance(shadowing, VerifyObs()) else state.glance(VerifyEvaluator(), ghostObs)
+        }
+        assertNull(state.pending, "abwechselnde Lesungen sammeln nie zwei Stimmen -- das Fenster muss trotzdem greifen")
+    }
+
+    @Test
     fun singleGlanceNeverDecidesAgainstTheDiff() {
         // g8h6 incident: one frame's confident-empty misread overruled a real move. Every rung
         // that CONTRADICTS the diff still needs `verifyObsVotes`; only the confirm rung is exempt

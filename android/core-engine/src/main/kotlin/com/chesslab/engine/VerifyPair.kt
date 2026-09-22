@@ -61,19 +61,27 @@ internal object VerifyPair {
             state.note = "early: waiting to see the pair settled (${state.sights.size} sights)"
             return emptyList()
         }
+        // Dieselbe Grenze wie in `VerifySingle`: eine zutreffende Sprosse ohne Stimmen hielt den
+        // Kandidaten sonst unbegrenzt. `state.pending` ist das Zeichen -- die Sprossen raeumen es,
+        // wenn sie wirklich abschliessen, und liefern dabei auch mal keine Ereignisse.
+        val bound = pend.frames >= state.config.verifyWindow || state.verifyExpired(pend)
+
+        fun atEnd() = state.pairWindowEnd(moves, pend, state.pairReadable(checked, touched), before, after)
         return when {
-            before.match && nConf >= cnn.minConfidentBoard -> state.acceptShadow(pend)
+            before.match && nConf >= cnn.minConfidentBoard ->
+                state.acceptShadow(pend).let { if (bound && state.pending != null) atEnd() else it }
             // Vor jeder Annahme: ein Farbwiderspruch auf einem sicher gelesenen Feld heisst, dass
             // die Stellung NACH dem Paar eine andere waere — dann ist es nicht dieses Paar.
             wrongColour.isNotEmpty() -> state.colourReject(moves, wrongColour)
             (after.match && nConf >= cnn.minConfidentBoard) || pairAgree >= cnn.minAgreement ->
                 if (state.pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) {
                     state.commitPair(pend, DECIDER_CNN_PAIR)
+                } else if (bound) {
+                    atEnd()
                 } else {
                     emptyList()
                 }
-            pend.frames >= state.config.verifyWindow || state.verifyExpired(pend) ->
-                state.pairWindowEnd(moves, pend, state.pairReadable(checked, touched), before, after)
+            bound -> atEnd()
             else -> {
                 // Siehe `VerifySingle`: die Serie muss aufeinanderfolgend sein.
                 pend.voteOutcome = null

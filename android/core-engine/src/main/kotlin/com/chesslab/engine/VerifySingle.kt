@@ -142,6 +142,12 @@ private fun EngineState.ladder(
     move: Move,
 ): List<TrackerEvent> {
     val votes = config.verifyObsVotes
+    val bound = pend.frames >= config.verifyWindow || verifyExpired(pend)
+    // Eine Sprosse, die ZUTRIFFT, aber ihre Stimmen nicht zusammenbekommt, hielt den Kandidaten
+    // sonst unbegrenzt: Sprosse 5 wurde nie erreicht, und `lastTickS` frischt der naechste Blick
+    // wieder auf, also griff auch der Stillstands-Wachhund nicht (Astra, 2026-09-22).
+
+    fun waiting(): List<TrackerEvent> = if (bound) windowEnd(cnn, pend, sig, boardSnap, move) else emptyList()
     // Early = the motion hold has not run out (`commitHoldS`): no verdict until the move's
     // squares have been SEEN settled, no vote either — the glance simply does not count.
     if (earlyCommit && !sightSettled(boardSnap, move)) {
@@ -153,12 +159,12 @@ private fun EngineState.ladder(
         //    blind-glance guard: under a hand `resyncCheck` matches VACUOUSLY, and a near-blind
         //    glance would reject a real move and re-anchor the reference on the covered image.
         sig.match && sig.confidentCount >= cnn.minConfidentBoard ->
-            if (pendingVoted(OUTCOME_SHADOW, votes)) shadowTerminal(pend) else emptyList()
+            if (pendingVoted(OUTCOME_SHADOW, votes)) shadowTerminal(pend) else waiting()
 
         // 2) Positive confirmation on the reliable axes, checked BEFORE the veto so a genuine move
         //    is not killed by a mis-read destination.
         sig.commits(cnn.minAgreement, pend.uci, early = earlyCommit) ->
-            if (pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) commitTerminal(pend) else emptyList()
+            if (pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) commitTerminal(pend) else waiting()
 
         // 3) Hard veto: destination confidently EMPTY while the origin did NOT clearly empty →
         //    nothing moved at all (the hand-wave ghost). `!fromLeftConf` protects castling, whose
@@ -167,15 +173,15 @@ private fun EngineState.ladder(
             if (pendingVoted(OUTCOME_GHOST, votes)) {
                 reject(VERIFY_STATE_GHOST, "Ghost move rejected (CNN: ${sig.toSq} still empty)", listOf(sig.toSq))
             } else {
-                emptyList()
+                waiting()
             }
 
         // 4) cnn_overrule — the CNN sees a DIFFERENT move whose occupancy is unambiguous. The
         //    verdict carries the replacement, so the real move lands in THIS cycle (invariant 10).
         sig.overrules(cnn, cnn.minAgreement, pend.uci) ->
-            if (pendingVoted("overrule:${sig.cnnUci}", votes)) overruleTerminal(pend, sig, move) else emptyList()
+            if (pendingVoted("overrule:${sig.cnnUci}", votes)) overruleTerminal(pend, sig, move) else waiting()
 
-        pend.frames >= config.verifyWindow || verifyExpired(pend) -> windowEnd(cnn, pend, sig, boardSnap, move)
+        bound -> windowEnd(cnn, pend, sig, boardSnap, move)
 
         else -> {
             // Eine brauchbare, aber unentschiedene Lesung ist keine Stimme, und [pendingVoted]
