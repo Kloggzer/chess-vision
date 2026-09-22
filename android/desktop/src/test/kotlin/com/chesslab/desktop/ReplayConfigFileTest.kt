@@ -122,6 +122,7 @@ class ReplayConfigFileTest {
             limitFrames = null,
             recordedFrames = null,
             priorLambda = 0.0,
+            priorSafety = true,
         )
 
     @Test

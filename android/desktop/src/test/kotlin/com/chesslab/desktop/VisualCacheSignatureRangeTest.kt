@@ -36,6 +36,23 @@ class VisualCacheSignatureRangeTest {
         assertNotEquals(sig(priorLambda = 5.04), sig(priorLambda = 6.02))
     }
 
+    /** `fps=` wirkt NUR ueber den Stride, und `lens` aendert die Pixel vor jedem Crop. Beide
+     *  stehen in keinem anderen Kopffeld — ohne sie in der Signatur antwortet der Cache eines
+     *  anderen Films. */
+    @Test
+    fun `Stride und Linse sind eigene Caches`() {
+        assertNotEquals(sig(stride = 1), sig(stride = 2))
+        assertNotEquals(sig(lens = false), sig(lens = true))
+    }
+
+    /** `withoutPriorSafety` laeuft HINTER dem Cache: eine unter `prior-mode=old` gebaute Datei
+     *  traegt weder `invalidMass` noch `raw`, und ein `new`-Lauf, der sie liest, faehrt still
+     *  den alten Weg. */
+    @Test
+    fun `ein anderer prior-mode ist ein anderer Cache`() {
+        assertNotEquals(sig(priorSafety = true), sig(priorSafety = false))
+    }
+
     @Test
     fun `the same range signs the same`() {
         assert(
@@ -49,18 +66,22 @@ class VisualCacheSignatureRangeTest {
         limitFrames: Int? = null,
         recordedFrames: Int? = null,
         priorLambda: Double = 0.0,
+        priorSafety: Boolean = true,
+        stride: Int = 1,
+        lens: Boolean = false,
     ): String =
         visualCacheSignature(
             TrackerConfig(),
             BoardGeometry(),
             FloatArray(8) { it.toFloat() },
             StillSource,
-            stride = 1,
-            lens = false,
+            stride = stride,
+            lens = lens,
             model = "m",
             startFrame = startFrame,
             limitFrames = limitFrames,
             recordedFrames = recordedFrames,
             priorLambda = priorLambda,
+            priorSafety = priorSafety,
         )
 }

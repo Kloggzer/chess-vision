@@ -266,9 +266,9 @@ internal class VisualObservationCache private constructor(
 
         private const val MAGIC = 0x43564F31
 
-        // 7: die Zeilen sind prior-konditioniert, und erst seit 2026-09-21 steht der Prior in der
-        // Signatur — aeltere Dateien wurden ohne ihn geschrieben und sind nicht zuzuordnen.
-        private const val VERSION = 7
+        // 8: die Zeilen gehen durch `withoutPriorSafety`, und erst seit 2026-09-22 steht
+        // `prior-mode` in der Signatur — was davor geschrieben wurde, sagt seinen Modus nicht.
+        private const val VERSION = 8
         private const val RECORD_OBSERVATION = 1
         private const val RECORD_ALIGNMENT = 2
         private const val CORNER_VALUES = 8

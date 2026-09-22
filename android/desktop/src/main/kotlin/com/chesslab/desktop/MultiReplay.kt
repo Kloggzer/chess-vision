@@ -110,10 +110,12 @@ internal class ExtraEngines private constructor(
 }
 
 /** `configs=`: je Zeile `<name> <knopf>=<wert> ...`, Leerzeilen und `#` fallen weg. Die Namen
- *  laufen durch denselben Katalog wie `set:` — ein Tippfehler bricht hier ab, nicht nach 20 min. */
+ *  laufen durch denselben Katalog wie `set:` — ein Tippfehler bricht hier ab, nicht nach 20 min.
+ *  [baue] ist die GANZE Kette des Hauptlaufs, nicht der fertige `base`: sonst landen die Knoepfe
+ *  hinter `atFrameRate` und `coverage_gate` und heissen in den zwei Armen Verschiedenes. */
 internal fun readExtraConfigs(
     file: java.io.File,
-    base: TrackerConfig,
+    baue: (Map<String, Double>) -> TrackerConfig,
 ): List<Pair<String, TrackerConfig>> =
     file
         .readLines()
@@ -127,5 +129,5 @@ internal fun readExtraConfigs(
                     val raw = wort.substringAfter('=', "")
                     key to (raw.toDoubleOrNull() ?: error("configs=: '$wort' ist kein <knopf>=<zahl>"))
                 }
-            worte.first() to base.withOverrides(overrides)
+            worte.first() to baue(overrides)
         }

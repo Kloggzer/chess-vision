@@ -64,28 +64,45 @@ fun rectifyVideo(args: List<String>) {
     val index = r.read
     val written = r.written
     val missed = r.missed
-    val mean = if (written.isEmpty()) 0.0 else r.offsetSum / written.size
+    val mean = meanWorstSquareOffset(written.size, r.offsetSum)
 
-    File(outDir, RECEIPT).writeText(
-        """
-        {
-          "rectified": true,
-          "source": "${video.name}",
-          "lens": ${model != null},
-          "size": ${size ?: 0},
-          "written": ${written.size},
-          "missed": ${missed.size},
-          "missedFrames": ${missed.take(MISSED_LISTED)},
-          "meanWorstSquareOffsetPx": $mean,
-          "note": "playing field only, per-frame grid-refined quad; draw on this, never re-warp"
-        }
-        """.trimIndent() + System.lineSeparator(),
-    )
+    File(outDir, RECEIPT).writeText(rectifyReceipt(video.name, model != null, size, written, missed, mean))
     println(
-        "rectified ${written.size} of $index frames, $missed missed" +
-            " · mean worst square offset ${"%.2f".format(mean)} px -> ${outDir.absolutePath}",
+        "rectified ${written.size} of $index frames, ${missed.size} missed" +
+            " · mean worst square offset ${mean?.let { "%.2f".format(it) } ?: "not measured"} px" +
+            " -> ${outDir.absolutePath}",
     )
 }
+
+/** NICHT 0.0, wenn nichts geschrieben wurde: das ist der BESTE erreichbare Wert, und ein Lauf
+ *  ohne ein einziges gefundenes Brett haette damit perfekte Geometrie gemeldet. */
+internal fun meanWorstSquareOffset(
+    written: Int,
+    offsetSum: Double,
+): Double? = if (written == 0) null else offsetSum / written
+
+/** Die Quittung als reiner Text, damit sie ohne Video zu pruefen ist. */
+internal fun rectifyReceipt(
+    source: String,
+    lens: Boolean,
+    size: Int?,
+    written: List<Int>,
+    missed: List<Int>,
+    mean: Double?,
+): String =
+    """
+    {
+      "rectified": true,
+      "source": "$source",
+      "lens": $lens,
+      "size": ${size ?: 0},
+      "written": ${written.size},
+      "missed": ${missed.size},
+      "missedFrames": ${missed.take(MISSED_LISTED)},
+      "meanWorstSquareOffsetPx": ${mean ?: "null"},
+      "note": "playing field only, per-frame grid-refined quad; draw on this, never re-warp"
+    }
+    """.trimIndent() + System.lineSeparator()
 
 private class Rectified(
     val read: Int,

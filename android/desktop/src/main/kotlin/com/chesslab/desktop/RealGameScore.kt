@@ -53,10 +53,11 @@ internal class MoveScore(
 internal fun scoreMoves(
     label: List<ScoredPly>,
     run: List<ScoredPly>,
+    startFen: String = Board().fen,
 ): MoveScore {
     val found = mutableListOf<Pair<ScoredPly, ScoredPly>>()
     val reordered = mutableListOf<ReorderedStretch>()
-    var fen: String? = Board().fen
+    var fen: String? = startFen
     var i = 0
     var j = 0
     while (i < label.size && j < run.size) {
@@ -176,17 +177,28 @@ private const val REORDER_LOOKAHEAD = 12
  */
 internal fun labelPlies(candidate: File): List<ScoredPly> {
     val fromCandidate = candidatePlies(candidate)
+    val start = startFenOf(candidate)
     val pgn = File(candidate.parentFile, "reference.pgn")
     if (!pgn.isFile) return fromCandidate
     // Eine vorhandene, aber unlesbare Referenz ist NICHT "keine Referenz": der Rueckfall benotet
     // den Tracker gegen seine eigene Ausgabe und meldet dann found = alles.
-    val sans = runCatching { pgnSans(pgn.readText()) }.getOrDefault(emptyList())
+    val sans = runCatching { pgnSans(pgn.readText(), start) }.getOrDefault(emptyList())
     check(sans.isNotEmpty()) { "$pgn liegt da, ergibt aber keinen Zug — Referenz reparieren oder entfernen" }
     return sans.mapIndexed { i, san ->
         val same = fromCandidate.getOrNull(i)?.takeIf { it.san == san }
         ScoredPly(san, same?.frame ?: -1, same?.decider ?: "reference")
     }
 }
+
+/** Wo die Aufnahme ANFAENGT (`rxr-c8-20260919`: Zug 26). Ohne sie faellt `fensAfter` schon auf
+ *  dem ersten SAN aus und mit ihm die Reorder-Erkennung — ein vertauschter Abtausch zaehlt dann
+ *  als `missed` PLUS `invented`, also als Phantom. */
+internal fun startFenOf(candidate: File): String =
+    Json
+        .parseToJsonElement(candidate.readText())
+        .jsonObject["start_fen"]
+        ?.jsonPrimitive
+        ?.content ?: Board().fen
 
 private fun candidatePlies(candidate: File): List<ScoredPly> {
     val root = Json.parseToJsonElement(candidate.readText()).jsonObject
@@ -201,7 +213,10 @@ private fun candidatePlies(candidate: File): List<ScoredPly> {
 }
 
 /** The mainline SANs, normalised through chesslib so they compare against a run's. */
-private fun pgnSans(text: String): List<String> {
+private fun pgnSans(
+    text: String,
+    startFen: String,
+): List<String> {
     val body =
         text
             .lineSequence()
@@ -210,7 +225,7 @@ private fun pgnSans(text: String): List<String> {
             .replace(PGN_COMMENT, " ")
             .replace(PGN_NUMBER, " ")
             .replace(PGN_RESULT, " ")
-    val board = Board()
+    val board = Board().apply { loadFromFen(startFen) }
     val out = mutableListOf<String>()
     for (token in body.split(PGN_SPACE).filter { it.isNotBlank() }) {
         val list = MoveList(board.fen)
@@ -238,7 +253,7 @@ internal fun printScore(
     run: List<ScoredPly>,
     model: String,
 ) {
-    val score = scoreMoves(label, run)
+    val score = scoreMoves(label, run, startFenOf(candidate))
     println("score vs ${candidate.path} — model $model, label ${label.size} plies, run ${run.size} plies")
     println("  found ${score.found.size}:")
     for ((ply, committed) in score.found) {

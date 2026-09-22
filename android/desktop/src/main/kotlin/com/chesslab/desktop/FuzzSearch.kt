@@ -4,9 +4,10 @@ import com.chesslab.engine.api.TrackerConfig
 import java.io.File
 import kotlin.random.Random
 
-// Zufallssuche ueber Szene UND Konfiguration: welcher Engine-Zustand ist ueberhaupt erreichbar,
-// und welcher Wert war dafuer noetig. Was der Befund NICHT sagt: dass die noetige Eingabe real
-// vorkommt — dafuer ist `Envelope` da. `docs/engine-fuzz.md`.
+// Zufallssuche ueber Szene UND Konfiguration: welcher Engine-Zustand ist erreichbar, und welcher
+// Wert war dafuer noetig. Dass die noetige Eingabe real vorkommt, sagt der Befund NICHT —
+// `Envelope`. Und OHNE Prior: `fuzzRun` umgeht `CnnObserver.priorFor`, die Huerden unten werden
+// also auf einer anderen Verteilung gesweept als der des Geraets. `docs/engine-fuzz.md`.
 
 /** Rand des plausiblen Bereichs aus `scripts/screen_knobs.py`, absichtlich weiter gefasst. */
 private val KNOBS: Map<String, Pair<Double, Double>> =

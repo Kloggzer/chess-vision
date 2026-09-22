@@ -366,10 +366,14 @@ internal fun replayRun(
         val stride = if (recorded != null) 1 else strideOf(options.fps, source.fps, live = camera != null)
         // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`). The
         // replay did not apply it, so it measured at 0.5 while the phone ran the model's own 0.15.
-        val config =
+        val configFor = { extra: Map<String, Double> ->
+            val alle = options.overrides + extra
             options
+                .copy(overrides = alle)
                 .trackerConfig(geometry, live = camera != null, emulatedFps = (source.fps / stride).takeIf { stride > 1 })
-                .withCoverageGateOf(spec, options.overrides.keys)
+                .withCoverageGateOf(spec, alle.keys)
+        }
+        val config = configFor(emptyMap())
         // Der Prior des Modells verwirft ein `prior=` still; das Banner nennt den WIRKSAMEN Wert.
         println("board located from its markers: ${geometry.boardSize} px warp  ·  ${options.withPriorOf(spec)}")
         println("crops: ${cropLine(spec, geometry)}")
@@ -428,6 +432,7 @@ internal fun replayRun(
                         options.limitFrames,
                         recorded?.size,
                         spec?.priorLambda ?: options.priorLambda,
+                        options.priorSafety,
                     ),
                     tolerant = options.visualCachePartial,
                 )
@@ -523,7 +528,7 @@ internal fun replayRun(
             options.extraConfigs?.let { pfad ->
                 ExtraEngines
                     .open(
-                        readExtraConfigs(File(pfad), config),
+                        readExtraConfigs(File(pfad), configFor),
                         geometry,
                         optics,
                         bus,

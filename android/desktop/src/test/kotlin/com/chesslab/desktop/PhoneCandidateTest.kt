@@ -85,6 +85,29 @@ class PhoneCandidateTest {
         assertEquals(1_400_000_000L to TimeRule.WALL, PhoneClock(rows).elapsedNs(1, AFTER_E4, 1400L, Long.MIN_VALUE))
     }
 
+    /** Der NAECHSTE Ankerpunkt, nicht der erste: bei sauberen Zeilen ist das dasselbe, und genau
+     *  deshalb faellt es nicht auf. Hier driftet die zweite Zeile um 100 ms — drei Bilder. */
+    @Test
+    fun `die Wanduhr ankert am naechsten Punkt, auch wenn die Zeilen zittern`() {
+        val rows = rowsOf(frames = listOf(FrameRow(1_000_000_000L, 1000L, null), FrameRow(2_000_000_000L, 2100L, null)))
+
+        val hit = PhoneClock(rows).elapsedNs(1, AFTER_E4, 2050L, Long.MIN_VALUE)
+
+        assertEquals(1_950_000_000L to TimeRule.WALL, hit, "der erste Punkt haette 2_050_000_000 gesagt")
+    }
+
+    /** Vorwaerts zuerst, sonst der letzte davor: ohne den Rueckfall traegt ein Halbzug, dessen
+     *  Bild keine Ecken mitbrachte, gar keinen Quad — und die Herkunft der Geometrie faellt weg. */
+    @Test
+    fun `cornersAt faellt auf die letzte Zeile davor zurueck`() {
+        val quad = FloatArray(8) { it.toFloat() }
+        val rows = rowsOf(frames = listOf(FrameRow(10L, 0L, null, quad), FrameRow(20L, 0L, null), FrameRow(30L, 0L, null)))
+
+        assertEquals(quad, rows.cornersAt(10L), "die Zeile bei der Zeit selbst")
+        assertEquals(quad, rows.cornersAt(25L), "keine Ecken mehr voraus, also die letzte davor")
+        assertNull(rowsOf(frames = listOf(FrameRow(10L, 0L, null))).cornersAt(25L), "Gegenprobe: gibt es keine, ist es null")
+    }
+
     @Test
     fun `the frame clock takes the first decoded frame at or after the video time`() {
         val clock = PhoneFrameClock(listOf(0.0, 33.3, 66.7))

@@ -24,6 +24,7 @@ internal fun visualCacheSignature(
     limitFrames: Int?,
     recordedFrames: Int?,
     priorLambda: Double,
+    priorSafety: Boolean,
 ): String =
     listOf(
         "observer=${config.cnnVerify},${config.observerIntervalS}",
@@ -45,6 +46,10 @@ internal fun visualCacheSignature(
         // `possibleFor(fen)` und die Staerke durch), und die Maske haengt an der Stellungsfolge
         // der Engine — ein A/B auf einem Knopf, der einen Ply verschiebt, liest sonst fremde.
         "prior=$priorLambda",
+        // `withoutPriorSafety` laeuft HINTER dem Cache: die geschriebenen Zeilen tragen dann
+        // weder `invalidMass` noch `raw`, und ein `prior-mode=new`-Lauf, der sie liest, faehrt
+        // still den alten Weg. Der Verlust steht in der Datei, er ist nicht rueckrechenbar.
+        "prior-safety=$priorSafety",
     ).joinToString("|")
 
 /**
