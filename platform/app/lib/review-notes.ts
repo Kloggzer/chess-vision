@@ -1,10 +1,11 @@
 /** UI-only ledger: verdicts on unusable boards and bad intervals (not training input). */
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/data";
 import { readJsonl, stripBom } from "@/lib/jsonl";
+import { stampOrMissing } from "@/lib/measurement";
 
 /**
  * Is SAM's alpha right, is the interval's FEN what the board shows. "I cannot read this square" is
@@ -127,7 +128,8 @@ const cache: Cache = ((globalThis as { __chesslabReviewNotes?: Cache }).__chessl
 
 async function bySession(): Promise<BySession> {
   const file = reviewNotesPath();
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  // Nur ENOENT ist "none": ein EMFILE traf sonst den gecachten Stand von VOR dem ersten Urteil.
+  const key = (await stampOrMissing(file)) ?? "none";
   const hit = cache.get(file);
   if (hit?.key === key) return hit.value;
 

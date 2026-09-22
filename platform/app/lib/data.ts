@@ -121,13 +121,13 @@ const REVIEW_EXTS = [".webp", ".png"];
 
 /** Width and height off the header. From a BUFFER: sharp given a path keeps the file mapped, and a
  *  mapped file cannot be replaced on Windows — 13 review boards a rebuild wrote went nowhere (2026-09-06). */
-async function frameSize(file: string): Promise<{ width: number; height: number }> {
-  try {
-    const meta = await sharp(await readFile(file)).metadata();
-    return { width: meta.width ?? 720, height: meta.height ?? 816 };
-  } catch {
-    return { width: 720, height: 816 };
-  }
+async function frameSize(file: string): Promise<{ width: number; height: number } | null> {
+  const bytes = await readFile(file).catch(absentOnly);
+  if (bytes === null) return null;
+  // Kein Rueckfall auf 720x816: eine geratene Groesse legt die Zugpfeile auf fremde Felder.
+  const meta = await sharp(bytes).metadata();
+  if (!meta.width || !meta.height) throw new Error(`${file}: kein Bildkopf`);
+  return { width: meta.width, height: meta.height };
 }
 
 /** The label verb writes `frames/` (`LabelSession.review`), runs before 2026-08-17 left `review/`. */
@@ -139,7 +139,7 @@ export async function reviewFramePath(name: string, stem: string): Promise<strin
   for (const dir of [...LABELED_DIRS, "review-extra"]) {
     for (const ext of REVIEW_EXTS) {
       const file = path.join(gameDir(name), dir, `${safe}${ext}`);
-      if (await stat(file).then(() => true, () => false)) return file;
+      if ((await stat(file).catch(absentOnly)) !== null) return file;
     }
   }
   return null;
@@ -166,14 +166,15 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
       seen.add(stem);
     }
   }
-  const out: FrameStem[] = await Promise.all(
-    found.map(async ({ stem, kind }) => ({
-      stem,
-      kind,
-      ...(await frameSize((await reviewFramePath(name, stem)) ?? "")),
-    })),
+  // Zwischen `readdir` und dem Lesen kann ein Frame verschwinden (Neubau): der faellt weg.
+  const sized = await Promise.all(
+    found.map(async ({ stem, kind }) => {
+      const file = await reviewFramePath(name, stem);
+      const size = file === null ? null : await frameSize(file);
+      return size === null ? null : { stem, kind, ...size };
+    }),
   );
-  return out.sort((a, b) => a.stem.localeCompare(b.stem));
+  return sized.filter((f): f is FrameStem => f !== null).sort((a, b) => a.stem.localeCompare(b.stem));
 }
 
 export async function framePng(name: string, stem: string): Promise<Buffer> {

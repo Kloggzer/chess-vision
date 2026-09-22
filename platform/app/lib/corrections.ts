@@ -6,13 +6,14 @@
  * The rows stay GLOBAL training input (CLAUDE.md) — only the file moved next to the recording it
  * judges, which is why the writer validates instead of trusting the client.
  */
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { appendRows } from "@/lib/atomic";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
 import { jsonlRowsStrict } from "@/lib/jsonl";
+import { stampOrMissing } from "@/lib/measurement";
 
 /** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
 export type Correction = {
@@ -113,7 +114,8 @@ const ledgers: LedgerCache = ((globalThis as { __chesslabLedgersV2?: LedgerCache
 
 async function ledgerRows(name: string, ledger: Ledger): Promise<Parsed> {
   const file = ledgerPath(name, ledger);
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  // Nur ENOENT ist "none": ein EMFILE traf sonst den gecachten Stand von VOR dem ersten Urteil.
+  const key = (await stampOrMissing(file)) ?? "none";
   const hit = ledgers.get(file);
   if (hit?.key === key) return hit.value;
 

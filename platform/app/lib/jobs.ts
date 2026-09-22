@@ -135,11 +135,14 @@ export function desktopBinary(): string {
   return path.join(repoDir(), "android", "desktop", "build", "install", "desktop", "bin", bin);
 }
 
+/** Nur ENOENT ist „nicht da": ein EACCES auf `candidate.json` liess das Label-Werkzeug eine Datei
+ *  mit menschlichen Bestaetigungen neu schreiben. */
 async function exists(file: string): Promise<boolean> {
   try {
     await stat(file);
     return true;
-  } catch {
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return false;
   }
 }

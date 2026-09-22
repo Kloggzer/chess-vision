@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ChainState } from "@/lib/chain";
 import { isBare, queueRows, splitQueues, type QueueRow } from "@/lib/queues";
@@ -110,7 +111,9 @@ describe("queueRows", () => {
 
   it("reads the whole recordings dir into rows the pages can split", async () => {
     await mkdir(game("2026-08-08-11-55-19", "review"), { recursive: true });
-    await writeFile(game("2026-08-08-11-55-19", "review", "000133.png"), "x");
+    // Ein echtes Bild: `listFrameStems` liest die Groesse seit 2026-09-23 und raet sie nicht mehr.
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).png().toBuffer();
+    await writeFile(game("2026-08-08-11-55-19", "review", "000133.png"), png);
     await writeFile(game("2026-08-08-11-55-19", "reference.pgn"), "1. e4 e5");
 
     await mkdir(game("2026-08-14-09-23-19"), { recursive: true });

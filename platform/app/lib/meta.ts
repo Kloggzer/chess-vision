@@ -62,7 +62,9 @@ export async function archivedAt(name: string): Promise<string | null> {
   try {
     const yaml = await readFile(path.join(gameDir(name), "session.yaml"), "utf8");
     return ARCHIVED_AT.exec(yaml)?.[1]?.trim() ?? null;
-  } catch {
+  } catch (e) {
+    // Nur ENOENT ist „nie archiviert"; ein EACCES gab eine ausgemusterte Aufnahme wieder zum Labeln frei.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return null;
   }
 }

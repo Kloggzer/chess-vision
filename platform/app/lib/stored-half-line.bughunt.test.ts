@@ -17,7 +17,9 @@ beforeEach(async () => {
   dir = await tempDataRoot("stored-half");
   const session = path.join(dir, "recordings", "g", "files", "sessions", "s1");
   await mkdir(session, { recursive: true });
-  await writeFile(path.join(session, "log.jsonl"), `${row("000001")}\n{"frame": "0000\n${row("000003")}\n`, "utf8");
+  // Die halbe Zeile steht ZULETZT, wie das Telefon sie hinterlaesst; eine kaputte MITTENDRIN wirft
+  // seit 2026-09-23 (`stored.bughunt-2026-09-23.test.ts`).
+  await writeFile(path.join(session, "log.jsonl"), `${row("000001")}\n${row("000003")}\n{"frame": "0000`, "utf8");
 });
 
 test("a half-written line costs its own line, not the whole request", async () => {

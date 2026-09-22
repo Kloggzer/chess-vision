@@ -50,9 +50,11 @@ async function cutSource(session: Session, name: string, stem: string): Promise<
   const board = session.byStem.get(stem)?.board;
   if (!board) throw new Error(`${name}/${stem}: row carries no board — re-export the recording`);
   const file = boardPath(name, board.rel);
-  if (!(await stat(file).then(() => true, () => false))) {
+  // Nur ENOENT ist "fehlt, neu exportieren"; ein EACCES schickte den Menschen in einen Re-Export.
+  await stat(file).catch((e: NodeJS.ErrnoException) => {
+    if (e?.code !== "ENOENT") throw e;
     throw new Error(`${name}/${stem}: board ${board.rel} is missing — re-export the recording`);
-  }
+  });
   // The store is where the bow comes out, once. Cutting a board that has not been through that
   // would put the barrel back into every crop, silently — so say so instead.
   if (!board.straightened) {

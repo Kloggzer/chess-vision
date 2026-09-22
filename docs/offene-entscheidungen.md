@@ -2340,3 +2340,47 @@ gefaehrlich, sobald jemand eine Aufnahme anhand ihres `effective_config` nachste
 **Empfehlung in einem Satz:** nach dem Code-Fix die neun Candidates mit `phone-candidate` neu
 erzeugen lassen, oder ihren `effective_config`-Block als unbekannt markieren — beides schreibt
 unter `data/` und braucht dein Ja.
+
+## Drei benannte Blindstellen und die drei Formen, von Hand gesucht (2026-09-23)
+
+**Eingeloest, je mit rotem Test und Gegenprobe (`platform/app/lib/*.bughunt-2026-09-23.test.ts`):**
+`ingest.sizeOf` ist in `sizeOrAbsent` (Groesse oder `null` nur bei ENOENT) und `present` getrennt;
+ein EACCES loeste vorher einen Neu-Upload von 1 GB aus und liess `complete` ein Ziel fuer frei
+halten. `data.frameSize` raet keine 720x816 mehr: ein nach `readdir` verschwundener Frame faellt
+weg, ein Lesefehler wird durchgereicht, ein unlesbarer Bildkopf wirft. `stored.loadStored` liest
+mit `jsonlRowsStrict`: die halbe LETZTE Zeile faellt weg, eine kaputte MITTENDRIN wirft. Das
+Fixture von `stored-half-line.bughunt.test.ts` trug die halbe Zeile mitten in der Datei; sie steht
+jetzt am Ende, wo das Telefon sie hinterlaesst.
+
+**Von Hand gefunden (der Erkenner sieht keine davon):** `atomic.stampOf` (ein EMFILE hiess „keine
+reference.pgn", der Upload ueberschrieb das menschliche PGN ohne `replace` und ohne Sicherung),
+die Cache-Schluessel von `corrections.ts` und `review-notes.ts` (`"none"` fuer jeden Fehler traf den
+leeren Stand von vor dem ersten Urteil), `jobs.exists` (EACCES auf `candidate.json` startete das
+Label-Werkzeug, das die Datei samt Bestaetigungen neu schreibt), `meta.archivedAt` (eine
+ausgemusterte Aufnahme kam zurueck in die Label-Population), `chain.headerOf` (bot den schweren
+Lauf erneut an), `api/board`s `unexported` (lieferte fremde Handy-Pixel) und `crops.cutSource`
+(„neu exportieren" fuer ein EACCES). Ledger 13 Zeilen / Summe 19 -> 11 / 17.
+
+**OFFEN:** Ein kaputter Frame-Kopf laesst jetzt `queueRows` und damit die Startseite werfen, weil
+`bareFrames` jeden Kopf dekodiert, nur um Frames zu ZAEHLEN. Zaehlen ohne Dekodieren waere die
+Trennung derselben zwei Fragen. Nicht umgestellt, weil ohne roten Test: `chain.stampOf` (ein
+Geschwister im selben `Promise.all` wirft schon), die `stat`-Schluessel in `crops.ts`, die
+`taken`-Schleifen in `frame-flag.ts`/`api/pgn` (`COPYFILE_EXCL` faengt den Fall), `perf.sweepLog`
+und das `readdir` in `jobs.videoInput`.
+
+## 45. Ein Gate fuer drei Stockfish-Besitzer? — Live ja, Review bewusst nicht (2026-09-23)
+
+Astra-Befund H3: "analysis is what gets sacrificed, every time" (`AnalysisGate.gateBlock`) galt nur
+fuer `AnalysisHost`. **Tipp-Pfad: gebaut.** `MateLineResolver` oeffnete fuer die Mattlinie einen
+zweiten Prozess, den das Gate nie erreichte; der Controller verwarf das Ergebnis nur. Jetzt bricht
+`gatedLineResolver` die Rechnung ab, sobald `analysis.block` zuschlaegt, und die Suche selbst ist
+abbrechbar (`analyse(..., cancelled)`) — vorher lief sie bis `capMs` + 5 s Nachfrist weiter
+(`HintLineGateTest`).
+
+**Review: nicht unter das Gate gestellt, nur die Prosa eingeschraenkt.** `docs/game-review.md`
+erlaubt ausdruecklich, dass eine Auswertung laeuft, waehrend der Tracker die Kamera hat; sie ist
+vom Nutzer gestartet, im App-Bar-Banner sichtbar und dort stoppbar. Ein gemeinsamer Arbiter/Lease
+haette dieses dokumentierte Verhalten geaendert — das ist eine Produktentscheidung, keine
+Reparatur. **Offen:** soll ein laufendes Review pausieren, wenn der Tracker unter 15 fps faellt
+oder das Geraet drosselt? Wenn ja, ist der naechste Schritt ein Lease, das `ReviewHost` und
+`AnalysisHost` teilen, und `gateBlock` bekommt einen zweiten Aufrufer.

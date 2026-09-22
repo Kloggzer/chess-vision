@@ -108,12 +108,14 @@ function absentOnly(error: unknown): null {
   return null;
 }
 
-async function sizeOf(file: string): Promise<number> {
-  try {
-    return (await stat(file)).size;
-  } catch {
-    return -1;
-  }
+/** Groesse, `null` nur wenn die Datei FEHLT. Ein `-1` fuer jeden Fehler liess ein EACCES wie
+ *  „nichts da" aussehen, und das Handy lud das Gigabyte neu hoch. */
+async function sizeOrAbsent(file: string): Promise<number | null> {
+  return (await stat(file).catch(absentOnly))?.size ?? null;
+}
+
+async function present(file: string): Promise<boolean> {
+  return (await stat(file).catch(absentOnly)) !== null;
 }
 
 /**
@@ -131,7 +133,7 @@ export async function declare(manifest: Manifest): Promise<{ name: string; have:
   await writeFileAtomic(path.join(staging, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   const have: Record<string, number> = {};
   for (const file of manifest.files) {
-    const landed = await sizeOf(path.join(targetDir(name), file.path));
+    const landed = await sizeOrAbsent(path.join(targetDir(name), file.path));
     have[file.path] = landed === file.bytes ? file.bytes : await resumePoint(path.join(staging, file.path + ".partial"), file.bytes);
   }
   return { name, have, chunk: CHUNK_BYTES };
@@ -143,8 +145,8 @@ export async function declare(manifest: Manifest): Promise<{ name: string; have:
  * end, sends nothing, and `complete` refuses the session on every retry, forever.
  */
 async function resumePoint(partial: string, bytes: number): Promise<number> {
-  const have = await sizeOf(partial);
-  if (have <= bytes) return Math.max(0, have);
+  const have = await sizeOrAbsent(partial);
+  if (have === null || have <= bytes) return have ?? 0;
   await truncate(partial, 0);
   return 0;
 }
@@ -166,14 +168,14 @@ export async function appendChunk(
 ): Promise<{ have: number }> {
   const partial = path.join(stagingDir(name), checkRelPath(relPath) + ".partial");
   return serialize(partial, async () => {
-    const have = Math.max(0, await sizeOf(partial));
+    const have = (await sizeOrAbsent(partial)) ?? 0;
     if (offset !== have) throw Object.assign(new Error(`offset ${offset} != ${have}`), { have, conflict: true });
     await mkdir(path.dirname(partial), { recursive: true });
-    // Ohne Rumpf entstuende die Datei nie: eine erklaerte 0-Byte-Datei blieb bei -1 und `complete`
+    // Ohne Rumpf entstuende die Datei nie: eine erklaerte 0-Byte-Datei fehlte weiter und `complete`
     // verweigerte die Sitzung auf jedem Versuch.
     await appendFile(partial, "");
     if (body) await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(partial, { flags: "a" }));
-    return { have: await sizeOf(partial) };
+    return { have: (await stat(partial)).size };
   });
 }
 
@@ -189,25 +191,25 @@ export async function complete(name: string): Promise<TransferRow> {
   const staging = stagingDir(name);
   const missing: { path: string; have: number; want: number }[] = [];
   for (const file of manifest.files) {
-    const landed = await sizeOf(path.join(targetDir(name), file.path));
+    const landed = await sizeOrAbsent(path.join(targetDir(name), file.path));
     if (landed === file.bytes) continue;
     const partial = path.join(staging, file.path + ".partial");
     // Auch die fertige Datei zaehlt: der erste Abschluss benennt jedes `.partial` um, ein
     // Wiederholungsversuch fand danach nichts und meldete "unvollstaendig" — 409 fuer immer,
     // und das Handy laedt alles neu hoch.
-    const have = await sizeOf(partial);
-    const done = have === file.bytes ? have : await sizeOf(path.join(staging, file.path));
-    if (done !== file.bytes) missing.push({ path: file.path, have: Math.max(0, have), want: file.bytes });
+    const have = await sizeOrAbsent(partial);
+    const done = have === file.bytes ? have : await sizeOrAbsent(path.join(staging, file.path));
+    if (done !== file.bytes) missing.push({ path: file.path, have: have ?? 0, want: file.bytes });
   }
   if (missing.length > 0) throw Object.assign(new Error("incomplete transfer"), { missing, conflict: true });
 
   for (const file of manifest.files) {
     const partial = path.join(staging, file.path + ".partial");
-    if ((await sizeOf(partial)) === file.bytes) await rename(partial, path.join(staging, file.path));
+    if ((await sizeOrAbsent(partial)) === file.bytes) await rename(partial, path.join(staging, file.path));
   }
 
   const target = targetDir(name);
-  const exists = (await sizeOf(target)) >= 0;
+  const exists = await present(target);
   if (!exists) {
     await mkdir(path.dirname(target), { recursive: true });
     await rename(staging, target);
@@ -289,8 +291,8 @@ export async function pending(): Promise<{ name: string; bytes: number; files: n
     let bytes = 0;
     let partials = 0;
     for (const file of manifest.files) {
-      const have = await sizeOf(path.join(stagingDir(name), file.path + ".partial"));
-      if (have < 0) continue;
+      const have = await sizeOrAbsent(path.join(stagingDir(name), file.path + ".partial"));
+      if (have === null) continue;
       partials++;
       bytes += have;
     }

@@ -3,7 +3,8 @@
  * Kuerzen und letztem Byte halb da. `writeConfirmation` und `flagFrame` gehen aus diesem Grund
  * seit je ueber tmp+rename; dies ist dieselbe Bewegung als eine Funktion.
  */
-import { appendFile, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { stampOrMissing } from "@/lib/measurement";
 import { serialize } from "@/lib/serialize";
 
 /** Eigene Zwischendatei je Schreibvorgang: unter EINEM `${file}.tmp` raeumte der `catch` des
@@ -26,8 +27,9 @@ export async function writeFileAtomic(file: string, body: string | Uint8Array): 
 /** Mtime und Groesse — die Form, auf die `lib/session.ts` und `lib/corrections.ts` schon cachen. */
 export type Stamp = string | null;
 
-export const stampOf = (file: string): Promise<Stamp> =>
-  stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => null);
+/** `null` nur, wenn die Datei FEHLT: ein EMFILE als „keine Datei" liess den Riegel ein
+ *  vorhandenes `reference.pgn` ohne `replace` und ohne Sicherung ueberschreiben. */
+export const stampOf = (file: string): Promise<Stamp> => stampOrMissing(file);
 
 /** Jemand anders hat die Datei geschrieben, waehrend wir sie geaendert haben. */
 export class Contested extends Error {}

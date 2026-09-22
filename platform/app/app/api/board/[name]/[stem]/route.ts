@@ -8,7 +8,11 @@ import { storedBoardPng } from "@/lib/stored";
  *  sagen — ENOENT statt „board is missing", und keine `log.jsonl` auf der Platte. */
 async function unexported(name: string, error: unknown): Promise<boolean> {
   if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") return false;
-  return stat(path.join(gameDir(name), "log.jsonl")).then(() => false, () => true);
+  // Ein EACCES am Log ist kein fehlender Export: sonst kaeme das Handy-JPEG unter fremdem Namen.
+  return stat(path.join(gameDir(name), "log.jsonl")).then(() => false, (e: NodeJS.ErrnoException) => {
+    if (e?.code !== "ENOENT") throw e;
+    return true;
+  });
 }
 
 /** The rectified playing field of one session frame — the drilldown canvas, a8 top left. */

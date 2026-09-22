@@ -7,7 +7,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { checkName, gameDir } from "@/lib/data";
-import { jsonlRows } from "@/lib/jsonl";
+import { jsonlRowsStrict } from "@/lib/jsonl";
 import {
   boardToImage,
   type GridMesh,
@@ -85,7 +85,9 @@ async function loadStored(name: string, dir: string, id: string): Promise<Stored
   if (hit?.key === key) return hit.value;
 
   const rows: StoredRow[] = [];
-  for (const line of jsonlRows(await readFile(log, "utf8"))) {
+  // Die halbe LETZTE Zeile hinterlaesst das Telefon erwartbar und faellt weg; eine kaputte
+  // MITTENDRIN erklaert kein laufender Schreiber und wirft, statt Labels still zu verlieren.
+  for (const line of jsonlRowsStrict(log, await readFile(log, "utf8"))) {
     const row = line as unknown as StoredRow & { dirty?: boolean };
     // `selectStoredRows` drops a dirty row before it is ever packed, so nobody may be asked about it.
     if (row.dirty === true) continue;

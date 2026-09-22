@@ -123,7 +123,8 @@ type Provenance = { log?: string; model?: string };
  *  fuer Altbestand), und eine leere Datei — was ein gestoppter Lauf hinterlaesst — schloesse damit
  *  die Sprosse. Der Mensch landete auf `labeln` ohne eine einzige Lesart. */
 async function headerOf(file: string): Promise<Provenance | null> {
-  const handle = await open(file, "r").catch(() => null);
+  // Nur ENOENT heisst "nie gelaufen"; ein EACCES bot sonst den schweren Lauf erneut an.
+  const handle = await open(file, "r").catch(absentOnly);
   if (!handle) return null;
   try {
     const buffer = Buffer.alloc(4096);

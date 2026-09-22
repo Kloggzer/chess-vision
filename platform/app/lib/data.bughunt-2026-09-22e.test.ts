@@ -4,6 +4,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { expect, test, vi } from "vitest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
@@ -38,7 +39,9 @@ async function fixture(prefix: string): Promise<void> {
   const root = await tempDataRoot(prefix);
   const dir = path.join(root, "recordings", "g", "frames");
   await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "000001.webp"), "x", "utf8");
+  // Ein echtes Bild: seit 2026-09-23 raet `frameSize` keine Groesse mehr fuer ein unlesbares.
+  const webp = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).webp().toBuffer();
+  await writeFile(path.join(dir, "000001.webp"), webp);
 }
 
 const stems = async () => (await import("@/lib/data")).listFrameStems("g");
