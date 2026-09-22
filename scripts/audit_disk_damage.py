@@ -69,9 +69,14 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
 
     out = []
     for session in sorted(config.DATA.recordings.glob("*/")):
-        # `is not None`: eine geleerte Matte ist gemessen, SAMs Absage nicht.
-        rows = [r for r in _rows(session / "matte.jsonl")
-                if r.get("coverage") is not None and r.get("alpha") != "fixed"]
+        # Die JUENGSTE Zeile je Frame (wie `labeling.read_matte`): das Alpha auf der Platte gehoert
+        # nur zu ihr, eine ueberholte meldete sonst Schaden. SAMs Absage (`None`) nimmt den Frame raus.
+        latest: dict[str, dict] = {}
+        for r in _rows(session / "matte.jsonl"):
+            latest.pop(r.get("frame"), None)
+            if r.get("coverage") is not None:
+                latest[r.get("frame")] = r
+        rows = [r for r in latest.values() if r.get("alpha") != "fixed"]
         if not rows:
             continue
         try:

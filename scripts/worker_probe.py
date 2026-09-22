@@ -48,6 +48,13 @@ def run(workers: int, epochs: int, dataset: str, frac: float) -> list[dict]:
     return read_jsonl(m)
 
 
+def warm(rows: list[dict], key: str) -> float:
+    """Mittel OHNE Epoche 1: dort stecken `--compile-*` und der kalte Seitencache, nicht die Worker."""
+    if len(rows) < 2:
+        raise SystemExit("[FAIL] eine Epoche hat keinen warmen Teil — `--epochs` >= 2")
+    return sum(r[key] for r in rows[1:]) / (len(rows) - 1)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--workers", default="2,4")
@@ -62,11 +69,11 @@ def main() -> int:
         got[w] = run(w, args.epochs, args.dataset, args.epoch_frac)
 
     base = min(got)
-    print(f"\n{'Worker':>7} {'train_loss (alle Epochen)':38s} {'s/Epoche':>9} {'Daten':>8} {'bitgleich':>10}")
+    print(f"\n{'Worker':>7} {'train_loss (alle Epochen)':38s} {'s warm':>9} {'Daten':>8} {'bitgleich':>10}")
     for w, rows in sorted(got.items()):
         losses = [r["train_loss"] for r in rows]
-        per = sum(r["t_train_s"] + r["t_val_s"] for r in rows) / len(rows)
-        dat = sum(r["t_data_s"] for r in rows) / len(rows)
+        per = warm(rows, "t_train_s") + warm(rows, "t_val_s")
+        dat = warm(rows, "t_data_s")
         same = "-" if w == base else ("JA" if losses == [r["train_loss"] for r in got[base]] else "NEIN")
         print(f"{w:7d} {str([round(x, 6) for x in losses]):38s} {per:8.1f}s {dat:7.1f}s {same:>10}")
     return 0

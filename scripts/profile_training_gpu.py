@@ -11,22 +11,57 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from chesslab.ioutil import iter_jsonl, write_json
+from chesslab.ioutil import iter_jsonl, read_jsonl, write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 
-def main():
+def resident_batch(cfg: dict, fixture: dict | None = None):
+    """Vier Trainingsbretter als CPU-Tensoren `(x, y)`; ein Fixture ersetzt den Datensatz GANZ.
+
+    Vorher wurde der Satz auch mit `--fixture` gelesen — und die v6-Saetze haben seit 2026-09-11
+    keine eigene Memmap mehr, der Paritaetslauf starb also vor dem Fixture.
+    """
+    if fixture is not None:
+        return fixture["x"], fixture["y"]
     import numpy as np
     import torch
     from PIL import Image
 
     from chesslab import config
-    from chesslab.training.model import build_model
-    from chesslab.training.occlusion import OcclusionLoss
+    from chesslab.training.pack import open_packed_rows
     from chesslab.training.torch_data import build_transform, coverage_of
     from chesslab.training.train import brightness_of
+
+    dd = Path("data/datasets") / cfg["dataset"]
+    groups = {}
+    for row in iter_jsonl(dd / "manifest.jsonl"):
+        if row["session_id"] in cfg["split"]["splits"]["train"]:
+            groups.setdefault((row["session_id"], row["frame"]), []).append(row)
+            if sum(len(g) == 64 for g in groups.values()) >= 4:
+                break
+    boards = [sorted(g, key=lambda r: (r["square"][1], r["square"][0]))
+              for g in groups.values() if len(g) == 64][:4]
+    assert len(boards) == 4
+    # Das GANZE Manifest: `load_packed` prueft den Digest dagegen, eine Teilmenge fiele durch.
+    mm, index = open_packed_rows(cfg["dataset"], read_jsonl(dd / "manifest.jsonl"))
+    policy = replace(config.AUGMENT, **{k: cfg["aug_" + k] for k in config.AUGMENT.__dataclass_fields__
+                                      if "aug_" + k in cfg})
+    tf = build_transform(mm.shape[1:3], train=True, policy=policy)
+    x = torch.stack([torch.stack([tf(Image.fromarray(np.array(mm[index[r["path"]]]))) for r in b])
+                     for b in boards])
+    # `coverage_of`/`brightness_of` sind die eine Lesart: ein ausgeschriebenes `null` ist kein 0.
+    y = torch.tensor([[cfg["classes"].index(r["label"]), coverage_of(r), brightness_of(r)]
+                      for b in boards for r in b])
+    return x, y
+
+
+def main():
+    import torch
+
+    from chesslab.training.model import build_model
+    from chesslab.training.occlusion import OcclusionLoss
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run", default="data/models/p4a-v6-s42")
@@ -41,32 +76,8 @@ def main():
     cfg = json.loads((Path(args.run) / "config.json").read_text())
     torch.manual_seed(42)
     random.seed(42)
-    dd = Path("data/datasets") / cfg["dataset"]
-    groups = {}
-    for index, row in enumerate(iter_jsonl(dd / "manifest.jsonl")):
-        if row["session_id"] in cfg["split"]["splits"]["train"]:
-            group = groups.setdefault((row["session_id"], row["frame"]), [])
-            group.append((index, row))
-            if sum(len(g) == 64 for g in groups.values()) >= 4:
-                break
-    boards = [sorted(g, key=lambda item: (item[1]["square"][1], item[1]["square"][0]))
-              for g in groups.values() if len(g) == 64][:4]
-    assert len(boards) == 4
-    pack = dd / "packed_images.u8"
-    mm = np.memmap(pack, dtype=np.uint8, mode="r",
-                   shape=(pack.stat().st_size // (80 * 80 * 3), 80, 80, 3))
-    policy = replace(config.AUGMENT, **{k: cfg["aug_" + k] for k in config.AUGMENT.__dataclass_fields__
-                                      if "aug_" + k in cfg})
-    tf = build_transform((80, 80), train=True, policy=policy)
-    x = torch.stack([torch.stack([tf(Image.fromarray(np.array(mm[i]))) for i, _ in b])
-                     for b in boards]).cuda()
-    # `r.get(k, default)` greift nur beim FEHLENDEN Schluessel: ein ausgeschriebenes `null`
-    # kam als `None` bei `torch.tensor` an. `coverage_of`/`brightness_of` sind die eine Lesart.
-    y = torch.tensor([[cfg["classes"].index(r["label"]), coverage_of(r), brightness_of(r)]
-                      for b in boards for _, r in b], device="cuda")
     fixture = torch.load(args.fixture, weights_only=True) if args.fixture else None
-    if fixture is not None:
-        x, y = fixture["x"].cuda(), fixture["y"].cuda()
+    x, y = (t.cuda() for t in resident_batch(cfg, fixture))
     model = build_model(cfg["backbone"], len(cfg["classes"]) + 1, norm=cfg["norm"],
                         board_width=cfg["board_width"], board_layers=cfg["board_layers"]).cuda()
     model.load_state_dict(torch.load(Path(args.run) / "last.pt", map_location="cuda", weights_only=True))
@@ -122,7 +133,7 @@ def main():
     torch.cuda.synchronize()
     report = {"device": torch.cuda.get_device_name(), "torch": torch.__version__,
               "triton_installed": importlib.util.find_spec("triton") is not None,
-              "batch_crops": 256, "steps": args.steps}
+              "batch_crops": int(x.shape[0] * x.shape[1]), "steps": args.steps}
     if parity is not None:
         report["baseline_parity"] = parity
     for sync in (True, False):

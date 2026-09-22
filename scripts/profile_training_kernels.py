@@ -21,6 +21,23 @@ from chesslab.ioutil import write_json
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
+#: Das ERSTE Glied laeuft am Ende noch einmal: feste Reihenfolge ohne Wiederholung liess
+#: offen, ob der Abstand die Variante war oder der Warmlauf (`benchmark_export_warp`).
+SIZES = (1, 2, 4, 8, 16, 1)
+VARIANTS = ("eager", "compile", "compile-cudagraph", "compile-fused", "eager-fused", "eager-repeat")
+
+
+def line_fit(scaling: list[dict]) -> dict | None:
+    """Kleinste Quadrate `ms = fest + je_crop * crops` — die Rezeptzahl aus dem Lauf, nicht von Hand."""
+    pts = [(r["crops"], r["ms_per_step"]) for r in scaling if "ms_per_step" in r and not r.get("repeat")]
+    if len(pts) < 2:
+        return None
+    mx = sum(c for c, _ in pts) / len(pts)
+    my = sum(m for _, m in pts) / len(pts)
+    slope = sum((c - mx) * (m - my) for c, m in pts) / sum((c - mx) ** 2 for c, _ in pts)
+    return {"fixed_ms": round(my - slope * mx, 3), "per_crop_us": round(slope * 1000, 2),
+            "points": len(pts)}
+
 
 def main():
     import torch
@@ -122,7 +139,7 @@ def main():
         import copy
 
         results, reference = [], None
-        for name in ("eager", "compile", "compile-cudagraph", "compile-fused", "eager-fused"):
+        for name in VARIANTS:
             net = copy.deepcopy(model)
             net.load_state_dict(saved)
             opt = torch.optim.AdamW(net.parameters(), lr=cfg["lr"],
@@ -178,7 +195,7 @@ def main():
     report = {"torch": torch.__version__, "compiled": args.compile,
               "norm_modules": len(norms), "scaling": [], "ops_per_step": {}}
     base = x.shape[0]
-    for boards in (1, 2, 4, 8, 16):
+    for n_run, boards in enumerate(SIZES):
         if boards <= base:
             xb, yb = x[:boards].contiguous(), y[:boards * 64]
         else:
@@ -189,11 +206,14 @@ def main():
             ms = timed(lambda xb=xb, yb=yb: step(xb, yb))
             report["scaling"].append({"boards": boards, "crops": boards * 64,
                                       "ms_per_step": round(ms, 3),
-                                      "crops_s": round(boards * 64 * 1000 / ms)})
+                                      "crops_s": round(boards * 64 * 1000 / ms),
+                                      "repeat": boards in SIZES[:n_run]})
         except Exception as exc:
             report["scaling"].append({"boards": boards, "error": str(exc)[:120]})
         print(report["scaling"][-1], flush=True)
 
+    report["fit"] = line_fit(report["scaling"])
+    print("fit", report["fit"], flush=True)
     # CPU-side rows ARE real here: every aten call is one dispatch, and dispatch is what the
     # step is short of.
     with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU]) as prof:

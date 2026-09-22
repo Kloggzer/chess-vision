@@ -2384,3 +2384,26 @@ haette dieses dokumentierte Verhalten geaendert — das ist eine Produktentschei
 Reparatur. **Offen:** soll ein laufendes Review pausieren, wenn der Tracker unter 15 fps faellt
 oder das Geraet drosselt? Wenn ja, ist der naechste Schritt ein Lease, das `ReviewHost` und
 `AnalysisHost` teilen, und `gateBlock` bekommt einen zweiten Aufrufer.
+
+## Die Rezeptzahlen "11,4 ms fest / 3,9 ms kompiliert" reproduzieren sich nicht (2026-09-23)
+
+`CLAUDE.md` ("Der Trainingsschritt ist startgebunden") nennt eager **11,4 ms fest + 33,5 µs je Crop**,
+kompiliert **3,9 ms fest**. `docs/training-stack-spike.md` nennt 11,9 / 33,5 und kompiliert 5,3.
+Die Rohdaten daneben (`tmp/compile-spike/kernels-new.json`, `kernels-new-compiled.json`) ergeben
+per kleinster Quadrate **11,90 ms + 34,67 µs** und kompiliert **4,61 ms + 31,9 µs** — keine der
+beiden zitierten Fassungen. "59 %" haelt nur als 11,90 / 20,07 (gemessen bei 256); mit 11,4 waeren
+es 56,8 %, gegen die Geradenvorhersage 57,3 %. Die Richtung (startgebunden) steht, die Ziffern nicht.
+Jeder Punkt ist EIN Lauf zu 8 Schritten in fester Reihenfolge; dass das nicht reicht, zeigt der
+Nachbar `profile_training_gpu.py --compile-test`: in `rep2.json` misst `eager_repeat` 24,95 ms
+gegen `eager` 15,51 ms im SELBEN Prozess (+61 %).
+`profile_training_kernels.py` schreibt die Gerade jetzt selbst (`fit`) und wiederholt das erste
+Glied am Ende (`SIZES`, `VARIANTS`). **Offen:** CLAUDE.md auf die Zahlen eines Laufs mit Wiederholung
+umstellen — erst nach einer Messung auf ruhigem Rechner, nicht aus diesem Eintrag.
+
+## Drei Analyse-Skripte koennen keinen heutigen Datensatz lesen (2026-09-23)
+
+Alle 24 Saetze unter `data/datasets/` mit `manifest.jsonl` zeigen zu 100 % mit `mm://` in Packs.
+`gradcam_summary.py` warf diese Zeilen per `Path.exists()` weg und meldete danach Erfolg auf null
+Zellen (jetzt `SystemExit`). `session_colour.py` und `lr_range_test.py` sterben laut an
+`load_packed` ("built from session packs"). **Offen:** ob sie einen Pack-Leser bekommen
+(`resolve_dataset_packs` + `_pack_at`, wie `oof_review.py`) oder geparkt werden.

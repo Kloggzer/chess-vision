@@ -94,8 +94,16 @@ def main() -> int:
 
     dd = dataset_dir(a.dataset)
     split = json.loads((dd / "split.json").read_text(encoding="utf-8"))["splits"][a.split]
-    rows = [r for r in read_jsonl(dd / "manifest.jsonl")
-            if r["session_id"] in split and r["label"] != "empty" and Path(r["path"]).exists()]
+    want = [r for r in read_jsonl(dd / "manifest.jsonl")
+            if r["session_id"] in split and r["label"] != "empty"]
+    rows = [r for r in want if Path(r["path"]).exists()]
+    if len(rows) < len(want):
+        # `Image.open` liest nur Dateien; heute zeigen alle 24 Saetze zu 100 % mit `mm://` in Packs.
+        packed = sum(1 for r in want if str(r["path"]).startswith("mm://"))
+        raise SystemExit(f"[FAIL] {len(want) - len(rows)} von {len(want)} Zellen ohne Datei, "
+                         f"davon {packed} als `mm://` im Pack — der Mittelwert laege auf einer Teilmenge.")
+    if not rows:
+        raise SystemExit(f"[FAIL] keine besetzte Zelle in {a.split} von {a.dataset}")
     step = max(1, len(rows) // a.n)
     rows = rows[::step][:a.n]
     print(f"[i] {len(rows)} besetzte Zellen aus {a.split} von {a.dataset}")

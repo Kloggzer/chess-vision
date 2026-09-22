@@ -28,12 +28,13 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
     by_index = {int(r["index"]): r for r in rows}
     print(f"{name}: {len(rows)} frames, thr {thr}")
     print("ply   san      truth  quiet  lag_s  frames>thr  board>thr  roi-only>thr  stuck")
-    lags, board_only, roi_only, unmeasured = [], 0, 0, 0
+    lags, board_only, roi_only, unmeasured, never = [], 0, 0, 0, []
     fps = float(cand["clock"]["fps"])
     for m in plies:
         truth = m["frame"]
         quiet = next((i for i in range(truth, truth + 600) if i in by_index and by_index[i]["state"] == "waiting"), None)
         if quiet is None:
+            never.append(m["ply"])
             continue
         over = board = roi_alone = blind = 0
         stucks = set()
@@ -70,6 +71,10 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
         print(f"\nlag to quiet: median {st.median(s):.2f} s · "
               f"p90 {s[max(0, math.ceil(0.9 * len(s)) - 1)]:.2f} s · frames over thr: "
               f"board-led {board_only}, roi-only {roi_only}, ohne ROI-Messung {unmeasured}")
+    if never:
+        # Die laengsten Lags fallen sonst still aus dem Median — er waere eine Untergrenze.
+        print(f"[!] {len(never)} von {len(plies)} Plies nie `waiting` binnen 600 Frames, "
+              f"nicht im Median: Plies {', '.join(map(str, never))}")
     return 0
 
 

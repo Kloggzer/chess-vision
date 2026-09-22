@@ -412,6 +412,12 @@
   des Schritts reiner Startaufwand** — 2 611 aten-Aufrufe zu 4,6 µs. `torch.compile` macht 860
   daraus. Der Auslastungszaehler folgt genau dem Arbeitsanteil (43 % eager, 51–68 % kompiliert);
   **er ist keine Effizienzzahl**, und 100 % sind mit 6,7 MMAC je Crop nicht erreichbar.
+  **Die Ziffern tragen nicht, die Richtung schon (nachgerechnet 2026-09-23):** aus den Rohdaten
+  unter `tmp/compile-spike/` ergibt die Gerade 11,90 ms + 34,67 µs eager und **4,61 ms**
+  kompiliert fest — nicht 11,4 / 33,5 / 3,9, und `docs/` nennt sogar 5,3. `profile_training_kernels`
+  mass seine Varianten in fester Reihenfolge ohne Wiederholung, und derselbe Arm streut im selben
+  Prozess um +61 % (`eager` 15,51 gegen `eager_repeat` 24,95 ms). Startgebunden bleibt der
+  Schritt; wer die Zahl zitiert, misst sie auf ruhigem Rechner neu (`docs/offene-entscheidungen.md`).
 - **`--fused-adamw` entfernt eine echte Synchronisation je Schritt**, nicht nur Aufrufe:
   `GradScaler._maybe_opt_step` liest `found_inf.item()` von einem CUDA-Tensor und leert die
   Warteschlange. Mit `fused=True` reicht `GradScaler.step` `grad_scale`/`found_inf` als

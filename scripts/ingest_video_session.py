@@ -91,9 +91,7 @@ def report_alignment(sid: str, profile) -> None:
     log = labeling.read_log(d)
     worst = []
     for e in log:
-        if not e.get("corners"):
-            continue
-        frame = cv2.imread(str(d / e["frame"]))
+        frame = cv2.imread(str(d / e["frame"])) if e.get("corners") else None
         if frame is None:
             continue
         off, _ = frame_offsets(frame, e["corners"], profile)
@@ -101,11 +99,13 @@ def report_alignment(sid: str, profile) -> None:
         if np.isfinite(w):
             worst.append(w)
     if not worst:
-        print("  alignment: nothing measurable")
+        print(f"  alignment: nothing measurable (0 of {len(log)} frames)")
         return
     v = np.array(worst)
     cell = profile.board_size / 8.0
-    print(f"  alignment (worst square offset per frame, one square = {cell:.0f} px):")
+    # Nenner nennen: ein Frame ohne Messung ist nicht gut ausgerichtet, sondern ungesehen.
+    print(f"  alignment (worst square offset per frame, one square = {cell:.0f} px), "
+          f"{len(v)} of {len(log)} frames measured:")
     print(f"    median {np.median(v):.1f} px   p90 {np.percentile(v, 90):.1f}   max {v.max():.1f}")
     for lo, hi in ((0, 4), (4, 6), (6, 8), (8, 12), (12, 1e9)):
         n = int(((v >= lo) & (v < hi)).sum())
@@ -150,6 +150,9 @@ def main() -> None:
     tracker = make_tracker(profile)
 
     sid = time.strftime("%Y%m%d-%H%M%S")            # standard camera-session id format
+    if (config.DATA.sessions / sid).exists():
+        # `SessionWriter` leert `log.jsonl` und ueberschreibt `frames/0000.*` einer fremden Aufnahme.
+        raise SystemExit(f"session {sid} exists already — refusing to overwrite it")
     writer = None
     n_read = n_sampled = n_kept = n_nocorners = 0
     while True:
