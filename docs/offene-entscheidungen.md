@@ -1589,8 +1589,18 @@ zweite, nur unausgesprochen.
 > **Folge fuer Vergleiche:** ein 80-px-Lauf nach diesem Stand ist mit dem Archiv nicht mehr
 > vergleichbar — nicht wegen der Pixel, die sind gleich, sondern weil die Dunkelmaske jetzt
 > wirkt, wo sie vorher schlief. Der ausgelieferte Champion `p4a-80-clahe` sitzt auf dem ALTEN
-> Stand. `real13-mix-v6-80-clahe` traegt die Luecke noch (44,8 %) und gehoert gleich behandelt.
-> Damit ist auch Punkt 41 erledigt: beide Groessen benoten wieder auf derselben Zellmenge.
+> Stand. Damit ist auch Punkt 41 erledigt: beide Groessen benoten wieder auf derselben Zellmenge.
+>
+> **`real13-mix-v6-80-clahe` nachgezogen (2026-09-22).** 376 640 von 841 521 Zeilen (44,76 %,
+> 138 Komposit-Aufnahmen) hatten die Spalte nicht; jetzt 0, bei unveraenderten 841 521 Zeilen und
+> 160 Aufnahmen. Zeile fuer Zeile gegen `manifest.jsonl.before-brightness` geprueft: genau diese
+> 376 640 haben NUR `brightness` dazubekommen, null sonstige Abweichungen. Der Satz ist ein
+> MONOLITH (`data/crops/…`, kein `mm://`), also kein Pack zum Hineingreifen — gemessen wurde aus
+> der Crop-Datei, auf die die Zeile zeigt, mit derselben Formel wie `labeling.py`
+> (`--from-crops`). **Nachgetragen dunkel: 15 315 von 376 640 (4,07 %)**, die alten Zeilen zu
+> 0,33 % (1 514 von 464 881) — wieder Faktor zehn. Der Pack-Digest deckt nur
+> Pfad/Label/`out_size` und bleibt damit gleich (`d1762410…`, identisch zum archivierten):
+> der Nachtrag erzwingt KEIN Neupacken.
 
 Der urspruengliche Stand, zur Nachvollziehbarkeit:
 

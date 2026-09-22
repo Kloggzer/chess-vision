@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +36,12 @@ def main() -> int:
                                               "Waehrend ein Lauf den Datensatz liest, hier eine "
                                               "Seitendatei angeben.")
     ap.add_argument("--dry-run", action="store_true")
+    # Ein Monolith (`real13-mix-v6-80-clahe`) zeigt auf `data/crops/…`, nicht auf `mm://`; es
+    # gibt also keinen Pack zum Hineingreifen. Diese Zeilen werden aus der Datei gemessen, auf
+    # die sie zeigen — dieselbe Quelle, aus der `labeling.py` die Spalte urspruenglich schrieb.
+    ap.add_argument("--from-crops", action="store_true")
+    ap.add_argument("--only-session", default="", help="Nur diese Aufnahme (Nachweislauf).")
+    ap.add_argument("--threads", type=int, default=4)
     args = ap.parse_args()
 
     from chesslab.dataset_build import dataset_dir
@@ -42,9 +49,17 @@ def main() -> int:
     dd = dataset_dir(args.dataset)
     rows = read_jsonl(dd / "manifest.jsonl")
     todo = [r for r in rows if r.get("brightness") is None]
+    if args.only_session:
+        todo = [r for r in todo if r["session_id"] == args.only_session]
     print(f"{len(todo)} von {len(rows)} Zeilen ohne brightness")
     if not todo:
         return 0
+
+    if args.from_crops:
+        done, gaps = _from_crops(todo, args.threads, args.dry_run)
+        if args.dry_run:
+            return 0
+        return _write(rows, dd, args.out, done, gaps)
 
     by_pack: dict[str, list[dict]] = {}
     for r in todo:
@@ -76,7 +91,40 @@ def main() -> int:
               + (f", {missed} nicht im Pack" if missed else ""), flush=True)
         gaps += missed
 
-    out = Path(args.out) if args.out else dd / "manifest.jsonl"
+    return _write(rows, dd, args.out, done, gaps)
+
+
+def _from_crops(todo: list[dict], threads: int, dry_run: bool) -> tuple[int, int]:
+    import cv2
+
+    by_session: dict[str, list[dict]] = {}
+    for r in todo:
+        by_session.setdefault(r["session_id"], []).append(r)
+    print(f"{len(by_session)} Aufnahmen aus den Crop-Dateien zu lesen")
+    if dry_run:
+        return 0, 0
+
+    def measure(r: dict) -> bool:
+        img = cv2.imread(r["path"], cv2.IMREAD_COLOR)
+        if img is None:
+            return False
+        r["brightness"] = round(float(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).mean()), 2)
+        return True
+
+    done = gaps = 0
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        for i, (_name, group) in enumerate(sorted(by_session.items()), start=1):
+            hit = sum(pool.map(measure, group))
+            done += hit
+            gaps += len(group) - hit
+            if i % 20 == 0 or i == len(by_session):
+                print(f"  {i}/{len(by_session)} Aufnahmen, {done} Zeilen"
+                      + (f", {gaps} ohne Datei" if gaps else ""), flush=True)
+    return done, gaps
+
+
+def _write(rows: list[dict], dd: Path, out_arg: str, done: int, gaps: int) -> int:
+    out = Path(out_arg) if out_arg else dd / "manifest.jsonl"
     # `open("w")` KUERZT das GETEILTE Manifest; ein Abbruch liess es halb da, und ein
     # toleranter Leser verwirft die halbe letzte Zeile stumm — der Datensatz ist dann kuerzer,
     # ohne dass etwas meckert. Nebendatei plus `os.replace` laesst das alte bis zuletzt stehen.
@@ -90,7 +138,7 @@ def main() -> int:
         raise
     os.replace(tmp, out)
     print(f"[OK] {done} Zeilen nachgetragen"
-          + (f", {gaps} ohne Eintrag im Pack" if gaps else "") + f" -> {out}")
+          + (f", {gaps} ohne Quelle" if gaps else "") + f" -> {out}")
     return 0
 
 
