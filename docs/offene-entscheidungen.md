@@ -1670,3 +1670,31 @@ hineinkomponierten Verdeckers.
 
 **Zu entscheiden:** die Zahl in der `occluders.json` korrigieren (Nutzer, eine Zeile unter
 `data/`), oder `plate_long_side` die Kachel messen lassen statt sie zu glauben.
+
+## 41. Die Dunkel-Maske greift je Datensatz auf einer anderen Zellmenge (gemessen 2026-09-22)
+
+`training.train.brightness_of` liest eine FEHLENDE `brightness`-Spalte als 255 — ausdruecklich
+so, damit alte Packs Zahl fuer Zahl dasselbe ergeben. Damit haengt aber `CELL_DARK_MIN` (25,0)
+daran, ob ein Slice die Spalte geschrieben hat, und zwar in BEIDEN Rollen: in `OcclusionLoss`
+(Rezept) und in `occlusion.classification_eligible` (die Benotung, also `val_visible_piece_acc`,
+`CHECKPOINT_WEIGHTS`, `conf_wrong`).
+
+Gemessen ueber die Manifeste auf der Platte:
+
+| Datensatz | Zeilen | ohne `brightness` | betroffene Aufnahmen |
+|---|---|---|---|
+| `real13-mix-v7-128` | 979 361 | **0** (0,0 %) | 0 |
+| `real13-mix-v7-80` | 979 363 | **376 640** (38,5 %) | 138 |
+| `real13-mix-v6-80-clahe` | 841 521 | 376 640 (44,8 %) | 138 |
+
+Ein 80-px-Arm und sein 128-px-Zwilling werden also NICHT auf derselben Zellmenge benotet — genau
+die Achse, auf der 2026-08-26 schon einmal ein gemeldeter Sieger verschwunden ist. Der Effekt ist
+klein: unter den 602 723 Zeilen mit Spalte liegen 2 409 (0,40 %) unter 25. Er ist aber nicht
+gleichverteilt, weil die fehlenden 376 640 Zeilen ausschliesslich aus Kompositen/Drehteller
+kommen und die dunklen Zellen aus den echten Aufnahmen.
+
+**Kein Fix gebaut.** Die Zeilen nachzutragen heisst neu slicen, und die Regel zu drehen (fehlende
+Spalte = ungemessen = nicht benotbar) waere ein Rezeptschnitt: er nimmt 38,5 % des 80-px-Korpus
+aus dem Klassenverlust und macht jeden Lauf mit dem Archiv unvergleichbar.
+**Zu entscheiden:** Quervergleiche vorerst nur innerhalb einer Groesse, oder die Spalte fuer die
+Komposit-Aufnahmen nachschreiben und danach BEIDE Groessen neu packen.

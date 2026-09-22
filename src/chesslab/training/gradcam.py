@@ -124,16 +124,27 @@ def last_conv(model: nn.Module) -> nn.Conv2d:
     return conv
 
 
+def class_logits(logits: torch.Tensor, n_classes: int | None) -> torch.Tensor:
+    """Nur die Klassenspalten. Der Occlusion-Kopf haengt eine SIGMOID-Coverage daneben, und
+    `run_export` sagt warum sie kein Softmax-Teilnehmer ist: sie mischt sich sonst in JEDE
+    Klassenwahrscheinlichkeit, und ein Argmax kann sie selbst waehlen."""
+    return logits if not n_classes or logits.shape[1] <= n_classes else logits[:, :n_classes]
+
+
 def compute_cam(model: nn.Module, x: torch.Tensor, target_layer: nn.Conv2d,
-                class_idx: int | None):
-    """Return (cam[h,w] in [0,1], chosen_class_idx, prob) for a single input x[1,3,H,W]."""
+                class_idx: int | None, n_classes: int | None = None):
+    """Return (cam[h,w] in [0,1], chosen_class_idx, prob) for a single input x[1,3,H,W].
+
+    `n_classes` schneidet die Coverage-Spalte eines Occlusion-Laufs ab; ohne sie bleibt die
+    alte Lesart, damit Aufrufer ohne `config.json` unveraendert weiterrechnen.
+    """
     acts: dict = {}
     grads: dict = {}
     h1 = target_layer.register_forward_hook(lambda _m, _i, o: acts.__setitem__("a", o))
     h2 = target_layer.register_full_backward_hook(lambda _m, _gi, go: grads.__setitem__("g", go[0]))
     try:
         model.zero_grad(set_to_none=True)
-        logits = model(x)                                  # [1, C]
+        logits = class_logits(model(x), n_classes)         # [1, C]
         probs = F.softmax(logits, dim=1).detach()
         if class_idx is None:
             class_idx = int(logits.argmax(dim=1).item())
@@ -188,12 +199,11 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     model.eval()
     classes = cfg["classes"]
     if center_frac is None:
-        # The "piece region" of a crop is the CELL inside it: crop width = cell * (1 + 2*pad_side)
-        # (labeling.crop_square), so center_frac = 1/(1+2*pad_side) ~ 0.83 at pad_side 0.10.
-        # The old hardcoded 0.55 was authored for the taller 128x176 crops, where the piece
-        # floated small inside a tall crop; on today's tight square crops it missed the whole
-        # silhouette — tall pieces (kings!) scored piece_frac ~0 although the model reads them.
-        center_frac = 1.0 / (1.0 + 2.0 * config.CROP.pad_side)
+        # Die Figurenregion ist die ZELLE im Crop: Breite = Zelle * (1 + 2*pad_side)
+        # (`labeling.crop_square`). Der Zuschnitt kommt vom LAUF — `train`/`run_export` schreiben
+        # ihn genau deshalb in die config.json (specs/45); das Profil DIESER Maschine waere der
+        # stille Domaenensprung, den die Deklaration beendet.
+        center_frac = 1.0 / (1.0 + 2.0 * float(cfg.get("pad_side", config.CROP.pad_side)))
     # Die EINE Transformation des Laufs, nicht von Hand nachgebaut: `eval_transform_for` traegt
     # CLAHE und die Eingangs-Darstellung mit. Von Hand ImageNet-normalisiert warf ein
     # `gray+sobel`-Lauf (2 Kanaele gegen 3), und ein CLAHE-Lauf — das Standardmodell — wurde in
@@ -216,7 +226,13 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
         split_path = config.DATA.reports / "split.json"
     manifest = load_manifest(manifest_path)
     split_data = load_split(split_path)
-    rows = filter_rows_by_split(manifest, split_data, split)
+    # Benotet wird, was der Verlust auch lernt: ueber `PIECE_VISIBLE_MAX` verdeckt oder unter
+    # `CELL_DARK_MIN` dunkel traegt die Zelle kein Figurensignal. Verdeckung trifft weiss 11-15 %
+    # und schwarz 2-7 %, die Marke je Klasse liefe sonst je Klasse auf einer anderen Zellmenge.
+    from .occlusion import classification_eligible
+
+    rows = [r for r in filter_rows_by_split(manifest, split_data, split)
+            if classification_eligible(r)]
 
     from torchvision.transforms.functional import resize, to_pil_image, to_tensor
 
@@ -227,7 +243,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
         # Verdeckt wird das BILD, dann laeuft die echte Kette darauf — sonst saehe CLAHE ein
         # Histogramm, das es nie zu sehen bekaeme.
         with torch.no_grad():
-            logits = model(tf(to_pil_image(t01)).unsqueeze(0))
+            logits = class_logits(model(tf(to_pil_image(t01)).unsqueeze(0)), len(classes))
             return float(F.softmax(logits, dim=1)[0, cls_idx])
 
     read_crop = _crop_reader(ds_name, rows)
