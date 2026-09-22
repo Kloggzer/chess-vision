@@ -53,6 +53,10 @@ val NOT_A_SETTING: Map<String, String> =
             "to count observations only, which meant seconds while the CNN read by the clock and 0.21 s once " +
             "it read on arrival — measured on VID_20260824_154327 the latch then closed on a board that was " +
             "correct sign for sign and cost 107 of 117 plies.",
+        "modelHandArm" to
+            "Kein Regler, sondern der Ablations-Schalter des Modellarms: aus liefert die Verdeckung des " +
+            "Modells nichts mehr, damit ueberhaupt messbar wird, was dieser Arm allein traegt. Wer ihn im " +
+            "Spiel ausschaltet, nimmt der Hand-Erkennung eine ihrer zwei Quellen.",
         "cnnColorAxis" to
             "Not a preference but an experiment arm: it searches on occupancy and colour instead of the piece " +
             "type, which is right where the model confuses types and wrong where it does not. Measured " +
@@ -296,11 +300,12 @@ val KNOB_CATALOG: List<KnobUi> =
                 " empty conflict set passes as a clear view.",
         ),
         flag(
-            "modelHandGate",
+            "modelHandShapeFilter",
             VETOES,
             "Plausibility filter on the model's occluded reads: they count as a hand only when hand-shaped" +
                 " (an adjacent pair) and either the board just stirred or the grid grooves corroborate. Off =" +
-                " trust every raw flag, which let one phantom square starve recovery (2026-08-14).",
+                " trust every raw flag, which let one phantom square starve recovery (2026-08-14). Off makes" +
+                " the arm WIDER, not quiet — that is `modelHandArm`.",
         ),
         row(
             "minGridLineCoverage",

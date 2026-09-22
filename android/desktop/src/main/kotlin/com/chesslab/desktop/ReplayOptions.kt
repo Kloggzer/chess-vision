@@ -6,7 +6,7 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.settings.ConfigCodec
-import com.chesslab.tracker.settings.KNOBS
+import com.chesslab.tracker.settings.knobFor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.File
@@ -326,7 +326,7 @@ private fun loadRecordedConfig(path: String): TrackerConfig {
  */
 internal fun TrackerConfig.withOverrides(overrides: Map<String, Double>): TrackerConfig =
     overrides.entries.fold(this) { config, (key, value) ->
-        val knob = KNOBS.firstOrNull { it.key == key } ?: error("set: unknown knob '$key' — see ConfigKnobs.KNOBS")
+        val knob = knobFor(key) ?: error("set: unknown knob '$key' — see ConfigKnobs.KNOBS")
         println("override: $key=$value")
         knob.set(config, value)
     }

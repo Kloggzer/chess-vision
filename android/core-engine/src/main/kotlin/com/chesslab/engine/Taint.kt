@@ -132,13 +132,17 @@ internal fun EngineState.gridHandSquares(snap: CnnSnapshot): Long {
  * The MODEL's occluded head, filtered to what a hand can physically be (2026-08-14): `real14-80`
  * over-predicts `occluded`, and one phantom square starved recovery indefinitely (20260814-142947). A hand
  * covers neighbours and cannot APPEAR without motion, so quiet flags count only if the grid corroborates.
+ *
+ * Zwei Schalter, bewusst verschieden: `modelHandArm` legt den Arm still wie `gridHandGate` seinen,
+ * `modelHandShapeFilter` nimmt nur den Filter weg und gibt die ROHE Kopfmenge zurueck — breiter, nicht aus.
  */
 internal fun EngineState.modelHandSquares(snap: CnnSnapshot): Long {
+    if (!config.modelHandArm) return 0L
     var flagged = 0L
     for (i in 0 until Squares.COUNT) {
         if (snap.obs.pOccluded(Squares.ALL[i]) > config.pOccludedThr) flagged = flagged.with(i)
     }
-    if (flagged == 0L || !config.modelHandGate) return flagged
+    if (flagged == 0L || !config.modelHandShapeFilter) return flagged
     var paired = false
     flagged.forEachSquare { if ((SQ_NEIGHBOURS[it] and flagged) != 0L) paired = true }
     if (!paired) return 0L

@@ -102,10 +102,15 @@ object ConfigCodec {
         new: TrackerConfig,
     ): List<Knob> = KNOBS.filter { !same(it.get(old), it.get(new)) }
 
+    // Ueber `knob.keys`, nicht `knob.key`: ein umbenannter Knopf muss seinen alten Schluessel
+    // weiter annehmen, sonst faellt eine gespeicherte Einstellung lautlos auf die Vorgabe zurueck.
     private fun apply(
         base: TrackerConfig,
         values: Map<String, Double>,
-    ): TrackerConfig = KNOBS.fold(base) { config, knob -> values[knob.key]?.let { knob.set(config, it) } ?: config }
+    ): TrackerConfig =
+        KNOBS.fold(base) { config, knob ->
+            knob.keys.firstNotNullOfOrNull { values[it] }?.let { knob.set(config, it) } ?: config
+        }
 
     /** NaN == NaN here: it is the "no override" marker, not a measurement. */
     private fun same(

@@ -95,7 +95,10 @@ data class TrackerConfig(
     // Model-free grid veto blocks the resting-hand failure that fabricated `g4` in 003957 (2026-08-09).
     val gridHandGate: Boolean = true,
     // Hand-shape and motion/grid evidence filter the phantom queenside from 20260814-142947 (2026-08-14).
-    val modelHandGate: Boolean = true,
+    // Only the FILTER: off, the raw head passes and the arm gets WIDER. `modelHandArm` is the switch.
+    val modelHandShapeFilter: Boolean = true,
+    // Der echte Ausschalter des Modellarms, damit "was traegt er allein?" messbar ist (2026-09-22).
+    val modelHandArm: Boolean = true,
     // 0 = off. Castling caused a silent standoff in rec-20260807 (2026-08-08).
     // 12 is an unmeasured placeholder: at a 3 s check interval it bounds standoff below one minute.
     val desyncStandoffObsN: Int = 12,

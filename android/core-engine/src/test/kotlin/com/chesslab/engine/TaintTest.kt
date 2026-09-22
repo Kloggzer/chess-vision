@@ -4,6 +4,7 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.parity.ParityFixtures
 import com.chesslab.engine.parity.assertExactList
 import com.chesslab.engine.parity.toTrackerConfig
@@ -202,11 +203,11 @@ class TaintTest {
         assertEquals(ofSquares("e3", "e4"), state.tainted, "grid corroboration keeps the resting hand latched")
     }
 
-    /** `modelHandGate=false` restores the raw head — the A/B arm a replay measures against. */
+    /** `modelHandShapeFilter=false` restores the raw head — the A/B arm a replay measures against. */
     @Test
     fun theGateOffPositionRestoresTheRawHead() {
         val state = handState()
-        state.config = state.config.copy(modelHandGate = false)
+        state.config = state.config.copy(modelHandShapeFilter = false)
         state.lastMotionTs = 0.0
         state.cnnSnap = snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9)))
         state.setZ("e3")
@@ -214,6 +215,29 @@ class TaintTest {
         state.applyTaints()
 
         assertEquals(ofSquares("e3"), state.tainted, "the raw head taints a lone quiet flag")
+    }
+
+    /** Nicht symmetrisch, und das ist der Punkt: auf demselben Feld gibt der Formfilter AUS die
+     *  rohe Menge, der Arm-Schalter AUS gibt nichts. Verwechselt weitet die Ablation den Arm. */
+    @Test
+    fun theShapeFilterWidensWhereTheArmSwitchSilences() {
+        fun handSquares(config: (TrackerConfig) -> TrackerConfig): Long {
+            val state = handState()
+            state.config = config(state.config)
+            state.lastMotionTs = 0.0
+            val snap = snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9)))
+            state.cnnSnap = snap
+            return state.modelHandSquares(snap)
+        }
+
+        assertEquals(0L, handSquares { it }, "with both on, a lone quiet flag is not hand-shaped")
+        assertEquals(ofSquares("e3"), handSquares { it.copy(modelHandShapeFilter = false) }, "filter off = the RAW head")
+        assertEquals(0L, handSquares { it.copy(modelHandArm = false) }, "arm off = nothing, like gridHandGate")
+        assertEquals(
+            0L,
+            handSquares { it.copy(modelHandArm = false, modelHandShapeFilter = false) },
+            "the arm switch wins over the filter switch",
+        )
     }
 
     /** `test_taint_persists_without_motion_while_evidence_hot` — a still hand cannot vanish. */

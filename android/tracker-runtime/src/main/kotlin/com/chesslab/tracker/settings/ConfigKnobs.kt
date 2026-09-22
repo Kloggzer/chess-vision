@@ -42,9 +42,19 @@ class Knob(
     val kind: KnobKind,
     val get: (TrackerConfig) -> Double,
     val set: (TrackerConfig, Double) -> TrackerConfig,
+    // Frueher geschriebene Namen desselben Knopfes. Ein gespeichertes Telefon-Setting und eine
+    // Replay-Config tragen den Schluessel als Zeichenkette; still fallen lassen hiesse, eine
+    // gesetzte Einstellung kommt nicht mehr an und niemand erfaehrt es.
+    val aliases: List<String> = emptyList(),
 ) {
     val live: Boolean get() = key in LIVE_TUNABLE_KEYS
+
+    /** Dieser Knopf unter jedem Namen, den ein Leser antreffen kann. */
+    val keys: List<String> get() = listOf(key) + aliases
 }
+
+/** Der Knopf zu [key] oder einem seiner Altnamen. */
+fun knobFor(key: String): Knob? = KNOBS.firstOrNull { key in it.keys }
 
 /**
  * This config with only the twelve LIVE knobs taken from [live] — what a RUNNING stack obeys.
@@ -118,7 +128,14 @@ val KNOBS: List<Knob> =
         Knob("requireMotionForMove", BOOL, { bool(it.requireMotionForMove) }, { c, v -> c.copy(requireMotionForMove = v != 0.0) }),
         Knob("cleanCommitsOnly", BOOL, { bool(it.cleanCommitsOnly) }, { c, v -> c.copy(cleanCommitsOnly = v != 0.0) }),
         Knob("gridHandGate", BOOL, { bool(it.gridHandGate) }, { c, v -> c.copy(gridHandGate = v != 0.0) }),
-        Knob("modelHandGate", BOOL, { bool(it.modelHandGate) }, { c, v -> c.copy(modelHandGate = v != 0.0) }),
+        Knob(
+            "modelHandShapeFilter",
+            BOOL,
+            { bool(it.modelHandShapeFilter) },
+            { c, v -> c.copy(modelHandShapeFilter = v != 0.0) },
+            aliases = listOf("modelHandGate"),
+        ),
+        Knob("modelHandArm", BOOL, { bool(it.modelHandArm) }, { c, v -> c.copy(modelHandArm = v != 0.0) }),
         Knob("motionRecencyS", DOUBLE, { it.motionRecencyS }, { c, v -> c.copy(motionRecencyS = v) }),
         Knob("commitLlFloor", DOUBLE, { it.commitLlFloor }, { c, v -> c.copy(commitLlFloor = v) }),
         Knob("detectScale", DOUBLE, { it.detectScale }, { c, v -> c.copy(detectScale = v) }),
