@@ -177,7 +177,10 @@
   `2026-09-06-21-29-35` sah sauber aus (Schaerfe 0,90x seiner Klasse) und traegt **null weisse
   Springer**, 12 schwarze Damen, 73 % `empty`. Damit ist `macro_recall` — und ueber ihn `score`,
   das Checkpoint-Kriterium — auf vier von 13 Klassen Rauschen, und Laufvergleiche darunter sind
-  nicht belastbar. 13 der 22 Aufnahmen haben volle Abdeckung; `docs/val-choice-2026-09-10.md`
+  nicht belastbar. 13 der 22 Aufnahmen hatten volle Abdeckung (Datensatz `v5-80-clahe`); am
+  Korpus nachgezaehlt sind es **19 von 27** (nachgezaehlt 2026-09-22 ueber die `fen` aller
+  `data/recordings/*/log.jsonl`, seltenste Figurenklasse > 100 — der Nenner waechst, der Befund
+  haelt). `docs/val-choice-2026-09-10.md`
   nennt die Kandidaten und warum der Dunkelfilter den alten Val unbrauchbar gemacht hat.
 - **Schaerfe nur je Auflösungsklasse vergleichen (2026-09-10):** die Laplace-Varianz haengt an der
   Quelle — 4K 1359, 1440p 407, 1080p 521 im Median. Ein korpusweiter Median mischt drei Kameras.
@@ -187,7 +190,10 @@
 - **Datensätze werden session-basiert gebaut (2026-09-11):** jede Aufnahme EINMAL je Größe nach
   `data/packs/<session>-<size>/`, der Datensatz zitiert sie über `--from-packs` statt die Pixel zu
   kopieren. Eine Aufnahme mit `boards/` wird aus dem Brett geschnitten, ein Komposit aus seinem
-  Pool (`--pool <tag>`, 54 liegen in zweien) — beides über dieselben Funktionen wie der Monolith,
+  Pool (`--pool <tag>`; nachgezaehlt 2026-09-22 ueber `data/crops/*/<klasse>/` liegen **104 von
+  160** Aufnahmen in mehr als einem Pool, 36 davon in genau zweien — die fruehere "54 in zweien"
+  nannte keine Basis und reproduziert sich unter keiner der beiden Zaehlweisen) — beides über
+  dieselben Funktionen wie der Monolith,
   **30 580 Zeilen bitgleich, 0 Abweichungen** gegen `real13-mix-v6-128`. **Die v6-Saetze sind seit
   2026-09-11 umgehaengt**: `real13-mix-v6-128` und `-80` zitieren ihre Packs (617 bzw. 616 MB statt
   41,4 und 16,2 GB), ihre Memmaps sind geloescht. Umgehaengt heisst: NUR die Spalte `path` wurde
@@ -238,7 +244,9 @@
   `× 30 / fps`, und die Kopplung ist am Regressions-Satz gemessen.
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
 - **Abdeckung (Stand 2026-09-14, seitdem NICHT neu gemessen):** Python 67,1 %, Kotlin 64,7 % ohne
-  `:app`, Web `lib/` 73,9 %. Seit 2026-09-20 sind 69 Testdateien dazugekommen, die Zahlen sind
+  `:app`, Web `lib/` 73,9 %. Seit 2026-09-20 sind **111** Testdateien dazugekommen (nachgezaehlt
+  2026-09-22: `git log --since=2026-09-20 --diff-filter=A`, py/kt/ts mit `test`/`spec` im Pfad,
+  ohne `bin/` und `build/`; die Angabe 69 stammt vom 2026-09-21), die Zahlen sind
   also mit hoher Sicherheit zu niedrig — wer sie zitiert, misst sie neu. Die drei Aufrufe und die zwei Fallen (pytest-cov toetet den CUDA-Graph-Test,
   `:app` lieferte keinen Kover-Bericht, solange `ModelSpecTest` rot war — seit den gemessenen
   `coverage_gate`s ist er gruen, die Falle ist also zu): `docs/test-coverage-2026-09-14.md`.
@@ -283,7 +291,8 @@
   Zwei Ratschen, beide duerfen nur SCHRUMPFEN: `tests/json_doors.txt` (wer selbst SCHREIBT) und
   `tests/jsonl_readers.txt` (wer selbst in Zeilen SCHNEIDET). Was drauf bleibt, sind Artefakte
   EINES Laufs und drei Fehltreffer; was Sessions teilen, ist umgestellt. **Vor dem Umstellen
-  gemessen**: 40 000 Manifest- und alle 9 423 `matte.jsonl`-Zeilen ueberstehen
+  gemessen**: 40 000 Manifest- und alle 9 423 `matte.jsonl`-Zeilen (Stand 2026-09-16; der Korpus
+  unter `data/recordings` traegt am 2026-09-22 **10 490** Zeilen) ueberstehen
   `read_jsonl` + `write_rows` BYTEGLEICH — erst danach durften die Aufrufer ihre rohen Zeilen
   aufgeben.
   **Auch `scripts/` faellt unter beide Ratschen** (2026-09-16): dort waren es 61 Leser und 36
@@ -377,7 +386,8 @@
 - **Der Feed ist gemessen, nicht geschätzt:** 985 → 76 µs/Crop. Weitere Loader-Arbeit kauft null
   Wanduhrzeit, die GPU ist der Boden.
   **Seit den Session-Packs ist der Boden die PLATTE, nicht die GPU (2026-09-12):** auf
-  `real13-mix-v7-128` (48,1 GB Packs, 13 GB freier Cache) wartet der Trainingsschritt zu 68–77 %
+  `real13-mix-v7-128` (48,1 GB Packs, 13 GB freier Cache; nachgezaehlt 2026-09-22 ueber die 161
+  zitierten Packs **50,2 GB**, bei 80 px **19,2 GB**) wartet der Trainingsschritt zu 68–77 %
   auf Daten, bei 80 px (18,8 GB) zu 55 %. **Mehr Worker helfen nicht** — gemessen 2 gegen 4, warm
   10,7 gegen 10,6 s je Epoche und dieselbe Wartezeit auf die Zehntelsekunde; vier Prozesse stehen
   an derselben Platte an. Und die Worker-Zahl ist **kein freier Schalter**: der Trainingsverlust
