@@ -48,9 +48,11 @@ def main() -> int:
                 break
 
     args.out.mkdir(parents=True, exist_ok=True)
+    compared, skipped = 0, []
     for idx in sorted(receipts):
         kt = cv2.imread(str(args.rect_dir / f"{idx:06d}.png"))
         if kt is None or idx not in frames:
+            skipped.append(idx)
             continue
         prof = profile_from(receipts[idx])
         # The rectified field WITHOUT the crop border — that is what `rectify` emits.
@@ -67,8 +69,15 @@ def main() -> int:
                         f"[Kotlin rectify | Python warp | 6x diff]",
                     (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
         cv2.imwrite(str(args.out / f"{idx:06d}.png"), np.vstack([bar, strip]))
+        compared += 1
         print(f"  frame {idx}: mean {d.mean():6.2f}  max {d.max():3.0f}")
-    print(f"  -> {args.out}")
+    if skipped:
+        print(f"  [WARN] {len(skipped)} von {len(receipts)} Frames uebersprungen "
+              f"(kein rektifiziertes Bild oder kein Frame): {skipped[:8]}")
+    if not compared:
+        print("[FAIL] nichts verglichen — kein Frame des Receipts hatte beide Seiten.")
+        return 1
+    print(f"  -> {args.out}  ({compared} Bretter verglichen)")
     return 0
 
 

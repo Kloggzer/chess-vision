@@ -57,15 +57,41 @@ def ratio(t):
     rho = pee - peo
     return pee, peo, rho, (1 - rho) / (1 + rho)
 
-W = [0, 0, 0, 0]; A = [0, 0, 0, 0]; niv = 0
-for s in sys.argv[1:]:
-    if not (ROOT / s / "model-reads.jsonl").is_file():
-        continue
-    n, w, a = measure(s)
-    niv += n
-    W = [x + y for x, y in zip(W, w, strict=False)]; A = [x + y for x, y in zip(A, a, strict=False)]
 
-for name, t in (("innerhalb einer Stellung", W), ("ueber den Zug hinweg", A)):
-    pee, peo, rho, ess = ratio(t)
-    print(f"{name:<26} P(err|err)={pee:.3f}  P(err|ok)={peo:.4f}  rho={rho:.3f}  ESS={ess:.3f}n")
-print(f"\n{niv} Stellungsintervalle")
+def main(argv: list[str]) -> int:
+    """Summiert nur ueber Aufnahmen, die auch gemessen wurden — und nennt die uebrigen.
+
+    Vorher liefen Aufnahmen ohne `model-reads.jsonl` still aus der Schleife; die Quoten galten
+    danach fuer eine Teilmenge, die niemand ablesen konnte, und null Aufnahmen druckten nan.
+    """
+    W = [0, 0, 0, 0]
+    A = [0, 0, 0, 0]
+    niv = 0
+    used, missing = [], []
+    for s in argv:
+        if not (ROOT / s / "model-reads.jsonl").is_file():
+            missing.append(s)
+            continue
+        n, w, a = measure(s)
+        niv += n
+        used.append(s)
+        W = [x + y for x, y in zip(W, w, strict=False)]
+        A = [x + y for x, y in zip(A, a, strict=False)]
+
+    if missing:
+        print(f"[WARN] {len(missing)} von {len(argv)} Aufnahmen ohne model-reads.jsonl, "
+              f"nicht gemessen: {' '.join(missing)}")
+    if not used:
+        print("[FAIL] keine Aufnahme gemessen — es gibt nichts zu summieren.")
+        return 1
+
+    for name, t in (("innerhalb einer Stellung", W), ("ueber den Zug hinweg", A)):
+        pee, peo, rho, ess = ratio(t)
+        print(f"{name:<26} P(err|err)={pee:.3f}  P(err|ok)={peo:.4f}  rho={rho:.3f}  "
+              f"ESS={ess:.3f}n")
+    print(f"\n{niv} Stellungsintervalle aus {len(used)} Aufnahmen")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

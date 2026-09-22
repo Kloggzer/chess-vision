@@ -87,11 +87,33 @@ def row_parity(pool_rows: list[dict], pack_rows: list[dict]) -> tuple[set, dict]
     a = {_key(r) for r in pool_rows}
     b = {_key(r) for r in pack_rows}
     return a & b, {"pool_rows": len(pool_rows), "pack_rows": len(pack_rows),
+                   "pool_keys": len(a), "pack_keys": len(b),
                    "only_pool": len(a - b), "only_packs": len(b - a), "common": len(a & b)}
+
+
+def parity_problems(counts: dict, px: dict) -> list[str]:
+    """Was der Nachweis NICHT belegt hat. Eine leere Schnittmenge ist kein Beweis von Gleichheit,
+    und zwei Zeilenlisten koennen als MENGE gleich sein und trotzdem verschieden viele Zeilen
+    tragen — genau der Fall, den ein `--like`-Zwilling schon mit 228 Zeilen Unterschied lieferte.
+    """
+    bad = []
+    if not counts["common"] or not px["n"]:
+        bad.append("nichts verglichen: 0 gemeinsame Zeilen")
+    if counts["only_pool"] or counts["only_packs"]:
+        bad.append(f"Zeilenmengen verschieden (nur Pool {counts['only_pool']}, "
+                   f"nur Packs {counts['only_packs']})")
+    if counts["pool_rows"] != counts["pack_rows"]:
+        bad.append(f"Zeilenzahl verschieden: {counts['pool_rows']} gegen {counts['pack_rows']}")
+    if px["n"] and px["mean"] > MAX_MEAN_DIFF:
+        bad.append(f"mean abs diff {px['mean']:.3f} > {MAX_MEAN_DIFF}")
+    return bad
 
 
 def pixel_parity(common: set, pool_at: dict, pack_at: dict) -> dict:
     keys = sorted(common)
+    if not keys:
+        return {"mean": float("nan"), "p99": float("nan"), "max": float("nan"),
+                "n": 0, "worst": []}
     diffs = np.empty(len(keys), dtype=np.float64)
     for i, k in enumerate(keys):
         mm_a, ia = pool_at[k]
@@ -179,8 +201,9 @@ def main() -> int:
         print(f"{'visible_piece_acc ' + name.split('-')[-1]:<28} "
               f"{'—  (' + str(train_error) + ')' if v is None else f'{v:.4f}'}")
 
-    assert counts["only_pool"] == 0 and counts["only_packs"] == 0, "row sets differ"
-    assert px["mean"] <= MAX_MEAN_DIFF, f"mean abs diff {px['mean']:.3f} > {MAX_MEAN_DIFF}"
+    problems = parity_problems(counts, px)
+    if problems:
+        raise SystemExit("[FAIL] " + "; ".join(problems))
     return 0
 
 

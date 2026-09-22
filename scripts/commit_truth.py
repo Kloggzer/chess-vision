@@ -7,6 +7,7 @@ line; they are counted here the way the replay scorer counts them, so the number
 """
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 import chess
@@ -69,22 +70,40 @@ def lcs_hits(ref, got):
     return hits
 
 
-if __name__ == "__main__":
-    rows, refs = [], {}
-    for log in sorted(Path("tmp/calib").glob("*.log")):
+def main() -> int:
+    rows, refs, skipped, kinds = [], {}, [], Counter()
+    logs = sorted(Path("tmp/calib").glob("*.log"))
+    for log in logs:
         session = log.stem
         if not (ROOT / session).is_dir():
+            skipped.append(session)
             continue
         ref, kind = reference(session)
+        kinds[kind] += 1
         refs[session] = ref
         commits = parse(log)
         hits = lcs_hits(ref, [c[0] for c in commits])
         for i, (san, decider, d) in enumerate(commits):
-            rows.append(dict(session=session, i=i, san=san, decider=decider,
+            rows.append(dict(session=session, ref_kind=kind, i=i, san=san, decider=decider,
                              correct=i in hits, **d))
         bad = len(commits) - len(hits)
         print(f"{session:<24} ref={len(ref):>3} ({kind:<9}) commits={len(commits):>3} "
               f"hit={len(hits):>3} erfunden={bad:>3}")
+    if skipped:
+        print(f"\n[WARN] {len(skipped)} von {len(logs)} Logs ohne Aufnahmeordner, nicht "
+              f"bewertet: {' '.join(skipped)}")
+    if not rows:
+        print("[FAIL] kein Commit bewertet — nichts zu schreiben.")
+        return 1
+    # `candidate.json` ist die Zugliste EINES frueheren Trackerlaufs, kein unabhaengiger Zeuge;
+    # die Zeile traegt `ref_kind` mit, damit beides nicht zu einer Zahl verschmilzt.
+    print(f"\n[i] Referenz: {kinds['pgn']} Aufnahmen aus reference.pgn, "
+          f"{kinds['candidate']} aus candidate.json")
     write_rows(Path("tmp/calib/commits.jsonl"), rows)
     write_json(Path("tmp/calib/refs.json"), refs, indent=None)
-    print(f"\n{len(rows)} Commits nach tmp/calib/commits.jsonl")
+    print(f"{len(rows)} Commits nach tmp/calib/commits.jsonl")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

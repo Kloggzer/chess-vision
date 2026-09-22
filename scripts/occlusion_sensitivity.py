@@ -77,6 +77,22 @@ def edge_mass(m: np.ndarray) -> float:
     return 1.0 - (float(inner.sum()) / tot if tot > 0 else 0.0)
 
 
+def pick_rows(manifest, split, n: int) -> list[dict]:
+    """Die Zellen, die das Verfahren oeffnen KANN — und eine Absage, wenn es keine gibt.
+
+    `Image.open` braucht eine Datei; eine `mm://`-Zeile zeigt in einen Pack. Die wurden hier
+    stillschweigend weggefiltert, und da die v6/v7-Saetze nur noch solche Zeilen tragen, blieb
+    fuer `real13-mix-v7-128` von 979 361 Zeilen genau null uebrig.
+    """
+    want = [r for r in manifest if r["session_id"] in split and r["label"] != "empty"]
+    rows = [r for r in want if not str(r["path"]).startswith("mm://") and Path(r["path"]).exists()]
+    if not rows:
+        packed = sum(1 for r in want if str(r["path"]).startswith("mm://"))
+        raise SystemExit(f"[FAIL] keine oeffenbare Zelle: {len(want)} Zeilen im Split, davon "
+                         f"{packed} als `mm://` im Pack. Dieses Werkzeug liest Dateien.")
+    return rows[::max(1, len(rows) // n)][:n]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", type=Path, nargs="+")
@@ -95,9 +111,7 @@ def main() -> int:
 
     dd = dataset_dir(a.dataset)
     split = json.loads((dd / "split.json").read_text(encoding="utf-8"))["splits"][a.split]
-    rows = [r for r in read_jsonl(dd / "manifest.jsonl")
-            if r["session_id"] in split and r["label"] != "empty" and Path(r["path"]).exists()]
-    rows = rows[::max(1, len(rows) // a.n)][:a.n]
+    rows = pick_rows(read_jsonl(dd / "manifest.jsonl"), split, a.n)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[i] {len(rows)} Zellen, Fleck {a.patch} px, Schritt {a.stride}, "
           f"{((80 - a.patch) // a.stride + 1) ** 2} Positionen je Bild, {device}")

@@ -60,6 +60,18 @@ def session_facts(sid: str, window: int) -> dict:
             "unseen": sum(1 for r in _jsonl(rec / "interval-check.jsonl") if not r.get("seen"))}
 
 
+def classify(coverage, seen_by_human: bool) -> str:
+    """Eine Zelle OHNE Coverage ist ungemessen, nicht sichtbar.
+
+    `coverage or 0.0` machte aus `None` eine sichtbare Zelle und schob sie nach `RISIKO`.
+    """
+    if coverage is None:
+        return "ungemessen"
+    if float(coverage) > PIECE_VISIBLE_MAX:
+        return "maskiert"
+    return "gesichtet" if seen_by_human else "RISIKO"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dataset", default="real13-mix-v7-128")
@@ -74,11 +86,17 @@ def main() -> int:
 
     dd = dataset_dir(args.dataset)
     split = json.loads((dd / args.split_file).read_text(encoding="utf-8"))
-    want = {s for s in split["splits"][args.split]
-            if (REC / s.removeprefix("rg-")).is_dir()}
+    alle = list(split["splits"][args.split])
+    want = {s for s in alle if (REC / s.removeprefix("rg-")).is_dir()}
+    ohne_plies = [s for s in want
+                  if not (REC / s.removeprefix("rg-") / "interval-check.jsonl").is_file()]
     facts = {s: session_facts(s, args.window) for s in want}
-    print(f"{args.dataset}/{args.split}: {len(want)} Aufnahmen, Fenster +/-"
+    print(f"{args.dataset}/{args.split}: {len(want)} von {len(alle)} Aufnahmen geprueft "
+          f"({len(alle) - len(want)} ohne Aufnahmeordner), Fenster +/-"
           f"{args.window or 'ganzer Ply'} Frames um jede Ply-Grenze")
+    if ohne_plies:
+        print(f"[WARN] {len(ohne_plies)} davon ohne interval-check.jsonl — dort ist kein Zug "
+              f"bekannt, ihre Zellen stehen im Nenner und koennen nie auffallen.")
 
     per: dict[str, Counter] = defaultdict(Counter)
     examples: list[tuple] = []
@@ -91,13 +109,10 @@ def main() -> int:
         if sq not in facts[sid]["risky"].get(f, ()):
             continue
         per[sid]["im_fenster"] += 1
-        if float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
-            per[sid]["maskiert"] += 1
+        bucket = classify(r.get("coverage"), (f, sq) in facts[sid]["human"])
+        per[sid][bucket] += 1
+        if bucket != "RISIKO":
             continue
-        if (f, sq) in facts[sid]["human"]:
-            per[sid]["gesichtet"] += 1
-            continue
-        per[sid]["RISIKO"] += 1
         if len(examples) < args.examples:
             examples.append((sid, f, sq, r.get("label"), r.get("ply")))
 
@@ -105,15 +120,17 @@ def main() -> int:
     for c in per.values():
         tot.update(c)
     print(f"\n{'Aufnahme':32s} {'Train':>8} {'Zuege':>6} {'Fenster':>8} {'maskiert':>9} "
-          f"{'gesichtet':>10} {'RISIKO':>8}")
+          f"{'gesichtet':>10} {'ungemessen':>11} {'RISIKO':>8}")
     for sid, c in sorted(per.items(), key=lambda kv: -kv[1]["RISIKO"]):
         print(f"{sid:32s} {c['train_cells']:8d} {facts[sid]['moves']:6d} {c['im_fenster']:8d} "
-              f"{c['maskiert']:9d} {c['gesichtet']:10d} {c['RISIKO']:8d}")
+              f"{c['maskiert']:9d} {c['gesichtet']:10d} {c['ungemessen']:11d} {c['RISIKO']:8d}")
     print(f"{'GESAMT':32s} {tot['train_cells']:8d} "
           f"{sum(f['moves'] for f in facts.values()):6d} {tot['im_fenster']:8d} "
-          f"{tot['maskiert']:9d} {tot['gesichtet']:10d} {tot['RISIKO']:8d}")
+          f"{tot['maskiert']:9d} {tot['gesichtet']:10d} {tot['ungemessen']:11d} "
+          f"{tot['RISIKO']:8d}")
     print(f"\nungepruefte Zellen im Zugfenster: {tot['RISIKO']} von {tot['train_cells']} "
-          f"({100.0 * tot['RISIKO'] / max(1, tot['train_cells']):.3f} % des Trainings)")
+          f"({100.0 * tot['RISIKO'] / max(1, tot['train_cells']):.3f} % der {len(want)} "
+          f"geprueften Aufnahmen, NICHT des ganzen Splits)")
     unseen = sum(f["unseen"] for f in facts.values())
     if unseen:
         print(f"[WARN] {unseen} Plies ohne Settle-Messung (`seen` false) - dort ist der Zeitpunkt "

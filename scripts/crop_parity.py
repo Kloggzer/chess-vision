@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 import cv2
@@ -67,6 +68,39 @@ def side_by_side(kt, py, label: str, scale: int = 3):
     return np.vstack([bar, strip])
 
 
+def compare(kotlin_dir: Path, receipts: dict, frames: dict) -> tuple[list, Counter]:
+    """Alle 64 Felder je Frame — und was NICHT verglichen wurde, wird gezaehlt statt verschwiegen.
+
+    Eine abweichende Form ist der Befund, nicht der Grund zum Weiterblaettern: wurde sie still
+    uebersprungen, meldete der Nachweis "byte-identisch n/n" ueber die Ueberlebenden.
+    """
+    results, skipped = [], Counter()
+    for idx in sorted(receipts):
+        if idx not in frames:
+            skipped["Frame nicht im Video"] += len(labeling.all_squares())
+            continue
+        r = receipts[idx]
+        prof = profile_from(r)
+        board = labeling.warp_board_for_crops(frames[idx], prof, prof.image_corners)
+        out = (int(r["outW"]), int(r["outH"]))
+        for square in labeling.all_squares():
+            f = kotlin_dir / f"{idx:0{STEM_DIGITS}d}_{square}.png"
+            if not f.is_file():
+                skipped["Kotlin-Datei fehlt"] += 1
+                continue
+            kt = cv2.imread(str(f))
+            py = labeling.crop_square(board, square, prof, out)
+            if kt is None or py is None:
+                skipped["unlesbar"] += 1
+                continue
+            if kt.shape != py.shape:
+                skipped["Form verschieden"] += 1
+                continue
+            d = cv2.absdiff(kt, py)
+            results.append((float(d.mean()), float(d.max()), idx, square, kt, py))
+    return results, skipped
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -96,22 +130,9 @@ def main() -> int:
             if i >= max(wanted):
                 break
 
-    results = []
-    for idx in sorted(wanted & set(frames)):
-        r = receipts[idx]
-        prof = profile_from(r)
-        board = labeling.warp_board_for_crops(frames[idx], prof, prof.image_corners)
-        out = (int(r["outW"]), int(r["outH"]))
-        for square in labeling.all_squares():
-            f = args.kotlin_dir / f"{idx:0{STEM_DIGITS}d}_{square}.png"
-            if not f.is_file():
-                continue
-            kt = cv2.imread(str(f))
-            py = labeling.crop_square(board, square, prof, out)
-            if kt is None or py is None or kt.shape != py.shape:
-                continue
-            d = cv2.absdiff(kt, py)
-            results.append((float(d.mean()), float(d.max()), idx, square, kt, py))
+    results, skipped = compare(args.kotlin_dir, receipts, frames)
+    for reason, n in sorted(skipped.items()):
+        print(f"  [WARN] {n} Felder uebersprungen: {reason}")
 
     if not results:
         print("[FAIL] nothing comparable — check that the video and the receipt belong together.")
@@ -129,6 +150,9 @@ def main() -> int:
         pic = side_by_side(kt, py, f"{idx} {square}  mean {mean:.2f} max {mx:.0f}  [Kotlin | Python | 8x]")
         cv2.imwrite(str(out_dir / f"{idx:06d}_{square}.png"), pic)
     print(f"  wrote {min(args.worst, len(results))} pictures to {out_dir}")
+    if skipped["Form verschieden"] or skipped["unlesbar"]:
+        print("[FAIL] nicht jeder Crop wurde verglichen — die Zahlen oben gelten nur fuer den Rest.")
+        return 1
     return 0
 
 
