@@ -1,5 +1,8 @@
 package com.chesslab.tracker.games
 
+import com.chesslab.tracker.io.defaultSideFiles
+import com.chesslab.tracker.io.sideFiles
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -14,6 +17,11 @@ class GameStoreTest {
     lateinit var dir: File
 
     private fun store() = GameStore(File(dir, "games"))
+
+    @AfterEach
+    fun restoreSideFiles() {
+        sideFiles = defaultSideFiles
+    }
 
     @Test
     fun storeRoundTripsGameWithProvenance() {
@@ -50,6 +58,7 @@ class GameStoreTest {
         // A directory where the temp file has to go: the write fails, and the point is that it
         // fails BEFORE anything touches the destination.
         File(dir, "games/index.json.tmp").mkdirs()
+        sideFiles = { File(dir, "games/index.json.tmp") }
         runCatching { store.save(sampleGame(id = "g2")) }
         assertEquals(before, index.readText())
         assertEquals(listOf("g1"), store.list().map { it.id })

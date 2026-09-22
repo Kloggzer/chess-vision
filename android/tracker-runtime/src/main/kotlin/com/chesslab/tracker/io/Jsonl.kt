@@ -57,10 +57,11 @@ object Jsonl {
  */
 internal fun sideFile(file: File): File = sideFiles(file)
 
-internal val defaultSideFiles: (File) -> File = { File(it.parentFile, "${it.name}.$SIDE_TAG-${SIDE_SEQ.incrementAndGet()}.tmp") }
+val defaultSideFiles: (File) -> File = { File(it.parentFile, "${it.name}.$SIDE_TAG-${SIDE_SEQ.incrementAndGet()}.tmp") }
 
-/** Nur Tests hebeln das aus — sie koennen den Namen sonst nicht vorhersagen und nicht blockieren. */
-internal var sideFiles: (File) -> File = defaultSideFiles
+/** Nur Tests hebeln das aus — sie koennen den Namen sonst nicht vorhersagen und nicht blockieren.
+ *  Oeffentlich, weil `:app` seine eigenen Schreiber prueft und `internal` nicht ueber Module traegt. */
+var sideFiles: (File) -> File = defaultSideFiles
 
 private val SIDE_TAG = UUID.randomUUID().toString().take(8)
 private val SIDE_SEQ = AtomicLong()

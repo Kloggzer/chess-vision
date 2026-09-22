@@ -1,5 +1,8 @@
 package com.chesslab.tracker.capture
 
+import com.chesslab.tracker.io.defaultSideFiles
+import com.chesslab.tracker.io.sideFiles
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -20,7 +23,13 @@ class CaptureSessionAtomicTest {
         val file = File(dir, CAPTURE_FILE)
         val before = file.readText()
         File(dir, "$CAPTURE_FILE.tmp").mkdirs()
+        sideFiles = { File(dir, "$CAPTURE_FILE.tmp") }
         runCatching { writeCaptureSession(dir, session.copy(note = "zweiter Lauf")) }
         assertEquals(before, file.readText())
+    }
+
+    @AfterEach
+    fun restoreSideFiles() {
+        sideFiles = defaultSideFiles
     }
 }
