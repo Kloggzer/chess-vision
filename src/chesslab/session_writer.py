@@ -7,7 +7,6 @@ from video and from an empty board and never touch a camera.
 
 from __future__ import annotations
 
-import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,7 +14,7 @@ from pathlib import Path
 import cv2
 import yaml
 
-from .ioutil import write_rows
+from .ioutil import append_rows, write_rows
 
 
 def _now_iso() -> str:
@@ -161,8 +160,7 @@ class SessionWriter:
             # of FEN derivation. Allows classes like `occluded` that don't exist in FEN.
             entry["labels"] = {str(k): str(v) for k, v in labels.items()}
         self.entries.append(entry)
-        with self.log_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        append_rows(self.log_path, [entry])
         self._frame_idx += 1
         return rel
 

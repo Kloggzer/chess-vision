@@ -17,7 +17,6 @@ Ohne `--apply` nur ein Bericht.
 """
 import argparse
 import collections
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,7 +24,7 @@ import numpy as np
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
-from chesslab.ioutil import read_jsonl
+from chesslab.ioutil import append_rows, read_jsonl
 from chesslab.labeling import load_corrections
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import open_packed_rows
@@ -115,9 +114,7 @@ def main():
         return
     for sess, v in todo.items():
         p = ROOT / sess.replace("rg-", "") / "corrections.jsonl"
-        with p.open("a", encoding="utf-8") as fh:
-            for row in v:
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        append_rows(p, v)
         print(f"[OK] {len(v)} Zeilen angehaengt -> {p}")
 
 

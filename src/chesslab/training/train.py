@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import config, doctor, locks
-from ..ioutil import write_json
+from ..ioutil import append_rows, write_json
 from ..work_audit import current as current_work_audit
 from .data import (
     checkpoint_metrics,
@@ -1394,8 +1394,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             rec = _compact_metrics(rec)
         rec["metrics_schema"] = 3
 
-        with metrics_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec) + "\n")
+        append_rows(metrics_path, [rec])
         print(f"epoch {epoch:>3} | train_loss {rec['train_loss']:.4f} | val_loss {rec['val_loss']:.4f} "
               f"| visible_piece_acc {score[0]:.4f}")
 
