@@ -292,6 +292,11 @@ internal class EngineState(
      */
     var verdictOutcome: String? = null
 
+    /** Dieselbe Ueberlebensfrage wie [verdictOutcome], fuer die beim Heben eingefrorenen Vetos:
+     *  `applyVerdict` loescht `pending`, BEVOR `commitMove` seine Zeile schreibt. */
+    var verdictShadowVetoed: Long? = null
+    var verdictOccludedVetoed: Long? = null
+
     /**
      * The window both confirmers are currently built for — the same defect [avgWindow] had. The CNN
      * attaches asynchronously and `cnnVerify` is live-tunable, so a confirmer built for

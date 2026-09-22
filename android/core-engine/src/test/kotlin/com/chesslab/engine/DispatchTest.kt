@@ -558,6 +558,61 @@ class DispatchTest {
     }
 
     @Test
+    fun theCommittedRowKeepsTheVetoesFromTheLiftingFrame() {
+        // Der echte Weg, nicht die Fixture: `applyVerdict` loescht `pending`, BEVOR `commitMove`
+        // seine Zeile schreibt. Mein erster Riegel war deshalb auf genau dem Pfad wirkungslos,
+        // fuer den er gebaut wurde (Astra, 2026-09-22).
+        val state = detectState()
+        state.shadowVetoed = bit(Squares.index("g1"))
+        state.occludedVetoed = bit(Squares.index("h1"))
+        val pending =
+            PendingVerify(
+                ucis = listOf("e2e4"),
+                uci = "e2e4",
+                fen = state.board.fen(),
+                cur = grayFrame(),
+                curBgr = null,
+                frames = 1,
+                priorUsed = false,
+                seq = 1,
+                shadowVetoedAtLift = state.shadowVetoed,
+                occludedVetoedAtLift = state.occludedVetoed,
+            )
+        state.pending = pending
+        state.shadowVetoed = bit(Squares.index("e1")) or bit(Squares.index("f1"))
+        state.occludedVetoed = bit(Squares.index("f2"))
+        state.applyVerdict(VerifyVerdict.For(DECIDER_CNN_OCCUPANCY), pending)
+        val row = state.decisionLog.last()
+        assertEquals(DECIDER_CNN_OCCUPANCY, row.decider)
+        assertEquals(listOf("g1"), row.shadowVetoed)
+        assertEquals(listOf("h1"), row.occludedVetoed)
+    }
+
+    @Test
+    fun theNextRowAfterACommitIsNoLongerTheLiftingFrames() {
+        // Genau EINE Zeile erbt den Spruch der Leiter -- wie bei `verdictOutcome`. Bliebe der
+        // Traeger stehen, truege die naechste, unbeteiligte Entscheidung fremde Felder.
+        val state = detectState()
+        state.shadowVetoed = bit(Squares.index("g1"))
+        val pending =
+            PendingVerify(
+                ucis = listOf("e2e4"),
+                uci = "e2e4",
+                fen = state.board.fen(),
+                cur = grayFrame(),
+                curBgr = null,
+                frames = 1,
+                priorUsed = false,
+                seq = 1,
+                shadowVetoedAtLift = state.shadowVetoed,
+            )
+        state.pending = pending
+        state.applyVerdict(VerifyVerdict.For(DECIDER_CNN_OCCUPANCY), pending)
+        state.shadowVetoed = bit(Squares.index("a1"))
+        assertEquals(listOf("a1"), state.decisionRow(DECIDER_CNN_OCCUPANCY, "danach").shadowVetoed)
+    }
+
+    @Test
     fun withoutAPendingCandidateTheDecisionRowIsThisFrames() {
         val state = detectState()
         state.shadowVetoed = bit(Squares.index("e1"))

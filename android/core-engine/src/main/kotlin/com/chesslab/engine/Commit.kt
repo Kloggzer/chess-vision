@@ -214,8 +214,11 @@ internal fun EngineState.recordDecision(
         (DECIDER_REASON[decider] ?: decider) + (if (priorUsed) PRIOR_REASON_SUFFIX else "") + reasonSuffix
     // Exactly ONE row inherits the ladder's verdict; the next one is already another decision.
     val verdict = pending?.voteOutcome ?: verdictOutcome
+    val row = decisionRow(decider, reason, uciOf(move), verdict)
     verdictOutcome = null
-    decisionLog.add(decisionRow(decider, reason, uciOf(move), verdict).copy(san = san, fenBefore = fenBefore, priorUsed = priorUsed))
+    verdictShadowVetoed = null
+    verdictOccludedVetoed = null
+    decisionLog.add(row.copy(san = san, fenBefore = fenBefore, priorUsed = priorUsed))
 }
 
 /**

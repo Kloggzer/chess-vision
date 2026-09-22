@@ -128,8 +128,8 @@ internal fun EngineState.decisionRow(
         margin = roundTo(bestScore - secondScore, ROUND_2),
         changed = changed.sortedSquareNames(),
         changedVals = changedVals.toList(),
-        shadowVetoed = (pending?.shadowVetoedAtLift ?: shadowVetoed).sortedSquareNames(),
-        occludedVetoed = (pending?.occludedVetoedAtLift ?: occludedVetoed).sortedSquareNames(),
+        shadowVetoed = (pending?.shadowVetoedAtLift ?: verdictShadowVetoed ?: shadowVetoed).sortedSquareNames(),
+        occludedVetoed = (pending?.occludedVetoedAtLift ?: verdictOccludedVetoed ?: occludedVetoed).sortedSquareNames(),
         gridCoverage = gridCoverage,
         zThr = config.zThr,
         // Unrounded: it is read against a threshold of 0.0025 (`MOTION_DP`).
