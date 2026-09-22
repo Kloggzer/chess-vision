@@ -77,6 +77,18 @@ internal fun evalLabel(result: AnalysisResult?): String {
     }
 }
 
+/** Der laufende Analyse-Host: EINER je Schirm, denn zwei waeren zwei Stockfish-Prozesse. [demand]
+ *  haelt ihn am Leben, wenn die Leiste aus ist und nur die Hilfe die Engine braucht. */
+@Composable
+fun rememberRunningAnalysis(demand: () -> Boolean): AnalysisHost {
+    val host = rememberAnalysisHost(demand)
+    val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
+    val status by (session ?: NoTrackerSession).status.collectAsStateWithLifecycle()
+    LaunchedEffect(status) { host.onStatus(status) }
+    DisposableEffect(host) { onDispose { host.stop() } }
+    return host
+}
+
 /**
  * The tracking screen's single analysis insertion: the bar and the engine's top lines. It renders
  * nothing at all when no engine binary shipped for this ABI. The knobs live in Settings › Analysis
@@ -86,16 +98,14 @@ internal fun evalLabel(result: AnalysisResult?): String {
  * become a reason for the tracking screen to carry analysis plumbing.
  */
 @Composable
-fun EvalBarSlot(modifier: Modifier = Modifier) {
-    val host = rememberAnalysisHost()
-    val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
-    val status by (session ?: NoTrackerSession).status.collectAsStateWithLifecycle()
+fun EvalBarSlot(
+    host: AnalysisHost,
+    modifier: Modifier = Modifier,
+) {
     val state by host.state.collectAsStateWithLifecycle()
     val block by host.block.collectAsStateWithLifecycle()
     val result by host.result.collectAsStateWithLifecycle()
     val settings by host.settings.collectAsStateWithLifecycle()
-    LaunchedEffect(status) { host.onStatus(status) }
-    DisposableEffect(host) { onDispose { host.stop() } }
     if (state == AnalysisState.Unavailable) return
 
     var showPanel by remember { mutableStateOf(false) }

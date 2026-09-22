@@ -63,13 +63,17 @@ import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.UNKNOWN
 import com.chesslab.tracker.games.resultFromFen
+import com.chesslab.tracker.hints.HintHost
+import com.chesslab.tracker.hints.HintPlan
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.ConfirmDialog
 import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.SourceFramedPreview
+import com.chesslab.tracker.ui.analysis.AnalysisHost
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
+import com.chesslab.tracker.ui.analysis.rememberRunningAnalysis
 import com.chesslab.tracker.ui.calibration.CalibrationState
 import com.chesslab.tracker.ui.calibration.LocalCalibrationHost
 import com.chesslab.tracker.ui.camera.rememberBoardModel
@@ -120,6 +124,7 @@ private enum class TrackerModal {
     ENDING,
     RECALIBRATING,
     SHARE,
+    HINT_SETUP,
 }
 
 @Composable
@@ -141,6 +146,17 @@ private fun TrackingScreen(
     var showPreview by remember { mutableStateOf(false) }
     val torchOn by viewModel.torchOn.collectAsStateWithLifecycle()
     val automaticCalibration = rememberAutomaticCalibration()
+    var hintAsked by remember { mutableStateOf(false) }
+
+    // Die Hilfe wird beim PARTIESTART gewaehlt und gilt bis zum Ende der Partie — das Kontingent
+    // ist der Ausgleichsregler. Gefragt wird, sobald ein Brett da ist und noch kein Zug steht.
+    LaunchedEffect(running, ui.ready, live.moveCount) {
+        if (!running) hintAsked = false
+        if (running && ui.ready && live.moveCount == 0 && !hintAsked) {
+            hintAsked = true
+            modal = TrackerModal.HINT_SETUP
+        }
+    }
 
     // Recalibrating replaces the geometry the running game has been tracked against, and there is no
     // way back to the old quad. With no moves committed there is nothing to lose (specs/48 rule 6),
@@ -178,6 +194,7 @@ private fun TrackingScreen(
             viewModel = viewModel,
             ui = ui,
             game = live.game,
+            games = games,
             camera = preview.takeIf { showPreview },
             running = running,
             calibration = automaticCalibration,
@@ -240,12 +257,14 @@ private fun TrackingModals(
                 fen = ui.fen,
                 onSave = { white, black, result ->
                     val saved = games?.endAndSave(white, black, result)
+                    HintHost.controller.endGame()
                     close()
                     TrackerRun.stop(context)
                     if (saved != null) onGameSaved(saved.id) else onGameDiscarded()
                 },
                 onReseed = {
                     games?.discard()
+                    HintHost.controller.endGame()
                     close()
                     TrackerRun.stop(context)
                     onGameDiscarded()
@@ -264,6 +283,18 @@ private fun TrackingModals(
                     viewModel.onRecalibrate()
                 },
                 onDismiss = close,
+            )
+        TrackerModal.HINT_SETUP ->
+            HintSetupDialog(
+                onStart = {
+                    HintHost.controller.startGame(it)
+                    close()
+                },
+                // Kein Plan ist ein gueltiger Plan: ohne Seite erscheint kein Knopf.
+                onDismiss = {
+                    HintHost.controller.startGame(HintPlan())
+                    close()
+                },
             )
         TrackerModal.NONE -> Unit
     }
@@ -400,6 +431,7 @@ private fun TrackingBody(
     viewModel: TrackingViewModel,
     ui: TrackingUiState,
     game: GameView,
+    games: GameSessionController?,
     camera: android.graphics.Bitmap?,
     running: Boolean,
     calibration: CalibrationState?,
@@ -412,7 +444,7 @@ private fun TrackingBody(
     ) {
         if (ui.ready) {
             StatusLine(ui)
-            Watching(viewModel, ui, game, camera, running, onEndGame)
+            Watching(viewModel, ui, game, games, camera, running, onEndGame)
         } else {
             NotReady(viewModel, ui, calibration)
             if (running) OutlineAction("End game", onEndGame, Modifier.fillMaxWidth())
@@ -432,11 +464,17 @@ private fun ColumnScope.Watching(
     viewModel: TrackingViewModel,
     ui: TrackingUiState,
     game: GameView,
+    games: GameSessionController?,
     camera: android.graphics.Bitmap?,
     running: Boolean,
     onEndGame: () -> Unit,
 ) {
     val lastCommit = viewModel.lastCommit.collectAsStateWithLifecycle().value
+    // EIN Analyse-Host je Schirm. Die Hilfe haelt ihn am Leben, wenn die Leiste aus ist — sie
+    // hebt nur `enabled` auf, Hitze, Akku und Bildrate sperren weiter (`gateBlock`).
+    val analysis = rememberRunningAnalysis { HintHost.controller.state.value.plan.side != null }
+    val hint by HintHost.controller.state.collectAsStateWithLifecycle()
+    val onHint = rememberHintRequest(viewModel, games, analysis, ui.fen)
     // ONE reserved line, and it is the most volatile string on the screen — reflowing it above the
     // board shifts every button under the user's thumb. It reserved TWO, for a not-calibrated
     // sentence that belongs to the other layout now and is printed there at full size. Blank while
@@ -453,7 +491,8 @@ private fun ColumnScope.Watching(
     // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
     // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
     // read square by square is the one from the lens.
-    BoardRow(ui, game.plies.lastOrNull()?.uci, camera)
+    BoardRow(ui, game.plies.lastOrNull()?.uci, analysis, camera)
+    hint.outcome?.let { HintCard(it, speechLanguage(), HintHost.controller::dismiss) }
     ui.alarm?.let {
         AlarmCard(
             alarm = it,
@@ -473,6 +512,9 @@ private fun ColumnScope.Watching(
     // move list size themselves to their content; without a flexible spacer the action row followed
     // them immediately and floated halfway up taller screens.
     Spacer(Modifier.weight(1f))
+    // Nie von selbst: das Telefon bietet keinen Tipp an, der Nutzer fragt. Waehrend der Alarm
+    // steht, IST die Karte der Job des Schirms, und zwei gefuellte Knoepfe sind Regel 3 gebrochen.
+    HintSlot(HintHost.controller, ui.fen, ui.alarm != null, running, onHint)
     // Not tracking is a legitimate state of this screen, not an error: the board keeps the
     // position it last had and the only control left is the one that would change that.
     if (running) {
@@ -603,14 +645,15 @@ private val SETUP_HINT_TEXT = Color(0xFFEDE3D2)
 private fun BoardRow(
     ui: TrackingUiState,
     lastMoveUci: String?,
+    host: AnalysisHost,
     camera: android.graphics.Bitmap? = null,
 ) {
-    val analysis by AnalysisSettingsHost.settings.collectAsStateWithLifecycle()
+    val settings by AnalysisSettingsHost.settings.collectAsStateWithLifecycle()
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        if (analysis.enabled) EvalBarSlot()
+        if (settings.enabled) EvalBarSlot(host)
         if (camera != null) {
             BoardPreview(bitmap = camera, overlay = ui.overlay, modifier = Modifier.weight(1f).aspectRatio(1f))
         } else {

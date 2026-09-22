@@ -45,6 +45,7 @@ import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.geometry.cropLine
 import com.chesslab.tracker.geometry.withCropOf
+import com.chesslab.tracker.hints.HintHost
 import com.chesslab.tracker.log.AndroidTrackerLog
 import com.chesslab.tracker.log.androidTrackerLogs
 import com.chesslab.tracker.pipeline.CameraRate
@@ -67,6 +68,7 @@ import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.settings.cameraLook
 import com.chesslab.tracker.settings.withLiveKnobsOf
 import com.chesslab.tracker.speech.MoveAnnouncer
+import com.chesslab.tracker.speech.SpeakerHost
 import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.sync.SETTLE_MINUTES
 import com.chesslab.tracker.sync.syncNow
@@ -364,6 +366,8 @@ class TrackerService :
         TrackerRestartHost.publish(null)
         GameSessionHost.publish(null)
         CaptureRecorderHost.publish(null)
+        SpeakerHost.publish(null)
+        HintHost.controller.endGame()
         // The service IS the session: stopping it ends the game rather than losing it. A game with
         // no moves saves nothing, so a start/stop cycle still leaves the library alone.
         games.endAndSave()
@@ -465,13 +469,14 @@ class TrackerService :
         // `chesslabSpeech`: one line when a commit is handed to the speaker, one when that
         // utterance becomes audible. The two ends of the leg the replay cannot see.
         val speechLog = androidTrackerLogs("chesslabSpeech")
+        // Der Tipp auf Zuruf spricht durch DIESELBE Stimme (`SpeakerHost`): ein zweiter
+        // `SpeechEngine` waere ein zweiter Audio-Fokus-Nehmer neben dem Zugansager.
+        val speaker = androidSpeechEngine(this) { speechLog.info("audible after $it ms") }
+        SpeakerHost.publish(speaker)
         speech =
-            MoveAnnouncer(
-                lifecycleScope,
-                androidSpeechEngine(this) { speechLog.info("audible after $it ms") },
-                settings,
-            ) { san, queuedMs -> speechLog.info("queued $san in $queuedMs ms") }
-                .also { it.attach(publisher.events) }
+            MoveAnnouncer(lifecycleScope, speaker, settings) { san, queuedMs ->
+                speechLog.info("queued $san in $queuedMs ms")
+            }.also { it.attach(publisher.events) }
         cnnProbe.observations = { stacks.current?.observations ?: 0L }
         // Pulled like the other two: the geometry moves on every calibration and the panel must
         // show the box the crops are being cut with NOW, not the one they were cut with at wiring.

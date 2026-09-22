@@ -6,8 +6,10 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.PowerManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.analysis.AnalysisSettings
@@ -57,6 +59,9 @@ class AnalysisHost(
     private val probe: PowerProbe,
     private val scope: CoroutineScope,
     private val now: () -> Long = System::currentTimeMillis,
+    /** Etwas braucht die Engine, obwohl die Leiste aus ist — die Hilfe auf Zuruf. Es hebt nur
+     *  `enabled` auf; Hitze, Akku und Bildrate sperren weiter (`gateBlock`). */
+    private val demand: () -> Boolean = { false },
 ) {
     val settings: StateFlow<AnalysisSettings> = AnalysisSettingsHost.settings
     val state: StateFlow<AnalysisState> = analyzer.state
@@ -110,7 +115,8 @@ class AnalysisHost(
                 trackingStableMs = if (trackingSince == 0L) 0L else now() - trackingSince,
                 medianFrameMs = frameTimes.median,
             )
-        val blocked = gateBlock(inputs, AnalysisSettingsHost.settings.value)
+        val wanted = AnalysisSettingsHost.settings.value.let { if (demand()) it.copy(enabled = true) else it }
+        val blocked = gateBlock(inputs, wanted)
         blockFlow.value = blocked
         if (blocked == null) analyzer.start(scope) else analyzer.stop()
     }
@@ -161,9 +167,12 @@ fun stockfishEngineFactory(context: Context): () -> UciEngine? {
  * and must never hold a reference to the engine or the game.
  */
 @Composable
-fun rememberAnalysisHost(): AnalysisHost {
+fun rememberAnalysisHost(demand: () -> Boolean = { false }): AnalysisHost {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
+    // Ueber `rememberUpdatedState`: `remember` haelt die ERSTE Lambda-Instanz fest, und die
+    // naechste Zusammensetzung reicht eine neue herein, die der Host sonst nie sieht.
+    val wanted by rememberUpdatedState(demand)
     return remember(context) {
         AnalysisHost(
             analyzer =
@@ -179,6 +188,7 @@ fun rememberAnalysisHost(): AnalysisHost {
                 ),
             probe = AndroidPowerProbe(context),
             scope = scope,
+            demand = { wanted() },
         )
     }
 }
