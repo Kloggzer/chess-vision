@@ -49,6 +49,9 @@ def main() -> int:
     for sid, sdir in sessions.all_sessions():
         rows = [r for r in _rows(sdir) if r.get("corners")]
         if not rows:
+            # Eine Aufnahme ohne einen einzigen Quad ist ein Befund — ungemessen, nicht sauber.
+            # Stumm uebersprungen faellt sie aus einer Uebersicht, die den KORPUS behaupten soll.
+            print(f"{sid:<24}{0:>7}   no corners in the log")
             continue
         try:
             prof = labeling._profile_for_session(labeling.read_session_meta(sdir), None)

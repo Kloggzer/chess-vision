@@ -28,6 +28,12 @@ def main() -> None:
     rows = read_jsonl(args.pack / "manifest.jsonl")
     classes = list(cfg["classes"])
     class_idx = {name: i for i, name in enumerate(classes)}
+    # Ein Pack ist unveraenderlich, sein Manifest nicht: fuenf Datensatzverzeichnisse tragen
+    # heute ein ausgeduenntes Manifest neben dem alten `packed_meta.json`. Positionsgleich
+    # gelesen ergaebe das Bild i zu Label j — eine Zahl, die nichts misst.
+    if int(meta["n"]) != len(rows):
+        raise SystemExit(f"{args.pack}: {len(rows)} Manifest-Zeilen, aber {int(meta['n'])} "
+                         "gepackte Bilder — neu packen, nicht vergleichen")
     shape = (int(meta["n"]), int(meta["h"]), int(meta["w"]), 3)
     images = np.memmap(args.pack / "packed_images.u8", dtype=np.uint8, mode="r", shape=shape)
 

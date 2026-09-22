@@ -36,7 +36,13 @@ def main() -> int:
     for r in read_jsonl(dd / "manifest.jsonl"):
         counts[r["session_id"]] = counts.get(r["session_id"], 0) + 1
 
-    for k in [int(x) for x in a.k.split(",")]:
+    ks = [int(x) for x in a.k.split(",")]
+    # `order[:k]` kuerzt still: zwei zu grosse k geben denselben Satz und damit einen
+    # waagerechten Abschnitt der Lernkurve, deren Steigung die ganze Frage ist.
+    if max(ks) > len(train):
+        raise SystemExit(f"k={max(ks)} ueber {len(train)} Trainings-Aufnahmen — kein Punkt")
+
+    for k in ks:
         keep = order[:k]
         out = {**split, "splits": {**split["splits"], "train": keep}}
         # Die Klassengewichte gehoeren zum Trainingssatz — `train` rechnet sie fuer

@@ -16,6 +16,9 @@ conf = defaultdict(lambda: defaultdict(int))
 for session in sys.argv[1:]:
     p = ROOT / session / "model-reads.jsonl"
     if not p.is_file():
+        # 24 von 51 Aufnahmen tragen keine Lesarten; stumm uebersprungen stuenden die
+        # Prozente unten ueber einer Teilmenge, die niemand genannt hat.
+        print(f"[!] {session}: keine model-reads.jsonl — nicht in der Tabelle")
         continue
     rows = defaultdict(dict)
     for r in read_jsonl(p):

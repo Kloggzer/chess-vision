@@ -130,7 +130,12 @@ def report(arms: dict[str, dict[str, list[tuple[float, int]]]]) -> None:
         cells = ""
         for g in groups:
             v = by_group.get(g) or []
-            cells += f"{np.nanmedian([a for a, _ in v]):>18.2f}" if v else f"{'-':>18}"
+            # Ein Frame ohne gelesene Linie kommt als `nan` zurueck, und `nanmedian` wirft ihn
+            # weg. Der Nenner steht daneben: sonst steht ein Arm mit einer Messung so breit da
+            # wie einer mit zwoelf.
+            read = [a for a, _ in v if a == a]
+            got = f"{np.median(read):.2f}" if read else "-"
+            cells += f"{got + f' ({len(read)}/{len(v)})':>18}" if v else f"{'-':>18}"
         unread = [u for v in by_group.values() for _, u in v]
         print(f"{name:<20}{cells}{np.mean(unread) if unread else float('nan'):>12.2f}")
 

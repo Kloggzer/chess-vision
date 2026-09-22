@@ -1914,3 +1914,114 @@ und sie mit den schon gefahrenen Laeufen unvergleichbar macht.
 **Empfehlung in einem Satz:** `counts` und `train_class_counts` beim Schreiben nachrechnen,
 `class_weights` unangetastet lassen und den Grund in die Datei stempeln — dann stimmt der
 Nenner, ohne dass das Rezept wandert.
+
+## `occluder_footprint_image` misst den Arm-Radius NUR entlang Welt-+X
+
+Gemessen 2026-09-22 unter `tests/bpy_stub` (Kamera 28 mm, `--res 1024`, Faust auf d4): die
+Funktion projiziert den Arm als KREIS, dessen Radius sie aus einem einzigen Versatz entlang
+Welt-+X gewinnt (`_px(ax + r_world, ay, ARM_Z)`). Im Bild ist der Arm aber eine ELLIPSE, sobald
+die Kamera kippt, und die zweite Achse misst niemand. Senkrecht sind beide Achsen gleich
+(115,9 px), bei 30 Grad Kippung ist die y-Achse 19 % laenger (81,1 gegen 96,7 px), bei 45 Grad
+57 %. Je nach Azimut der Kippung ist der eine Kreis also zu klein (Felder, die der Arm wirklich
+deckt, behalten ihr Figuren-Label) oder zu gross (sichtbare Felder werden `occluded`).
+
+Relevanz heute: klein. Im Vorgabeband (`--max-obliqueness 0.20`, also bis ~11 Grad) betraegt der
+Fehler ~2 % des Radius und liegt damit unter der Quantisierung des 5x5-Abtastgitters (0,04 je
+Feld). Erst `--max-obliqueness 0.45` (~24 Grad, ~9 %) bringt ihn ueber diese Schwelle.
+
+Nicht gebaut, weil jede Korrektur eine LABEL-Entscheidung ist: die groessere Achse zu nehmen
+schiebt Felder Richtung `occluded`, die kleinere Richtung Figur, und die Politik dazu
+(„Praezision vor Recall") gehoert dem Nutzer, nicht dem Fix.
+
+**Empfehlung in einem Satz:** beide Achsen messen und die Differenz in das AMBIGUOUS-Band
+schieben, statt eine der beiden zum Kreis zu erklaeren — dann kostet der Fehler Frames statt
+falscher Labels.
+
+## `commit_truth.py` bewertet 7 von 11 Logs gegen `candidate.json`, nicht gegen ein PGN
+
+Nachgezaehlt 2026-09-22 ueber `tmp/calib/*.log`: 4 Aufnahmen tragen eine `reference.pgn`
+(`2026-08-08-00-39-57`, `VID_20260726_233432`, `VID_20260824_153751`, `VID_20260824_154327`),
+die uebrigen 7 fallen auf `candidate.json` zurueck. Das ist die Zugliste EINES frueheren
+Trackerlaufs (`source.cnn_run` steht darin), also kein unabhaengiger Zeuge — die Quote
+"erfunden" misst dort den Abstand zweier Maschinenlaeufe, nicht den zur Wirklichkeit.
+
+Gebaut wurde nur die Trennung: jede Zeile in `tmp/calib/commits.jsonl` traegt seit heute
+`ref_kind`, und der Lauf druckt die Aufteilung. Ob die 7 Aufnahmen ueberhaupt in die
+Kalibrierungszahl gehoeren, ist damit sichtbar, aber nicht entschieden.
+
+**Empfehlung in einem Satz:** die Kalibrierung getrennt je `ref_kind` ausweisen und erst dann
+entscheiden, ob die Kandidaten-Aufnahmen ein PGN bekommen oder aus der Zahl fallen.
+
+## `lib/answer.ts` deckt drei Poller, nicht alle Fetches der Web-App
+
+Gefunden 2026-09-22: drei Poller lasen `r.json()` ohne `res.ok` und setzten den `{error}`-Rumpf
+einer 4xx/5xx-Antwort als Nutzlast — die Schritt-Leiste, die Ketten-Karte und die Transfer-Seite.
+Gefixt ueber `readAnswer`, geratscht in `lib/poll-answer.bughunt-2026-09-22b.test.ts`.
+
+Die Ratsche faengt nur die FORM `.then((r) => r.json())`. Die uebrigen rund zehn Aufrufer pruefen
+`res.ok` heute von Hand und sind damit richtig, aber jeder auf seine Weise; sie alle auf
+`readAnswer` umzustellen waere eine Vereinheitlichung ohne gemessenen Fehler.
+
+**Empfehlung in einem Satz:** erst umstellen, wenn ein vierter Poller die Form wiederholt — bis
+dahin haelt die Ratsche die eine Stelle, an der es wirklich schiefging.
+
+## Zwei Routen-Wachen sind nachweislich blosse Redundanz
+
+Mutationsprobe 2026-09-22 ueber 14 Waechter in `platform/app/`: 12 wurden gefangen, zwei
+ueberlebten — die Leerstring-Pruefung in `app/api/frame-verdict/route.ts` (`text()`) und die
+`rows`-Pruefung in `app/api/corrections/route.ts`. Beide ueberleben, WEIL dahinter schon
+`checkName` (ueber `recordingName`/`validateNote`) beziehungsweise das `.map` auf einer
+Nicht-Liste mit 400 abweist und nichts schreibt; `lib/empty-body-guards.bughunt-2026-09-22b.test.ts`
+haelt dieses Verhalten jetzt fest, unabhaengig davon, welche der beiden Wachen es leistet.
+
+**Empfehlung in einem Satz:** stehen lassen — sie kaufen die verstaendlichere Meldung, nicht die
+Sicherheit, und das gehoert so in den Kommentar statt in einen Loeschvorgang.
+
+## `prune_dead_rows` benutzte eine zweite Schwelle fuer dieselbe Entscheidung
+
+Gemessen 2026-09-22 ueber alle 27 `data/recordings/*/matte.jsonl`: 37 wirksame SAM-Zeilen liegen
+im Band `0 < max(coverage) <= 0,15`, also unter derselben `MATTE_DIRTY`, die `upsert_proposals`
+"SAM hat nichts gefunden" nennt. 8 davon tragen eine Upsert-Zeile, in 4 Aufnahmeverzeichnissen
+(`2026-08-13-19-34-23`, `2026-08-16-20-19-54`, `VID_20260824_153751`, `VID_20260824_154327`).
+`prune_dead_rows` fragte dort `any(coverage.values())`, also ab 0,0001, und loeschte die
+staerkere Upsert-Matte zugunsten der schwachen SAM-Messung: bei diesen 8 Frames kippen 27 Zellen
+von `> 0,15` auf `<= 0,15` und geraten damit wieder in den Klassifikationsverlust.
+
+Gebaut ist die Angleichung an `MATTE_DIRTY` (`tests/test_bug_hunt_20260922b_matten.py`). Sie
+aendert kuenftige Laeufe: diese 8 Frames behalten ihre Upsert-Matte, wo der naechste
+`temporal-pass` sie heute verworfen haette.
+
+**Empfehlung in einem Satz:** die eine Schwelle behalten und nach dem naechsten `temporal-pass`
+die 27 Zellen stichprobenhaft ansehen — steht dort wirklich eine Hand, war die alte Regel ein
+stiller Labelverlust.
+
+## Skript-Jagd 2026-09-22c: zwei Reste
+
+- **`straighten_ab`, Arm „mesh (eigener)“:** Frames ohne eigenes Mesh bekommen `own=None`, und
+  `bow_of` misst dann das ROHE Brett — unter dem Namen des Mesh-Arms. Genau die Frames ohne Mesh
+  sind laut Kopfkommentar ausnahmslos Handframes (1 116 von 7 344), und `sample_rows` zieht die
+  Haelfte der Stichprobe aus ihnen. Die Hand-Spalte dieses Arms ist also teilweise die Roh-Spalte.
+  Seit heute steht wenigstens der Nenner je Zelle in der Tabelle; die Trennung „nicht messbar“
+  gegen „gemessen“ fehlt noch. Entscheidung: eigener Sentinel statt `None`, oder Arm weglassen?
+- **`show_errors` liest `float(r.get("coverage") or 0.0)`** — `None` heisst ungemessen, nicht
+  sichtbar (Gedaechtnis: „Vor der Analyse die Fallen lesen“). Heute ohne Fall: die beiden grossen
+  v6-Manifeste tragen 0 Zeilen ohne Coverage. Bleibt eine Falle fuer den ersten ungematteten
+  Datensatz, der auf dem Kontaktbogen landet.
+
+## `conf_wrong`/`conf_right` bleiben bei 0,0, obwohl der Nenner leer sein kann
+
+Gefunden 2026-09-22 in `training/engine.evaluate_dataset`: ohne eine einzige benotbare Zelle
+meldeten `square_acc`, `macro_recall`, `conf_wrong`, `conf_right` und `_hit_rate` alle `0.0` —
+die SCHLECHTESTE Note statt der fehlenden. Gedreht sind `square_acc`, `macro_recall` und
+`_hit_rate` (`occ_recall`), weil ihre Geschwister `per_session_metrics`, `coverage_metrics`
+dieselbe Groesse laengst als `None` melden und `evaluate._fmt` den Strich schon druckt.
+
+Nicht gedreht sind `conf_wrong`/`conf_right`: `tests/test_training_bug_hunt.py` haelt dort
+`conf_wrong == 0.0` als Teil eines anderen Befunds fest (verdeckter Fehler zaehlt nicht mit).
+Das ist kein Widerspruch zur Konvention, sondern eine zweite Zusage an derselben Zahl.
+
+Ebenfalls nicht gedreht bleiben `board_acc`, `visible_board_acc`, `board_acc_tol1` — sie laufen
+ueber `data.board_accuracy`, und `fafc4f7d` hat genau das begruendet zurueckgestellt.
+
+**Empfehlung in einem Satz:** die beiden Konfidenzen mit derselben Aenderung drehen, die den
+fremden Test auf seine eigentliche Zusage umschreibt — oder ausdruecklich als Zahl stehen lassen.
