@@ -2314,3 +2314,29 @@ dem Coverage-Schnitt; heute fallen dort 2 126 dunkle Crops zusaetzlich heraus. N
 **Bewusst auf `coverage`:** `mine_hard_coverage.py`. Es sucht Fehler des COVERAGE-Kopfs, und der
 lernt auch auf dunklen Zellen (`OcclusionLoss.validation_terms`); die Helligkeit dort zu maskieren
 hiesse, genau die Zellen zu verstecken, auf denen der Kopf sich irren darf.
+
+## 45. Neun `candidate.json` tragen Vorgaben als gemessene Aufnahme-Konfiguration (2026-09-23)
+
+Befund aus der Codex-Bugjagd ueber `:desktop`, an der Platte bestaetigt.
+
+`ConfigCodec.decode` liefert bei einer fremden Schema-Version bewusst die VORGABEN plus eine
+`note`. Der normale Replay-Pfad `loadRecordedConfig` lehnt diese `note` richtig ab.
+`PhoneCandidate.settingsJson` druckt die Warnung dagegen nur und schreibt danach `decoded.config`
+als vollstaendigen `effective_config`-Block — "nicht dekodierbar" wird so zu "gemessene
+Standardkonfiguration", ohne jeden Unsicherheitsvermerk.
+
+**Nachgesehen an `2026-08-24-22-43-46`:** die Aufnahme hat unter Schema 4
+`boardSize = 992` und `pOccludedThr = 0,15` gespeichert (`files/sessions/…/settings.json`),
+ihr `candidate.json` behauptet **1600 und 0,5** — die heutigen Vorgaben. Laut Codex betrifft
+das neun Candidates aus Schema 4 und 5 (von 16 gefundenen `settings.json`: 8x v4, 5x v5, 3x v6).
+
+**Der Code wird repariert**: `settingsJson` soll bei fremdem Schema ablehnen oder die Herkunft
+ausdruecklich als unbekannt kennzeichnen, statt Vorgaben einzusetzen.
+
+**Die neun Dateien liegen unter `data/` und werden NICHT angefasst.** Heute liest keine
+Referenzmessung diesen Block automatisch (396/3/0 ist davon nicht betroffen), er wird aber
+gefaehrlich, sobald jemand eine Aufnahme anhand ihres `effective_config` nachstellt.
+
+**Empfehlung in einem Satz:** nach dem Code-Fix die neun Candidates mit `phone-candidate` neu
+erzeugen lassen, oder ihren `effective_config`-Block als unbekannt markieren — beides schreibt
+unter `data/` und braucht dein Ja.
