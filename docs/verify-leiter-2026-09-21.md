@@ -1,5 +1,11 @@
 # Die Verify-Leiter wirft eine richtige CNN-Antwort weg (2026-09-21)
 
+> **Ueberholt in Teilen, 2026-09-22.** Die Kette unten ("`e1` faellt als Schatten aus `changed`")
+> ist WIDERLEGT: das geloggte `shadowVeto` stammt aus einem anderen Frame als das geloggte
+> `changed` und ist nie in die Entscheidung eingegangen. Was haelt, ist der Befund zur Leiter
+> selbst (`toArrivedOk` ohne `!contradicted`). Die belegte Ursache steht in
+> `docs/verify-leiter-2026-09-22.md`.
+
 Auf `2026-09-19-15-50-28` erfindet der Replay sechs Züge und findet nur 17 von 87. Die Ursache ist
 gefunden, an einer Stelle, deren eigener Kommentar das Prinzip nennt, das dort fehlt.
 
