@@ -6,6 +6,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName } from "@/lib/data";
 import { readJsonl } from "@/lib/jsonl";
+import { stampOrMissing } from "@/lib/measurement";
 import { frameReviews } from "@/lib/review-notes";
 import { sessionDir, sessionId } from "@/lib/session";
 
@@ -89,7 +90,7 @@ const cache: Cache = ((globalThis as { __chesslabMattes?: Cache }).__chesslabMat
 /** One session's mattes, mtime-keyed — a 12 000-frame run is ~7 MB of JSON per request otherwise. */
 export async function loadMatte(name: string): Promise<SessionMatte> {
   const file = path.join(sessionDir(name), "matte.jsonl");
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const key = (await stampOrMissing(file)) ?? "none";
   const hit = cache.get(file);
   if (hit?.key === key) return hit.value;
 
@@ -215,7 +216,7 @@ const occludedStemsIn = (text: string): Set<string> => {
 /** Mtime-keyed like `loadMatte` — a card must not parse two megabytes of log per render. */
 async function cachedSet<T>(file: string, tag: string,
                             read: (text: string) => T): Promise<T> {
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const key = (await stampOrMissing(file)) ?? "none";
   const id = `${file}|${tag}`;
   const hit = sets.get(id);
   if (hit?.key === key) return hit.value as T;

@@ -3,12 +3,13 @@
  * `corrections.jsonl`, weil dort jede Zeile eine der 13 Identitaeten ist. Schluessel und Regel
  * sind dieselben: letzte Zeile gewinnt, `unusable: false` nimmt zurueck.
  */
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { appendRows } from "@/lib/atomic";
 import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
 import { jsonlRowsStrict } from "@/lib/jsonl";
+import { stampOrMissing } from "@/lib/measurement";
 
 export type UnusableCell = { session_id: string; frame: string; square: string; unusable: boolean };
 type Row = UnusableCell & { ts: string };
@@ -55,7 +56,7 @@ const cache: Cache = ((globalThis as { __chesslabUnusableCells?: Cache }).__ches
 /** `frame|square` dieser Aufnahme, die kein Label mehr hergeben — mtime-gekeyt wie jedes Ledger. */
 export async function unusableCells(name: string): Promise<Set<string>> {
   const file = unusableCellsPath(name);
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const key = (await stampOrMissing(file)) ?? "none";
   const hit = cache.get(file);
   if (hit?.key === key) return hit.value;
 

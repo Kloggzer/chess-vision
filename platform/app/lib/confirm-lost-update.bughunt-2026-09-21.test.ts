@@ -29,17 +29,24 @@ test("zwei gleichzeitige Streichungen verlieren keine — Gestrichenes bleibt ge
 });
 
 test("ein fremder Schreiber zwischen Lesen und Umhaengen wird nicht ueberrannt", async () => {
-  const file = await candidate("confirm-foreign");
-  const original = await readFile(file, "utf8");
-  // Der fremde Schreiber sitzt in `truthSans`, das `writeConfirmation` NACH dem Lesen aufruft —
-  // genau das Fenster, das ein Kommandozeilenlauf daneben trifft.
-  await writeFile(path.join(path.dirname(file), "reference.pgn"), "1. e4 e5 2. Nf3 *\n", "utf8");
-  const foreign = JSON.parse(original) as Record<string, unknown>;
-  foreign.note = "von aussen geschrieben";
-  const race = writeConfirmation("g", [0]);
-  await writeFile(file, JSON.stringify(foreign), "utf8");
-  await expect(race).rejects.toBeInstanceOf(Contested);
-  expect(JSON.parse(await readFile(file, "utf8")).note).toBe("von aussen geschrieben");
+  // Der fremde Schreiber trifft das Fenster nur in 98 von 100 Laeufen: sein rohes `writeFile`
+  // KUERZT zuerst, `confirmUnlocked` las dann die halbe Datei (`SyntaxError` statt `Contested`).
+  // Atomar geht nicht — `rename` ueber die vom Leser geoeffnete Datei ist auf Windows EPERM.
+  let caught = false;
+  for (let attempt = 0; attempt < 6 && !caught; attempt++) {
+    const file = await candidate(`confirm-foreign-${attempt}`);
+    const original = await readFile(file, "utf8");
+    await writeFile(path.join(path.dirname(file), "reference.pgn"), "1. e4 e5 2. Nf3 *\n", "utf8");
+    const foreign = JSON.parse(original) as Record<string, unknown>;
+    foreign.note = "von aussen geschrieben";
+    const race = writeConfirmation("g", [0]).then(() => null, (e: unknown) => e);
+    await writeFile(file, JSON.stringify(foreign), "utf8");
+    const failure = await race;
+    caught = failure instanceof Contested;
+    // Egal wie der Lauf ausging: geschrieben hat der fremde Schreiber zuletzt, und das steht.
+    expect(JSON.parse(await readFile(file, "utf8")).note).toBe("von aussen geschrieben");
+  }
+  expect(caught).toBe(true);
 });
 
 test("ohne fremden Schreiber schreibt es ganz normal", async () => {

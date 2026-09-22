@@ -31,6 +31,9 @@ type GridCell = {
   dirty?: boolean;
   /** Eine Hand am BRETT, während dieses Feld frei ist: der Crop verrät es nicht, der Scan schon. */
   boardHand?: { gate: number | null; squares: string[]; here: boolean };
+  /** Auf dieser Aufnahme lief der Hand-Scan NIE. Ohne das Zeichen sieht die leere Ecke aus wie
+   *  eine gemessene Null — ungemessen heisst nicht handfrei (`lanes.handsUnmeasured`). */
+  handsUnmeasured?: boolean;
 };
 
 export type CropGridProps = {
@@ -270,6 +273,14 @@ export function CropGrid(props: CropGridProps) {
               >
                 <BoardHandMark />
                 {cell.boardHand.gate === null ? "?" : Math.round(cell.boardHand.gate * 100)}
+              </span>
+            ) : cell.handsUnmeasured ? (
+              <span
+                className="bg-background/70 text-muted-foreground mt-px flex items-center gap-0.5 rounded-l px-1 font-mono text-[11px] leading-tight"
+                title="Hand-Scan lief auf dieser Aufnahme nie — eine leere Ecke heisst hier nicht „keine Hand“."
+              >
+                <BoardHandMark />
+                nie
               </span>
             ) : null}
           </div>

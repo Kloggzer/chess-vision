@@ -20,6 +20,21 @@ export const measurementOf = <T>(value: T): Measurement<T> => ({ measured: true,
 /** Der Wert, oder der Ersatz fuer den Fall, dass nie gemessen wurde — an EINER Stelle benannt. */
 export const valueOr = <T>(m: Measurement<T>, fallback: T): T => (m.measured ? m.value : fallback);
 
+/**
+ * Der Stempel einer Messdatei, `null` nur wenn sie FEHLT. Ein `stat`, das jeden Fehler auf
+ * "keine Datei" abschneidet, springt am ENOENT-Griff des Lesers vorbei: EMFILE unter dem
+ * Aufnahme-Faecher wurde so zur leeren Messung, gecacht bis zur naechsten mtime.
+ */
+export async function stampOrMissing(file: string): Promise<string | null> {
+  try {
+    const s = await stat(file);
+    return `${s.mtimeMs}:${s.size}`;
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
+    return null;
+  }
+}
+
 type Entry = { key: string; value: Measurement<unknown> };
 type Cache = Map<string, Entry>;
 /** Angepinnt wie `lib/jobs.ts` — eine Modul-Map parst sonst bei jedem Hot Reload neu. */
@@ -39,7 +54,7 @@ export async function loadMeasurement<T>(
   parse: (rows: Record<string, unknown>[]) => T,
   salt = "",
 ): Promise<Measurement<T>> {
-  const key = `${salt}|${await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none")}`;
+  const key = `${salt}|${(await stampOrMissing(file)) ?? "none"}`;
   const hit = cache.get(file);
   if (hit?.key === key) return hit.value as Measurement<T>;
 
