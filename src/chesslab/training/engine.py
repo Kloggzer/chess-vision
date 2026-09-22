@@ -125,7 +125,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     metric_trues = trues_a[eligible]
     metric_preds = preds_a[eligible]
     metric_conf = np.asarray(conf)[eligible]
-    square_acc = float((metric_trues == metric_preds).mean()) if len(metric_trues) else 0.0
+    # Eine leere Menge hat keine Note: `0.0` ist die SCHLECHTESTE, nicht die fehlende.
+    # Konvention wie `per_session_metrics` und `coverage_metrics` (fafc4f7d).
+    square_acc = float((metric_trues == metric_preds).mean()) if len(metric_trues) else None
 
     # Macro-recall: mean of per-class hit rate over present classes.
     # Meaningful even when board_acc=0 (small/hard datasets) and ignores the
@@ -146,7 +148,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
                 f"disagree, or a loader served a corrupt label. Offending true labels: {bad}")
     cm = confusion_matrix(metric_trues, metric_preds, n_classes) if len(metric_trues) else np.zeros((n_classes, n_classes))
     present = cm.sum(axis=1) > 0
-    macro_recall = float(per_class_recall(cm)[present].mean()) if present.any() else 0.0
+    macro_recall = float(per_class_recall(cm)[present].mean()) if present.any() else None
 
     # Board-Accuracy: Crops über (session, frame) gruppieren (dataset.rows ist ausgerichtet).
     # strict: rows and predictions MUST align 1:1 — silent truncation here would compute
@@ -174,6 +176,8 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         "trues": trues_a,
         "preds": preds_a,
         "classification_eligible": eligible,
+        # `conf_wrong`/`conf_right` tragen denselben leeren Nenner, bleiben aber auf 0.0:
+        # `test_training_bug_hunt` haelt die Zahl fest (offene-entscheidungen.md, 2026-09-22).
         "conf_wrong": float(metric_conf[metric_trues != metric_preds].mean())
         if (metric_trues != metric_preds).any() else 0.0,
         "conf_right": float(metric_conf[metric_trues == metric_preds].mean())
@@ -189,10 +193,16 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     }
 
 
-def _hit_rate(probs: list[float], cover: list[float], cut: float = 0.5) -> float:
-    """Share of truly covered cells the output also calls covered — the veto's own metric."""
+def _hit_rate(probs: list[float], cover: list[float], cut: float = 0.5) -> float | None:
+    """Share of truly covered cells the output also calls covered — the veto's own metric.
+
+    Ohne eine einzige verdeckte Zelle ist nichts zu treffen; `occlusion.coverage_metrics`
+    meldet denselben leeren Nenner schon als `None`, statt "alles verpasst" zu behaupten.
+    """
     want = np.array(cover) > cut
-    return float(((np.array(probs) > cut) & want).sum() / max(1, want.sum()))
+    if not want.any():
+        return None
+    return float(((np.array(probs) > cut) & want).sum() / want.sum())
 
 
 def confusion_matrix(trues: np.ndarray, preds: np.ndarray, n_classes: int) -> np.ndarray:

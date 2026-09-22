@@ -1452,14 +1452,20 @@ def occluders_extract(
     if not clips:
         print(f"[FAIL] no .mp4 in {src}")
         raise typer.Exit(1)
-    total, summaries = 0, []
+    total, summaries, failed = 0, [], []
     for clip in clips:
         s = occ.extract(clip, Path(out), stride=stride, max_iou=max_iou, min_cover=min_cover)
         summaries.append(s)
         total += s.get("written", 0)
+        if s.get("error"):
+            failed.append(f"{s['video']}: {s['error']}")
         print(f"  {s['video']:<28} {s.get('written', 0):>4} Kacheln  "
               f"(dünn {s.get('skipped_thin', 0)}, doppelt {s.get('skipped_duplicate', 0)})")
     write_json(Path(out) / "occluders.json", summaries)
+    # Ein Clip, aus dem kein Frame kam, ist ein gescheiterter Schritt und kein Lauf mit 0 Kacheln.
+    if failed:
+        print(f"[FAIL] {len(failed)} Clip(s) nicht gelesen: {', '.join(failed)}")
+        raise typer.Exit(1)
     print(f"[OK] {total} Kacheln in {out}")
 
 

@@ -1481,8 +1481,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         cfg_now = json.loads(cfg_path.read_text(encoding="utf-8"))
         cfg_now["temperature"] = round(temp, 4)
         write_json(cfg_path, cfg_now)
+        wrong = cal["conf_wrong"]
         print(f"[OK] Temperatur {temp:.3f} auf val angepasst -> config.json "
-              f"(conf auf Fehlern {cal['conf_wrong']:.3f})")
+              f"(conf auf Fehlern {'—' if wrong is None else format(wrong, '.3f')})")
     except Exception as e:  # noqa: BLE001 — Kalibrierung darf keinen Lauf kippen
         print(f"[WARN] Temperatur nicht angepasst: {e}")
     return 0

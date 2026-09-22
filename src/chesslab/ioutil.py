@@ -206,6 +206,8 @@ def update_rows(path: Path, change: Callable[[list[dict]], list[dict]]) -> int:
     path = Path(path)
     before = stamp_of(path)
     rows = change(read_jsonl(path))
-    if stamp_of(path) != before:
-        raise Contested(f"{path}: wurde waehrend der Aenderung geschrieben — nochmal versuchen")
-    return write_rows(path, rows)
+    # Bis zum Umhaengen weiterpruefen: ein Riegel VOR einem unbewachten `write_rows` laesst genau
+    # das Fenster offen, in dem das Serialisieren noch Sekunden dauert.
+    return write_rows_guarded(
+        path, rows, before,
+        what=f"{path}: wurde waehrend der Aenderung geschrieben — nochmal versuchen")

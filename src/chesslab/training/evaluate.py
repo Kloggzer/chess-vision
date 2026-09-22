@@ -291,7 +291,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 
     top = confident_confusions(classes, vis_trues, vis_preds, vis_conf)
     if top:
-        print(f"Ueberzeugte Fehler (conf auf Fehlern {res.get('conf_wrong', 0):.3f}):")
+        print(f"Ueberzeugte Fehler (conf auf Fehlern {_fmt(res.get('conf_wrong'))}):")
         for r in top:
             print(f"   {r['true']:>5} -> {r['pred']:<5} n={r['n']:6d}  conf {r['mean_conf']:.3f}")
     # 1c. Per session: a corpus mean hides the one recording that carries the whole error.
@@ -326,7 +326,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     (run_dir / f"confusion_{stem}.txt").write_text(txt, encoding="utf-8")
     save_confusion_png(cm, classes, run_dir / f"confusion_{stem}.png")
     # 4. Square-Accuracy (nur Kontext)
-    print(f"Square-Accuracy ({split_name}): {res['square_acc']:.4f}  (nur Kontext)")
+    print(f"Square-Accuracy ({split_name}): {_fmt(res['square_acc'])}  (nur Kontext)")
     print(f"[OK] Confusion gespeichert: {run_dir / ('confusion_' + stem + '.txt')} (+ .png)")
 
     summary = eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread,

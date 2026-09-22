@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from . import config, provenance
-from .ioutil import read_jsonl, write_atomic, write_rows
+from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
 from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
 from .sessions import session_dir
 from .temporal_flags import load_flags, source_stamp
@@ -311,6 +311,12 @@ def write_proposal_meta(path: Path, metadata: dict) -> None:
     write_atomic(path, json.dumps(metadata))
 
 
+#: `matte.py` schreibt diese Datei seit je bewacht; die drei Temporal-Schreiber ersetzten sie
+#: unbewacht, waehrend `matte.alpha_worker` parallel anhaengt.
+_CONTESTED = ("matte.jsonl changed while {what} — the alpha worker is writing it. "
+              "Let it finish and run this again; nothing was written.")
+
+
 def sam_matte(recording):
     """`read_matte` without our own rows: coverage SAM (or the pen) measured, nothing else."""
     from .matte import measured_coverage
@@ -353,6 +359,7 @@ def adopt_proposals(session_id, *, method="local"):
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
     matte_path = recording / "matte.jsonl"
+    matte_stamp = stamp_of(matte_path)
     rows_before = read_jsonl(matte_path)
     kept_rows = [r for r in rows_before if r.get("source") != "temporal"]
     ours = {r["frame"] for r in rows_before} - {r["frame"] for r in kept_rows}
@@ -389,7 +396,8 @@ def adopt_proposals(session_id, *, method="local"):
                       "coverage": coverage,
                       "cells_over_half": sum(v > .5 for v in coverage.values())})
         adopted += 1
-    write_rows(matte_path, kept_rows + fresh)
+    write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                       what=_CONTESTED.format(what="adopting"))
     return {"path": matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
             "replaced": len(ours)}
 
@@ -431,6 +439,7 @@ def upsert_proposals(session_id, *, method="local"):
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
     matte_path = recording / "matte.jsonl"
+    matte_stamp = stamp_of(matte_path)
     rows_before = read_jsonl(matte_path)
     kept_rows = [r for r in rows_before if r.get("source") not in ("upsert", "merged")]
     replaced = len(rows_before) - len(kept_rows)
@@ -474,7 +483,8 @@ def upsert_proposals(session_id, *, method="local"):
                       "coverage": coverage,
                       "cells_over_half": sum(v > .5 for v in coverage.values())})
         upserted += 1
-    write_rows(matte_path, kept_rows + fresh)
+    write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                       what=_CONTESTED.format(what="upserting"))
     return {"path": matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
             "replaced": replaced}
 
@@ -492,12 +502,14 @@ def write_pass_report(session_id, report: dict) -> Path:
 
 def prune_dead_rows(session_id):
     """Drop a `source: temporal` row once SAM has re-cut the frame: SAM's later row already wins."""
+    from .labeling import MATTE_DIRTY
     from .matte import measured_coverage
 
     recording, _ = session_dir(session_id)
     matte_path = recording / "matte.jsonl"
     if not matte_path.is_file():
         return {"path": matte_path, "dropped": 0, "kept": 0}
+    stamp = stamp_of(matte_path)
     rows = read_jsonl(matte_path)
     # Zwei Regeln, weil die zwei Quellen verschieden entstehen:
     # `temporal` ist ein Frame, den SAM nachtraeglich schneidet — seine Zeile gewinnt, auch leer.
@@ -507,13 +519,16 @@ def prune_dead_rows(session_id):
     sam = measured_coverage(r for r in rows if r.get("source") not in ("temporal", "upsert"))
 
     def sam_rows(only_found: bool) -> set[str]:
+        # DIESELBE Schwelle, die den Upsert ueberhaupt erst anlegt: `any(...)` liess schon 0,0001
+        # als Fund gelten und loeschte damit die staerkere Matte zugunsten einer Messung, die
+        # `upsert_proposals` selbst "nichts gefunden" nennt.
         return {frame for frame, row in sam.items()
-                if not only_found or any(row["coverage"].values())}
+                if not only_found or max(row["coverage"].values(), default=0.) > MATTE_DIRTY}
 
     cut, found = sam_rows(False), sam_rows(True)
     keep = [row for row in rows
             if not (row.get("source") == "temporal" and row["frame"] in cut)
             and not (row.get("source") == "upsert" and row["frame"] in found)]
     if len(keep) != len(rows):
-        write_rows(matte_path, keep)
+        write_rows_guarded(matte_path, keep, stamp, what=_CONTESTED.format(what="pruning"))
     return {"path": matte_path, "dropped": len(rows) - len(keep), "kept": len(keep)}
