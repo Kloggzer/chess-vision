@@ -54,7 +54,7 @@ def collect(run: Path, rows, size, n_examples):
     for r in rows:
         img = Image.open(r["path"]).convert("RGB")
         x = tf(img).unsqueeze(0)
-        cam, idx, prob = compute_cam(model, x, layer, None)
+        cam, idx, prob = compute_cam(model, x, layer, None, len(classes))
         cam = np.asarray(Image.fromarray((cam * 255).astype(np.uint8)).resize((size, size))) / 255.0
         acc += cam
         cm.append(edge_mass(cam))

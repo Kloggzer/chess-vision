@@ -43,7 +43,7 @@ def main() -> int:
     for p in args.images:
         img = Image.open(p).convert("RGB").resize(out_size)
         x = tf(img).unsqueeze(0)
-        cam, idx, prob = compute_cam(model, x, layer, forced)
+        cam, idx, prob = compute_cam(model, x, layer, forced, len(classes))
         cam_up = np.array(Image.fromarray((cam * 255).astype(np.uint8)).resize(out_size, Image.BILINEAR)) / 255.0
         base = np.asarray(img).astype(np.float32)
         heat = jet(cam_up).astype(np.float32)

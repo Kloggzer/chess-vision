@@ -95,6 +95,12 @@ def replay(rec: str, config: dict[str, float], tag: str) -> dict:
     (OUT / f"{tag}--{rec}.log").write_text(proc.stdout, encoding="utf-8", newline="\n")
     plies = FOUND.findall(proc.stdout)
     tally = {k: int(v) for k, v in TALLY.findall(proc.stdout)}
+    # Ohne Vergleichsblock hat der Lauf NICHTS gemessen. Als `found=0` gelesen wurde daraus eine
+    # Nebenbedingungs-Verletzung, die TPE als unzulaessige Region lernt -- und als Basiszeile
+    # haette sie jede spaetere Pruefung stillgelegt. Wie `screen_knobs.run_arm` laut abweisen.
+    if "invented" not in tally:
+        raise RuntimeError(f"{tag}--{rec}: kein Ergebnisblock im Log (rc={proc.returncode}) — "
+                           f"der Lauf ist nicht gemessen, nicht null: {proc.stderr[-300:]}")
     return {
         "found": len(plies),
         "invented": tally.get("invented", 0),

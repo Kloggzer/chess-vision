@@ -13,6 +13,7 @@ T=1 statt 5, weil die Metrik bei 5 saettigt und dann nicht mehr trennt.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,16 @@ EVERY, BEAM, FLOOR, TEMP, P_MOVE = 4, 16, 0.08, 1.0, 0.06
 def run(session: str, model_dir: Path, device: str = "cuda", skip_read: bool = False) -> dict:
     """`model-read` (falls noetig) und dekodieren. Wirft, wenn das Modell auf der Session trainierte."""
     reads = Path("data/recordings") / session / "model-reads.jsonl"
+    if skip_read and reads.exists():
+        # Die Datei traegt ihr Modell im Kopf, und auf der Platte liegen sechs verschiedene.
+        # Ungeprueft gelesen meldete das Gate einen fremden Lauf unter dem eigenen Namen --
+        # ein warmer Cache, der wie ein Ergebnis aussieht. Ohne Kopf gilt sie weiter.
+        with reads.open(encoding="utf-8-sig") as fh:
+            head = json.loads(fh.readline() or "{}")
+        had = Path(str(head.get("_model") or "")).name
+        if had and had != model_dir.name:
+            raise RuntimeError(f"{reads} stammt von {had}, gefragt ist {model_dir.name} — "
+                               f"ohne --skip-read neu lesen")
     if not skip_read or not reads.exists():
         cmd = [".venv/Scripts/chesslab.exe", "realgames", "model-read", session,
                "--model", str(model_dir), "--device", device]

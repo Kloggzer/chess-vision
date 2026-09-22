@@ -34,7 +34,12 @@ def fps_of(session: Path, frames: int) -> float:
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
                              capture_output=True, text=True).stdout.strip()
         total += float(out or 0)
-    return frames / total if total else 30.0
+    # Kein Rueckfall auf 30: jede Zahl dieses Skripts ist eine Sekundenangabe, und 38 der 51
+    # Aufnahmeverzeichnisse tragen heute gar kein `video*.mp4` mehr. Wie `commit_lag.py`.
+    if not total:
+        raise SystemExit(f"{session}: keine messbare Video-Dauer — ohne sie gibt es keine "
+                         f"Zeitbasis, nur eine erfundene")
+    return frames / total
 
 
 def pts_table(name: str, session: Path) -> np.ndarray:

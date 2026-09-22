@@ -1698,3 +1698,19 @@ Spalte = ungemessen = nicht benotbar) waere ein Rezeptschnitt: er nimmt 38,5 % d
 aus dem Klassenverlust und macht jeden Lauf mit dem Archiv unvergleichbar.
 **Zu entscheiden:** Quervergleiche vorerst nur innerhalb einer Groesse, oder die Spalte fuer die
 Komposit-Aufnahmen nachschreiben und danach BEIDE Groessen neu packen.
+
+## `docs/emission-correlation.md` — die Sekundenachse stand auf einer erfundenen 30 (2026-09-22)
+
+`scripts/emission_lag.py` trug bis heute `FPS = 30.0` als Konstante und rechnete jeden
+Frame-Abstand darüber in Sekunden um. Gemessen über die `candidate.json` auf der Platte laufen
+von den **27** Aufnahmen mit `model-reads.jsonl` nur **9** auf 30,0 fps; **10** laufen auf
+14,84–15,00 und die restlichen 8 zwischen 26,35 und 29,99. Das Skript liest jetzt `clock.fps` und
+verweigert eine gemischte Grundgesamtheit (die Tabelle poolt über alle übergebenen Aufnahmen).
+
+**Offen ist die Doku, nicht der Code.** Die Tabelle unter „Warten kauft keine Unabhängigkeit"
+(0,10 / 0,40 / 1,00 / 1,50 s) ist `lag / 30`. Welche Aufnahmen sie trug, steht nirgends — lief sie
+ganz oder teilweise auf 15-fps-Material, sind die Sekunden bis zu doppelt so lang, und der Satz
+„zwei Stimmen im Abstand von 0,7 s" zielt dann auf eine andere Stelle der Kurve. Die FORM der
+Kurve (flach nach dem ersten Punkt) ändert sich dadurch nicht, die Aussage über `cnnCooldownS`
+schon. **Zu entscheiden:** die Messung auf einem benannten Aufnahmesatz wiederholen, oder die
+Sekundenspalte der Tabelle als „bei 30 fps" kennzeichnen und die Paarzahlen als Frames lesen.
