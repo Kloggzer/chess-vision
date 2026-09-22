@@ -139,6 +139,9 @@ def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[
         "color_err": color_err_n / real_n if real_n else 0.0,
         "n_occupied": occ_total,
         "n_pieces": real_n,
+        # Der Nenner gehoert mit heraus: ohne ihn kann ein Aufrufer eine leere Menge nicht von
+        # einer gemessenen Null unterscheiden, und genau das stand in `model_card.json`.
+        "n_cells": occ_n,
     }
 
 

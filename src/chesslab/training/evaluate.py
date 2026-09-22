@@ -95,11 +95,18 @@ def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
     return {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
             "square_acc": (sum(hits) / len(hits)) if hits else 0.0,
             "visible_square_acc": res["square_acc"], "occupied_acc": every["occupied_acc"],
-            "occupied_board_acc": occ_bacc,
-            "visible_occupied_board_acc": occ_bacc,
-            "visible_piece_acc": bd["piece_acc"],
-            "visible_occupied_acc": bd["occupied_acc"],
-            "visible_type_err": bd["type_err"],
+            # Beide kommen aus `occupancy_board_acc(vis_rows, ...)` -- ohne sichtbare Zelle ist
+            # auch diese Zahl nicht gemessen, nicht null.
+            "occupied_board_acc": occ_bacc if bd.get("n_cells", 1) else None,
+            "visible_occupied_board_acc": occ_bacc if bd.get("n_cells", 1) else None,
+            # Leerer Nenner ist `None`, wie `per_session` daneben es seit je sagt: diese Zeile
+            # landet woertlich in `model_card.json["metrics"]`, und dort las `ModelCard.kt` die
+            # 0,0 als gemessene Null in die Schlagzeile. Nichts gemessen ist nicht alles falsch.
+            # FEHLT der Nenner, ist er nicht null: ein Aufrufer ohne die `n_*` haelt sich an den
+            # alten Vertrag und wird nicht bestraft. Nur eine gemeldete NULL heisst ungemessen.
+            "visible_piece_acc": bd["piece_acc"] if bd.get("n_occupied", 1) else None,
+            "visible_occupied_acc": bd["occupied_acc"] if bd.get("n_cells", 1) else None,
+            "visible_type_err": bd["type_err"] if bd.get("n_pieces", 1) else None,
             "piece_acc": every["piece_acc"], "type_err": every["type_err"],
             "color_err": every["color_err"],
             "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
