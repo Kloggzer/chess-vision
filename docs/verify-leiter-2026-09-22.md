@@ -92,3 +92,27 @@ Code nicht. Ein `probe=e1`-Lauf mit `trace=` trennt beides in einem Durchgang:
 - `probeDiff` groß, `probeZ = 0,00`, `probeOcclVetoed = true` → Verdeckungs-Taint. Erwartet.
 - `probeDiff` groß, `probeZ = 0,00`, kein Veto → das `SquareNoise`-EMA frisst die Änderung.
 - `probeDiff` **klein** → die Referenz trägt doch Hand-Inhalt, und die Suche geht zurück.
+
+## Nachtrag: Riegel 1 ist ueberfluessig, am Log belegt (2026-09-22)
+
+Der vorgeschlagene Mehrdeutigkeits-Riegel auf der FELD-Achse braucht nicht gebaut zu werden.
+`cleanCommitsOnly` faengt denselben Frame schon, und zwar an genau denselben zwei Feldern.
+Aus `tmp/batch/v2-cleanonly/2026-09-19-15-50-28.log`, ohne einen neuen Lauf:
+
+```
+seq=1388 note: early: e1g1 not seen settled yet (8 sights)
+ply=12 REJECT h1g1  why=Rg1? hand in frame - clean commits only   occlVeto=e1,f1
+ply=13 COMMIT e1g1 (O-O) by=cnn_occupancy  changed=[f1=25.0 h1=19.3 e1=19.1 g1=18.9 ...]
+```
+
+`occlVeto=e1,f1` ist exakt die Differenzmenge, die der Riegel gebraucht haette (`h1g1` beruehrt
+`{h1,g1}`, `e1g1` beruehrt `{e1,f1,g1,h1}`). Einen Frame spaeter traegt die Evidenz alle vier
+Felder und die Rochade committet richtig.
+
+**Damit haette der Riegel keinen Zeugen.** Genau diese Sorte Wache ist in
+`docs/wachen-ablation-2026-09-21.md` das Problem: drei Hand-Wachen liessen sich abschalten, ohne
+dass sich eine Ziffer bewegt. Der Riegel wird nicht gebaut; wenn ein Fall auftaucht, den
+`cleanCommitsOnly` durchlaesst und er faengt, ist er wieder ein Kandidat.
+
+Riegel 2 (die Vetos beim Heben einfrieren) ist gebaut — er aendert kein Ply, raeumt aber die
+Diagnosezeile auf, die heute drei Ketten gekippt hat.
