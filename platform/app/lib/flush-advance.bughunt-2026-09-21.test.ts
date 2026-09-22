@@ -23,10 +23,15 @@ test("keine Lane geht weiter, bevor der Flush den Schreibvorgang bestaetigt hat"
   const offences: string[] = [];
   for (const lane of LANES) {
     const source = await read(lane);
-    const parts = source.split("await onFlush(");
+    const parts = source.split("onFlush(");
     expect(parts.length, `${lane} ruft onFlush nicht mehr`).toBeGreaterThan(1);
     for (const before of parts.slice(0, -1)) {
-      if (!before.trimEnd().endsWith("if (!(")) offences.push(`${lane}: onFlush ungeprueft`);
+      const tail = before.trimEnd();
+      // Zwei Formen halten denselben Riegel: direkt geprueft, oder als Schreiber in
+      // `pageWritten([…])`, wo `if (!written)` fuer ALLE Schreiber der Seite haelt.
+      const guarded = tail.endsWith("if (!(await")
+        || (tail.endsWith("() =>") && before.includes("pageWritten([") && source.includes("if (!written) return;"));
+      if (!guarded) offences.push(`${lane}: onFlush ungeprueft`);
     }
   }
   expect([...new Set(offences)]).toEqual([]);

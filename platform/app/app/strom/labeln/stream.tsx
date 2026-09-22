@@ -402,7 +402,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   /** Eine Hand, die der Scan verpasst hat — auf dem GANZEN Frame, nicht auf dem einen Feld. Kein
    *  Label und kein Rauswurf: das FEN bleibt, der nächste Export legt alle 64 Felder auf den Stapel. */
   const markDirty = useCallback(
-    async (index: number, stem: string, on: boolean, reason: string) => {
+    async (index: number, stem: string, on: boolean, reason: string): Promise<boolean> => {
       const key = `${index}|${stem}`;
       const flip = (set: ReadonlySet<string>, add: boolean) => {
         const next = new Set(set);
@@ -423,9 +423,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         const answer = await post<{ adoptFailed?: string[] }>("/api/review-notes", on ? { rows } : { rows, retract: true });
         // Der Zettel liegt, `adopt-dirty` sprang aber nicht an — die Marke stimmt, der Stapel nicht.
         for (const why of answer.adoptFailed ?? []) fail(why);
+        return true;
       } catch (error) {
         setReported((r) => flip(r, !on));
         fail(`dirty-Meldung fehlgeschlagen, Marke zurückgesetzt: ${String(error)}`);
+        return false;
       }
     },
     [fail, say, stream.sessions],
@@ -433,12 +435,13 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
 
   /** Der Dirty-Pinsel: gemalte Zellen melden ihr FRAME — derselbe Weg wie die Crop-Ecke. */
   const markPaintedDirty = useCallback(
-    (cells: LaneCell[]) => {
+    async (cells: LaneCell[]) => {
       const frames = new Map<string, LaneCell>();
       for (const c of cells) frames.set(`${c.session}|${c.stem}`, c);
-      for (const c of frames.values()) {
-        void markDirty(c.session, c.stem, true, "Labeln-Strom: Dirty-Pinsel");
-      }
+      const laid = await Promise.all(
+        [...frames.values()].map((c) => markDirty(c.session, c.stem, true, "Labeln-Strom: Dirty-Pinsel")),
+      );
+      return laid.every(Boolean);
     },
     [markDirty],
   );
@@ -490,8 +493,8 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
 
   /** „Aus diesem Crop ist kein Label zu holen" — ein eigenes Ledger, nie `corrections.jsonl`. */
   const ruleCells = useCallback(
-    async (marked: LaneCell[]) => {
-      if (marked.length === 0) return;
+    async (marked: LaneCell[]): Promise<boolean> => {
+      if (marked.length === 0) return true;
       const rows = marked.map((c) => ({
         session_id: stream.sessions[c.session].sessionId,
         frame: c.stem,
@@ -501,8 +504,10 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       try {
         await post("/api/unusable-cells", { rows });
         say(`${rows.length} Crops als unbrauchbar vermerkt — sie werden zu keiner Manifest-Zeile`);
+        return true;
       } catch (error) {
-        fail(error);
+        fail(`unbrauchbar-Vermerk fehlgeschlagen, die Karten bleiben offen: ${String(error)}`);
+        return false;
       }
     },
     [fail, say, stream.sessions],
@@ -800,7 +805,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               onDirty={(cell, on) => void markDirty(cell.session, cell.stem, on, "Labeln-Strom: Crop-Ecke")}
               onFlush={flush}
               onDirtyCells={markPaintedDirty}
-              onUnusable={(marked) => void ruleCells(marked)}
+              onUnusable={ruleCells}
               reported={reported}
               showDone={showDone}
               sessions={stream.sessions}

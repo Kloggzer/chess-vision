@@ -11,6 +11,7 @@ import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
 import { pagesByClaim } from "@/lib/lane-pages";
 import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/lanes";
+import { pageWritten } from "@/lib/lane-commit";
 import { turnPage } from "@/lib/page-turn";
 import { matteOverlay } from "@/lib/hand-overlay";
 import { standingSquares } from "@/lib/setup-swap";
@@ -32,10 +33,11 @@ export type CellLaneProps = {
   /** Gemeldete Frames als `session|stem` — die Marke hängt am Frame, nicht am Zellindex. */
   reported: ReadonlySet<string>;
   onDirty: (cell: LaneCell, on: boolean) => void;
-  /** Der Dirty-Pinsel: die Zellen, deren FRAME als dirty gemeldet werden soll. */
-  onDirtyCells: (cells: LaneCell[]) => void;
+  /** Der Dirty-Pinsel: die Zellen, deren FRAME als dirty gemeldet werden soll. `false` heisst
+   *  „nicht geschrieben" — die Karte bleibt dann offen, das Urteil steht noch. */
+  onDirtyCells: (cells: LaneCell[]) => Promise<boolean>;
   /** Die Zellen, aus denen kein Label zu holen ist — eigenes Ledger, nie `corrections.jsonl`. */
-  onUnusable: (cells: LaneCell[]) => void;
+  onUnusable: (cells: LaneCell[]) => Promise<boolean>;
   /** Auch die schon beurteilten Zellen zeigen — die Nachkorrektur des Stroms. */
   showDone: boolean;
   actionsRef: RefObject<LaneActions>;
@@ -242,9 +244,15 @@ export function CellLane(props: CellLaneProps) {
       },
     ];
     const wanted = slice.filter((c) => remeasure.has(keyOf(c)));
-    if (wanted.length > 0) onDirtyCells(wanted);
-    if (junk.length > 0) onUnusable(junk);
-    if (!(await onFlush(slice[0].pos, writes, priorOf(slice)))) return;
+    // Alle drei Schreiber zugleich, aber die Seite raeumt erst, wenn JEDER bestaetigt hat: der
+    // Zettel „neu messen" und das Unbrauchbar-Ledger sind eigene menschliche Urteile, und ein
+    // fehlgeschlagener von ihnen ging mit der Karte still unter (2026-09-22).
+    const written = await pageWritten([
+      () => (wanted.length > 0 ? onDirtyCells(wanted) : Promise.resolve(true)),
+      () => (junk.length > 0 ? onUnusable(junk) : Promise.resolve(true)),
+      () => onFlush(slice[0].pos, writes, priorOf(slice)),
+    ]);
+    if (!written) return;
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
     setRemeasure((r) => new Set([...r].filter((k) => !slice.some((c) => keyOf(c) === k))));
     setUseless((u) => new Set([...u].filter((k) => !slice.some((c) => keyOf(c) === k))));

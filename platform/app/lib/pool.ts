@@ -7,12 +7,13 @@
  * incremental (docs/data-pipeline.md §5.9): without it nobody can see which labels made it in.
  */
 import { FILES } from "@/lib/fen";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { correctionsPath } from "@/lib/corrections";
 import { dataDir } from "@/lib/data";
 import { sameSession, type CorpusIndex, type Split } from "@/lib/corpus";
 import { sessionId } from "@/lib/session";
+import { stampOrMissing } from "@/lib/measurement";
 import { type JsonlRead, jsonlRowsStrict, readJsonl } from "@/lib/jsonl";
 
 const cellKey = (sessionId: string, frame: string | number, square: string) =>
@@ -136,12 +137,18 @@ function recordingsDir(): string {
   return path.join(dataDir(), "recordings");
 }
 
-/** Directory names, not ids: the merge dropped the `rg-` prefix from the folder alone. */
+/**
+ * Directory names, not ids: the merge dropped the `rg-` prefix from the folder alone.
+ *
+ * Nur ein FEHLENDES Verzeichnis ist ein leerer Korpus. Jeder andere Fehler — EMFILE, EACCES —
+ * ergab sonst eine kleinere NORMALE Zahl auf `/corpus`, im Extremfall `POOL 0 Zellen`.
+ */
 async function recordingNames(): Promise<string[]> {
   try {
     const entries = await readdir(recordingsDir(), { withFileTypes: true });
     return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch {
+  } catch (error) {
+    if ((error as { code?: string })?.code !== "ENOENT") throw error;
     return [];
   }
 }
@@ -159,13 +166,15 @@ export async function sessionLogs(): Promise<SessionLog[]> {
 async function keyedLogs(): Promise<Cached<SessionLog[]>> {
   const names = await recordingNames();
   const files = names.map((name) => path.join(recordingsDir(), name, "log.jsonl"));
-  const stats = await Promise.all(files.map((file) => stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none")));
-  const key = names.map((name, i) => `${name}@${stats[i]}`).join(",");
+  // Ein `stat`, das jeden Fehler auf "keine Datei" abschneidet, nimmt die Aufnahme aus der
+  // Rechnung — ohne Meldung, als kleinere normale Zahl. Dieselbe Tuer wie `lib/measurement.ts`.
+  const stats = await Promise.all(files.map(stampOrMissing));
+  const key = names.map((name, i) => `${name}@${stats[i] ?? "none"}`).join(",");
   if (store.logs?.key === key) return store.logs;
 
   const value: SessionLog[] = [];
   for (const [i, name] of names.entries()) {
-    if (stats[i] === "none") continue;
+    if (stats[i] === null) continue;
     const frames: LogFrame[] = [];
     for (const line of jsonlRowsStrict(files[i], await readFile(files[i], "utf8"))) {
       const row = line as unknown as { frame: string; fen: string; dirty?: boolean };
@@ -181,15 +190,15 @@ export async function loadPool(): Promise<Pool> {
   const logs = await keyedLogs();
   const names = await recordingNames();
   const files = names.map((name) => correctionsPath(name));
-  const stats = await Promise.all(files.map((file) => stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none")));
-  const key = `${names.map((name, i) => `${name}@${stats[i]}`).join(",")}|${logs.key}`;
+  const stats = await Promise.all(files.map(stampOrMissing));
+  const key = `${names.map((name, i) => `${name}@${stats[i] ?? "none"}`).join(",")}|${logs.key}`;
   if (store.pool?.key === key) return store.pool.value;
 
   // Nur ein FEHLENDES Ledger ist "noch keine Urteile" — `stats[i]` sagt das schon. Jeder andere
   // Lesefehler als "" durchgereicht zeigte die Aufnahme als unkorrigiert, unter ihrem echten
   // Stempel gecacht, bis die Datei sich bewegt.
   const reads = await Promise.all(
-    files.map(async (f, i) => readJsonl(stats[i] === "none" ? "" : await readFile(f, "utf8"))));
+    files.map(async (f, i) => readJsonl(stats[i] === null ? "" : await readFile(f, "utf8"))));
   const merged: JsonlRead = {
     rows: reads.flatMap((r) => r.rows),
     tail: reads.some((r) => r.tail),

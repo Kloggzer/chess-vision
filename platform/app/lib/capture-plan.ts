@@ -54,12 +54,19 @@ function reportPath(file: string): string {
   return path.join(dataDir(), "reports", file);
 }
 
+/** Nur ENOENT heisst „der Befehl lief nie". Jeder andere Fehler ist ein Fehler und gehoert dem
+ *  Handy als 500 gemeldet — als `shots: []` riet er zu dem Befehl, der den Bericht ueberschreibt. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 /**
  * Kein Plan ist kein Fehler, sondern ein ungelaufener Befehl — die App zeigt ihn an, statt eine
  * leere Liste als „alles abgedeckt" zu lesen.
  */
 export async function loadPlan(): Promise<CapturePlan | EmptyPlan> {
-  const text = await readFile(reportPath(PLAN), "utf8").catch(() => null);
+  const text = await readFile(reportPath(PLAN), "utf8").catch(absentOnly);
   // Nur ein FEHLENDER Bericht ist ein ungelaufener Befehl. Ein halber meldete sonst `shots: []`
   // und riet zu genau dem Befehl, der ihn ueberschreibt — der Fehler waere damit weg.
   if (text === null) return { shots: [], why: MAKE_PLAN };
@@ -73,7 +80,7 @@ export async function loadPlan(): Promise<CapturePlan | EmptyPlan> {
  */
 export async function loadCoverage(): Promise<Coverage | EmptyPlan> {
   const file = reportPath(GAPS);
-  const read = await Promise.all([readFile(file, "utf8"), stat(file)]).catch(() => null);
+  const read = await Promise.all([readFile(file, "utf8"), stat(file)]).catch(absentOnly);
   if (read === null) return { shots: [], why: MAKE_GAPS };
   const [text, info] = read;
   return { ...(JSON.parse(text) as Record<string, unknown>), generated_at: info.mtime.toISOString() };
