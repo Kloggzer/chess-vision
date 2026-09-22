@@ -26,6 +26,31 @@ from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 CELL, PAD, BAR = 112, 6, 28
 
 
+def cov_str(cov) -> str:
+    """`—` statt `0.00`, wenn nie gemattet wurde — sonst liest sich blind wie frei."""
+    return "   —" if cov is None else f"{float(cov):.2f}"
+
+
+def collect_wrong(rows, trues, preds, conf, classes):
+    """Die falschen Zellen, die Zahl der beurteilten und wie viele davon UNGEMESSEN sind.
+
+    `coverage is None` heisst nicht gemessen, nicht sichtbar: elf Datensaetze tragen keine
+    einzige Coverage-Zahl. Sie fliegen nicht raus — dann waere ihr Bogen leer —, sie werden
+    gezaehlt und genannt.
+    """
+    wrong, seen, blind = [], 0, 0
+    for r, t, p_, c in zip(rows, trues, preds, conf, strict=False):
+        cov = r.get("coverage")
+        if cov is None:
+            blind += 1
+        elif float(cov) > VMAX:
+            continue
+        seen += 1
+        if t != p_:
+            wrong.append({**r, "pred": classes[p_], "conf": c})
+    return wrong, seen, blind
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run", required=True)
@@ -83,15 +108,7 @@ def main() -> int:
     conf = res.get("conf")
     conf = list(conf) if conf is not None else [float("nan")] * len(trues)
 
-    wrong, seen = [], 0
-    for r, t, p_, c in zip(rows, trues, preds, conf, strict=False):
-        # Verdeckte Zellen sind aus dem Klassifikationsverlust maskiert; ihre Fehler sagen ueber
-        # die Figurenerkennung nichts.
-        if float(r.get("coverage") or 0.0) > VMAX:
-            continue
-        seen += 1
-        if t != p_:
-            wrong.append({**r, "pred": classes[p_], "conf": c})
+    wrong, seen, blind = collect_wrong(rows, trues, preds, conf, classes)
 
     def kind_of(true: str, pred: str) -> str:
         """`empty` sind Zug-Momente, Farbkonflikte sind der teuerste Fehler im Tracker."""
@@ -107,15 +124,16 @@ def main() -> int:
         wrong = [r for r in wrong if r["kind"] == args.kind]
         print(f"   gefiltert auf '{args.kind}': {len(wrong)}")
     wrong.sort(key=lambda r: -r["conf"])
-    print(f"{len(wrong)} falsche von {seen} sichtbaren Zellen "
-          f"({100 * len(wrong) / max(1, seen):.2f} %)")
+    print(f"{len(wrong)} falsche von {seen} nicht verdeckten Zellen "
+          f"({100 * len(wrong) / max(1, seen):.2f} %)"
+          + (f", davon {blind} ohne gemessene Coverage" if blind else ""))
     per = collections.Counter(f"{r['label']}->{r['pred']}" for r in wrong)
     print("   " + "  ".join(f"{k} {v}" for k, v in per.most_common(10)))
 
     for r in wrong[:20]:
         print(f"    {r['session_id'][-8:]} ply={r.get('ply')} frame={r.get('frame')} "
               f"{r['square']} {r['label']}->{r['pred']} conf={r['conf']:.2f} "
-              f"cov={float(r.get('coverage') or 0):.2f} settle={r.get('settle_dev')}")
+              f"cov={cov_str(r.get('coverage'))} settle={r.get('settle_dev')}")
     show = wrong[:args.max]
     if not show:
         return 0

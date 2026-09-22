@@ -1,9 +1,9 @@
-"""Skript-Jagd 2026-09-22c: fuenf Zahlen aus `scripts/`, die niemand nachgerechnet hat.
+"""Skript-Jagd 2026-09-22c: sechs Zahlen aus `scripts/`, die niemand nachgerechnet hat.
 
-Alle fuenf reichen etwas UNGEMESSENES als gemessenen Normalwert weiter: ein Pack, dessen
+Alle sechs reichen etwas UNGEMESSENES als gemessenen Normalwert weiter: ein Pack, dessen
 Zeilenzahl nicht zu seinen Pixeln passt; ein Lernkurvenpunkt, den es nicht gibt; eine Sitzung
-ohne Lesarten und eine ohne Quad, die stumm aus der Summe fallen; und ein Median ueber eine
-unbekannte Teilmenge.
+ohne Lesarten und eine ohne Quad, die stumm aus der Summe fallen; ein Median ueber eine
+unbekannte Teilmenge; und eine nie gemattete Zelle, die sich als sichtbar ausgibt.
 """
 
 from __future__ import annotations
@@ -207,3 +207,21 @@ def test_survey_alignment_names_a_session_without_corners(tmp_path, monkeypatch,
     out = capsys.readouterr().out
     assert "ohne" in out, "die Aufnahme ohne Quad muss genannt werden"
     assert "mit" in out
+
+
+# --- 6. `show_errors`: `coverage or 0.0` macht aus ungemessen sichtbar ------------------------
+
+def test_show_errors_counts_unmeasured_coverage_instead_of_calling_it_visible():
+    """`float(r.get("coverage") or 0.0) > VMAX` liest `None` als 0,0 und damit als frei.
+    ELF Datensaetze tragen heute keine einzige Coverage-Zahl — allein die fuenf groessten
+    (`labeled-rg-2026-08-08-00-39-57-80`, drei `turntable-13bn-*`, `turntable80-test-092133`)
+    sind 380 214 Zeilen. Der Kontaktbogen nannte sie 'sichtbare Zellen'."""
+    script = _load("show_errors")
+    rows = [{"coverage": None, "label": "wP", "square": "a1", "session_id": "s"},
+            {"coverage": 0.0, "label": "wP", "square": "a2", "session_id": "s"},
+            {"coverage": 0.9, "label": "wP", "square": "a3", "session_id": "s"}]
+    wrong, seen, blind = script.collect_wrong(rows, [0, 0, 0], [1, 0, 1], [0.5] * 3,
+                                              ["wP", "bP"])
+    assert blind == 1, "die ungemessene Zeile muss als solche gezaehlt werden"
+    assert seen == 2 and len(wrong) == 1
+    assert script.cov_str(None) != script.cov_str(0.0), "blind liest sich sonst wie frei"

@@ -1995,7 +1995,7 @@ aendert kuenftige Laeufe: diese 8 Frames behalten ihre Upsert-Matte, wo der naec
 die 27 Zellen stichprobenhaft ansehen — steht dort wirklich eine Hand, war die alte Regel ein
 stiller Labelverlust.
 
-## Skript-Jagd 2026-09-22c: zwei Reste
+## Skript-Jagd 2026-09-22c: zwei Reste (einer davon inzwischen gemessen)
 
 - **`straighten_ab`, Arm „mesh (eigener)“:** Frames ohne eigenes Mesh bekommen `own=None`, und
   `bow_of` misst dann das ROHE Brett — unter dem Namen des Mesh-Arms. Genau die Frames ohne Mesh
@@ -2003,10 +2003,12 @@ stiller Labelverlust.
   Haelfte der Stichprobe aus ihnen. Die Hand-Spalte dieses Arms ist also teilweise die Roh-Spalte.
   Seit heute steht wenigstens der Nenner je Zelle in der Tabelle; die Trennung „nicht messbar“
   gegen „gemessen“ fehlt noch. Entscheidung: eigener Sentinel statt `None`, oder Arm weglassen?
-- **`show_errors` liest `float(r.get("coverage") or 0.0)`** — `None` heisst ungemessen, nicht
-  sichtbar (Gedaechtnis: „Vor der Analyse die Fallen lesen“). Heute ohne Fall: die beiden grossen
-  v6-Manifeste tragen 0 Zeilen ohne Coverage. Bleibt eine Falle fuer den ersten ungematteten
-  Datensatz, der auf dem Kontaktbogen landet.
+- **`show_errors` las `float(r.get("coverage") or 0.0)`** — `None` heisst ungemessen, nicht
+  sichtbar (Gedaechtnis: „Vor der Analyse die Fallen lesen“). Die erste Stichprobe (zwei grosse
+  v6-Manifeste, 0 Zeilen ohne Coverage) legte „kein Fall“ nahe; der vollstaendige Durchlauf ueber
+  `data/datasets/*/manifest.jsonl` fand ELF Datensaetze zu 100 % ohne Coverage, allein die fuenf
+  groessten 380 214 Zeilen. Gezaehlt und benannt wird seitdem (`collect_wrong`, `cov_str`); ob
+  ungemessene Zellen ueberhaupt auf den Bogen gehoeren, ist die offene Entscheidung.
 
 ## `conf_wrong`/`conf_right` bleiben bei 0,0, obwohl der Nenner leer sein kann
 
