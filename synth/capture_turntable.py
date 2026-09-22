@@ -79,12 +79,28 @@ def grab(cap):
     return img if ok and img is not None else None
 
 
+def next_index(out: Path, start: int | None) -> int:
+    """Wo die Nummerierung weitergeht — ohne `--start` HINTER dem letzten Foto des Ordners.
+
+    `scans/` sind Ground-Truth ohne Backup (307 Fotos je Figur, `000.jpg` aufwaerts); ein zweiter
+    Ring ohne `--start` schrieb sie der Reihe nach still neu.
+    """
+    taken = sorted(int(p.stem) for p in Path(out).glob("[0-9][0-9][0-9].jpg") if p.stem.isdigit())
+    if start is None:
+        return taken[-1] + 1 if taken else 0
+    if (Path(out) / f"{start:03d}.jpg").exists():
+        raise SystemExit(f"ERROR: {out}/{start:03d}.jpg existiert schon — --start {taken[-1] + 1} "
+                         f"setzt hinter das letzte Foto.")
+    return start
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", required=True,
                     help="Snapshot-URL (…/video/snapshot) oder Kamera-Index (0).")
     ap.add_argument("--out", required=True, help="Zielordner, z. B. scans/king")
-    ap.add_argument("--start", type=int, default=0, help="Startnummer (zum Fortsetzen einer Figur).")
+    ap.add_argument("--start", type=int, default=None,
+                    help="Startnummer. Leer = hinter dem letzten Foto des Ordners weiter.")
     ap.add_argument("--quality", type=int, default=95, help="JPEG-Qualität.")
     ap.add_argument("--crop", default="", help="x0,y0,x1,y1 — schneidet statischen Hintergrund weg "
                                                "(nur Figur + mitdrehende Unterlage behalten).")
@@ -104,6 +120,7 @@ def main() -> None:
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    start = next_index(out, a.start)
     cap = open_source(a.source, a.width, a.height,
                       exposure=a.exposure, gain=a.gain, wb=a.wb, focus=a.focus)
 
@@ -114,7 +131,7 @@ def main() -> None:
         return
     h, w = test.shape[:2]
     print(f"[capture] Quelle ok ({w}x{h}) -> {out}")
-    i = a.start
+    i = start
 
     def save(img):
         nonlocal i
@@ -134,9 +151,9 @@ def main() -> None:
                 img = grab(cap)
                 if img is not None:
                     cw, ch = save(img)
-                    if (i - a.start) % 10 == 0:
-                        print(f"  {i-a.start} Fotos … ({cw}x{ch})")
-                if a.count and i - a.start >= a.count:
+                    if (i - start) % 10 == 0:
+                        print(f"  {i-start} Fotos … ({cw}x{ch})")
+                if a.count and i - start >= a.count:
                     break
                 dt = a.interval - (time.time() - t0)
                 if dt > 0:
@@ -164,7 +181,7 @@ def main() -> None:
     rel = getattr(cap, "release", None)
     if callable(rel):
         cap.release()
-    print(f"\n[capture] {i - a.start} Fotos in {out.resolve()}  —  jetzt in RealityScan importieren.")
+    print(f"\n[capture] {i - start} Fotos in {out.resolve()}  —  jetzt in RealityScan importieren.")
 
 
 if __name__ == "__main__":

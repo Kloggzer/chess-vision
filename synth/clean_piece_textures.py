@@ -55,13 +55,22 @@ def clean_texture(bgr: np.ndarray, spec_thr: float = 10.0,
     return out
 
 
+def source_of(path: str) -> str:
+    """Das Original, falls schon eines gesichert wurde — sonst die Datei selbst."""
+    stem, ext = os.path.splitext(path)
+    raw = f"{stem}_raw{ext}"
+    return raw if os.path.exists(raw) else path
+
+
 def process(path: str, preview: bool) -> None:
-    bgr = cv2.imread(path)
+    stem, ext = os.path.splitext(path)
+    # Immer vom Original rechnen: ein zweiter Lauf reinigte sonst das schon Gereinigte und zog
+    # 1,5 % der Pixel um bis zu 9 Graustufen weiter (gemessen auf `synth_pieces/bN/v2.png`).
+    bgr = cv2.imread(source_of(path))
     if bgr is None:
         print(f"skip (unreadable): {path}")
         return
     cleaned = clean_texture(bgr)
-    stem, ext = os.path.splitext(path)
     if preview:
         cv2.imwrite(f"{stem}_clean{ext}", cleaned)
         print(f"preview -> {stem}_clean{ext}")

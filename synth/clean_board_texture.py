@@ -49,14 +49,15 @@ def main() -> None:
     ap.add_argument("path")
     ap.add_argument("--preview", action="store_true")
     a = ap.parse_args()
-    bgr = cv2.imread(a.path)
-    cleaned = clean_board(bgr)
     stem, ext = os.path.splitext(a.path)
+    raw = f"{stem}_raw{ext}"
+    # Immer vom Original rechnen — ein zweiter Lauf korrigierte sonst die schon korrigierte Datei.
+    bgr = cv2.imread(raw if os.path.exists(raw) else a.path)
+    cleaned = clean_board(bgr)
     if a.preview:
         cv2.imwrite(f"{stem}_clean{ext}", cleaned)
         print(f"preview -> {stem}_clean{ext}")
     else:
-        raw = f"{stem}_raw{ext}"
         if not os.path.exists(raw):
             shutil.copyfile(a.path, raw)
         cv2.imwrite(a.path, cleaned)

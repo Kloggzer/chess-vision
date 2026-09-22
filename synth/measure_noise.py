@@ -35,6 +35,7 @@ import numpy as np
 
 from chesslab.ioutil import read_jsonl
 from chesslab.training.pack import _manifest_digest
+from chesslab.training.packs import MM_PREFIX
 
 #: Optics cutoff. Everything above it is noise, not lens signal — the real webcam's blur
 #: kernel is well below this, so a real crop keeps its grain while a clean render has none.
@@ -102,13 +103,31 @@ def crops_from_dataset(ds: Path, label: str, n: int, seed: int,
                        shape=(meta["n"], meta["h"], meta["w"], 3))
         # The memmap stores RGB (see synth_build); hf_energy expects BGR.
         return [np.ascontiguousarray(mm[path2idx[rows[i]["path"]]][:, :, ::-1]) for i in picked]
+    if str(rows[0].get("path", "")).startswith(MM_PREFIX):
+        return _crops_from_session_packs([rows[i] for i in picked])
     root = Path(__file__).resolve().parents[1]
     out = []
     for i in picked:
         img = cv2.imread(str(root / rows[i]["path"]))
         if img is not None:
             out.append(img)
+    # Ein halb gelesener Satz ist kein Messwert: die Perzentile stuenden dann auf dem Rest,
+    # ohne dass die Zahl sagt, wovon.
+    if len(out) != len(picked):
+        raise ValueError(f"{ds}: {len(picked) - len(out)} of {len(picked)} crop files "
+                         f"could not be read — re-slice before measuring")
     return out
+
+
+def _crops_from_session_packs(picked: list[dict]) -> list[np.ndarray]:
+    """`mm://`-Zeilen ueber die Session-Packs lesen — die v6-Saetze zitieren ihre Pixel nur."""
+    from chesslab import config
+    from chesslab.training.packs import resolve_packs
+
+    multi = resolve_packs(picked, config.DATA)
+    maps = [np.memmap(f, dtype=np.uint8, mode="r", shape=shape + (3,))
+            for f, shape in multi.files]
+    return [np.ascontiguousarray(maps[p][r][:, :, ::-1]) for p, r in multi.idx]
 
 
 def measure(source: str | Path, *, label: str = "empty", n: int = 400, seed: int = 42,

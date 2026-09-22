@@ -80,9 +80,25 @@ def plate_long_side(plate_dir: Path, fallback: int = max(WORK_SIZE)) -> int:
                  if isinstance(e, dict) and e.get("source")]
         if sizes:
             return max(sizes)
-    # TODO: "Deklariert, nicht geraten" — das hier ist geraten. Ein Kachel-Pool ohne Index
-    # (oder mit Eintraegen ohne `source`) komponiert 4K-Haende auf halber Groesse.
-    return fallback
+    return _measured_long_side(plate_dir, fallback)
+
+
+def _measured_long_side(plate_dir: Path, fallback: int) -> int:
+    """Ohne brauchbaren Index die Kacheln selbst messen — nur der Kopf, nicht das Bild.
+
+    `data/occluders/occluders.json` fuehrt `tile: [1200, 1006]` fuer 2400x2012-Dateien; wer eine
+    solche Zahl glaubt statt sie zu messen, komponiert jede Hand um den Faktor zwei falsch.
+    """
+    from PIL import Image
+
+    sides = []
+    for tile in load_tiles(plate_dir):
+        try:
+            with Image.open(tile) as im:
+                sides.append(max(im.size))
+        except OSError:
+            continue
+    return max(sides) if sides else fallback
 
 
 def load_tiles(plate_dir: Path) -> list[Path]:
