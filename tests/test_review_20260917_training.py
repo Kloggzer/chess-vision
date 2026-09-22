@@ -24,17 +24,19 @@ NULL_ROW = {"label": "wP", "path": "p0", "coverage": None, "brightness": None}
 def test_the_class_weight_count_survives_a_null_coverage():
     """Vierte Stelle derselben Null-Regel — und die einzige im REZEPT-Pfad.
 
-    `run_train` zaehlt damit die sichtbaren Zeilen fuer `compute_class_weights`, und die
-    Gewichte landen in `split.json`. Ein ausgeschriebenes `null` warf hier `TypeError` kurz
-    vor dem Training. Quelltext-Pruefung, weil die Schleife inline in `run_train` steht.
+    Die Gewichte landen in `split.json`; ein ausgeschriebenes `null` warf hier `TypeError` kurz
+    vor dem Training. Seit 2026-09-22 zaehlt `visible_class_counts` ueber
+    `classification_eligible` statt inline ueber `coverage_of` — also ueber GENAU die Zellmenge,
+    die der Verlust gewichtet. Die Regel wurde damit strenger, nicht loser, und die Pruefung
+    fragt jetzt das Verhalten statt den Quelltext von `run_train`.
     """
-    src = inspect.getsource(train_mod.run_train)
-    raw = re.search(r'r\.get\("coverage"[^)]*\) <= PIECE_VISIBLE_MAX', src)
+    raw = re.search(r'r\.get\("coverage"[^)]*\) <= PIECE_VISIBLE_MAX',
+                    inspect.getsource(train_mod))
     assert raw is None, f"roher Zugriff zurueck: {raw.group(0)}"
 
-    assert re.search(r"coverage_of\(r\) <= PIECE_VISIBLE_MAX", src), (
-        "die Zaehlung muss durch dieselbe Regel wie die drei anderen Verbraucher")
     assert coverage_of(NULL_ROW) <= PIECE_VISIBLE_MAX
+    # Eine `null`-Zeile darf die Zaehlung nicht kippen und zaehlt als sichtbar mit.
+    assert train_mod.visible_class_counts([NULL_ROW]) == {"wP": 1}
 
 
 def test_the_packed_square_loader_itself_reads_a_null_row(monkeypatch):

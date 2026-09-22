@@ -249,7 +249,11 @@ def test_the_brightness_backfill_says_how_many_rows_it_never_found(tmp_path, mon
 
     assert backfill.main() == 0
 
-    assert "1 ohne Eintrag im Pack" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    # Auf die ZUSAGE pruefen, nicht auf den Wortlaut: seit `--from-crops` (2026-09-22) heisst die
+    # Quelle mal Pack, mal Datei. Die Abschlusszeile muss die nicht gefundene Zeile nennen.
+    schluss = next(z for z in out.splitlines() if z.startswith("[OK]"))
+    assert "1 Zeilen nachgetragen" in schluss and "1 ohne" in schluss, schluss
 
 
 # --- 9. Berichte, die aus nichts entstehen -------------------------------------------------
