@@ -40,27 +40,35 @@ export function fixedMattePath(name: string, stem: string): string {
   return path.join(sessionDir(name), "mattes", `${checkName(stem, "frame")}.fixed.webp`);
 }
 
+/** Nur ENOENT heisst „niemand hat gemalt". Ein Fehler AM `mattes/`-Verzeichnis liess die
+ *  Korrektur eines Menschen verschwinden, und die Lane zeigte SAMs Zahlen als bestaetigt. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 /** What a viewer should show: the correction when there is one, SAM's cut otherwise. */
 export async function alphaPath(name: string, stem: string): Promise<string> {
   const fixed = fixedMattePath(name, stem);
-  return (await stat(fixed).then(() => true, () => false)) ? fixed : mattePath(name, stem);
+  return (await stat(fixed).catch(absentOnly)) !== null ? fixed : mattePath(name, stem);
 }
 
 /** Corrected alphas of one session as `stem -> mtime`; absent directory means nobody painted. */
 export async function fixedAlphas(name: string): Promise<Map<string, number>> {
   const dir = path.join(sessionDir(name), "mattes");
   const out = new Map<string, number>();
-  const names = await readdir(dir).catch(() => [] as string[]);
+  const names = (await readdir(dir).catch(absentOnly)) ?? [];
   for (const file of names.filter((f) => f.endsWith(".fixed.webp"))) {
-    const at = await stat(path.join(dir, file)).then((s) => s.mtimeMs, () => 0);
-    out.set(file.slice(0, -".fixed.webp".length), at);
+    // Verschwunden zwischen `readdir` und `stat` heisst: es gibt keine Korrektur mehr.
+    const at = await stat(path.join(dir, file)).catch(absentOnly);
+    if (at !== null) out.set(file.slice(0, -".fixed.webp".length), at.mtimeMs);
   }
   return out;
 }
 
 /** When `matte.jsonl` last changed — a correction newer than that has not reached the numbers. */
 export function matteStamp(name: string): Promise<number> {
-  return stat(path.join(sessionDir(name), "matte.jsonl")).then((s) => s.mtimeMs, () => 0);
+  return stat(path.join(sessionDir(name), "matte.jsonl")).catch(absentOnly).then((s) => s?.mtimeMs ?? 0);
 }
 
 /**

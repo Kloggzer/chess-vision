@@ -53,13 +53,15 @@ export type ChainState = {
   useless: UselessFlag | null;
 };
 
+/** Nur ENOENT heisst „die Sprosse lief nie". Eine Datei, die DA ist und nicht gelesen werden
+ *  kann, gehoert dem Aufrufer — als „nie gelaufen" bietet die Kette denselben Lauf erneut an. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 async function exists(file: string): Promise<boolean> {
-  try {
-    await stat(file);
-    return true;
-  } catch {
-    return false;
-  }
+  return (await stat(file).catch(absentOnly)) !== null;
 }
 
 /**
@@ -93,7 +95,7 @@ async function videoOf(name: string): Promise<string | null> {
  * — which read as an export and skipped the export rung outright (Phase 00, `2026-08-30-14-33-02`).
  */
 async function exportedSession(name: string): Promise<{ exported: boolean; settled: boolean }> {
-  const text = await readFile(path.join(sessionDir(name), "log.jsonl"), "utf8").catch(() => null);
+  const text = await readFile(path.join(sessionDir(name), "log.jsonl"), "utf8").catch(absentOnly);
   // Hier wird NICHT geworfen, anders als in `loadSession` auf derselben Datei: die Kette ist die
   // Seite, die den naechsten Knopf zeigt, und eine kaputte Zeile darf die ganze Aufnahmeliste
   // nicht 500en (dieselbe Entscheidung wie beim `candidate.json`-Parse unten).
@@ -167,13 +169,13 @@ function sameLog(stamped: string, current: string | null): boolean {
  */
 async function phoneRecord(name: string): Promise<boolean> {
   const dir = gameDir(name);
-  const entries = await readdir(path.join(dir, "files", "sessions"), { withFileTypes: true }).catch(() => []);
+  const entries = (await readdir(path.join(dir, "files", "sessions"), { withFileTypes: true }).catch(absentOnly)) ?? [];
   const ids = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   if (ids.length !== 1) return false;
   const games = path.join(dir, "files", "games");
-  const records = (await readdir(games).catch(() => [])).filter((f) => f.endsWith(".json") && f !== "index.json");
+  const records = ((await readdir(games).catch(absentOnly)) ?? []).filter((f) => f.endsWith(".json") && f !== "index.json");
   for (const file of records.sort()) {
-    const text = await readFile(path.join(games, file), "utf8").catch(() => "");
+    const text = (await readFile(path.join(games, file), "utf8").catch(absentOnly)) ?? "";
     try {
       if ((JSON.parse(text) as { sessionId?: string }).sessionId === ids[0]) return true;
     } catch {
@@ -186,12 +188,8 @@ async function phoneRecord(name: string): Promise<boolean> {
 /** A `.pgn` the phone wrote beside its game record — the only truth these recordings ever carry. */
 async function phonePgn(name: string): Promise<string | null> {
   const games = path.join(gameDir(name), "files", "games");
-  try {
-    const pgns = (await readdir(games)).filter((f) => f.endsWith(".pgn")).sort();
-    return pgns.length > 0 ? path.join(games, pgns[pgns.length - 1]) : null;
-  } catch {
-    return null;
-  }
+  const pgns = ((await readdir(games).catch(absentOnly)) ?? []).filter((f) => f.endsWith(".pgn")).sort();
+  return pgns.length > 0 ? path.join(games, pgns[pgns.length - 1]) : null;
 }
 
 export async function chainState(name: string): Promise<ChainState> {
@@ -202,15 +200,13 @@ export async function chainState(name: string): Promise<ChainState> {
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
     phoneRecord(name),
-    readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
+    readFile(path.join(dir, "candidate.json"), "utf8").catch(absentOnly),
     exportedSession(name),
     matteCensus(name),
     matteSources(name),
-    // Der Parse GEHOERT in den Versuch: ein Wurf im ersten Arm riss das `Promise.all` mit, und
-    // eine halb geschriebene Datei 500te die ganze Aufnahmeliste. Wie `candidate.json` daneben.
-    readFile(passFile, "utf8")
-      .then((t) => (JSON.parse(t) as { _source?: Provenance })._source ?? {})
-      .catch(() => null),
+    // Eine halb geschriebene Datei 500te die ganze Aufnahmeliste — der PARSE darf scheitern,
+    // das LESEN nicht: ein unlesbares `pass.json` ist kein ungelaufener Sensor.
+    readFile(passFile, "utf8").catch(absentOnly).then(sourceOf),
     headerOf(path.join(dir, "model-reads.jsonl")),
     stampOf(path.join(sessionDir(name), "log.jsonl")),
     uselessFlag(name),
@@ -264,6 +260,16 @@ export async function chainState(name: string): Promise<ChainState> {
     useless,
   };
   return { ...state, ...nextStep(state) };
+}
+
+/** `null` heisst hier „nichts zu holen": keine Datei, oder eine, die gerade geschrieben wird. */
+function sourceOf(text: string | null): Provenance | null {
+  if (text === null) return null;
+  try {
+    return (JSON.parse(text) as { _source?: Provenance })._source ?? {};
+  } catch {
+    return null;
+  }
 }
 
 /** Was die Sprosse wieder aufgemacht hat — der eine Fall, den reine Dateiexistenz nie sieht. */

@@ -61,6 +61,13 @@ export function summarize(entries: Provenance[]): ProvenanceSummary {
   };
 }
 
+/** Nur ENOENT heisst „nichts gemessen". Ein Fehler AM Aufnahme-Baum machte aus dem Nenner der
+ *  Zusammenfassung eine 0 — „1 von 43" ist genau die Zahl, die das nie werden darf. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 type Store = Map<string, { key: string; value: Provenance }>;
 /** Pinned like `jobs.ts:56` — the parse costs tens of MB and must survive a hot reload. */
 const store: Store = ((globalThis as { __chesslabProvenance?: Store }).__chesslabProvenance ??= new Map());
@@ -87,16 +94,11 @@ async function parseFile(name: string, file: string): Promise<Provenance> {
 /** One entry per session directory, read or not, mtime-keyed on the file it describes. */
 export async function modelReadProvenance(): Promise<Provenance[]> {
   const root = path.join(dataDir(), "recordings");
-  let games;
-  try {
-    games = await readdir(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const games = (await readdir(root, { withFileTypes: true }).catch(absentOnly)) ?? [];
   const out: Provenance[] = [];
   for (const game of games.filter((e) => e.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
     const file = path.join(root, game.name, "model-reads.jsonl");
-    const stats = await stat(file).catch(() => null);
+    const stats = await stat(file).catch(absentOnly);
     if (!stats) {
       out.push({ name: game.name, rows: null, probs: null, model: null, writtenAt: null });
       continue;

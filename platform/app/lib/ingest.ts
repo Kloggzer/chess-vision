@@ -101,6 +101,13 @@ export function targetDir(name: string): string {
   return path.join(dataDir(), "recordings", checkName(name, "transfer name"), "files");
 }
 
+/** Nur ENOENT heisst „noch nicht da". Ein Ledger, das DA ist und nicht gelesen werden kann,
+ *  meldete „gar keine Transfers" — die eine Seite, die sagt, was je angekommen ist. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 async function sizeOf(file: string): Promise<number> {
   try {
     return (await stat(file)).size;
@@ -224,7 +231,7 @@ export async function transfers(limit = 50): Promise<TransferRow[]> {
   // Nur das FEHLEN der Datei ist harmlos. Eine kaputte Zeile MITTENDRIN still zu
   // ueberspringen verschwiege einen Transfer, den jemand wirklich angestossen hat —
   // und ein `catch` um das ganze Lesen machte daraus "gar keine Transfers".
-  const text = await readFile(ledgerPath(), "utf8").catch(() => "");
+  const text = (await readFile(ledgerPath(), "utf8").catch(absentOnly)) ?? "";
   const read = readJsonl(text);
   if (read.corrupt > 0) throw new Error(`${read.corrupt} kaputte Zeile(n) im Transfer-Ledger`);
   return (read.rows as unknown as TransferRow[]).slice(-limit).reverse();
@@ -241,12 +248,10 @@ export async function ingestToken(): Promise<string> {
   const fromEnv = process.env.CHESSLAB_INGEST_TOKEN;
   if (fromEnv) return fromEnv;
   const file = path.join(inboxDir(), "token");
-  try {
-    const text = (await readFile(file, "utf8")).trim();
-    if (text) return text;
-  } catch {
-    /* first run */
-  }
+  // Ein unlesbares Token ist kein erster Start: daraus wuerde ein zweites geprägt, das Handy
+  // haelt noch das erste, und die Transfers-Seite zeigt keins von beiden.
+  const text = (await readFile(file, "utf8").catch(absentOnly))?.trim();
+  if (text) return text;
   const token = randomBytes(8).toString("hex");
   await mkdir(inboxDir(), { recursive: true });
   // `wx`: wer zuerst schreibt, gewinnt. Lesen-dann-Schreiben liess zwei gleichzeitige Aufrufer je
@@ -275,15 +280,11 @@ export async function authorized(request: Request): Promise<boolean> {
  * has to mean something mean nothing.
  */
 export async function pending(): Promise<{ name: string; bytes: number; files: number }[]> {
-  let names: string[] = [];
-  try {
-    names = (await readdir(inboxDir(), { withFileTypes: true })).filter((e) => e.isDirectory() && e.name !== "jobs").map((e) => e.name);
-  } catch {
-    return [];
-  }
+  const entries = (await readdir(inboxDir(), { withFileTypes: true }).catch(absentOnly)) ?? [];
+  const names = entries.filter((e) => e.isDirectory() && e.name !== "jobs").map((e) => e.name);
   const out = [];
   for (const name of names) {
-    const manifest = await loadManifest(name).catch(() => null);
+    const manifest = await loadManifest(name).catch(absentOnly);
     if (!manifest) continue;
     let bytes = 0;
     let partials = 0;

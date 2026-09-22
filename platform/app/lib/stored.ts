@@ -69,10 +69,18 @@ const cache = new Map<string, { key: string; value: StoredSession }>();
 type FitCache = Map<string, { key: string; value: QuadFit }>;
 const fits: FitCache = ((globalThis as { __chesslabQuadFits?: FitCache }).__chesslabQuadFits ??= new Map());
 
+/** Nur ENOENT heisst „diese Sitzung liegt hier nicht". Jeder andere Fehler nahm sie lautlos aus
+ *  der Liste — und mit ihr die einzigen Labels, die das Telefon selbst geschrieben hat. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 async function loadStored(name: string, dir: string, id: string): Promise<StoredSession | null> {
   const log = path.join(dir, "log.jsonl");
-  const key = await stat(log).then((s) => `${s.mtimeMs}:${s.size}`, () => null);
-  if (key === null) return null;
+  const info = await stat(log).catch(absentOnly);
+  if (info === null) return null;
+  const key = `${info.mtimeMs}:${info.size}`;
   const hit = cache.get(log);
   if (hit?.key === key) return hit.value;
 
@@ -93,10 +101,8 @@ async function loadStored(name: string, dir: string, id: string): Promise<Stored
 /** Every stored session of one bundle, newest id first. Empty when the bundle carries none. */
 export async function storedSessions(name: string): Promise<StoredSession[]> {
   const root = path.join(gameDir(name), "files", "sessions");
-  const ids = await readdir(root, { withFileTypes: true }).then(
-    (entries) => entries.filter((e) => e.isDirectory()).map((e) => e.name).sort().reverse(),
-    () => [] as string[],
-  );
+  const entries = (await readdir(root, { withFileTypes: true }).catch(absentOnly)) ?? [];
+  const ids = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort().reverse();
   const found = await Promise.all(ids.map((id) => loadStored(name, path.join(root, id), id)));
   return found.filter((s): s is StoredSession => s !== null && s.rows.length > 0);
 }
@@ -104,8 +110,9 @@ export async function storedSessions(name: string): Promise<StoredSession[]> {
 /** The sidecar of one session, mtime-keyed — `null` while the fit has not run over it. */
 export async function storedFit(dir: string): Promise<QuadFit | null> {
   const file = path.join(dir, QUAD_FIT);
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => null);
-  if (key === null) return null;
+  const info = await stat(file).catch(absentOnly);
+  if (info === null) return null;
+  const key = `${info.mtimeMs}:${info.size}`;
   const hit = fits.get(file);
   if (hit?.key === key) return hit.value;
   const value = JSON.parse(await readFile(file, "utf8")) as QuadFit;

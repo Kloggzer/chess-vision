@@ -145,15 +145,18 @@ export async function reviewFramePath(name: string, stem: string): Promise<strin
   return null;
 }
 
+/** Nur ENOENT heisst „dieses Verzeichnis gibt es nicht". Ein Fehler AM Verzeichnis gehoert dem
+ *  Aufrufer — als leere Liste gemeldet sieht eine Stoerung aus wie eine Aufnahme ohne Frames. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 /** Every review-frame stem on disk, both sources, numerically sorted; `labeled` wins a tie. */
 export async function listFrameStems(name: string): Promise<FrameStem[]> {
   const stemsOf = async (dir: string) => {
-    try {
-      const entries = await readdir(path.join(gameDir(name), dir));
-      return entries.filter((e) => /^\d+\.(webp|png)$/.test(e)).map((e) => e.replace(/\.\w+$/, ""));
-    } catch {
-      return [];
-    }
+    const entries = (await readdir(path.join(gameDir(name), dir)).catch(absentOnly)) ?? [];
+    return entries.filter((e) => /^\d+\.(webp|png)$/.test(e)).map((e) => e.replace(/\.\w+$/, ""));
   };
   const seen = new Set<string>();
   const found: { stem: string; kind: FrameStem["kind"] }[] = [];

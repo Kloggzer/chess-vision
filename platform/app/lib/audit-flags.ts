@@ -39,14 +39,21 @@ function auditFlagsPath(): string {
   return path.join(dataDir(), "reports", "audit-flags.jsonl");
 }
 
+/** Nur ENOENT heisst „es gibt das hier nicht". Jeder andere Fehler gehoert dem Aufrufer:
+ *  als leere Antwort gemeldet wuerde er zu einer Messung, die niemand gemacht hat. */
+function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 /** The newest producer timestamp the summary saw. Older than a matte on disk = the flags are stale. */
 async function newestInput(): Promise<number> {
   const dir = path.join(dataDir(), "recordings");
-  const names = await readdir(dir).catch(() => [] as string[]);
+  const names = (await readdir(dir).catch(absentOnly)) ?? [];
   const stamps = await Promise.all(
     names.flatMap((n) =>
       ["matte.jsonl", "model-reads.jsonl"].map((f) =>
-        stat(path.join(dir, n, f)).then((s) => s.mtimeMs, () => 0),
+        stat(path.join(dir, n, f)).catch(absentOnly).then((s) => s?.mtimeMs ?? 0),
       ),
     ),
   );
@@ -58,7 +65,7 @@ const num = (v: unknown, fallback: number) => (typeof v === "number" ? v : fallb
 /** Margin-descending, which is the order the lane works in — the surest disagreements first. */
 export async function loadAuditFlags(): Promise<AuditFlags> {
   const file = auditFlagsPath();
-  const own = await stat(file).then((s) => s, () => null);
+  const own = await stat(file).catch(absentOnly);
   const newest = await newestInput();
   const staleSince = own && newest > own.mtimeMs ? new Date(newest).toISOString() : undefined;
   // Der Stempel der EINGABEN gehoert in den Schluessel: die Flags altern, ohne sich zu bewegen.

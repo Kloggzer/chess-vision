@@ -2130,3 +2130,24 @@ die hier offen bleibt.
 (der Erkenner sieht nur den Namen), ein geschluckter Fehler, dessen leere Antwort erst zwei
 Funktionen spaeter zur Population wird, und ein `stat`-Merkposten, dessen Sperre nicht als
 `if (x === C) return <leer>` dasteht.
+
+**EINGELOEST 2026-09-22 (zweiter Gang, `*.bughunt-2026-09-22e.test.ts`):** sechs der sieben
+Stellen stehen auf `absentOnly` — nur ENOENT heisst leer, jeder andere Lesefehler wird
+durchgereicht. `lib/audit-flags.ts`, `lib/chain.ts`, `lib/data.ts`, `lib/ingest.ts`,
+`lib/matte.ts`, `lib/provenance.ts` fallen aus dem Ledger; `lib/stored.ts` geht von 4 auf 1.
+Ledger insgesamt 19 Zeilen mit Summe 37 -> 13 Zeilen mit Summe 19. Jede Umstellung mit rotem
+Test und Gegenprobe (Fix einzeln zurueck, rot gesehen, wieder rein); der gemockte Fehler LEHNT
+AB, ein synchroner Wurf liefe am `.catch` vorbei.
+
+**Drauf geblieben:** `lib/stored.ts` liest das Telefon-Log weiter mit `jsonlRows`. Die Toleranz
+gegen die halbe Zeile ist in `lib/stored-half-line.bughunt.test.ts` ausdruecklich gepinnt — der
+Wechsel auf `jsonlRowsStrict` ist eine eigene Entscheidung, die diesen Test mitnehmen muss,
+nicht ein Nebeneffekt dieses Gangs.
+
+**Im selben Gang mitgenommen, obwohl der Erkenner sie NICHT sieht:** `chain.exists` (ein
+EACCES auf `reference.pgn` haette `adoptPgn` das Urteil eines Menschen ueberschreiben lassen),
+`chain.phonePgn`, `audit-flags.newestInput`s `stat`-Arm (`() => 0` ist keine Sammlung),
+`matte.alphaPath`/`matteStamp`, `provenance`s `stat`-Merkposten (`if (!stats)` statt
+`if (stats === null)`). Weiter blind und bewusst gelassen: `ingest.sizeOf` (`-1` ist ein
+Sentinel, kein leerer Wert — ein EACCES laesst das Handy ein Gigabyte neu hochladen) und
+`data.frameSize` (faellt auf 720x816 zurueck, also auf eine GESCHAETZTE Zahl statt auf leer).

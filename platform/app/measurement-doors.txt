@@ -13,23 +13,17 @@
 # Merkposten, der die Aufnahme aus ihr nimmt); ein reines da/nicht-da zaehlt weiter nicht.
 # Auch strukturierte Leeren wie `{ classMode: null }` und `{ file: n, runs: [] }` zaehlen.
 1 lib/atomic.ts  # liest die Datei, die es gleich unter Stempel-Riegel schreibt; leer IST dort ein gueltiger Vorzustand
-6 lib/chain.ts  # Sprossen-Zustand: eine fehlende Artefaktdatei IST die Antwort "noch nicht gelaufen"
 1 lib/corpus-query.ts  # unlesbares log.jsonl nimmt die Aufnahme absichtlich aus der Antwort, statt den Phasenfilter still abzuschalten
 1 lib/corpus.ts  # nur noch der corpus-index CACHE: eine kaputte Indexdatei wird NEU GEBAUT, nicht geschluckt (2026-09-22)
 1 lib/heavy-lock.ts  # die Sperre selbst; sie unterscheidet `null` und `"unreadable"` schon von Hand
-4 lib/ingest.ts  # Transfer-Ledger des Telefons; die Kommentare an den Stellen begruenden die leere Antwort
 5 lib/jobs.ts  # Job-LOGS fuer die Anzeige, keine Messung: ein halber Log ist der laufende Prozess
 1 lib/meta.ts  # ui.json ist reine Oberflaeche (Titel, archiviert), kein Messwert
 2 lib/progress.ts  # session.yaml und der Log-SCHWANZ; beide melden `null`, nicht 0
 1 lib/queues.ts  # fehlende candidate.json heisst "noch nicht kandidiert" und wird so gerendert
 1 lib/review-notes.ts  # wirft schon auf die kaputte Zeile MITTENDRIN; der Treffer ist das ENOENT-leer beim Widerruf
-4 lib/stored.ts  # lib/stored-half-line.bughunt.test.ts pinnt die Toleranz ausdruecklich - Umstellung ist eine eigene Entscheidung
+1 lib/stored.ts  # nur noch `jsonlRows` auf dem Telefon-Log: lib/stored-half-line.bughunt.test.ts pinnt die Toleranz gegen die halbe Zeile ausdruecklich, ein Wechsel auf `jsonlRowsStrict` ist eine eigene Entscheidung MIT diesem Test (2026-09-22)
 2 app/confirm/[name]/page.tsx  # fehlende candidate.json/PGN sind eigene Zustaende der Seite
 1 app/game/[name]/page.tsx  # fehlende candidate.json ist ein eigener Zustand der Seite; die PGN wirft seit 2026-09-22
 1 app/page.tsx  # dito
-# Neu SICHTBAR seit der Erweiterung, nicht neu im Code. Je Stelle geprueft, keine ist harmlos -
-# sie liegen ausserhalb des Auftragsschnitts (docs/offene-entscheidungen.md, Punkt vom 2026-09-22).
-2 lib/audit-flags.ts  # readdir/stat der Producer: ein Fehler heisst 'keine Eingaben' und die Flags gelten nie als veraltet
-1 lib/data.ts  # listFrameStems: ein Fehler am Review-Verzeichnis meldet 'keine Frames' statt einer Stoerung
-1 lib/matte.ts  # fixedAlphas: ein Fehler am mattes/-Verzeichnis heisst 'niemand hat gemalt'
-1 lib/provenance.ts  # modelReadProvenance: ein Fehler an recordings/ macht die Herkunftsliste leer
+# Eingeloest 2026-09-22: die sieben Stellen der Erweiterung stehen auf `absentOnly` - nur ENOENT
+# heisst leer, jeder andere Lesefehler wird durchgereicht (`*.bughunt-2026-09-22e.test.ts`).
