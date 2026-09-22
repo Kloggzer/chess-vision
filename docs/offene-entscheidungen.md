@@ -2027,3 +2027,26 @@ ueber `data.board_accuracy`, und `fafc4f7d` hat genau das begruendet zurueckgest
 
 **Empfehlung in einem Satz:** die beiden Konfidenzen mit derselben Aenderung drehen, die den
 fremden Test auf seine eigentliche Zusage umschreibt — oder ausdruecklich als Zahl stehen lassen.
+
+## Skript-Durchsicht 2026-09-22d: was gefixt ist und was entschieden gehoert
+
+Sieben Fixes in `scripts/` (Tests: `tests/test_bug_hunt_20260922d_skripte.py`). Offen bleiben
+drei Punkte, die eine Entscheidung und keine Korrektur sind:
+
+- **`mine_hard_empty --dataset` scannte null Zeilen.** Ein unbedingtes `mm://`-Verwerfen warf auf
+  `real13-mix-v6-128` 841 270 von 841 270 Zeilen weg, obwohl `--dataset` genau fuer diese Pfade
+  einen Memmap-Leser mitbringt; die Ausgabe blieb eine vollstaendig aussehende Prozenttabelle bei
+  Exit 0. Jetzt faellt nur, was niemand lesen kann, und es wird gezaehlt. **Offen:** die gemeldeten
+  Zahlen aus jedem Lauf VOR heute auf einem Session-Pack-Datensatz sind 0/0 — wer sie irgendwo
+  zitiert hat, misst neu.
+- **`adabn_recalibrate` lehnt CLAHE-Laeufe jetzt ab.** `to_batch` normalisiert von Hand und ruft
+  die Operator-Kette nie auf, also haette der Durchgang rohe Pixel gemessen. Betroffen waeren die
+  beiden BatchNorm-Laeufe `mnv3s128-bn-all` und `mnv3s128-bn-all-p60` (`clahe_clip: 2.0`).
+  **Offen:** ablehnen ist die sichere Antwort — CLAHE im Kalibrierpfad nachzuziehen waere die
+  vollstaendige.
+- **`pack_dataset_sessions` meldet seit dem v6-Umhaengen falsch STALE.** Die Probe vergleicht die
+  mtime von `packed_images.u8` gegen die der `manifest.jsonl` des Spenders, und die v6-Manifeste
+  wurden am 2026-09-11 auf `mm://` umgeschrieben, ohne dass sich ein Pixel bewegte. Jeder Pack
+  sieht dadurch aelter aus als sein Spender. **Offen:** gegen `crop_fingerprint` aus
+  `packed_meta` pruefen (wie `_rewritten_since_pack`) statt gegen die mtime — nicht gefixt, weil
+  das die Probe in eine echte Messung verwandelt und damit mehr ist als eine Korrektur.

@@ -135,6 +135,20 @@ def packed_reader(src, out_size):
                              if path in index else None)
     return None
 
+
+def drop_packed_rows(rows: list[dict], have_reader: bool) -> tuple[list[dict], int]:
+    """Drop `mm://` rows only when nothing can read them, and say how many went.
+
+    `--dataset` hands over a memmap index keyed by exactly those paths, and since 2026-09-11 the
+    session-pack datasets carry NOTHING else (841 270 of 841 270 rows in real13-mix-v6-128), so an
+    unconditional drop scanned zero crops and still printed a percent table and exit 0.
+    """
+    if have_reader:
+        return rows, 0
+    kept = [r for r in rows if not str(r["path"]).startswith("mm://")]
+    return kept, len(rows) - len(kept)
+
+
 def is_camera_session(session_id: str | None) -> bool:
     return bool(session_id and _CAMERA_SESSION_RE.match(str(session_id)))
 
@@ -205,8 +219,9 @@ def main() -> None:
     else:
         rows = load_manifest(src)
     rows = [r for r in rows if r.get("path") and ("all" in want or r["label"] in want)]
-    # Fused synthetic pools are packed (mm:// rows have no files) — this miner targets REAL crops.
-    rows = [r for r in rows if not str(r["path"]).startswith("mm://")]
+    rows, n_packed = drop_packed_rows(rows, reader is not None)
+    if n_packed:
+        print(f"skipping {n_packed} packed (mm://) rows — no memmap reader; use --dataset")
     if not args.include_synthetic:
         n_before = len(rows)
         rows = [r for r in rows if is_camera_session(r.get("session_id"))]
@@ -242,7 +257,7 @@ def main() -> None:
           f"with {run_dir.name} on {args.device} …  criterion={args.criterion}")
 
     hard: list[dict] = []
-    n_seen = 0
+    n_seen = n_unread = 0
     for i in range(0, len(rows), args.batch):
         chunk = rows[i : i + args.batch]
         crops, kept_rows = [], []
@@ -251,6 +266,7 @@ def main() -> None:
             if img is None:
                 img = cv2.imread(str(r["path"]))   # Rueckfall: Pfade sind cwd-relativ
             if img is None:
+                n_unread += 1
                 continue
             crops.append(img)
             kept_rows.append(r)
@@ -288,7 +304,9 @@ def main() -> None:
     crit = (("p_occ > p_empty" + (f" or p_occ >= {args.occ_thr}" if args.occ_thr <= 1.0 else ""))
             if args.criterion == "occupancy" else f"conf >= {args.conf_thr}")
     print(f"\n{len(hard)} hard empties ({crit}) out of {n_seen} scanned "
-          f"({100.0 * len(hard) / max(1, n_seen):.1f}%)")
+          f"({100.0 * len(hard) / max(1, n_seen):.1f}%)"
+          + (f"; {n_unread} of {len(rows)} rows were UNREADABLE and never scanned"
+             if n_unread else ""))
     # Wie viele EIGENE Situationen stecken dahinter? `wK` hatte 378 Fehler aus VIER
     # (Session,Feld)-Situationen — sie zu vervielfachen ueberpasst auf vier Stellungen,
     # statt die Klasse zu lehren. Bei `empty` sind es Tausende, dort traegt es.

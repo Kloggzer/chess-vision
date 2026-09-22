@@ -198,6 +198,10 @@ class ChannelStats:
     def finish(self) -> tuple[torch.Tensor, torch.Tensor]:
         """`(mean, var)` — var UNBIASED, which is the estimate `nn.BatchNorm2d` stores."""
         n = self.count
+        if n < 2:
+            # Nothing was observed (an empty `--frames`, a generator that yielded no batch): the
+            # two-pass identity would write NaN into every buffer and the run still be saved.
+            raise SystemExit(f"no activations observed ({n} elements) — nothing to calibrate.")
         mean = self.sum / n
         # Clamped at zero: the two-pass identity can go a hair negative through cancellation when a
         # channel is near-constant, and a negative variance would produce NaNs on the first rsqrt.
@@ -309,6 +313,16 @@ def to_batch(cfg: dict, crops: list[np.ndarray]) -> torch.Tensor:
     return normalize_batch(cfg, batch)
 
 
+def require_no_clahe(name: str, cfg: dict) -> None:
+    """Refuse a CLAHE run: `to_batch` normalises by hand and never runs the operator chain, so the
+    statistics would be measured on pixels this model is never served. Two batch-norm runs on disk
+    carry `clahe_clip: 2.0` (`mnv3s128-bn-all`, `mnv3s128-bn-all-p60`)."""
+    clip = float(cfg.get("clahe_clip", 0.0) or 0.0)
+    if clip > 0:
+        raise SystemExit(f"{name} carries clahe_clip={clip} — this pass would measure raw pixels, "
+                         "and a model without its CLAHE is a different model (2026-09-07).")
+
+
 def write_run(src: Path, dst: Path, model: nn.Module, cfg: dict, size: int,
               warp: int | None) -> None:
     """A new run directory: the recalibrated weights plus a config that says what they are for.
@@ -358,6 +372,7 @@ def main() -> None:
         raise SystemExit(f"{dst} exists and is not empty — pick another --out.")
 
     model, cfg = load_run(src)
+    require_no_clahe(src.name, cfg)
     scales = cfg.get("scales")
     if scales and args.size not in scales:
         # specs/22 measured what an untrained size costs: 133 misses at 80 px against 19 at 96.

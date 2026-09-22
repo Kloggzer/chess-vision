@@ -68,6 +68,29 @@ def lcs(ref, got):
     return t[0][0]
 
 
+def loo_eval(by_sess, refs, score, alpha, delta=0.10):
+    """Leave-one-recording-out totals for one score.
+
+    A recording whose calibration set yields no threshold commits NOTHING, so its reference plies
+    stay in the denominator — dropping them let a score that refused half the corpus print the
+    same `gefunden x/y` as one that carried all of it.
+    """
+    tot = {"acc": 0, "fab": 0, "found": 0, "ref": 0, "refused": 0, "taus": []}
+    for held in sorted(by_sess):
+        calib = [r for s, v in by_sess.items() if s != held for r in v]
+        tot["ref"] += len(refs[held])
+        tau = calibrate(calib, score, alpha, delta)
+        if tau is None:
+            tot["refused"] += 1
+            continue
+        tot["taus"].append(tau)
+        acc = [r for r in by_sess[held] if score(r) >= tau]
+        tot["acc"] += len(acc)
+        tot["fab"] += sum(1 for r in acc if not r["correct"])
+        tot["found"] += lcs(refs[held], [r["san"] for r in acc])
+    return tot
+
+
 SCORES = {
     "margin": lambda r: r["margin"],
     "agree": lambda r: r["agree"],
@@ -100,24 +123,12 @@ if __name__ == "__main__":
     for alpha in (float(a) for a in (sys.argv[1:] or ["0.02", "0.05", "0.10"])):
         print(f"\n=== Ziel: hoechstens {100*alpha:.0f} % erfundene Commits (90 % Konfidenz) ===")
         for name, f in SCORES.items():
-            tot_acc = tot_fab = tot_found = tot_ref = 0
-            taus, refused = [], 0
-            for held in sorted(by_sess):
-                calib = [r for s, v in by_sess.items() if s != held for r in v]
-                tau = calibrate(calib, f, alpha)
-                if tau is None:
-                    refused += 1
-                    continue
-                taus.append(tau)
-                acc = [r for r in by_sess[held] if f(r) >= tau]
-                tot_acc += len(acc)
-                tot_fab += sum(1 for r in acc if not r["correct"])
-                tot_found += lcs(refs[held], [r["san"] for r in acc])
-                tot_ref += len(refs[held])
+            tot = loo_eval(by_sess, refs, f, alpha)
+            taus = tot["taus"]
             if not taus:
                 print(f"  {name:<13} kein Schwellwert erreicht das Ziel")
                 continue
-            rate = 100 * tot_fab / tot_acc if tot_acc else 0.0
+            rate = f"{100 * tot['fab'] / tot['acc']:.1f} %" if tot["acc"] else "kein Commit"
             print(f"  {name:<13} tau {min(taus):.2f}..{max(taus):.2f}  "
-                  f"gefunden {tot_found}/{tot_ref}  erfunden {tot_fab} ({rate:.1f} %)"
-                  + (f"  [{refused} Recordings ohne Schwelle]" if refused else ""))
+                  f"gefunden {tot['found']}/{tot['ref']}  erfunden {tot['fab']} ({rate})"
+                  + (f"  [{tot['refused']} Recordings ohne Schwelle]" if tot["refused"] else ""))

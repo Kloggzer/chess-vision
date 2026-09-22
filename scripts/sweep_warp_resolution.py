@@ -158,8 +158,15 @@ def phantoms_at_miss_target(trues: np.ndarray, probs: np.ndarray, target: int) -
     """
     occ = np.sort(probs[trues])
     if occ.size == 0:
-        return 0, 0, 0.0
-    t = float(occ[target]) if target < occ.size else float(occ[-1]) + 1e-9
+        # No occupied cell at all: every threshold keeps the budget, so the most permissive one
+        # wins — and its phantom count is COUNTED, not short-circuited to a flattering 0.
+        t = 0.0
+    elif target < occ.size:
+        t = float(occ[target])
+    else:
+        # The budget exceeds the occupied cells there are: no threshold matches the operating
+        # point, and `misses` says so. The caller has to read it — see `report`.
+        t = float(occ[-1]) + 1e-9
     preds = probs >= t
     misses, phantoms = _counts(trues, preds)
     return phantoms, misses, t
@@ -293,17 +300,25 @@ def report(log: Log, name: str, split: str, warps: tuple[int, ...], sizes: tuple
     log(f"  {_HEAD}")
     log(f"  {'-' * len(_HEAD)}")
     cells: dict[tuple[int, int], tuple[int, int, int, int]] = {}
+    unmatched = False
     for w in warps:
         box = w / 8.0 * 1.10
         for s in sizes:
             trues, preds, probs = data[(name, w, s)]
             miss, phan = _counts(trues, preds)
-            ph_at_m, _, _ = phantoms_at_miss_target(trues, probs, target)
+            ph_at_m, miss_at_t, _ = phantoms_at_miss_target(trues, probs, target)
             m_at_pf, _ = misses_phantom_free(trues, probs)
             cells[(w, s)] = (miss, phan, ph_at_m, m_at_pf)
+            # `!` = the budget does not BIND here (fewer occupied cells than `target`), so the
+            # threshold sits above every probability and the 0 phantoms are vacuous.
+            marked = f"{ph_at_m}!" if miss_at_t != target else str(ph_at_m)
+            unmatched = unmatched or miss_at_t != target
             log(f"  {w:>5} {box:>7.0f} {s:>5} | {miss:>6} {phan:>6} "
-                f"| {ph_at_m:>8} {m_at_pf:>9}")
+                f"| {marked:>8} {m_at_pf:>9}")
         log(f"  {'-' * len(_HEAD)}")
+    if unmatched:
+        log(f"  ! = the miss budget {target} does not bind in that cell, so its ph@miss is at a "
+            "DIFFERENT operating point and is not comparable with the rest of the column.")
     keys = list(cells)
     best_argmax = min(keys, key=lambda k: (cells[k][0], cells[k][1]))
     best_pf = min(keys, key=lambda k: cells[k][3])

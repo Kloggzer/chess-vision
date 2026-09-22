@@ -69,7 +69,11 @@ def score(log: Path) -> dict:
     text = log.read_text(encoding="utf-8", errors="replace")
     counts = {k: int(m.group(1)) if (m := re.search(rf"^  {k} (\d+)", text, re.M)) else None
               for k in ("found", "missed", "invented", "beyond")}
-    found = {m.group(1): int(m.group(2)) for m in re.finditer(r"^    (\S+)\s+label frame\s+\d+\s+run frame\s+(\d+)", text, re.M)}
+    # Keyed by (san, LABEL frame), never by san alone: 19 of 32 recordings repeat a san, and
+    # `2026-09-11-20-00-52` would silently lose 19 of its 117 plies out of the delta table.
+    found = {(m.group(1), int(m.group(2))): int(m.group(3))
+             for m in re.finditer(r"^    (\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)",
+                                  text, re.M)}
     missed = [(m.group(1), int(m.group(2))) for m in re.finditer(r"^    (\S+)\s+label frame\s+(\d+)\s*$", text, re.M)]
     skipped = int(m.group(1)) if (m := re.search(r"pre-roll: (\d+) frames skipped", text)) else 0
     return {"counts": counts, "found": found, "missed": missed, "skipped": skipped}
@@ -135,11 +139,12 @@ def main() -> int:
     lines.append("")
     lines.append("| ply | control run frame | bump run frame | delta |")
     lines.append("|---|---|---|---|")
-    for san, frame in scores["control"]["found"].items():
-        other = scores["bump"]["found"].get(san)
+    for key, frame in scores["control"]["found"].items():
+        san = key[0]
+        other = scores["bump"]["found"].get(key)
         lines.append(f"| {san} | {frame} | {other if other is not None else 'missed'} | {other - frame if other is not None else '—'} |")
     for san, frame in scores["bump"]["missed"]:
-        if san not in scores["control"]["found"]:
+        if (san, frame) not in scores["control"]["found"]:
             lines.append(f"| {san} | missed | missed (label frame {frame}) | — |")
     lines.append("")
     control, bump = boards(work / "control"), boards(work / "bump")

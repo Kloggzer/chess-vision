@@ -316,12 +316,19 @@ def list_bundles() -> None:
 
 
 def deltas(rule: list[int | None], replay: list[int | None]) -> str:
+    """Coverage of the rule, and the offset over the plies BOTH columns placed.
+
+    The median is over the intersection while `covered` counts the rule alone, so a rule that
+    placed 40 of 67 plies against a replay that placed 12 was being judged on 12 — the same
+    shape as a `nanmedian` over a mostly empty arm. `n=` says which.
+    """
     both = [r - p for r, p in zip(rule, replay, strict=True) if r is not None and p is not None]
     covered = sum(1 for value in rule if value is not None)
     if not both:
-        return f"covered {covered}/{len(rule)}  vs replay: -"
+        return f"covered {covered}/{len(rule)}  vs replay: - (n=0)"
     worst = max(both, key=abs)
-    return f"covered {covered}/{len(rule)}  median {statistics.median(both):+.1f}  max {worst:+d}"
+    return (f"covered {covered}/{len(rule)}  median {statistics.median(both):+.1f}  "
+            f"max {worst:+d}  (n={len(both)})")
 
 
 def measure(name: str, replay: bool, kept: Path | None) -> None:
