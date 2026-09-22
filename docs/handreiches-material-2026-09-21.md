@@ -43,9 +43,30 @@ Was dagegen spricht, beziehungsweise was fehlt:
   `-Satz v2` fehlt die Verzugsmessung, weil die zwei Aufnahmen keine `retime`-Referenz unter
   `tmp/retime/<name>.json` haben. Das ist ein Lauf, kein Rätsel — er gehört vor die Entscheidung.
 
-**Empfehlung:** erst den Verzug auf `-Satz v2` messen, dann befördern. Ein Knopf, der 70 Treffer
-holt und 6 Phantome nimmt, ist kaum abzulehnen — aber „wie viel später committet er?" ist genau
-die Frage, die der Nutzer an einer App merkt, und sie ist heute unbeantwortet.
+### Gemessen 2026-09-22: der Verzug kostet nichts
+
+Die fehlende Zahl liegt vor. Beide Aufnahmen haben jetzt eine `retime`-Referenz (Übereinstimmung
+**1,00** in beiden, 1 651 bzw. 1 138 Frames gelesen), und damit ist `scripts/commit_lag.py` auf
+`-Satz v2` fahrbar:
+
+| Lauf | Aufnahmen | Plies | Median | p90 | max |
+|---|---:|---:|---:|---:|---:|
+| Anker-Fix allein | 2 | **72** | 0,33 s | 1,20 s | 3,74 s |
+| Anker-Fix + `cleanCommitsOnly` | 2 | **142** | **0,33 s** | **1,14 s** | 3,94 s |
+
+**Der Knopf committet fast doppelt so viele Halbzüge — bei identischem Median.** p90 ist sogar
+etwas besser, max um 0,2 s schlechter.
+
+Die zwei Zeilen stehen über verschieden großen Mengen (72 gegen 142 Plies), und das ist kein
+Fehler, sondern der Punkt: die 70 zusätzlich gewonnenen Halbzüge kommen mit **derselben
+Verzögerungsverteilung** an wie die, die vorher schon funktionierten. Ein Aufschlag wäre hier
+sichtbar geworden; er ist es nicht.
+
+**Empfehlung: befördern.** Der Knopf holt auf handreichem Material 70 Treffer, nimmt 6 Phantome,
+kostet auf dem Zehner-Satz keine Ziffer und keinen Verzug, und kostet auch dort keinen Verzug, wo
+er wirklich greift. Die einzige verbliebene Unbekannte ist, wie er sich auf Material verhält, das
+noch niemand aufgenommen hat — und dagegen hilft keine Messung, sondern nur, ihn wieder
+abschalten zu können.
 
 ## Die Lehre, schon zum dritten Mal heute
 

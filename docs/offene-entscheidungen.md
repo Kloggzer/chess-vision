@@ -1620,4 +1620,12 @@ nur "hat nie gegriffen" (24 verdeckte Frames auf 11 001), und der Preis dieses K
 dort an, wo er greift. Die zwei Aufnahmen haben keine `retime`-Referenz unter
 `tmp/retime/<name>.json`; das ist ein Lauf, kein Raetsel.
 
-**Empfehlung:** Verzug messen, dann befoerdern. Zahlen: `docs/handreiches-material-2026-09-21.md`.
+**Die fehlende Zahl liegt vor (2026-09-22).** Beide Aufnahmen haben jetzt eine `retime`-Referenz
+(Uebereinstimmung 1,00). `commit_lag` ueber `-Satz v2`: ohne den Knopf **72 Plies** bei Median
+0,33 s / p90 1,20 / max 3,74; mit ihm **142 Plies** bei Median **0,33** / p90 **1,14** / max 3,94.
+Der Knopf committet fast doppelt so viele Halbzuege, und die zusaetzlichen kommen mit DERSELBEN
+Verzoegerungsverteilung an.
+
+**Empfehlung: BEFOERDERN.** Keine Ziffer und kein Verzug auf dem Zehner, 70 Treffer und 6 Phantome
+weniger auf handreichem Material, und kein Aufschlag dort, wo er wirklich greift. Zahlen:
+`docs/handreiches-material-2026-09-21.md`.
