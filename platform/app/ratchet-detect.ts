@@ -62,7 +62,11 @@ export function withoutComments(text: string): string {
 // --- Routen-Abdeckung -----------------------------------------------------------------------
 
 const ROUTE_IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)["']@\/app\/(.+?)\/route["']/g;
-const TEST_CALL = /\b(?:test|it|describe)((?:\.\w+)*)\s*\(/g;
+/** Ein `describe` ist ein Behaelter, kein Test — mitgezaehlt machte es eine Datei aus lauter
+ *  `test.skip` zur Deckung. Nur `test`/`it` fuehren einen Rumpf aus. */
+const TEST_CALL = /\b(?:test|it)((?:\.\w+)*)\s*\(/g;
+/** Ein Nur-Typ-Import wird wegkompiliert: das Modul laeuft nie, die Route bleibt ungetestet. */
+const TYPE_IMPORT = /\bimport\s+type\s[^;\n]*/g;
 
 /** Nur ein Test, der auch LAEUFT, deckt eine Route: eine Datei, in der jedes `test`/`describe`
  *  auf `.skip`/`.todo` steht, importiert die Route und fuehrt sie nie aus. */
@@ -98,7 +102,7 @@ function closingParen(text: string, open: number): number {
 /** Die Route gilt als getestet, wenn eine Testdatei ihr Modul wirklich IMPORTIERT — ein
  *  auskommentierter Import und der blosse Pfad in einer Zeichenkette zaehlen nicht. */
 export function routeImportsIn(text: string): string[] {
-  const code = withoutComments(text);
+  const code = withoutComments(text).replace(TYPE_IMPORT, (m) => " ".repeat(m.length));
   if (!runsSomething(code)) return [];
   return [...code.matchAll(ROUTE_IMPORT)].map((m) => m[1]);
 }
@@ -145,11 +149,13 @@ const JSONISH = /JSON\.stringify\(|\.jsonl?["'`]/;
 /** Ein Log, das nur ein Mensch liest, ist keine Datei, um die sich zwei Prozesse streiten. */
 const NOT_JSON = /\.(log|txt|pgn|csv|webp|png)["'`]/;
 
-/** Schreibaufruf UND JSON in derselben Sichtweite — das ist die Form, die die Politik neu erfindet. */
+/** Schreibaufruf UND JSON in derselben Sichtweite, nach BEIDEN Seiten: `const body =
+ *  JSON.stringify(...)` eine Zeile davor lief am reinen Vorausblick vorbei. */
 export function writeDoorsIn(source: string): number {
   const lines = withoutComments(source).split("\n");
   return lines.filter(
-    (line, i) => WRITE.test(line) && !NOT_JSON.test(line) && JSONISH.test(lines.slice(i, i + 6).join("\n")),
+    (line, i) =>
+      WRITE.test(line) && !NOT_JSON.test(line) && JSONISH.test(lines.slice(Math.max(0, i - 3), i + 6).join("\n")),
   ).length;
 }
 
