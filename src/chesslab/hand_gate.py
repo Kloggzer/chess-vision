@@ -102,10 +102,16 @@ def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dic
             if rel is None:
                 tally["no_board_in_log"] += 1
                 continue
+            # SAMs ABSAGE ist kein Zwischenstreifen: ohne `coverage` gaebe `unclear` dem Schueler
+            # 64 erfundene Nullen und `float(bool(None))` als "keine Hand" — derselbe Griff, der
+            # ihm schon einmal die verdecktesten Bretter des Korpus als handfrei beibrachte.
+            cover = row.get("coverage")
+            if cover is None:
+                tally["not_measured"] += 1
+                continue
             if hand is None and not unclear:
                 tally["unclear"] += 1
                 continue
-            cover = row.get("coverage") or {}
             out.append({"session": session, "stem": row["frame"],
                         "board": f"{session_dir.name}/{rel}", "hand": hand,
                         "border": int(borders.get(row["frame"]) or 0),

@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 
 from . import provenance
-from .ioutil import read_jsonl, write_rows_guarded
+from .ioutil import append_rows, read_jsonl, write_rows_guarded
 from .labeling import (
     all_squares,
     crops_for_frame,
@@ -993,6 +993,11 @@ def alpha_worker(
             f"{len(successful)} successful alphas already present",
             flush=True,
         )
+
+    # Der Prozess geht per `os._exit` (`exit_with_parent`, und der CLI-Zweig): die letzte Zeile
+    # bricht dabei mitten im Puffer ab. `read_jsonl` verzeiht diesen Schwanz, blind daran
+    # anzuhaengen macht daraus Korruption MITTENDRIN, auf die danach JEDES Lesen wirft.
+    append_rows(path, [])
 
     with path.open(
         "a",

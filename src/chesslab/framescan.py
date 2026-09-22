@@ -164,9 +164,14 @@ def scan_is_stale(name: str, *, stride: int = SCAN_STRIDE, extra=(), tag: str = 
     differing = [k for k, v in want.items() if have.get(k) != v]
     if differing:
         return f"geaendert: {', '.join(differing)}"
-    # Ein Scan von vor der Schaerfemessung kann nicht nach ihr auswaehlen.
+    # Eine LEERE Datei ist nichts gemessen, nicht nichts gefunden: `ensure_scan` gab sie als
+    # gueltig weiter, und `export_session` fiel danach still auf die Margin-Fenster zurueck —
+    # der Rueckfall, den es mit einem Abbruch zu verhindern verspricht.
     first = next(iter(read_scan(name)), None)
-    return None if first is None or "sharp" in first else "ohne Schaerfemessung"
+    if first is None:
+        return "scan.jsonl ist leer — keine Zeile gemessen"
+    # Ein Scan von vor der Schaerfemessung kann nicht nach ihr auswaehlen.
+    return None if "sharp" in first else "ohne Schaerfemessung"
 
 
 def read_scan(name: str) -> list[dict]:
