@@ -185,16 +185,15 @@ fun preprocessInto(
  */
 fun softmax(logProbs: FloatArray): FloatArray = softmaxAt(logProbs, 1.0)
 
-/**
- * Mit der gefitteten `temperature` des Modells (`training/data.py fit_temperature`, Guo 2017).
- * Der Argmax bleibt; nur die Konfidenz wird ehrlich, gegen die `cnnConfThr` misst.
- */
+/** Mit der gefitteten `temperature` (`training/data.py fit_temperature`); der Argmax bleibt, nur
+ *  die Konfidenz wird ehrlich. `temperature <= 0` ist keine Temperatur, wie in [calibratedConfThr]
+ *  und [priorOnTempered]: 0 gab lauter `NaN`, negativ einen GEDREHTEN Argmax. */
 fun softmaxAt(
     logProbs: FloatArray,
     temperature: Double,
 ): FloatArray {
     val scaled =
-        if (temperature == 1.0) {
+        if (temperature <= 0.0 || temperature == 1.0) {
             logProbs
         } else {
             FloatArray(logProbs.size) { (logProbs[it] / temperature).toFloat() }
