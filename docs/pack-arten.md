@@ -44,4 +44,10 @@ desselben Namens, die auf einer anderen `manifest.jsonl` rechnet.
 
 Und: **ein Pack ist unveraenderlich, aber nicht automatisch aktuell.** Ein Session-Pack vom
 2026-09-05 trug 3 333 Zeilen zu viel und Pixel bis 68 Graustufen daneben. Nach einem Re-Slice die
-Packs der Aufnahme wegwerfen — nichts huetet das.
+Packs der Aufnahme wegwerfen — **gehuetet wird es seit 2026-09-20 doch**
+(`_rewritten_since_pack`, `training/pack.py`, vergleicht `crop_fingerprint` aus `packed_meta`
+gegen `(mtime, size)` jedes Crops; nachgesehen 2026-09-22). Blind bleibt er bei `mm://`-Zeilen
+und bei Altpacks ohne Fingerabdruck.
+
+**`data/realgames/` existiert nicht mehr** (nachgesehen 2026-09-22) — die Zeile "Kotlin-Pack"
+beschreibt das Format, nicht einen Bestand auf der Platte.

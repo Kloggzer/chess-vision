@@ -27,14 +27,16 @@ aussehen und keine sind. Genau das ist gemeint, wenn die Zahlen „Ausmasse anne
 
 ## Der Bestand
 
-`TrackerConfig` hat 63 Felder, davon 52 Zahlen:
+`TrackerConfig` hat 63 Felder, davon 52 Zahlen (**nachgezaehlt 2026-09-22: 65 Felder**, Basis
+`grep -cE '^\s+val [a-zA-Z]+:' TrackerConfig.kt`; die Klassenzahlen aus
+`android/config/tuned-constants.txt`, Zeilen ohne `#`):
 
-| Klasse | Anzahl | heisst |
-|---|---|---|
-| NOTIERT | 15 | eine Herkunftsnotiz steht am Feld |
-| PLATZHALTER | 1 | die Notiz nennt sich selbst ungemessen (`desyncStandoffObsN = 12`) |
-| STRUCTURAL | 5 | keine Schwelle, sondern Groesse oder Schalter |
-| **UNGEPRUEFT** | **31** | gar keine Herkunft notiert |
+| Klasse | 2026-09-19 | 2026-09-22 | heisst |
+|---|---|---|---|
+| NOTIERT | 15 | **19** | eine Herkunftsnotiz steht am Feld |
+| PLATZHALTER | 1 | 1 | die Notiz nennt sich selbst ungemessen (`desyncStandoffObsN = 12`) |
+| STRUCTURAL | 5 | 5 | keine Schwelle, sondern Groesse oder Schalter |
+| **UNGEPRUEFT** | **31** | **27** | gar keine Herkunft notiert |
 
 Die vollstaendige Liste steht in `android/config/tuned-constants.txt`, abgeleitet statt gepflegt
 (`uv run python android/scripts/tuned_constants.py`). Was die Notiz WERT ist, entscheidet die
@@ -42,12 +44,15 @@ Liste bewusst nicht — das kann kein Regex, und eine Klasse „MEASURED", die a
 raet, waere genau der Fehler, den diese Datei beschreibt.
 
 Darunter sind Zahlen, die das Verhalten offensichtlich tragen: `zThr = 3.0`, `censusThr = 40.0`,
-`maxChanged = 6`, `cnnMinAgreement = 0.97`, `minConfidentBoard = 32`, `recoveryMaxPlies = 4`.
+`cnnMinAgreement = 0.97`, `minConfidentBoard = 32`, `recoveryMaxPlies = 4`.
+(`maxChanged` stand hier mit 6 und ist seit der Champion-Befoerderung `29b7dbc6` **5 und
+NOTIERT** — nachgesehen 2026-09-22 in `TrackerConfig.kt` und `tuned-constants.txt`.)
 
 ## Die Alternative, die jetzt nichts kostet
 
 Nicht messen, sondern **die Herkunft zur Pflicht machen, nicht zur Hoeflichkeit**. Die Ratsche
-`tests/test_tuned_constants.py` haelt `UNGEPRUEFT` bei 31 und laesst die Zahl nur sinken. Eine
+`tests/test_tuned_constants.py` haelt `UNGEPRUEFT` bei 31 (**heute 27** — sie ist gefallen, wie
+sie soll) und laesst die Zahl nur sinken. Eine
 NEUE Zahl kommt damit entweder mit ihrer Messung oder mit einem Satz, warum sie geraten ist —
 und der Rueckstand wird nicht groesser, waehrend die Forschung weiterlaeuft. Dasselbe Muster wie
 `route-coverage.txt`, `jsonl-readers.txt` und das Kommentarbudget. Der Test traegt eine

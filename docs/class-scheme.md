@@ -50,11 +50,16 @@ Was sich änderte, ist das Schema, in dem *trainiert und ausgeliefert* wurde.
 `platform/app/lib/classes.ts` spiegelt Python: `IDENTITY_CLASSES` sind die einzigen Labels, die ein
 Mensch noch schreibt. `LEGACY_LABEL = "occluded"` bleibt **lesbar** für die 31 271 Zeilen in
 `corrections.jsonl`, die bis 2026-08-18 von Hand gemalt wurden, und wird als Historie gerendert.
+**Nachgezaehlt 2026-09-22** (`grep -c` ueber alle `data/recordings/*/corrections.jsonl` und
+`data/sessions_archive/*/corrections.jsonl`): es liegen **18 563 Korrekturzeilen** auf der Platte
+und **keine einzige** mit `occluded` — die 31 271 standen in der globalen
+`data/manifests/corrections.jsonl`, die es nicht mehr gibt. `LEGACY_LABEL` hat heute nichts mehr
+zu lesen; der Konstante schadet das nicht, die BEGRUENDUNG traegt aber nicht mehr.
 Geschrieben wird keine weitere. `/corpus` kann beide Schemata anzeigen und entscheidet per
-`classScheme()` (`platform/app/lib/corpus.ts:67`) anhand von `dataset.yaml`, sonst anhand der
+`classScheme()` (`platform/app/lib/corpus.ts`, Zeile 69 am 2026-09-22 — Symbol zitieren, nicht Zeile) anhand von `dataset.yaml`, sonst anhand der
 Klassenliste.
 
-### Handy — zwei Modelle, beide ohne Coverage
+### Handy — sieben Modelle, alle mit Coverage und gemessenem Gate
 
 **Hier laufen die Oberflächen auseinander, und das ist der Punkt, den vor diesem Dokument nichts
 festgehalten hat.** Die Kotlin-*Leseseite* kann Coverage: `ModelSpec.coverageOutput` und
@@ -69,13 +74,20 @@ entweder aus der `occluded`-Klasse, aus der Extraspalte oder — wenn es beides 
 Coverage-Sigmoide in Spalte 13. `real14-80` und `id35-80` sind seit 2026-08-30 raus; der Absatz
 darunter beschreibt den Zustand, der dazu gefuehrt hat.
 
-| Modell | Klassen | `coverage_output` | `coverage_gate` | `pOccluded` kommt aus |
-|---|---|---|---|---|
-| `p4a-80-clahe` (Default) | 13 | ja | **fehlt** | Sigmoide Spalte 13 |
-| die sieben weiteren `p4*` | 13 | ja | **fehlt** | Sigmoide Spalte 13 |
+**Nachgezaehlt 2026-09-22** (`ls android/app/src/main/assets/cnn_model/` und `BUNDLED_MODELS` in
+`CnnModelAssets.kt`): es sind **SIEBEN**, nicht acht. Und die Schwelle fehlt nicht mehr — jedes
+der sieben traegt ein gemessenes `coverage_gate` in seiner `config.json` (Werte aus den Dateien
+gelesen), `ModelSpecTest` ist deshalb gruen. Der Stand der Wahrheit ist `docs/occlusion-gate.md`.
 
-Die Bruecke ist also gebaut — aber die Schwelle fehlt: keines der acht traegt ein gemessenes
-`coverage_gate`, alle erben damit 0,5 (`docs/occlusion-gate.md`, `ModelSpecTest` laeuft rot).
+| Modell | Klassen | `coverage_output` | `coverage_gate` (2026-09-22) | `pOccluded` kommt aus |
+|---|---|---|---|---|
+| `p4a-80-clahe` (Default) | 13 | ja | **0,25** | Sigmoide Spalte 13 |
+| `p4a-128` / `p4afull-128` | 13 | ja | **0,35** | Sigmoide Spalte 13 |
+| `p4a-80` | 13 | ja | **0,15** | Sigmoide Spalte 13 |
+| `p4-128` / `p4-80` / `p4full-128` | 13 | ja | **0,05** | Sigmoide Spalte 13 |
+
+Die Bruecke ist gebaut und die Schwelle steht. *Der Satz von 2026-09-14 — „keines der acht traegt
+ein gemessenes `coverage_gate`, alle erben 0,5, `ModelSpecTest` laeuft rot" — gilt nicht mehr.*
 
 *Historisch, der Zustand vor dem Umstieg:*
 

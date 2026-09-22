@@ -9,6 +9,28 @@ Verhalten oder Schnittstellen — **kommt nicht ohne Absprache und ohne A/B am R
 
 Groessen: Kotlin 48 777 Zeilen ueber 7 Module, TypeScript 18 261 plus 6 947 Testzeilen.
 
+> **Nachgezaehlt 2026-09-22.** Die Groessenangaben dieser Durchsicht nannten ihre Basis nicht und
+> sind aus dem Baum nicht reproduzierbar — schon am Tag der Durchsicht nicht. Mit expliziter Basis
+> (rohe Zeilen, `src/main/**/*.kt` der sieben Module bzw. `platform/app/**/*.{ts,tsx}` ohne
+> `node_modules`, `*.test.*` getrennt):
+>
+> | | Durchsicht | am Commit `a3aece85` (2026-09-15) | heute |
+> |---|---:|---:|---:|
+> | Kotlin, 7 Module, `src/main` | 48 777 | 57 444 | **59 967** |
+> | TypeScript ohne Tests | 18 261 | 18 611 | **21 408** |
+> | TypeScript-Tests | 6 947 | 7 752 | **12 712** |
+> | `src` + `scripts` (Python) | 38 297 | 38 811 | **43 029** |
+> | Python-Testdateien / Zeilen | 133 / 18 825 | 154 / 20 591 | **239 / 29 728** |
+>
+> Die genannten Einzeldateien, heute: `Chrome.kt` **545** (nicht 632, und schon am 2026-09-15
+> waren es 545), `GameReviewScreen.kt` **1 286** (nicht 1 361 — weiterhin die groesste
+> Kotlin-Datei), `lib/jobs.ts` **1 132**, `cli.py` **2 770** bei **74** Kommandos,
+> `realgames.py` **2 258**, `hand-flags.ts` **53** gegen `position-flags.ts` **69**.
+> **`training/clahe_gpu.py` ist geloescht** (`5325262e`) — der Loeschkandidat weiter unten ist
+> erledigt. `Host`-Singletons: **15** statt 13 (`grep -rn 'object [A-Za-z]*Host'` ueber
+> `android/**/src/main`, zwei davon noch unversioniert). `route.ts`-Dateien: **29**, unveraendert,
+> und `platform/app/route-coverage.txt` ist seit 2026-09-16 leer.
+
 ## Das Gesamtbild
 
 Das Repo ist nicht verwahrlost. Die Engine ist in kleine Dateien zerlegt, jede gemessene Zahl

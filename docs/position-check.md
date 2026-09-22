@@ -13,6 +13,12 @@ haben den Entwurf entschieden:
 - **Jedes Frame hat ein Alpha.** Über alle 20 Sessions trägt `matte.jsonl` genau so viele
   distinkte Frames wie `log.jsonl`, 0 `skipped`. Die Maske ist damit ein Sichtbarkeitsfilter für
   jedes Frame und nicht nur ein Occlusion-Label.
+  **Gilt so nicht mehr (nachgezaehlt 2026-09-22** über alle `data/recordings/*/` mit `log.jsonl`
+  UND `matte.jsonl`, nicht rekursiv, Frame = Stem des Felds `frame`): **27 Aufnahmen, 13 577
+  Log-Frames gegen 8 554 gemattete — 63,0 %**, und nur **6 von 27** Aufnahmen sind deckungsgleich.
+  `matte.jsonl` ist in allen 27 eine echte Teilmenge, `skipped` weiterhin 0. Die Entscheidung
+  (Maske als Sichtbarkeitsfilter) steht nur noch für die gematteten Frames; wer sie auf den ganzen
+  Korpus zieht, liest ein fehlendes Alpha als sichtbar.
 - **`settle_dev` stand auf keiner Session.** `session settle-scan` war auf diesem Korpus nie
   gelaufen; das Zell-Tor in `slice_session` hat nie gefeuert.
 

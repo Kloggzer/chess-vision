@@ -33,9 +33,13 @@ je als Wahrheit zurueck, und eine Ratsche (8.4) haelt das.
 Zuschnitt: nur `matte` plus die `recording`/`frame`-Zeilen, die der Fremdschluessel braucht.
 Nicht `model-reads`, nicht `log`, nicht die Urteile.
 
-Gemessene Fakten (nicht neu messen): 25 Aufnahmen, 11 647 Frames, 9 423 Matte-Zeilen, null
+Gemessene Fakten: 25 Aufnahmen, 11 647 Frames, 9 423 Matte-Zeilen, null
 Abweisungen; **1 657 Zeilen (17,6 %) ueberholt** — gleicher Frame, gleiche Quelle, mehrfach;
 null Absagen (`skipped`) im Korpus; drei Zustaende vom Schema erzwungen.
+**Nachgezaehlt 2026-09-22** (Basis: `data/recordings/*/log.jsonl` bzw. `matte.jsonl`, nicht
+rekursiv, ohne `_pre-scan-*`): **27 Aufnahmen, 13 577 Frames, 10 490 Matte-Zeilen ueber 8 554
+distinkte Frames, 1 936 (18,5 %) ueberholt**, `skipped` weiterhin 0. Der Nenner waechst mit jeder
+Aufnahme — die Groessenordnung der Migration aendert das nicht.
 
 ---
 

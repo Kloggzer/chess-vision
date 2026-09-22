@@ -59,17 +59,22 @@ Zwei Dinge folgen daraus:
 (Zellen je Figurenklasse aus den `fen` aller `data/recordings/*/log.jsonl`): **17 von 25**
 Aufnahmen halten jede der zwoelf Figurenklassen ueber 100 Beispielen. Die Zahlen sind NICHT
 direkt vergleichbar — der Datensatz filtert (Schaerfe, Dunkel, Ausduennung) und der Korpus nicht;
-vergleichbar ist nur die Richtung: der Nenner ist von 22 auf 25 gewachsen. Der Befund oben haelt
+vergleichbar ist nur die Richtung: der Nenner ist von 22 auf 25 gewachsen. **Nachgezaehlt
+2026-09-22, gleiche Basis: 19 von 27.** Der Befund oben haelt
 trotzdem: `21-29-35` ist auch am ungefilterten Korpus die duennste grosse Aufnahme (seltenste
 Figurenklasse **8** Zellen auf 1 211 Brettern). Kandidaten
 für einen künftigen Val, ohne die beiden Testsessions:
 
 | Session | Bretter | seltenste | `empty` | Auflösung | Schärfe × Klasse |
 |---|---:|---:|---:|---|---:|
-| `2026-09-06-20-27-33` | 370 | 184 | 61 % | 1440p | 1,20× |
-| `2026-09-06-20-57-45` | 339 | 117 | 67 % | 1440p | 1,33× |
-| `2026-08-30-16-20-19` | 167 | 108 | 57 % | 1440p | 1,48× |
-| `2026-08-07-13-52-38` | 383 | 372 | 55 % | 1080p | 1,87× |
+| `2026-09-06-20-27-33` | 370 → **548** | 184 → **207** | 61 → **63 %** | 1440p | 1,20× |
+| `2026-09-06-20-57-45` | 339 → **504** | 117 → **121** | 67 → **69 %** | 1440p | 1,33× |
+| `2026-08-30-16-20-19` | 167 → **196** | 108 → **126** | 57 → **56 %** | 1440p | 1,48× |
+| `2026-08-07-13-52-38` | 383 → **384** | 372 → **384** | 55 % | 1080p | 1,87× |
+
+Die fetten Werte sind **nachgezaehlt 2026-09-22** auf derselben Basis (Zeilen mit `fen` in
+`data/recordings/<session>/log.jsonl`); die drei ersten sind seit dem Re-Export groesser geworden,
+die Rangfolge und damit die Empfehlung nicht.
 
 Empfehlung: `20-27-33`, notfalls zusammen mit `20-57-45` (709 Bretter, ≥117 je Klasse). Beide
 stammen vom selben Aufnahmetag — ein Val aus einem Tag misst einen Aufbau, nicht die Bandbreite.

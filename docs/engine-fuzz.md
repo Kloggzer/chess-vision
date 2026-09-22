@@ -2,7 +2,9 @@
 
 ## Warum
 
-Das Knopf-Screening (`docs/knopf-screening.md`) fand 13 Knöpfe, die an beiden Rändern ihres
+Das Knopf-Screening (`scripts/screen_knobs.py` + `scripts/screen_report.py` — das hier genannte
+`docs/knopf-screening.md` hat es nie gegeben, geprueft 2026-09-22 auch gegen die Git-Historie)
+fand 13 Knöpfe, die an beiden Rändern ihres
 plausiblen Bereichs **keinen einzigen Frame** anders machen. Das beantwortet aber nicht, ob sie
 tot sind: ein Knopf kann stumm sein, weil seine Situation im Material fehlt, weil ein Tor davor
 immer zuerst auflöst, oder weil er gar nicht angeschlossen ist. Um das zu trennen, braucht es

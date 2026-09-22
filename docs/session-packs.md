@@ -146,6 +146,14 @@ Beide v6-Datensätze hängen auf Packs, ihre Memmaps sind weg: **57,5 GB frei**.
 | `real13-mix-v6-80-clahe` | 16,2 GB | 16,2 GB | **bleibt** — siehe unten |
 | `data/packs/` | — | 55 GB | 320 Packs (160 × 128, 160 × 80) |
 
+**Nachgemessen 2026-09-22** (`du -sm` auf die Verzeichnisse, `ls data/packs | wc -l`): die
+v6-Verzeichnisse messen **916 bzw. 915 MB**, weil `manifest.jsonl.mono` und `.before-prune`
+danebenliegen geblieben sind — kein Memmap ist zurück. **`-80-clahe` trägt seine Memmap NICHT
+mehr: 317 MB, kein `packed_images.u8`**; es ist weiterhin Monolith im Sinne der `path`-Spalte
+(`data/crops/default/…`), aber ohne Pack. `data/packs/` hält **323 Packs (162 × 128, 161 × 80),
+69,2 GB**. Die Manifeste der beiden umgehängten Sätze tragen nach einem Prune **841 270** bzw.
+**841 271** Zeilen; die 841 521 stehen noch in `manifest.jsonl.mono`/`.before-prune`.
+
 **Umgehängt, nicht neu gebaut.** Ein Zwilling über `--like … --from-packs` ist der Weg für einen
 NEUEN Datensatz, aber für einen bestehenden ist er falsch: der Brettweg schneidet live und der
 Pool war ein Schnappschuss, also trug der Zwilling **228 Zeilen mehr** als der Monolith (alle in

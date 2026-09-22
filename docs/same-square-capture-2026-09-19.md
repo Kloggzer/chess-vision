@@ -92,7 +92,9 @@ Zwei Gruende, beide hart:
    eine `parity/<name>/meta.json` mit der `effectiveConfig`, die der PYTHON-Tracker wirklich fuhr
    — Kotlins eigene Vorgaben weichen davon ab (`occlusionColorThr` 3,0 gegen 1,5), Vorgaben zu
    nehmen wuerde einen Portierungsfehler vortaeuschen. Diese Fixtures erzeugt
-   `scripts/emit_parity_fixtures.py`; ohne sie einen Namen in den Index zu schreiben, faehrt
+   `scripts/emit_parity_fixtures.py` (**geloescht in `62583092`** mit dem Python-Tracker,
+   nachgesehen 2026-09-22 — der Schritt braucht einen neuen Erzeuger); ohne sie einen Namen in den
+   Index zu schreiben, faehrt
    `ClipReplayParityTest` gegen nicht vorhandene Daten.
 
 `SimClips` ist auf echte Clips vorbereitet — `simClipDir` liest `-Pchesslab.sim.clips`, und der
