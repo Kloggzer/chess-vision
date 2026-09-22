@@ -9,6 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { readAnswer } from "@/lib/answer";
 import type { ChainState, ChainStep } from "@/lib/chain";
 import { STEP } from "@/lib/chain-steps";
 import { failureParts, logName } from "@/lib/failure";
@@ -83,16 +84,16 @@ export function ChainActions({
     if (!busy) return;
     const timer = setInterval(() => {
       void fetch(`/api/chain/${name}/progress`)
-        .then(
-          (r) => r.json() as Promise<{ job: Job | null; progress: Progress }>,
-        )
+        .then((r) => readAnswer<{ job: Job | null; progress: Progress }>(r))
         .then((d) => {
           setJob(d.job);
           setProgress(d.progress);
           // The chain moved on: the card's own state is stale, so let the server re-read the disk.
           if (d.job && !BUSY.has(d.job.state)) router.refresh();
         })
-        .catch(() => undefined);
+        // Eine Absage traegt kein `job`: gesetzt hiess das "nichts laeuft" und warf beim
+        // naechsten Zugriff. Der Grund gehoert auf die Karte, der Stand bleibt stehen.
+        .catch((error: unknown) => setNote(String(error)));
     }, 2000);
     return () => clearInterval(timer);
   }, [busy, name, router]);

@@ -152,7 +152,7 @@ function StepPanel({ drain, wide }: { drain: Drain; wide: boolean }) {
       </div>
     );
   }
-  const { status, busy, stop, note } = drain;
+  const { status, busy, stop, note, fault } = drain;
   const stoppable = status !== null && (status.drain !== null || status.running !== null);
   // Nur was etwas zu tun hat: acht Knoepfe, sechs davon auf 0, und dieselben Zahlen stehen in
   // der Einpflegen-Ansicht als Filterleiste. Der einzelne Schritt ist seit der Kette die Ausnahme.
@@ -189,6 +189,7 @@ function StepPanel({ drain, wide }: { drain: Drain; wide: boolean }) {
         <span className="truncate">{runState(status)}</span>
       </p>
       {note ? <p className="text-destructive text-xs">{note}</p> : null}
+      {fault ? <p className="text-destructive truncate text-xs">{fault}</p> : null}
       {status?.error ? <p className="text-destructive truncate text-xs">{status.error}</p> : null}
     </div>
   );

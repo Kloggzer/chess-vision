@@ -31,7 +31,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<GameInfo> {
   const meta = await loadMeta(name);
   const candidate = await loadCandidate(name).catch(() => null);
   const chain = await chainState(name);
-  const pgn = await truthSans(name).catch(() => null);
+  const pgn = await truthSans(name);
   return {
     name,
     sessionId: sessionId(name),

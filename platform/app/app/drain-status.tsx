@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { readAnswer } from "@/lib/answer";
 import type { DrainTarget } from "@/lib/drain";
 import type { DrainStatus } from "@/lib/drain";
 
@@ -15,6 +16,9 @@ export type Drain = {
   stop: () => void;
   /** A refusal the press has to answer for (no model chosen, a foreign lock, nothing waiting). */
   note: string | null;
+  /** Warum der Stand gerade fehlt. Ein stiller Fang liess die Leiste "…" zeigen, als waere sie
+   *  noch am Laden — der Grund stand schon im Rumpf der Absage. */
+  fault: string | null;
 };
 
 /**
@@ -26,13 +30,17 @@ export function useDrain(): Drain {
 const [status, setStatus] = useState<DrainStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [fault, setFault] = useState<string | null>(null);
 
   useEffect(() => {
     const read = () =>
       void fetch("/api/drain")
-        .then((r) => r.json() as Promise<DrainStatus>)
-        .then(setStatus)
-        .catch(() => undefined);
+        .then((r) => readAnswer<DrainStatus>(r))
+        .then((value) => {
+          setStatus(value);
+          setFault(null);
+        })
+        .catch((error: unknown) => setFault(String(error)));
     read();
     const timer = setInterval(read, POLL_MS);
     return () => clearInterval(timer);
@@ -55,7 +63,7 @@ const [status, setStatus] = useState<DrainStatus | null>(null);
   const start = useCallback((step: DrainTarget) => post({ step }), [post]);
   const stop = useCallback(() => post({ stop: true }), [post]);
 
-  return { status, busy, start, stop, note };
+  return { status, busy, start, stop, note, fault };
 }
 
 /** One line: what is in the slot right now, and how far the running backlog has got. */

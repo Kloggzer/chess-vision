@@ -13,7 +13,6 @@
 4 lib/chain.ts  # Sprossen-Zustand: eine fehlende Artefaktdatei IST die Antwort "noch nicht gelaufen"
 1 lib/corpus-query.ts  # unlesbares log.jsonl nimmt die Aufnahme absichtlich aus der Antwort, statt den Phasenfilter still abzuschalten
 2 lib/corpus.ts  # stroemt ueber ein 57-MB-Manifest und traegt seine Schwanz-Politik seit 2026-09-17 selbst
-1 lib/data.ts  # reference.pgn: kein PGN ist "keine Referenz", der einzige Zustand, den die Seite kennt
 1 lib/heavy-lock.ts  # die Sperre selbst; sie unterscheidet `null` und `"unreadable"` schon von Hand
 3 lib/ingest.ts  # Transfer-Ledger des Telefons; die Kommentare an den Stellen begruenden die leere Antwort
 5 lib/jobs.ts  # Job-LOGS fuer die Anzeige, keine Messung: ein halber Log ist der laufende Prozess
@@ -24,5 +23,5 @@
 1 lib/review-notes.ts  # wirft schon auf die kaputte Zeile MITTENDRIN; der Treffer ist das ENOENT-leer beim Widerruf
 1 lib/stored.ts  # lib/stored-half-line.bughunt.test.ts pinnt die Toleranz ausdruecklich - Umstellung ist eine eigene Entscheidung
 2 app/confirm/[name]/page.tsx  # fehlende candidate.json/PGN sind eigene Zustaende der Seite
-2 app/game/[name]/page.tsx  # dito
-2 app/page.tsx  # dito
+1 app/game/[name]/page.tsx  # fehlende candidate.json ist ein eigener Zustand der Seite; die PGN wirft seit 2026-09-22
+1 app/page.tsx  # dito

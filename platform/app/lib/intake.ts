@@ -35,7 +35,7 @@ function jobOn(row: QueueRow, lastJobs: ReadonlyMap<string, Job>): Job | null {
 export const failedOn = (row: IntakeRow): boolean => row.job?.state === "failed";
 
 /**
- * Always eight groups in chain order, rows newest first. Excluded: useless, archived, and rows
+ * Always nine groups in chain order, rows newest first. Excluded: useless, archived, and rows
  * without a video — nothing can be intaken without one, which covers a bare bundle and a
  * record-carrying one that never got its recording alike.
  */

@@ -9,6 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { readAnswer } from "@/lib/answer";
 import { failureParts, logName } from "@/lib/failure";
 import { when } from "@/lib/when";
 import type { TransferRow } from "@/lib/ingest";
@@ -172,6 +173,8 @@ export function TransferBoard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  /** Eigener Zustand: ein erfolgreicher Poll darf die Absage eines Knopfdrucks nicht wegwischen. */
+  const [fault, setFault] = useState<string | null>(null);
 
   async function startLabel(name: string) {
     setStarting(name);
@@ -204,9 +207,15 @@ export function TransferBoard() {
     let live = true;
     const load = () =>
       fetch("/api/ingest/jobs")
-        .then((r) => r.json() as Promise<Board>)
-        .then((value) => live && setBoard(value))
-        .catch(() => undefined);
+        .then((r) => readAnswer<Board>(r))
+        .then((value) => {
+          if (!live) return;
+          setBoard(value);
+          setFault(null);
+        })
+        // Ohne den Grund stand die Seite auf "laedt…", waehrend die Route ihn schon geschrieben
+        // hatte — ein stiller Fang ist hier nicht Geduld, sondern eine falsche Auskunft.
+        .catch((error: unknown) => live && setFault(String(error)));
     void load();
     const timer = setInterval(load, 5000);
     return () => {
@@ -215,7 +224,13 @@ export function TransferBoard() {
     };
   }, []);
 
-  if (!board) return <p className="text-muted-foreground text-sm">lädt…</p>;
+  if (!board) {
+    return fault ? (
+      <p className="text-destructive text-xs">{fault}</p>
+    ) : (
+      <p className="text-muted-foreground text-sm">lädt…</p>
+    );
+  }
   const transfers = [...board.transfers].sort((a, b) =>
     b.ts.localeCompare(a.ts),
   );
@@ -280,6 +295,7 @@ export function TransferBoard() {
           <p className="text-muted-foreground">Es lief noch kein Job.</p>
         ) : null}
         {note ? <p className="text-destructive">{note}</p> : null}
+        {fault ? <p className="text-destructive">{fault}</p> : null}
         <ul className="space-y-1">
           {board.jobs.slice(0, FRESH).map((job) => (
             <JobLine

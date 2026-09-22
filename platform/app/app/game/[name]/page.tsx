@@ -28,7 +28,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: Game
     loadMeta(name),
     loadCandidate(name).catch(() => null),
     chainState(name),
-    truthSans(name).catch(() => null),
+    truthSans(name),
   ]);
   const decided = await judgedKeys(name);
   const { census, boards, done } = await boardProgressOf(name, decided.keys());

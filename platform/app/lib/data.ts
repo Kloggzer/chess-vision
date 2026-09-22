@@ -100,7 +100,10 @@ export async function truthSans(name: string): Promise<string[] | null> {
 export async function readReference(name: string): Promise<Reference | null> {
   try {
     return parseReference(await readFile(path.join(gameDir(name), "reference.pgn"), "utf8"));
-  } catch {
+  } catch (e) {
+    // NUR ENOENT ist "keine Referenz". Jeder andere Fehler ist eine Datei, die da ist und nicht
+    // gelesen wurde — als `null` gemeldet wurde daraus "kein PGN", und `problem` blieb leer.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return null;
   }
 }
