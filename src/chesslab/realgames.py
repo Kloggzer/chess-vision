@@ -1179,7 +1179,8 @@ def rewarp_boards(session_dir: Path, rows: list[dict], profile, *,
 
 #: Prozesse für die beiden Frame-Phasen. Vier, nicht mehr: jeder Worker hält Frames von 11 MB und
 #: importiert cv2/numpy für sich, und die Abstürze dieser Maschine sind Speicher. 1 nimmt den
-#: seriellen Weg — der ist der Referenzpfad, gegen den `test_parallel_export_matches_serial` prüft.
+#: seriellen Weg; dass mehr dasselbe ergeben, halten `plan_chunks` und `merge_fit_stats` eigene
+#: Tests (der hier frueher genannte `test_parallel_export_matches_serial` hat nie existiert).
 EXPORT_WORKERS = 4
 #: Unter so vielen Zeilen je Worker zahlt sich ein Prozess nicht: er kostet Start (~3 s auf
 #: Windows) und den Vorlauf ab seiner Segmentgrenze.
