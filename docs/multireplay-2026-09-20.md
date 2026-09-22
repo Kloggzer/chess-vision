@@ -1,5 +1,23 @@
 # `multireplay`: N Konfigurationen in einem Durchgang — gemessen 1,8x, vorhergesagt 6,5x
 
+> **UNGUELTIG IN ZWEI PUNKTEN, 2026-09-23 (Codex-Bugjagd, am Log bestaetigt).** Ab dem ZWEITEN
+> Zusatzarm bekam keine Engine je einen CNN-Crop: jeder `TrackerStack` besitzt einen eigenen
+> `CropFrameStore`, der gemeinsam genutzte `OpenCvStages` wurde aber mit dem Store des ERSTEN
+> Zusatzstacks gebaut, und `croppedSeq` verhindert jede weitere Zustellung. In
+> `tmp/batch/multireplay/zehn4.log`: Hauptlauf 15/0/0, `k1` 15/0/0, **`k2` bis `k10` je 0/15/0** —
+> acht Logs, **72 ungueltige Arme**.
+>
+> 1. **Der Paritaetsnachweis unten ist leer.** Er lief mit EINEM Zusatzarm — dem einen Fall, in dem
+>    der Fehler nicht auftritt.
+> 2. **Die 1,8x sind nicht gemessen, was sie behaupten.** Sie entstanden mit genau der Aenderung,
+>    die den Fehler einbaute ("Crop-Schnitt je Frame einmal"), und danach machten neun von zehn
+>    Armen keine CNN-Arbeit mehr — laut der Tabelle unten 56 % der Laufzeit. Die echte Zahl liegt
+>    darunter und ist nicht gemessen.
+>
+> **Keine Engine-Entscheidung stand darauf:** kein Skript ruft `configs=` auf, und der Optimierer
+> lief ueber den visuellen Cache. Zu reparieren ist das Werkzeug, nicht eine Messung.
+
+
 ## Was es ist
 
 `replay <video> configs=<datei>` faehrt zusaetzliche Engines im SELBEN Bilddurchgang. Die Datei

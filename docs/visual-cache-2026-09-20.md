@@ -64,7 +64,7 @@ FREMDEN Cache, und dagegen schuetzt die Signatur.
 | Winkel | Faktor | teilt ueber |
 |---|---|---|
 | **visueller Cache** | **3,4x** | **alle Versuche** |
-| `multireplay` (`configs=`) | 1,8x | die Engines EINES Laufs |
+| `multireplay` (`configs=`) | ~~1,8x~~ ungemessen | die Engines EINES Laufs — die 1,8x sind seit 2026-09-23 ungueltig, `docs/multireplay-2026-09-20.md` |
 | Racing, 5 statt 10 Aufnahmen, Parallelitaet | zusammen 6,2x | — |
 
 Der Cache und `multireplay` greifen dieselbe Kosten an (die Beobachtung) und addieren sich

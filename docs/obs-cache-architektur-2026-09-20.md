@@ -103,6 +103,10 @@ FESTER Aufwand (JVM, Modell, Vorlauf): 19,8 s von 34,9 s = 57 %
 `multireplay` (N Konfigurationen in EINEM Durchlauf) so viel traegt: der Startaufwand faellt
 einmal statt N-mal an.
 
+> Diese Tabelle ist eine VORHERSAGE. Gemessen wurden spaeter 1,8x, und auch die sind seit
+> 2026-09-23 ungueltig: ab dem zweiten Zusatzarm bekam keine Engine einen CNN-Crop
+> (`docs/multireplay-2026-09-20.md`).
+
 | N | einzeln | multireplay | Faktor |
 |---|---|---|---|
 | 5 | 175 s | 44 s | 4,0x |
