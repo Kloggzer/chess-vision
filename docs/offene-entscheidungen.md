@@ -1654,3 +1654,19 @@ Verhaltensaenderung ohne einen einzigen belegten Fall. Der Befund ist als
 `test_a_new_quad_drops_the_settle_measurement`. **Wer die Zahl wieder misst und sie ist nicht
 mehr 0, gehoert gebaut** — dann am besten als Raeumen plus Knopf an der Kette, nicht als stilles
 Verwerfen.
+
+## 40. `occluders.json` nennt eine Kachelgroesse, die um Faktor 2 danebenliegt (2026-09-22)
+
+`data/occluders/occluders.json` meldet `tile: [1200, 1006]`; die Dateien daneben sind
+2400 x 2012. Gefunden beim Durchkaemmen von `synth/` — dort faellt `composite.plate_long_side`
+auf einen TODO-Pfad zurueck, wenn ein Pool kein `source` traegt, und genau dieser Rueckfall
+laeuft heute fuer den geparkten 1080-Pool korrekt, weil DESSEN Kacheln wirklich halb so gross
+sind.
+
+**Kein Fix, weil die Zahl unter `data/` liegt und heute niemand sie liest** — `composite`
+nimmt `source`, und das stimmt. Sie wird erst gefaehrlich, sobald ein Pool ohne `source`
+dazukommt: dann entscheidet der Rueckfall anhand einer falschen Zahl ueber den Massstab jedes
+hineinkomponierten Verdeckers.
+
+**Zu entscheiden:** die Zahl in der `occluders.json` korrigieren (Nutzer, eine Zeile unter
+`data/`), oder `plate_long_side` die Kachel messen lassen statt sie zu glauben.
