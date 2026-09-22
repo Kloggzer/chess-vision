@@ -58,6 +58,7 @@ import com.chesslab.tracker.ui.SectionHeading
 import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
+import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
@@ -115,6 +116,8 @@ private fun SettingsScreen(
     val app by viewModel.app.collectAsStateWithLifecycle()
     val pending by viewModel.restartRequired.collectAsStateWithLifecycle()
     val note by viewModel.note.collectAsStateWithLifecycle()
+    val saveError by viewModel.saveError.collectAsStateWithLifecycle()
+    val loadNote by viewModel.loadNote.collectAsStateWithLifecycle()
     val screen = remember { SettingsUiState() }
 
     // Search belongs to the developer list, where raw keys are useful.
@@ -136,6 +139,7 @@ private fun SettingsScreen(
         },
     ) { bars ->
         Column(Modifier.fillMaxSize().padding(bars)) {
+            (saveError ?: loadNote)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Accent) }
             if (screen.place is SettingsPlace.Developer && screen.searchOpen) SearchField(screen.query) { screen.query = it }
             SettingsList(

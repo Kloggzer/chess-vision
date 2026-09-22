@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
@@ -136,9 +137,15 @@ class SessionTimeline(
     private val queue =
         Channel<TimelineEntry>(queueSize, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { evicted.incrementAndGet() })
 
+    /** Non-null once a write failed; later rows are drained unwritten. The recorder shows it. */
+    @Volatile
+    var failure: String? = null
+        private set
+
     private val writer =
         scope.launch(context) {
             for (entry in queue) {
+                if (failure != null) continue
                 val text =
                     when (entry) {
                         is FrameRow -> TIMELINE_JSON.encodeToString(FrameRow.serializer(), entry)
@@ -147,13 +154,17 @@ class SessionTimeline(
                         is DecisionRow -> TIMELINE_JSON.encodeToString(DecisionRow.serializer(), entry)
                         is StateRow -> TIMELINE_JSON.encodeToString(StateRow.serializer(), entry)
                     }
-                WorkProfiler.span(WorkOperation.TIMELINE_WRITE, entry.seq) {
-                    file.appendText(text + "\n")
+                try {
+                    WorkProfiler.span(WorkOperation.TIMELINE_WRITE, entry.seq) {
+                        file.appendText(text + "\n")
+                    }
+                } catch (e: IOException) {
+                    failure = "timeline not written from row ${entry.seq}: ${e.message}"
                 }
             }
             // A loss the reader can see: the queue evicts its oldest rows silently, so the last row says how many.
             val lost = evicted.get()
-            if (lost > 0) {
+            if (lost > 0 && failure == null) {
                 val row = EventRow(seq.getAndIncrement(), -1L, -1L, "timeline_dropped", null, reason = "$lost rows evicted")
                 file.appendText(TIMELINE_JSON.encodeToString(EventRow.serializer(), row) + "\n")
             }

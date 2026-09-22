@@ -23,10 +23,12 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import java.io.IOException
 
 private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 private const val AFTER_E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -118,6 +120,32 @@ class GameSessionDriverTest {
 
             assertEquals(1, stackSaw, "the stack's own collector really is gone after the restart")
             assertEquals(2, session.state.value.moveCount, "the game survives the stack it was played on")
+            service.cancel()
+        }
+
+    /** A session directory that cannot be written (disk full) used to throw out of the event
+     *  collector: the game went on being tracked, but no later move reached the record. */
+    @Test
+    fun aRecorderThatCannotOpenIsReportedAndTheGameGoesOn() =
+        runTest {
+            val service = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+            val capture =
+                SessionCaptureController(
+                    source = NoFrames(),
+                    open = { throw IOException("No space left on device") },
+                    gates = RecordingGates(),
+                    prefs = { RecordingPrefs(enabled = true) },
+                    existingBytes = { 0L },
+                )
+            val session = GameSessionController(GameStore(File(dir, "games")), capture, { 1_700_000_000_000L }, { "game-$it" })
+            attachGameSession(service, session, events, status) { "board-a" }
+            status.value = idleTrackerStatus(STARTPOS)
+
+            events.emit(move("e2e4", "e4", AFTER_E4))
+            events.emit(move("e7e5", "e5", AFTER_E5))
+
+            assertEquals(2, session.state.value.moveCount, "the event collector must survive a failed recorder")
+            assertNotNull(session.state.value.recordingReason, "recording that never started must say so")
             service.cancel()
         }
 

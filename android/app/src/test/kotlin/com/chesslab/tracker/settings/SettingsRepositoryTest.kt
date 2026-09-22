@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.IOException
 
 /** DataStore needs a Context and a real file; the repository's decisions do not. */
 private class MemoryStore(
@@ -150,6 +151,53 @@ class SettingsRepositoryTest {
             assertEquals(TrackerConfig(), repo.config.value)
             assertTrue(repo.note.value != null)
         }
+
+    /** DataStore throws `IOException` on a broken file; before, `load` threw and `SettingsHost`
+     *  never published the repository. */
+    @Test
+    fun aStoreThatCannotBeReadStillLoadsAndSaysSo() =
+        runTest {
+            val repo = repository(BrokenStore(failReads = true), FakePipeline())
+            repo.load()
+            repo.awaitLoaded()
+            assertEquals(TrackerConfig(), repo.config.value)
+            assertTrue(repo.note.value != null, "a store that could not be read must not read as defaults")
+        }
+
+    /** The screen and the engine take the value at once; a write that then fails must say so. */
+    @Test
+    fun aFailedWriteIsPublishedAndTheNextGoodOneClearsIt() =
+        runTest {
+            val store = BrokenStore(failWrites = true)
+            val repo = repository(store, FakePipeline())
+            repo.update(TrackerConfig(censusThr = 41.0))
+            advanceUntilIdle()
+            assertEquals(41.0, repo.config.value.censusThr)
+            assertTrue(repo.saveError.value != null, "the store still holds the old value")
+
+            store.failWrites = false
+            repo.update(TrackerConfig(censusThr = 42.0))
+            advanceUntilIdle()
+            assertNull(repo.saveError.value)
+            assertEquals(42.0, ConfigCodec.decode(store.slots[SLOT_CONFIG]).config.censusThr)
+        }
+}
+
+private class BrokenStore(
+    private val failReads: Boolean = false,
+    var failWrites: Boolean = false,
+) : ConfigStore {
+    val slots = mutableMapOf<String, String>()
+
+    override suspend fun read(slot: String): String? = if (failReads) throw IOException("unreadable") else slots[slot]
+
+    override suspend fun write(
+        slot: String,
+        text: String,
+    ) {
+        if (failWrites) throw IOException("disk full")
+        slots[slot] = text
+    }
 }
 
 /**

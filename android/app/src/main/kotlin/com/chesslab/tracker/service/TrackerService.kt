@@ -514,7 +514,7 @@ class TrackerService :
                     sessionSettings.finished()
                     recording.finished()
                     syncNow(this, SETTLE_MINUTES)
-                }, { camera.videoFailure }),
+                }, { camera.videoFailure ?: recording.timelineFailure }),
                 // Derselbe Ledger, in den `HintController` schreibt: der Record belegt damit, was
                 // vorgesagt war, und eine Partie OHNE Vermerk behauptet nicht, es sei nichts gewesen.
                 hints = HintHost.ledger,

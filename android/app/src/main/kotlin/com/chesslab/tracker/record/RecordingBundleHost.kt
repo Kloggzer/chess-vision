@@ -48,6 +48,12 @@ class RecordingBundleHost(
     private var videoStarted = false
 
     @Volatile
+    private var closedFailure: String? = null
+
+    /** Why the session's timeline stopped being written; kept past its close until the next session. */
+    val timelineFailure: String? get() = timeline?.failure ?: closedFailure
+
+    @Volatile
     private var closed = false
 
     /**
@@ -130,6 +136,7 @@ class RecordingBundleHost(
     @Synchronized
     private fun adopt(next: SessionTimeline) {
         timeline?.close()
+        closedFailure = null
         preRollFrames.forEach(next::frame)
         preRollFrames.clear()
         timeline = next
@@ -228,7 +235,7 @@ class RecordingBundleHost(
                 camera.videoBitRate,
             ),
         )
-        detach()?.close()
+        detach()?.let(::closeKeepingFailure)
         session = null
         videoStarted = false
         // Deliberately no re-arm: this runs for EVERY stop — the cap, the disabled toggle, the
@@ -241,8 +248,13 @@ class RecordingBundleHost(
      * wartet erst dann auf den Drain — ein Frame in diesem Fenster ging ungezaehlt verloren.
      */
     private fun closeCurrent() {
-        detach()?.close()
+        detach()?.let(::closeKeepingFailure)
         session = null
+    }
+
+    private fun closeKeepingFailure(closing: SessionTimeline) {
+        closing.close()
+        closing.failure?.let { closedFailure = it }
     }
 
     @Synchronized

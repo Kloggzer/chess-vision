@@ -2,6 +2,7 @@ package com.chesslab.tracker.record
 
 import kotlinx.serialization.Serializable
 import java.io.File
+import java.io.IOException
 
 private const val KB: Long = 1024L
 
@@ -91,7 +92,7 @@ class SessionCaptureController(
     var recorder: SessionRecorder? = null
         private set
 
-    /** Non-null once the size cap stopped recording. Nothing is overwritten or wrapped. */
+    /** Non-null once the size cap or a failed start stopped recording. Nothing is overwritten. */
     var stoppedReason: String? = null
         private set
 
@@ -236,12 +237,19 @@ class SessionCaptureController(
         return active.finish().also(hooks.finished)
     }
 
+    /** Opening writes files, so it can fail mid-game; that must halt RECORDING, not the event
+     *  collector that called it. A failed hook leaves the stills running and says so. */
     private fun startRecorder(frame: CaptureFrame): SessionRecorder? {
         if (!prefs().enabled || stoppedReason != null) return null
-        return open(frame)?.also {
-            recorder = it
-            hooks.opened(it)
+        try {
+            open(frame)?.also {
+                recorder = it
+                hooks.opened(it)
+            }
+        } catch (e: IOException) {
+            stoppedReason = "recording could not start: ${e.message}"
         }
+        return recorder
     }
 
     private fun capReached(): Boolean {

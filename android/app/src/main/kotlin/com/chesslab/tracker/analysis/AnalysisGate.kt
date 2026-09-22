@@ -33,12 +33,9 @@ data class AnalysisSettings(
 /** Why analysis is suspended. `null` from [gateBlock] means it may run. */
 enum class GateBlock { OFF, WARMUP, THERMAL, BATTERY, FRAME_BUDGET }
 
-/**
- * The whole gating rule. Order matters only for which reason the UI shows; any hit suspends.
- *
- * [GateBlock.FRAME_BUDGET] is the one that is not a device concern: if the tracker has already
- * dropped below 15 fps, analysis is what gets sacrificed, every time.
- */
+/** The rule for LIVE analysis — eval bar and the hint's mate line; any hit suspends, order only
+ *  picks the reason shown. Below 15 fps live analysis is sacrificed, every time. The review pass
+ *  is exempt by design (`ReviewHost`, `docs/game-review.md`); `offene-entscheidungen.md` 45. */
 fun gateBlock(
     inputs: GateInputs,
     settings: AnalysisSettings = AnalysisSettings(),

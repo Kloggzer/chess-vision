@@ -4,7 +4,7 @@
 app/src/androidTest/kotlin/com/chesslab/tracker/analysis/ReviewBudgetBenchmark.kt 1
 app/src/debug/kotlin/com/chesslab/tracker/benchmark/AndroidOptimizationBenchmarkActivity.kt 3
 app/src/main/kotlin/com/chesslab/tracker/analysis/Accuracy.kt 4
-app/src/main/kotlin/com/chesslab/tracker/analysis/AnalysisGate.kt 2
+app/src/main/kotlin/com/chesslab/tracker/analysis/AnalysisGate.kt 1
 app/src/main/kotlin/com/chesslab/tracker/analysis/AnalysisSettingsHost.kt 1
 app/src/main/kotlin/com/chesslab/tracker/analysis/MoveQuality.kt 1
 app/src/main/kotlin/com/chesslab/tracker/analysis/OpeningBook.kt 2

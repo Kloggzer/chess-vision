@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import com.chesslab.tracker.analysis.GateBlock
 import com.chesslab.tracker.analysis.MateLineResolver
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.hints.FenClock
@@ -16,7 +17,12 @@ import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.speech.SpeakerHost
 import com.chesslab.tracker.ui.analysis.AnalysisHost
 import com.chesslab.tracker.ui.analysis.stockfishEngineFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -51,15 +57,38 @@ internal fun rememberHintRequest(
                 val outcome =
                     HintHost.controller.request(
                         moment = { moment(viewModel, games, analysis, clock) },
-                        resolveLine = { position, uci ->
-                            withContext(Dispatchers.Default) { resolver.resolve(position, listOf(uci)).sanLine }
-                        },
+                        resolveLine = gatedLineResolver(resolver, analysis.block),
                     )
                 announce(outcome)
             }
         }
     }
 }
+
+/** Die Mattlinie ist ein ZWEITER Stockfish neben dem Tracker und faellt deshalb, sobald `gateBlock`
+ *  zuschlaegt — nicht erst beim zweiten Blick des Controllers, der das Ergebnis nur verwirft. */
+internal fun gatedLineResolver(
+    resolver: MateLineResolver,
+    gate: StateFlow<GateBlock?>,
+): suspend (String, String) -> List<String> =
+    { position, uci ->
+        withContext(Dispatchers.Default) {
+            val line = async { resolver.resolve(position, listOf(uci)).sanLine }
+            val guard =
+                launch {
+                    gate.first { it != null }
+                    line.cancel()
+                }
+            try {
+                line.await()
+            } catch (_: CancellationException) {
+                ensureActive()
+                emptyList()
+            } finally {
+                guard.cancel()
+            }
+        }
+    }
 
 /** Gesprochen wird BEIDES — Tipp und Absage. Die Karte kommt aus `HintController.state`. */
 private fun announce(outcome: HintOutcome) {

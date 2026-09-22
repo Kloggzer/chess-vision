@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.IOException
+import kotlin.coroutines.CoroutineContext
 
 private const val MB = 1024L * 1024L
 
@@ -62,6 +64,8 @@ data class RecordingUi(
     val sessionBytes: Long = 0L,
     /** Sessions the PC has acknowledged — the one thing that makes deleting one here safe. */
     val transferred: Set<String> = emptySet(),
+    /** The last load, save or delete that did not happen. */
+    val error: String? = null,
 )
 
 /**
@@ -74,6 +78,7 @@ class RecordingViewModel(
     private val sessions: SessionStore,
     private val settings: RecordingSettings,
     private val scope: CoroutineScope,
+    private val context: CoroutineContext = Dispatchers.IO,
 ) {
     private val mutable = MutableStateFlow(RecordingUi())
     val ui: StateFlow<RecordingUi> = mutable
@@ -90,28 +95,40 @@ class RecordingViewModel(
                 )
         }
 
+    /** `save` hands the value to the capture path before it writes, so the switch follows that. */
     fun setPrefs(prefs: RecordingPrefs) =
         io {
-            settings.save(prefs)
-            mutable.value = mutable.value.copy(prefs = prefs)
+            try {
+                settings.save(prefs)
+                mutable.value = mutable.value.copy(prefs = prefs, error = null)
+            } catch (e: IOException) {
+                mutable.value = mutable.value.copy(prefs = settings.prefs.value, error = "Not saved (${e.message}) — lost on restart")
+            }
         }
 
     fun deleteSession(id: String) =
         io {
-            sessions.delete(id)
+            val deleted = sessions.delete(id)
             val list = sessions.list()
             mutable.value =
                 mutable.value.copy(
                     sessions = list,
                     sessionBytes = sessions.totalBytes(),
                     transferred = list.filter { readMark(sessions.dir(it.id)) != null }.map { it.id }.toSet(),
+                    error = if (deleted) null else "$id could not be deleted completely",
                 )
         }
 
     fun sessionDir(id: String): File = sessions.dir(id)
 
     private fun io(block: suspend () -> Unit) {
-        scope.launch(Dispatchers.IO) { block() }
+        scope.launch(context) {
+            try {
+                block()
+            } catch (e: IOException) {
+                mutable.value = mutable.value.copy(error = "Storage error: ${e.message}")
+            }
+        }
     }
 }
 
@@ -149,6 +166,7 @@ fun RecordingSection() {
         )
         PreferenceRow("Recording status", recordingStatus(live, tracking = controller != null, enabled = ui.prefs.enabled))
         live.recordingReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
+        ui.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
         ValuePreference(
             title = "Storage limit",
             summary = "${formatBytes(ui.sessionBytes)} in ${ui.sessions.size} sessions",

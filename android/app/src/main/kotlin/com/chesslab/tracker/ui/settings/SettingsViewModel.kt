@@ -26,6 +26,10 @@ class SettingsViewModel(
     val config: StateFlow<TrackerConfig> get() = settings.config
     val app: StateFlow<AppSettings> get() = settings.appSettings
 
+    /** The store's own trouble — unreadable at start, or a write that did not land. */
+    val saveError: StateFlow<String?> get() = settings.saveError
+    val loadNote: StateFlow<String?> get() = settings.note
+
     private val restart = MutableStateFlow<Set<String>>(emptySet())
 
     /** Knobs whose persisted value is ahead of the running tracker until it restarts. */

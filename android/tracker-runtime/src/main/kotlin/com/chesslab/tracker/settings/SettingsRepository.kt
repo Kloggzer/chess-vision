@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.IOException
 
 /** Python's `_apply_live_tuning` note — the user's proof that the change took effect. */
 const val NOTE_TUNED_LIVE = "tracker tuning updated live"
@@ -52,6 +53,12 @@ class SettingsRepository(
     /** Non-null when the stored settings could not be read and the defaults were used instead. */
     val note: StateFlow<String?> = loadNote.asStateFlow()
 
+    private val saveState = MutableStateFlow<String?>(null)
+
+    /** Non-null while a write has failed: screen and engine run the new value, the next process
+     *  starts with the old one. Cleared once every slot has landed again. */
+    val saveError: StateFlow<String?> = saveState.asStateFlow()
+
     private val appState = MutableStateFlow(AppSettings())
     val appSettings: StateFlow<AppSettings> = appState.asStateFlow()
 
@@ -67,6 +74,9 @@ class SettingsRepository(
 
     private val writing = Mutex()
 
+    /** Guarded by [writing]. */
+    private val failedSlots = mutableMapOf<String, String>()
+
     /**
      * Read the persisted truth. Called exactly once per process, by [SettingsHost].
      *
@@ -78,8 +88,10 @@ class SettingsRepository(
             val decoded = ConfigCodec.decode(store.read(SLOT_CONFIG))
             loadNote.value = decoded.note
             current.value = decoded.config
-            publishApp(decodeAppSettings(store.read(SLOT_APP)))
             submit(decoded.config)
+            publishApp(decodeAppSettings(store.read(SLOT_APP)))
+        } catch (e: IOException) {
+            loadNote.value = "stored settings could not be read (${e.message}); defaults in use"
         } finally {
             loadedState.value = true
         }
@@ -122,7 +134,17 @@ class SettingsRepository(
         slot: String,
         latest: () -> String,
     ) {
-        scope.launch { writing.withLock { store.write(slot, latest()) } }
+        scope.launch {
+            writing.withLock {
+                try {
+                    store.write(slot, latest())
+                    failedSlots.remove(slot)
+                } catch (e: IOException) {
+                    failedSlots[slot] = "settings not saved (${e.message}); a restart brings back the old values"
+                }
+                saveState.value = failedSlots.values.firstOrNull()
+            }
+        }
     }
 
     private fun publishApp(new: AppSettings) {

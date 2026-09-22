@@ -178,6 +178,31 @@ class RecordingBundleHostTest {
             )
         }
 
+    /** A timeline write that fails (disk full) must neither kill the writer's scope nor go unreported. */
+    @Test
+    fun aTimelineThatCannotBeWrittenIsReportedPastItsClose() =
+        runTest {
+            val host =
+                RecordingBundleHost(
+                    FakeVideoCamera(),
+                    RecordingSettings(MemoryStore()),
+                    sessionsRoot,
+                    this,
+                    UnconfinedTestDispatcher(testScheduler),
+                )
+            host.opened(SessionRecorder(sessionDir, SessionMeta("s", "default", 2560, 1440)))
+            File(sessionDir, "timeline.jsonl").apply { delete() }.mkdirs()
+
+            host.frame(frameAt(1_000_000_000L, OPENING_FEN))
+            host.frame(frameAt(2_000_000_000L, OPENING_FEN))
+            advanceUntilIdle()
+            assertNotNull(host.timelineFailure, "the recording page must learn the timeline broke")
+
+            host.finished()
+            advanceUntilIdle()
+            assertNotNull(host.timelineFailure, "the failure outlives the session it ended")
+        }
+
     /** The ring is the video's: a frame row the footage no longer covers describes nothing. */
     @Test
     fun aFrameOlderThanTheVideoRingIsDropped() =

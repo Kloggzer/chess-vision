@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.StateFlow
  *   cancels the run in flight ([ReviewViewModel.load]) rather than starting a second Stockfish.
  * - **It must be visible and stoppable from outside.** [model] is what the app bar's analysis banner
  *   reads, on every screen, and that banner carries the only Stop control there is.
+ * - **Not under `gateBlock`.** Heat, battery and frame budget never reach it, deliberately: it is
+ *   started by the user, visible and stoppable (`docs/game-review.md`).
  *
  * There is deliberately no foreground service. specs/43 needed one for the tracker because the
  * tracker owns the camera and must survive the app being backgrounded for a whole game; a review is

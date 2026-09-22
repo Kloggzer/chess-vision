@@ -2368,7 +2368,8 @@ Geschwister im selben `Promise.all` wirft schon), die `stat`-Schluessel in `crop
 `taken`-Schleifen in `frame-flag.ts`/`api/pgn` (`COPYFILE_EXCL` faengt den Fall), `perf.sweepLog`
 und das `readdir` in `jobs.videoInput`.
 
-## 45. Ein Gate fuer drei Stockfish-Besitzer? — Live ja, Review bewusst nicht (2026-09-23)
+
+## 46. Ein Gate fuer drei Stockfish-Besitzer? — Live ja, Review bewusst nicht (2026-09-23)
 
 Astra-Befund H3: "analysis is what gets sacrificed, every time" (`AnalysisGate.gateBlock`) galt nur
 fuer `AnalysisHost`. **Tipp-Pfad: gebaut.** `MateLineResolver` oeffnete fuer die Mattlinie einen

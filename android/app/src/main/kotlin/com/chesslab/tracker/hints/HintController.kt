@@ -109,7 +109,7 @@ class HintController(
         }
 
     /** Die Rangordnung von `gateBlock` bleibt, wie sie ist: ein Tipp kehrt sie nicht um, er bekommt
-     *  eine Absage. Der Kommentar "analysis is what gets sacrificed, every time" gilt weiter. */
+     *  eine Absage, und die laufende Mattlinie bricht ab (`gatedLineResolver`). */
     private fun fault(
         moment: HintMoment,
         side: HintSide,

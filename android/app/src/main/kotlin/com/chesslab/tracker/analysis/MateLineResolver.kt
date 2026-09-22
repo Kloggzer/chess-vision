@@ -5,6 +5,7 @@ import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveGenerator
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 
 private const val MAX_EXTENSION_SEARCHES = 12
 private const val MAX_LINE_PLIES = 72
@@ -45,12 +46,13 @@ class MateLineResolver(
         moves: MutableList<String>,
     ) {
         val engine = engineFactory() ?: return
+        val context = currentCoroutineContext()
         try {
             engine.start(budget.threads, budget.hashMb)
             repeat(MAX_EXTENSION_SEARCHES) {
                 currentCoroutineContext().ensureActive()
                 val best =
-                    runCatching { engine.analyse(board.fen, budget.capMs, budget.multiPv, budget.nodes) }
+                    runCatching { engine.analyse(board.fen, budget.capMs, budget.multiPv, budget.nodes) { !context.isActive } }
                         .getOrNull()
                         ?.firstOrNull()
                         ?.takeIf { it.mate != null }
