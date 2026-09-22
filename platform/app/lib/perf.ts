@@ -106,7 +106,7 @@ function perfDir(): string {
 /** `sweep_infer_size.py` writes a TEXT log; the veto figure is linked, never parsed (§7.5). */
 export async function sweepLog(): Promise<{ file: string; present: boolean }> {
   const file = path.join(perfDir(), "sweep_infer_size.log");
-  return { file, present: await stat(file).then(() => true, () => false) };
+  return { file, present: (await stat(file).catch(absentOnly)) !== null };
 }
 
 export async function loadPerf(): Promise<PerfFile[]> {

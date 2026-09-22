@@ -1,10 +1,8 @@
-import { stat } from "node:fs/promises";
-import path from "node:path";
 import Link from "next/link";
 import { PageTitle } from "@/app/page-title";
 import { SEGMENTS, segment } from "@/components/segmented";
 import { LEGACY_LABEL } from "@/lib/classes";
-import { classScheme, corpusIndex, datasetDir, listDatasets, loadDatasetMeta, trainShares, type DatasetEntry } from "@/lib/corpus";
+import { classScheme, corpusIndex, listDatasets, newestDataset, loadDatasetMeta, trainShares, type DatasetEntry } from "@/lib/corpus";
 import { listPacks, sessionDirty } from "@/lib/packs";
 import { groupByPack, loadPerf, sweepLog } from "@/lib/perf";
 import { loadPool, occludedFit, snapshotOccluded, type Pool } from "@/lib/pool";
@@ -35,15 +33,6 @@ async function datasetView(name: string, entries: DatasetEntry[], pool: Pool): P
   return { name, split, scheme, index, shares, fit, hasReal: shares.rows.some((row) => row.real) };
 }
 
-/** Default is the dataset whose `split.json` was written last — the one a rebuild just produced. */
-async function newest(entries: DatasetEntry[]): Promise<string | null> {
-  const times = await Promise.all(
-    entries.map((entry) => stat(path.join(datasetDir(entry.name), "split.json")).then((s) => s.mtimeMs, () => 0)),
-  );
-  const best = times.reduce((top, time, i) => (time > times[top] ? i : top), 0);
-  return entries[best]?.name ?? null;
-}
-
 function Chips({ names, current }: { names: string[]; current: string | null }) {
   return (
     <nav className={SEGMENTS}>
@@ -65,7 +54,7 @@ export default async function CorpusPage({ searchParams }: PageProps<"/corpus">)
   const [pool, datasets, wanted] = await Promise.all([loadPool(), listDatasets(), searchParams]);
   const built = datasets.filter((entry) => entry.split !== null);
   const asked = typeof wanted.d === "string" ? wanted.d : null;
-  const selected = built.some((entry) => entry.name === asked) ? asked : await newest(built);
+  const selected = built.some((entry) => entry.name === asked) ? asked : await newestDataset(built);
   const view = selected ? await datasetView(selected, built, pool) : null;
   const [entries, bundles, dirty, perf, sweep] = await Promise.all([
     modelReadProvenance(),

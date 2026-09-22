@@ -10,7 +10,11 @@
 # Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
 # Erweitert 2026-09-22: der Erkenner zeigt jetzt auf die FORM, nicht auf den Funktionsnamen.
 # `readdir`/`stat` zaehlen mit, wenn daraus eine MESSPOPULATION wird (leere Sammlung, oder ein
-# Merkposten, der die Aufnahme aus ihr nimmt); ein reines da/nicht-da zaehlt weiter nicht.
+# Merkposten, der die Aufnahme aus ihr nimmt).
+# Erweitert 2026-09-23: auch ein reines da/nicht-da zaehlt, sobald eine Plattenfrage
+# (`stat`/`open`/`access`/`readdir`/`readFile`) auf JEDEN Fehler eine ERFUNDENE Antwort gibt -
+# `() => false`, `"none"`, `-1`, `catch { return false }`, `{ width: 720, height: 816 }`. Die 16
+# Stellen, die er dabei neu sah, stehen auf `absentOnly`/`stampOrMissing` (`*.bughunt-2026-09-23b.test.ts`).
 # Auch strukturierte Leeren wie `{ classMode: null }` und `{ file: n, runs: [] }` zaehlen.
 1 lib/atomic.ts  # liest die Datei, die es gleich unter Stempel-Riegel schreibt; leer IST dort ein gueltiger Vorzustand
 1 lib/corpus-query.ts  # unlesbares log.jsonl nimmt die Aufnahme absichtlich aus der Antwort, statt den Phasenfilter still abzuschalten

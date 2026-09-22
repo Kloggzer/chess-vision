@@ -2408,3 +2408,48 @@ Alle 24 Saetze unter `data/datasets/` mit `manifest.jsonl` zeigen zu 100 % mit `
 Zellen (jetzt `SystemExit`). `session_colour.py` und `lr_range_test.py` sterben laut an
 `load_packed` ("built from session packs"). **Offen:** ob sie einen Pack-Leser bekommen
 (`resolve_dataset_packs` + `_pack_at`, wie `oof_review.py`) oder geparkt werden.
+
+## Nachtrag zu den Web-Blindstellen: Zaehlen ohne Kopf, und der Mess-Tueren-Erkenner sieht die Handfunde (2026-09-23)
+
+**Erledigt: der kaputte Frame-Kopf.** `bareFrames` zaehlt jetzt ueber `data.countFrames`, das nur
+Namen liest; `listFrameStems` misst weiter und WIRFT auf einen kaputten Kopf, jetzt mit dem
+Dateipfad in der Meldung (`<pfad>: kein lesbarer Bildkopf`). Sichtbar wird so ein Frame dort, wo
+seine Groesse gebraucht wird (Bestaetigen, Zuege) — die Startseite zaehlt ihn als Datei mit.
+
+**Erledigt: der Erkenner.** `measurementDoorsIn` zaehlt jetzt jede Plattenfrage
+(`stat`/`open`/`access`/`readdir`/`readFile`), die auf JEDEN Fehler eine erfundene Antwort gibt:
+`.then(ok, () => null | "none" | true | false)`, `catch { return false }`, `-1`, ein Objekt nur aus
+Literalen. Er sah damit 16 weitere Stellen; alle stehen auf `absentOnly`/`stampOrMissing`
+(`*.bughunt-2026-09-23b.test.ts`), die oben als "ohne roten Test" offen gelassenen eingeschlossen.
+`absentOnly` liegt jetzt exportiert in `lib/measurement.ts`; zehn private Kopien in `lib/` bleiben.
+Ledger unveraendert 11 Zeilen / Summe 17.
+
+**Bewusst NICHT gefangen:** `catch { return false }` ohne Plattenzugriff im `try` (echte
+Ja/Nein-Fragen wie `JSON.parse`); ein Griff als benannte Funktion (`.catch(noEntry)`) — der
+Erkenner sieht nicht hinein; eine Plattenfrage, deren Promise erst in einer spaeteren Aussage ihren
+Griff bekommt.
+
+## Nachtrag: die drei Pack-blinden Skripte lesen wieder (2026-09-23)
+
+Zum Eintrag "Drei Analyse-Skripte koennen keinen heutigen Datensatz lesen": **keines geparkt.**
+Tuer: `gradcam._crop_reader` (Zeile -> Bild) fuer `gradcam_summary.py` und `session_colour.py`,
+`resolve_dataset_packs(...) or load_packed(...)` + `PackedSquareDataset` fuer `lr_range_test.py`
+(wie `train._load_training_pack` und `evaluate`). Beide Wege loesen je ZEILE ueber den Pfad auf und
+bringen `read_pack` (Groesse, fremde Pack-Namen, Digest gegen das Pack-Manifest) bzw. `_load_packed`
+(Digest, Groesse, Fingerabdruck) mit. `open_packed_rows` bleibt Monolith-only.
+Tests: `tests/test_bug_hunt_20260923_packleser.py` (zwei Packs, Manifest umgekehrt sortiert).
+
+**`lr_range_test.py` misst jetzt einen anderen Verlust als vorher.** Vorgabe `--head occlusion`
+wie `chesslab train`: `OcclusionLoss` mit Gewichten aus `visible_class_counts`
+(`classification_eligible`), Ausgang 13+1, Groesse aus dem Pack statt aus dem Manifest (v7-80 traegt
+`out_size` 128 bei 80-px-Packs), `priority_paths` wie `train`. Das alte Rezept bleibt unter
+`--head combined`. Folge: `sweep_architectures.sh` ruft ohne `--head` und bekommt ab jetzt das
+Band des Occlusion-Verlusts; Baender aus frueheren Laeufen (auch die "~1e-07 bei vier von sieben")
+sind auf CE ohne Maske gemessen und nicht vergleichbar. **Offen:** `--weight-cap`,
+`--coverage-weight`, `--visible-max`, `--dark-min`, `--label-smoothing` spiegelt das Skript nicht;
+es misst die Vorgaben von `train`.
+
+**Nebenbefund, nicht behoben (`src/` war gesperrt):** `gradcam._crop_reader` und damit
+`gradcam.py`, die Web-Route und `gradcam_summary.py` wenden `eval_transform_for(cfg)` ohne
+`skip_baked` an; auf einem mit CLAHE gebackenen Pack liefe CLAHE doppelt. Heute ohne Wirkung: kein
+`packed_meta.json` unter `data/datasets/` traegt `baked` (nachgesehen 2026-09-23).

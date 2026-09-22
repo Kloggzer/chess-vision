@@ -214,6 +214,11 @@ const READS = /\b(readFile|readJsonl|jsonlRows|jsonlRowsStrict|loadMeasurement|l
  *  entsteht — eine leere Sammlung, oder ein Merkposten, der die Aufnahme aus ihr nimmt. */
 const DIR_READS = /\b(readdir|stat)\s*\(/;
 const COLLECTION = /^(\[\s*\]|new Map\(\s*\)|new Set\(\s*\))$/;
+/** Die Frage „ist es da?" an die Platte. Wer JEDEN Fehler darauf mit einer festen Antwort
+ *  beantwortet, liest ein EACCES als „fehlt" — so wurde ein menschliches PGN ueberschrieben. */
+const PROBES = /\b(stat|lstat|open|access|readdir|readFile)\s*\(/;
+/** `codeOnly` laesst die Anfuehrungszeichen stehen und leert den Inhalt: `"none"` bleibt ein Literal. */
+const LITERAL = /^(null|undefined|true|false|-?\d+(\.\d+)?|"[^"]*"|'[^']*'|`[^`$]*`)$/;
 
 /** Zerlegt an Kommas der OBERSTEN Ebene; Klammern, Klammerpaare und Zeichenketten bleiben heil. */
 function topLevelParts(text: string): string[] {
@@ -254,6 +259,28 @@ function fieldsOf(v: string): string[] {
 function isEmptyAnswer(raw: string): boolean {
   const v = bare(raw);
   return SCALAR_EMPTY.test(v) || fieldsOf(v).some(isEmptyAnswer);
+}
+
+/** Eine ERFUNDENE Antwort: ein Literal (`false`, `"none"`, `-1`) oder eine Huelle nur aus
+ *  Literalen (`{ width: 720, height: 816 }`). Was aus dem Fehler etwas BAUT, ist keine. */
+function invented(raw: string): boolean {
+  const v = bare(raw);
+  if (LITERAL.test(v) || SCALAR_EMPTY.test(v)) return true;
+  const inner = v.startsWith("[") && v.endsWith("]") ? topLevelParts(v.slice(1, -1)) : null;
+  const parts = inner ?? (v.startsWith("{") && v.endsWith("}") ? topLevelParts(v.slice(1, -1)) : []);
+  if (inner === null && parts.some((p) => !p.includes(":"))) return false;
+  const values = inner ?? parts.map((p) => p.slice(p.indexOf(":") + 1));
+  return values.length > 0 && values.every(invented);
+}
+
+const madeUp = (raw: string): boolean => isEmptyAnswer(raw) || invented(raw);
+
+/** Ein Griff an einer Plattenfrage, der nie wirft und nur Erfundenes zurueckgibt. Die Aussage
+ *  endet am `;` davor — ein `stat` im Satz davor ist nicht dieser Empfaenger. */
+function probeDoor(scope: string, handler: string, result: string): boolean {
+  if (/\bthrow\b/.test(handler) || !PROBES.test(scope.slice(scope.lastIndexOf(";") + 1))) return false;
+  const answers = [result, ...returnedValues(result)];
+  return answers.some(invented);
 }
 
 /** Eine leere SAMMLUNG heisst „null Zeilen gemessen"; `null`/`false` heisst „nicht da". Nur das
@@ -333,7 +360,7 @@ function swallowed(handler: string): string[] | null {
     ...returnedValues(handler),
     ...[...handler.matchAll(/(?<![=!<>])=(?![=>])/g)].map((m) => valueAfter(handler, (m.index ?? 0) + 1)),
   ].filter((v) => v.trim().length > 0);
-  return values.length === 0 || values.every(isEmptyAnswer) ? values : null;
+  return values.length === 0 || values.every(madeUp) ? values : null;
 }
 
 /** Die FORM, die die Politik fuenfmal neu erfand: ein gescheitertes LESEN wird zu einer leeren
@@ -350,7 +377,8 @@ export function measurementDoorsIn(source: string): number {
     if (result === null) continue;
     const scope = text.slice(Math.max(0, at - 240), at);
     const after = text.slice(closingParen(text, at + m[0].length - 1));
-    if (READS.test(scope) ? isEmptyAnswer(result) : dirDoor(scope, after, [result])) n += 1;
+    const door = READS.test(scope) ? madeUp(result) : dirDoor(scope, after, [result]);
+    if (door || probeDoor(scope, handler ?? "", result)) n += 1;
   }
   for (const m of text.matchAll(/\btry\s*\{/g)) {
     const open = text.indexOf("{", m.index ?? 0);
@@ -359,7 +387,8 @@ export function measurementDoorsIn(source: string): number {
     const c = /^\s*\}\s*catch\s*(\([^)]*\))?\s*\{/.exec(after);
     if (!c) continue;
     const values = swallowed(loopBody(after, after.indexOf("{", c[0].length - 1)));
-    if (values !== null && (READS.test(body) || dirDoor(body, after, values))) n += 1;
+    if (values === null) continue;
+    if (READS.test(body) || dirDoor(body, after, values) || (PROBES.test(body) && values.some(invented))) n += 1;
   }
   return n;
 }

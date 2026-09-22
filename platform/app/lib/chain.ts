@@ -111,7 +111,8 @@ async function exportedSession(name: string): Promise<{ exported: boolean; settl
 
 /** The stamp both producers write: `${ms}:${bytes}`, the shape `lib/session.ts` caches on. */
 async function stampOf(file: string): Promise<string | null> {
-  return stat(file).then((s) => `${Math.floor(s.mtimeMs)}:${s.size}`, () => null);
+  const s = await stat(file).catch(absentOnly);
+  return s === null ? null : `${Math.floor(s.mtimeMs)}:${s.size}`;
 }
 
 /** Wer die Aufnahme geschnitten hat, als der Lauf lief (`chesslab.provenance.source_stamp`). */
@@ -378,14 +379,17 @@ export async function referenceOrigin(name: string): Promise<ReferenceOrigin> {
   let digest: string;
   try {
     digest = md5(await readFile(path.join(dir, "reference.pgn")));
-  } catch {
+  } catch (e) {
+    // Nur ENOENT ist "none": ein EACCES liess sonst das Handy-PGN als menschliche Referenz durch.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return "none";
   }
   const games = path.join(dir, "files", "games");
   let pgns: string[] = [];
   try {
     pgns = (await readdir(games)).filter((f) => f.endsWith(".pgn"));
-  } catch {
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return "outside"; // no bundle to have written it
   }
   for (const file of pgns) {

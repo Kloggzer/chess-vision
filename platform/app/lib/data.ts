@@ -7,6 +7,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
+import { absentOnly } from "@/lib/measurement";
 import { serialize } from "@/lib/serialize";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
 import { parseReference, type Reference } from "@/lib/pgn";
@@ -64,7 +65,7 @@ export function gameDir(name: string): string {
  * fuehrt jedes Verzeichnis als Aufnahme — mit Trainingseingabe darin.
  */
 export async function requireRecording(dir: string, session_id: string): Promise<void> {
-  const ok = await stat(dir).then((s) => s.isDirectory(), () => false);
+  const ok = (await stat(dir).catch(absentOnly))?.isDirectory() ?? false;
   if (!ok) throw new Error(`keine Aufnahme ${session_id} auf dieser Maschine (${dir})`);
 }
 
@@ -125,7 +126,9 @@ async function frameSize(file: string): Promise<{ width: number; height: number 
   const bytes = await readFile(file).catch(absentOnly);
   if (bytes === null) return null;
   // Kein Rueckfall auf 720x816: eine geratene Groesse legt die Zugpfeile auf fremde Felder.
-  const meta = await sharp(bytes).metadata();
+  const meta = await sharp(bytes).metadata().catch((cause: unknown) => {
+    throw new Error(`${file}: kein lesbarer Bildkopf`, { cause });
+  });
   if (!meta.width || !meta.height) throw new Error(`${file}: kein Bildkopf`);
   return { width: meta.width, height: meta.height };
 }
@@ -145,15 +148,8 @@ export async function reviewFramePath(name: string, stem: string): Promise<strin
   return null;
 }
 
-/** Nur ENOENT heisst „dieses Verzeichnis gibt es nicht". Ein Fehler AM Verzeichnis gehoert dem
- *  Aufrufer — als leere Liste gemeldet sieht eine Stoerung aus wie eine Aufnahme ohne Frames. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
-}
-
-/** Every review-frame stem on disk, both sources, numerically sorted; `labeled` wins a tie. */
-export async function listFrameStems(name: string): Promise<FrameStem[]> {
+/** Every review-frame stem on disk, both sources, `labeled` wins a tie — named, not opened. */
+async function frameEntries(name: string): Promise<Omit<FrameStem, "width" | "height">[]> {
   const stemsOf = async (dir: string) => {
     const entries = (await readdir(path.join(gameDir(name), dir)).catch(absentOnly)) ?? [];
     return entries.filter((e) => /^\d+\.(webp|png)$/.test(e)).map((e) => e.replace(/\.\w+$/, ""));
@@ -166,6 +162,17 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
       seen.add(stem);
     }
   }
+  return found;
+}
+
+/** Zaehlen braucht keinen Bildkopf: ein kaputter Frame nahm sonst die Startseite mit. */
+export async function countFrames(name: string): Promise<number> {
+  return (await frameEntries(name)).length;
+}
+
+/** Every review-frame stem with its measured size, numerically sorted. */
+export async function listFrameStems(name: string): Promise<FrameStem[]> {
+  const found = await frameEntries(name);
   // Zwischen `readdir` und dem Lesen kann ein Frame verschwinden (Neubau): der faellt weg.
   const sized = await Promise.all(
     found.map(async ({ stem, kind }) => {

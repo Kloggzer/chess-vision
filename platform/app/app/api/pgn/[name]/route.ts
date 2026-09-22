@@ -1,9 +1,10 @@
 import { constants } from "node:fs";
-import { copyFile, stat } from "node:fs/promises";
+import { copyFile } from "node:fs/promises";
 import path from "node:path";
 import { Chess } from "chess.js";
 import { Contested, stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
 import { gameDir } from "@/lib/data";
+import { stampOrMissing } from "@/lib/measurement";
 
 function backupName(stamp: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -17,7 +18,7 @@ async function keepCopy(file: string): Promise<string> {
   const base = backupName(new Date());
   let name = base;
   for (let n = 1; n <= 99; n++) {
-    const taken = await stat(path.join(path.dirname(file), name)).then(() => true, () => false);
+    const taken = (await stampOrMissing(path.join(path.dirname(file), name))) !== null;
     if (!taken) break;
     name = `${base}-${n}`;
   }

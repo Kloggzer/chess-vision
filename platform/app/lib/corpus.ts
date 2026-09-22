@@ -53,6 +53,15 @@ function absentOnly(error: unknown): null {
   return null;
 }
 
+/** Der Datensatz, dessen `split.json` zuletzt geschrieben wurde — der, den ein Neubau erzeugt hat. */
+export async function newestDataset(entries: { name: string }[]): Promise<string | null> {
+  const times = await Promise.all(
+    entries.map(async (e) => (await stat(path.join(datasetDir(e.name), "split.json")).catch(absentOnly))?.mtimeMs ?? 0),
+  );
+  const best = times.reduce((top, time, i) => (time > times[top] ? i : top), 0);
+  return entries[best]?.name ?? null;
+}
+
 export type DatasetMeta = { classMode: string | null };
 
 /** `class_mode` out of `dataset.yaml` — one scalar off one line, so no YAML parser is pulled in. */

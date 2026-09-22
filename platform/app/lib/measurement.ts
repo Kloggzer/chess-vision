@@ -20,6 +20,13 @@ export const measurementOf = <T>(value: T): Measurement<T> => ({ measured: true,
 /** Der Wert, oder der Ersatz fuer den Fall, dass nie gemessen wurde — an EINER Stelle benannt. */
 export const valueOr = <T>(m: Measurement<T>, fallback: T): T => (m.measured ? m.value : fallback);
 
+/** Nur ENOENT heisst „nicht da". Jeder andere Fehler gehoert dem Aufrufer — als `null` gemeldet
+ *  sieht eine Stoerung aus wie eine fehlende Datei. Als `.catch(absentOnly)` hinter jedes Lesen. */
+export function absentOnly(error: unknown): null {
+  if ((error as { code?: string })?.code !== "ENOENT") throw error;
+  return null;
+}
+
 /**
  * Der Stempel einer Messdatei, `null` nur wenn sie FEHLT. Ein `stat`, das jeden Fehler auf
  * "keine Datei" abschneidet, springt am ENOENT-Griff des Lesers vorbei: EMFILE unter dem

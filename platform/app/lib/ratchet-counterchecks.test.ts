@@ -2,6 +2,8 @@
  *  `CommentBudgetCounterCheckTest.kt`: geprueft wird der ERKENNER, nicht die Liste — ein Verstoss
  *  MUSS zaehlen, ein erlaubter Fall darf es NICHT. Alle lagen an derselben Stelle falsch:
  *  ein Vorkommen in einem Text oder Kommentar galt als Code (`@/ratchet-detect`). */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { expect, test } from "vitest";
 import { commentRunIn, jsonlCutsIn, measurementDoorsIn, routeImportsIn, writeDoorsIn } from "@/ratchet-detect";
 
@@ -118,8 +120,8 @@ test("wer den Fehler DURCHLAESST oder gar nicht liest, faellt nicht in die Liste
     'let t;\ntry { t = await readFile(f, "utf8"); } catch (e) { if (e.code !== "ENOENT") throw e; return MISSING; }',
   )).toBe(0);
   expect(measurementDoorsIn("await rm(tmp, { force: true }).catch(() => {});")).toBe(0);
-  // Ein `stat`, dessen Antwort nur da/nicht-da ist, misst nichts — daraus wird keine Population.
-  expect(measurementDoorsIn("const present = await stat(f).then(() => true, () => false);")).toBe(0);
+  // Ein `stat`, der ENOENT von jedem anderen Fehler trennt, ist die Tuer selbst.
+  expect(measurementDoorsIn("const present = (await stat(f).catch(absentOnly)) !== null;")).toBe(0);
   // Ein `catch`, der eine Antwort BAUT statt zu schweigen, ist kein geschluckter Fehler.
   expect(measurementDoorsIn('try { await readFile(f); } catch { return { fehler: String(e) }; }')).toBe(0);
 });
@@ -130,3 +132,79 @@ test("ein geschluckter Lesefehler im Kommentar oder in einer Zeichenkette zaehlt
   expect(measurementDoorsIn('const hinweis = "readFile(f).catch(() => \'\')";')).toBe(0);
   expect(measurementDoorsIn("const hilfe = `for (const o of jsonlRows(t)) {}`;")).toBe(0);
 });
+
+/** Die Formen, an denen am 2026-09-23 menschliche Urteile hingen — der Erkenner sah KEINE davon.
+ *  Wortgleich die Stellen VOR `60c1d559`: eine erfundene Antwort auf eine Plattenfrage. */
+test("eine erfundene Antwort auf `stat`/`open` zaehlt, auch als Ja/Nein", () => {
+  const planted = [
+    "export const stampOf = (file: string): Promise<Stamp> =>\n  stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => null);",
+    'const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");',
+    'return stat(path.join(gameDir(name), "log.jsonl")).then(() => false, () => true);',
+    "if (!(await stat(file).then(() => true, () => false))) {\n  throw new Error(`${file} is missing`);\n}",
+    'const handle = await open(file, "r").catch(() => null);',
+    "const s = await stat(f).catch(() => { return null; });",
+  ];
+  for (const form of planted) expect(measurementDoorsIn(form), form).toBeGreaterThan(0);
+});
+
+test("`catch { return false }` hinter einem Plattenzugriff zaehlt", () => {
+  const exists = "async function exists(file) {\n  try {\n    await stat(file);\n    return true;\n  } catch {\n    return false;\n  }\n}";
+  expect(measurementDoorsIn(exists)).toBe(1);
+  expect(measurementDoorsIn("try { await access(bin); ok = true; } catch { ok = false; }")).toBe(1);
+});
+
+test("ein Sentinel wie `-1` hinter einem Plattenzugriff zaehlt", () => {
+  expect(measurementDoorsIn("try {\n  return (await stat(file)).size;\n} catch {\n  return -1;\n}")).toBe(1);
+  expect(measurementDoorsIn("const size = await stat(f).then((s) => s.size, () => -1);")).toBe(1);
+});
+
+test("ein geratenes Objekt-Literal als Rueckfall zaehlt", () => {
+  const frameSize =
+    "try {\n  const meta = await sharp(await readFile(file)).metadata();\n  return { width: meta.width ?? 720, height: meta.height ?? 816 };\n} catch {\n  return { width: 720, height: 816 };\n}";
+  expect(measurementDoorsIn(frameSize)).toBe(1);
+  expect(measurementDoorsIn("const d = await readFile(f).catch(() => ({ width: 720, height: 816 }));")).toBe(1);
+});
+
+/** Die andere Seite: wer nicht auf die Platte fragt, beantwortet eine echte Ja/Nein-Frage. */
+test("ein `catch { return false }` ohne Plattenzugriff ist keine Mess-Tuer", () => {
+  expect(measurementDoorsIn("try {\n  JSON.parse(text);\n  return true;\n} catch {\n  return false;\n}")).toBe(0);
+  expect(measurementDoorsIn("const ok = await stat(f).then(() => true, (e) => { if (e.code !== \"ENOENT\") throw e; return false; });")).toBe(0);
+  expect(measurementDoorsIn("const hinweis = await stat(f).then(() => 1, (e) => ({ fehler: String(e) }));")).toBe(0);
+});
+
+/** Die heute GEFIXTEN Stellen, gelesen aus dem jetzigen Code: zaehlte der Erkenner sie weiter,
+ *  wuerde er Falsch-Positive melden und die Ratsche wuchse an Stellen, die schon richtig sind. */
+test("die am 2026-09-23 umgestellten Stellen zaehlen im jetzigen Code nicht mehr", () => {
+  const fixed: [string, string][] = [
+    ["lib/atomic.ts", "stampOf"],
+    ["lib/jobs.ts", "exists"],
+    ["lib/corrections.ts", "ledgerRows"],
+    ["lib/review-notes.ts", "bySession"],
+    ["lib/meta.ts", "archivedAt"],
+    ["app/api/board/[name]/[stem]/route.ts", "unexported"],
+    ["lib/chain.ts", "headerOf"],
+    ["lib/crops.ts", "cutSource"],
+    ["lib/ingest.ts", "sizeOrAbsent"],
+    ["lib/ingest.ts", "present"],
+    ["lib/data.ts", "frameSize"],
+    ["lib/data.ts", "requireRecording"],
+    ["lib/chain.ts", "stampOf"],
+    ["lib/chain.ts", "referenceOrigin"],
+  ];
+  for (const [file, symbol] of fixed) {
+    const body = symbolIn(readFileSync(path.join(__dirname, "..", file), "utf8"), symbol);
+    expect(body, `${file}::${symbol} nicht gefunden`).not.toBe("");
+    expect(measurementDoorsIn(body), `${file}::${symbol}`).toBe(0);
+  }
+});
+
+/** Eine Deklaration auf oberster Ebene bis zu ihrer schliessenden Spalte-0-Klammer. */
+function symbolIn(text: string, symbol: string): string {
+  const start = new RegExp(`^(?:export )?(?:async )?(?:function ${symbol}\\b|const ${symbol}\\b)`, "m").exec(text);
+  if (!start) return "";
+  const rest = text.slice(start.index);
+  const firstLine = rest.slice(0, rest.indexOf("\n"));
+  if (firstLine.trimEnd().endsWith(";")) return firstLine;
+  const end = rest.search(/\n\}\n/);
+  return end < 0 ? rest : rest.slice(0, end + 3);
+}

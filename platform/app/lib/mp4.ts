@@ -10,6 +10,7 @@
  * list of length-prefixed boxes, so the header of each says where the next one starts.
  */
 import { open, stat } from "node:fs/promises";
+import { absentOnly } from "@/lib/measurement";
 import path from "node:path";
 
 const HEADER = 8;
@@ -56,7 +57,7 @@ async function recordingSegments(head: string): Promise<string[]> {
   const out = [head];
   for (let i = 1; ; i++) {
     const part = path.join(dir, `${stem}-${String(i).padStart(3, "0")}${path.extname(head)}`);
-    if (!(await stat(part).then((s) => s.isFile(), () => false))) return out;
+    if (!(await stat(part).catch(absentOnly))?.isFile()) return out;
     out.push(part);
   }
 }

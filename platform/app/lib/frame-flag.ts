@@ -3,11 +3,12 @@
  * dem Browser. Sicherung, dann tmp+rename wie `sessions._write_log`: `data/` ist unwiederbringlich.
  */
 import { constants } from "node:fs";
-import { copyFile, readFile, stat } from "node:fs/promises";
+import { copyFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
 import { checkName } from "@/lib/data";
 import { stripBom } from "@/lib/jsonl";
+import { stampOrMissing } from "@/lib/measurement";
 import { serialize } from "@/lib/serialize";
 import { sessionDir } from "@/lib/session";
 
@@ -59,7 +60,7 @@ async function flagUnlocked(
   const base = backupName(new Date());
   let backup = base;
   for (let n = 1; n <= 99; n++) {
-    const taken = await stat(path.join(sessionDir(name), backup)).then(() => true, () => false);
+    const taken = (await stampOrMissing(path.join(sessionDir(name), backup))) !== null;
     if (!taken) break;
     backup = `${base}-${n}`;
   }

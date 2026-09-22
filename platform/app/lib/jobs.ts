@@ -20,6 +20,7 @@ import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir, gameDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
+import { absentOnly } from "@/lib/measurement";
 import { jsonlRows, stripBom } from "@/lib/jsonl";
 
 type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
@@ -255,7 +256,8 @@ export async function packInputs(name: string): Promise<{ video: string; game: s
   let games: string[] = [];
   try {
     games = (await readdir(path.join(files, "games"))).filter((f) => f.endsWith(".json"));
-  } catch {
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return { reason: "no games/ in the transfer — nothing states what was played" };
   }
   for (const file of games.sort()) {
@@ -887,7 +889,7 @@ const TAIL_BYTES = 64 * 1024;
 /** A replay writes megabytes into one log; `/game/<name>` shows its last words, not the file. */
 export async function jobLogTail(job: Job, lines = 30): Promise<string[]> {
   if (!job.log) return [];
-  const info = await stat(job.log).catch(() => null);
+  const info = await stat(job.log).catch(absentOnly);
   if (!info || info.size === 0) return [];
   const handle = await open(job.log, "r");
   try {

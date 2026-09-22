@@ -7,7 +7,7 @@
  */
 import type { ChainState, ChainStep } from "@/lib/chain";
 import { adoptOffered, chainState } from "@/lib/chain";
-import { listFrameStems, listGames, loadCandidate } from "@/lib/data";
+import { countFrames, listGames, loadCandidate } from "@/lib/data";
 import { isArchived, loadMeta } from "@/lib/meta";
 
 export type QueueRow = {
@@ -86,7 +86,7 @@ export function splitQueues(rows: QueueRow[]): Queues {
  */
 export async function bareFrames(name: string, chain: ChainState): Promise<number> {
   if (chain.video !== null || chain.hasCandidate) return 0;
-  return (await listFrameStems(name)).length;
+  return countFrames(name);
 }
 
 /**

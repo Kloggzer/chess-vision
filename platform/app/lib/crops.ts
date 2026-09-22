@@ -10,6 +10,7 @@ import { readFile, stat } from "node:fs/promises";
 import { LRUCache } from "lru-cache";
 import sharp from "sharp";
 import { alphaPath } from "@/lib/matte";
+import { stampOrMissing } from "@/lib/measurement";
 import { boardPath, boardToStored, loadSession, type Session, sessionDir } from "@/lib/session";
 import path from "node:path";
 import { type Mat3, type Raster, sampleBox, squareCropBox } from "@/lib/warp";
@@ -73,7 +74,7 @@ export function forgetRaster(file: string): void {
 async function rasterOf(path_: string): Promise<Raster> {
   // Der Schluessel traegt die mtime: ein Re-Export schreibt das Brett unter demselben Namen neu,
   // und nach dem Pfad allein servierte der Cache die Pixel von vorher.
-  const stamp = await stat(path_).then((s) => s.mtimeMs, () => 0);
+  const stamp = (await stampOrMissing(path_)) ?? "none";
   return (await decoded.fetch(`${path_}|${stamp}`))!;
 }
 
@@ -118,9 +119,9 @@ export async function cellPng(name: string, stem: string, square: string, size: 
   // beiden anderen Dateien — ein neues Profil liess sie beide unberuehrt und der Cache servierte
   // den Schnitt von vorher weiter.
   const [srcM, logM, candM] = await Promise.all([
-    rel ? stat(boardPath(name, rel)).then((s) => s.mtimeMs, () => 0) : Promise.resolve(0),
-    stat(path.join(sessionDir(name), "log.jsonl")).then((s) => s.mtimeMs, () => 0),
-    stat(path.join(sessionDir(name), "candidate.json")).then((s) => `${s.mtimeMs}:${s.size}`, () => "none"),
+    rel ? stampOrMissing(boardPath(name, rel)) : null,
+    stampOrMissing(path.join(sessionDir(name), "log.jsonl")),
+    stampOrMissing(path.join(sessionDir(name), "candidate.json")),
   ]);
   // CUT_MIME too: this map holds ENCODED bytes and deliberately survives HMR on `globalThis`, so
   // changing the encoder without it served PNG under an `image/webp` header until a full restart.

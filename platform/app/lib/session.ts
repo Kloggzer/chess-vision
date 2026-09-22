@@ -5,11 +5,12 @@
  * Read paths are mtime-keyed (CLAUDE.md: never re-read a whole manifest per request) — the log
  * of a 10 000-frame video is ~2 MB and every crop request would otherwise parse it again.
  */
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir, loadCandidate } from "@/lib/data";
 import { type CropParams, type GridMesh, type Mat3, meshFromLines } from "@/lib/warp";
 import { readJsonl } from "@/lib/jsonl";
+import { stampOrMissing } from "@/lib/measurement";
 
 /**
  * Where a frame sits between the two commits that bound its interval — the labeling context.
@@ -112,8 +113,7 @@ export async function loadSession(name: string): Promise<Session> {
   const log = path.join(sessionDir(name), "log.jsonl");
   // Beide Dateien im Schluessel: Brettgroesse, Crop-Parameter, fps und die Commit-Grenzen kommen
   // aus `candidate.json`, ein Schnitt auf altem Stand trifft das falsche Feld.
-  const stamp = async (file: string) =>
-    stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const stamp = async (file: string) => (await stampOrMissing(file)) ?? "none";
   const key = `${await stamp(log)}|${await stamp(path.join(sessionDir(name), "candidate.json"))}`;
   // Keyed by the PATH, not the bare name: `CHESSLAB_DATA_DIR` is a variable, and two roots
   // holding a session of the same name would otherwise share an entry whenever their logs

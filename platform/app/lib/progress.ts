@@ -12,6 +12,7 @@
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir } from "@/lib/data";
+import { absentOnly } from "@/lib/measurement";
 import { lastRunOf } from "@/lib/jobs";
 
 export type Progress = {
@@ -38,7 +39,8 @@ async function recordingSeconds(name: string): Promise<number | null> {
   let ids: string[] = [];
   try {
     ids = (await readdir(sessions, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return null;
   }
   for (const id of ids.sort().reverse()) {
@@ -51,7 +53,7 @@ async function recordingSeconds(name: string): Promise<number | null> {
 
 /** Read the tail without pulling a growing log into memory. */
 async function tailOf(file: string): Promise<{ tail: string[]; bytes: number }> {
-  const info = await stat(file).catch(() => null);
+  const info = await stat(file).catch(absentOnly);
   if (!info) return { tail: [], bytes: 0 };
   const handle = await open(file, "r");
   try {
