@@ -179,6 +179,22 @@ def brightness_of(row: dict) -> float:
     return 255.0 if value is None else float(value)
 
 
+def visible_class_counts(rows: list[dict]) -> dict[str, int]:
+    """Klassenhaeufigkeit auf GENAU der Zellmenge, die `OcclusionLoss` benotet.
+
+    Bis 2026-09-22 zaehlte die Gewichtung nur `coverage <= PIECE_VISIBLE_MAX` und liess die
+    Dunkelmaske aus — schwarz war bis 2,80 % unterbewertet (bN), weil schwarz auf dunklem Feld
+    4,5x haeufiger unter `CELL_DARK_MIN` faellt als weiss.
+    """
+    from .occlusion import classification_eligible
+
+    counts: dict[str, int] = {}
+    for r in rows:
+        if classification_eligible(r):
+            counts[r["label"]] = counts.get(r["label"], 0) + 1
+    return counts
+
+
 def _occlusion_provenance(occluding: bool, vmax: float | None, dmin: float | None,
                           coverage_weight: str) -> dict:
     """Was der Verlust WIRKLICH maskiert hat — `hard` und `soft` sahen in der config.json gleich aus.
@@ -917,15 +933,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # Hier statt im Split, damit split.json unangetastet bleibt (es ist die Reproduzierbarkeit).
     if occluding:
         from ..dataset import compute_class_weights
-        from .occlusion import PIECE_VISIBLE_MAX
-        from .torch_data import coverage_of
 
-        # Vierte Stelle derselben Regel: ein ausgeschriebenes `null` warf hier `TypeError` kurz
-        # vor dem Training — und diese Zaehlung IST das Rezept (die Gewichte in `split.json`).
-        vis_counts: dict[str, int] = {}
-        for r in train_rows:
-            if coverage_of(r) <= PIECE_VISIBLE_MAX:
-                vis_counts[r["label"]] = vis_counts.get(r["label"], 0) + 1
+        vis_counts = visible_class_counts(train_rows)
         split = {**split, "class_weights": compute_class_weights(vis_counts, classes, weight_cap)}
         if weight_cap is not None:
             print(f"[loss] Gewichte auf {weight_cap:g}x gekappt"

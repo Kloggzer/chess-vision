@@ -1613,18 +1613,66 @@ ueberein. Es ist eine Luecke einer Slice-Generation.
 dokumentiert stehen lassen — dann muss ihn jeder Groessenvergleich nennen. Zahlen und Herleitung:
 `docs/klassengewichte-2026-09-21.md`.
 
-## 38. Klassengewichte gegen die Verlustmaske (2026-09-21, gemessen, Empfehlung: mitnehmen)
+## 38. Klassengewichte gegen die Verlustmaske — ERLEDIGT, gebaut 2026-09-22
 
-Die Gewichte zaehlen ueber `coverage <= PIECE_VISIBLE_MAX`, der Verlust maskiert zusaetzlich auf
-`brightness < CELL_DARK_MIN`. Gemessen: groesster Einzelfehler **2,80 %** (bN), die Spreizung der
-Gewichte aendert sich um **1,3 %**. Alle sechs schwarzen Figurenklassen sind unterbewertet, alle
-sechs weissen ueberbewertet — schwarz auf dunklem Feld ist zu 6,70 % dunkel, weiss auf demselben
-Feldtyp zu 1,49 %.
+> **Gebaut.** `train.visible_class_counts` zaehlt ueber `occlusion.classification_eligible`, also
+> ueber genau die Zellmenge, die `OcclusionLoss` gewichtet. Gegenprobe gefahren (Fix zurueck →
+> rot), festgehalten in `tests/test_bug_hunt_20260922f_gewichte.py`: der Test fragt den Verlust
+> nach seiner eigenen `visible_count`, statt die Formel nachzubauen.
+>
+> **Warum jetzt:** heute wurde der 80-px-Korpus repariert (Punkt 37/41), ein 80er-Lauf ist mit dem
+> Archiv also ohnehin nicht mehr vergleichbar. Zwei Brueche zu einem zusammenzuziehen ist billiger
+> als zwei einzelne.
 
-Der Fix ist ein Einzeiler (`vis_counts` auf `classification_eligible`), verschiebt aber die
-Gewichte und damit jedes kuenftige Training. **Empfehlung: beim naechsten ohnehin anstehenden
-Rezeptschnitt mitnehmen, nicht dafuer allein einen schneiden** — 2,80 % liegen unter dem
-8-%-Anker, der schon als Grenzfall galt.
+Der Befund: die Gewichte zaehlten ueber `coverage <= PIECE_VISIBLE_MAX`, der Verlust maskiert
+ZUSAETZLICH auf `brightness < CELL_DARK_MIN`. Alle sechs schwarzen Figurenklassen waren damit
+unterbewertet, alle sechs weissen ueberbewertet — schwarz auf dunklem Feld ist zu 6,70 % dunkel,
+weiss auf demselben Feldtyp zu 1,49 %.
+
+**Auf dem reparierten Korpus nachgemessen (2026-09-22):**
+
+| Korpus | zusaetzlich maskiert | groesster Einzelfehler | Spreizung alt → neu |
+|---|---:|---:|---|
+| `real13-mix-v7-128` | 6 900 (1,83 %) | **+2,80 %** (bN) | 11,5834x → 11,4345x (1,30 %) |
+| `real13-mix-v7-80` **nach** der Reparatur | 6 900 (1,83 %) | **+2,80 %** (bN) | 11,5834x → 11,4345x (1,30 %) |
+| `real13-mix-v7-80` **vor** der Reparatur | 663 (0,18 %) | +0,34 % (bP) | 11,5834x → 11,5591x (0,21 %) |
+
+**Die Erwartung "der Effekt ist groesser geworden" stimmt nur auf der 80er-Achse.** Die 2,80 % vom
+2026-09-21 wurden auf `-128` gemessen, und das war bereits der vollstaendige Korpus; der reparierte
+80er reproduziert sie Ziffer fuer Ziffer. Auf der 80er-Achse sprang der Fehler dagegen von 0,34 %
+auf 2,80 %, Faktor 8 — vorher war die Dunkelmaske dort fuer 38,5 % der Zeilen wirkungslos, der
+Gewichtsfehler also nur deshalb klein, weil die Maske selbst kaum etwas tat.
+
+Der groesste Einzelfehler liegt weiter bei **rund einem Drittel des 8-%-Ankers** (2,80 gegen 8),
+die Spreizung aendert sich um 1,3 %. Das war nie der Grund zu bauen, und ist es auch jetzt nicht —
+der Anlass war der ohnehin fällige Rezeptschnitt.
+
+### Der Bruch, ausgeschrieben
+
+**Ab diesem Commit sind die `effective_class_weights` eines Occlusion-Laufs mit dem Archiv nicht
+mehr vergleichbar.** Betroffen ist jeder Lauf mit `--head occlusion` auf einem Datensatz mit
+`brightness`-Spalte; alte Packs ohne die Spalte rechnen unveraendert weiter (jede Zelle gilt als
+hell). **Der ausgelieferte Champion `p4a-80-clahe` sitzt auf dem alten Stand** — und zusaetzlich
+auf einem Satz, dessen Dunkelmaske zu 44,8 % wirkungslos war. Wer ihn gegen einen neuen Lauf
+stellt, vergleicht zwei Rezepte und nicht zwei Modelle. Zahlen und Herleitung:
+`docs/klassengewichte-2026-09-21.md`.
+
+### Dieselbe Form, weitergesucht
+
+Die Leitfrage war: rechnet irgendeine Zahl, die eine Entscheidung traegt, auf einer ANDEREN
+Zellmenge als der Verlust? **In `src/chesslab/training/` ist jetzt keine mehr** — `data.py`
+(`checkpoint_metrics`, `visible_board_items`, `per_session_metrics`, `visible_confidence`),
+`engine.py`, `evaluate.py` und `train._occlusion_diagnostics` lesen alle beide Achsen.
+`vis_counts` war die letzte Stelle.
+
+**Offen in `scripts/`** (fremdes Verzeichnis, darum nur gemeldet): sieben Auswertungen schneiden
+weiter nur auf `coverage`, ohne die Helligkeit. Zwei davon tragen eine Auswahl-Entscheidung und
+sind damit genau die Achse, auf der am 2026-08-26 schon einmal ein gemeldeter Sieger verschwand:
+`episode_eval.py:108` (Benotung "nur sichtbare Zellen") und `crop_redundancy.py:93` /
+`crop_redundancy_montage.py:100` / `crop_redundancy_plot.py:45` (Ausduennen). Dazu
+`show_dispute.py:67`, `mine_hard_coverage.py` und `hand_audit.py:112`. Auf `-128` waeren das
+1,83 % der Zellen, ungleich auf die Farben verteilt — klein, aber auf derselben Achse wie der
+Fehler, den diese Zahlen finden sollen.
 
 ## 39. `cleanCommitsOnly` befoerdern? — ERLEDIGT, befoerdert 2026-09-22
 

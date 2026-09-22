@@ -90,3 +90,38 @@ Es ist keine Eigenschaft der Größe: wo beide Sätze die Spalte tragen, stimmen
 wieder vergleichbar), oder ob der Unterschied dokumentiert stehen bleibt und jeder
 Größenvergleich ihn nennen muss. Ein drittes „später" gibt es nicht — heute ist es das zweite,
 nur unausgesprochen.
+
+## Gebaut 2026-09-22 — und der reparierte 80er hat den Effekt verachtfacht
+
+Der Fix steht: `train.visible_class_counts` zählt über `occlusion.classification_eligible`, also
+über **genau** die Zellmenge, die `OcclusionLoss` gewichtet. Festgehalten in
+`tests/test_bug_hunt_20260922f_gewichte.py` — der Test fragt den Verlust nach seiner eigenen
+`visible_count` statt die Formel nachzubauen, und war ohne den Fix rot.
+
+Nachgemessen auf dem heute reparierten Korpus (Punkt 37/41, `real13-mix-v7-80` trägt die Spalte
+jetzt lückenlos, 0 statt 376 640 Zeilen ohne `brightness`):
+
+| Korpus | zusätzlich maskiert | größter Einzelfehler | Spreizung alt → neu |
+|---|---:|---:|---|
+| `real13-mix-v7-128` | 6 900 (1,83 %) | **+2,80 %** (bN) | 11,5834× → 11,4345× (1,30 %) |
+| `real13-mix-v7-80` **nach** der Reparatur | 6 900 (1,83 %) | **+2,80 %** (bN) | 11,5834× → 11,4345× (1,30 %) |
+| `real13-mix-v7-80` **vor** der Reparatur | 663 (0,18 %) | +0,34 % (bP) | 11,5834× → 11,5591× (0,21 %) |
+
+**Zwei Befunde, und der erste korrigiert die Erwartung im Auftrag:** der Effekt ist *nicht*
+gewachsen — die 2,80 % vom 2026-09-21 wurden auf `-128` gemessen, und das war schon der
+vollständige Korpus. Der reparierte 80er reproduziert ihn Ziffer für Ziffer, die beiden Größen
+rechnen also endlich unter derselben Maske. Auf der **80er-Achse** dagegen ist er von 0,34 % auf
+2,80 % gesprungen, Faktor 8: vorher war die Dunkelmaske dort für 38,5 % der Zeilen wirkungslos,
+und der alte Gewichtsfehler war nur deshalb klein, weil die Maske selbst kaum etwas tat.
+
+Der größte Einzelfehler liegt damit weiter bei **rund einem Drittel des 8-%-Ankers**, die
+Spreizung ändert sich um 1,3 %. Das war nie der Grund zu bauen — der Grund ist, dass der 80er
+Korpus heute ohnehin geschnitten wurde und zwei Brüche zusammen billiger sind als zwei einzelne.
+
+**Der Bruch, ausgeschrieben:** ab diesem Commit sind die `effective_class_weights` eines
+Occlusion-Laufs mit dem Archiv **nicht mehr vergleichbar**. Betroffen ist jeder Lauf mit
+`--head occlusion` auf einem Datensatz, der eine `brightness`-Spalte trägt; alte Packs ohne die
+Spalte rechnen unverändert weiter (jede Zelle gilt als hell). Der ausgelieferte Champion
+`p4a-80-clahe` sitzt auf dem **alten** Stand — und zusätzlich auf einem Satz, dessen Dunkelmaske
+zu 44,8 % wirkungslos war. Wer ihn gegen einen neuen Lauf stellt, vergleicht zwei Rezepte, nicht
+zwei Modelle.

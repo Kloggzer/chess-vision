@@ -123,11 +123,16 @@
   `metrics.jsonl`, und Quervergleiche laufen über `chesslab eval --dataset <gemeinsamer>`.
   Aus demselben Grund kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
   2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
-  **Deckungsgleich mit dem Verlust sind sie trotzdem nicht (gemessen 2026-09-21):** `train.py`
-  zaehlt ueber `coverage <= PIECE_VISIBLE_MAX`, `OcclusionLoss` maskiert ZUSAETZLICH auf
-  `brightness < CELL_DARK_MIN` (25,0). Das sind 1,83 % weitere Zeilen, groesster Einzelfehler
-  2,80 % (bN, alle schwarzen Klassen unterbewertet), Spreizung 11,58x -> 11,43x. Unter dem
-  8-%-Anker, also kein eigener Rezeptschnitt wert — `docs/klassengewichte-2026-09-21.md`.
+  **Seit 2026-09-22 sind sie deckungsgleich mit dem Verlust.** `train.visible_class_counts`
+  zaehlt ueber `classification_eligible`, also ueber genau die Zellmenge, die `OcclusionLoss`
+  gewichtet; vorher zaehlte `train.py` nur `coverage <= PIECE_VISIBLE_MAX`, waehrend der Verlust
+  ZUSAETZLICH auf `brightness < CELL_DARK_MIN` (25,0) maskierte. Das waren 1,83 % weitere Zeilen,
+  groesster Einzelfehler 2,80 % (bN, alle schwarzen Klassen unterbewertet), Spreizung
+  11,58x -> 11,43x. **Der Bruch:** `effective_class_weights` eines `--head occlusion`-Laufs auf
+  einem Satz MIT `brightness`-Spalte sind ab da nicht mehr mit dem Archiv vergleichbar; alte
+  Packs ohne die Spalte rechnen unveraendert, und der ausgelieferte Champion sitzt auf dem alten
+  Stand. Sieben Auswerter unter `scripts/` schneiden weiter nur auf `coverage`
+  (`docs/offene-entscheidungen.md` 38) — `docs/klassengewichte-2026-09-21.md`.
 - **Die 0,15 ist gegen den RILLEN-Sensor geeicht, nicht gegen das Bild (gemessen 2026-09-16).**
   Erstmals gemessen (val+test, 84 608 Zellen), ab wann das Modell die Figur wirklich nicht mehr
   liest: im Band 0,15-0,25 noch **74 %** richtig, bei 0,25-0,40 **67 %**, bei 0,40-0,60 noch
