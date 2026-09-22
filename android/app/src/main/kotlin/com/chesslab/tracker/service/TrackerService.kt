@@ -515,6 +515,9 @@ class TrackerService :
                     recording.finished()
                     syncNow(this, SETTLE_MINUTES)
                 }, { camera.videoFailure }),
+                // Derselbe Ledger, in den `HintController` schreibt: der Record belegt damit, was
+                // vorgesagt war, und eine Partie OHNE Vermerk behauptet nicht, es sei nichts gewesen.
+                hints = HintHost.ledger,
             )
         GameSessionHost.publish(games)
         // Targeted capture drives the SAME recorder without a game (plan/04-capture). The profile

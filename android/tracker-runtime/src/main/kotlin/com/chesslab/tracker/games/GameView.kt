@@ -19,6 +19,9 @@ data class ReviewPly(
     val fenAfter: String,
     /** Which tracker path committed it. Null on a game stored before provenance existed. */
     val decider: String?,
+    /** What was told to the player before this ply. Null also means "never recorded" — the GAME
+     *  answers which of the two through [GameView.hintsRecorded]. */
+    val hint: MoveHint? = null,
 )
 
 /** One legal line inside a game — see [StoredGame.segments] for why a game is a list of them. */
@@ -45,12 +48,17 @@ data class GameView(
     val black: String = UNKNOWN,
     val event: String = "chesslab",
     val startedAtEpochMs: Long = 0L,
+    /** Whether tips were watched for in this game at all — see [HintRecord]. */
+    val hintsRecorded: Boolean = false,
 ) {
     /** Every ply in order, across segments — the flat list every reader wants. */
     val plies: List<ReviewPly> = segments.flatMap { it.plies }
 
     /** The position the board shows at [ply]; 0 is the start. */
     fun fenAt(ply: Int): String = plies.lastOrNull { it.ply <= ply }?.fenAfter ?: startFen
+
+    /** What may be said about this ply's tip, tri-state — never "no tip" for an old game. */
+    fun hintStatusOf(ply: ReviewPly): HintStatus = hintStatus(hintsRecorded, ply.hint)
 
     companion object {
         /** No game: what the spectator serves before the first move, and what an unbound service has. */
@@ -70,6 +78,7 @@ fun StoredGame.reviewView(): GameView =
         black = black,
         event = event,
         startedAtEpochMs = startedAtEpochMs,
+        hintsRecorded = hints != null,
     )
 
 /**
@@ -95,7 +104,7 @@ private fun GameSegment.replay(): ReviewSegment {
                 if (board != null && MoveGenerator.generateLegalMoves(board).any { it.toString() == move.uci }) {
                     runCatching { board.doMove(Move(move.uci, board.sideToMove)) }
                 }
-                ReviewPly(move.ply, move.san, move.uci, board?.fen ?: startFen, move.provenance?.decider)
+                ReviewPly(move.ply, move.san, move.uci, board?.fen ?: startFen, move.provenance?.decider, move.hint)
             },
         enteredBy = enteredBy,
     )

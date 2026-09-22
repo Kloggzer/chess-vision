@@ -37,6 +37,8 @@ class LiveGame(
     private val startFen: String,
     private val startedAtEpochMs: Long,
     private val profileName: String,
+    /** Whether tips were watched for at all — see [HintRecord] for why absence is not innocence. */
+    private val hintsRecorded: Boolean = false,
 ) {
     private val segments = mutableListOf(LiveSegment(startFen, enteredBy = null))
 
@@ -61,6 +63,9 @@ class LiveGame(
         fenAfter: String,
         tsEpochMs: Long,
         decision: MoveProvenance?,
+        /** Rides on the FIRST ply: a sequence is committed out of ONE position, and that is the
+         *  one a tip was bound to. The plies behind it were never told to anybody. */
+        hint: MoveHint? = null,
     ) {
         val fens = positionsAfter(ucis, fenAfter)
         // The DECIDER belongs to every ply of the sequence — one decision produced them all — while
@@ -85,6 +90,7 @@ class LiveGame(
                         // measurement.
                         tsEpochMs = tsEpochMs,
                         provenance = if (last) decision else shared,
+                        hint = if (i == 0) hint else null,
                     ),
                     fenAfter = fens[i],
                 )
@@ -239,6 +245,7 @@ class LiveGame(
         GameView(
             id = "",
             live = true,
+            hintsRecorded = hintsRecorded,
             startFen = startFen,
             result = resultFromFen(currentFen).tag,
             segments =
@@ -247,7 +254,14 @@ class LiveGame(
                         startFen = segment.startFen,
                         plies =
                             segment.moves.map {
-                                ReviewPly(it.move.ply, it.move.san, it.move.uci, it.fenAfter, it.move.provenance?.decider)
+                                ReviewPly(
+                                    it.move.ply,
+                                    it.move.san,
+                                    it.move.uci,
+                                    it.fenAfter,
+                                    it.move.provenance?.decider,
+                                    it.move.hint,
+                                )
                             },
                         enteredBy = segment.enteredBy,
                     )
@@ -273,6 +287,9 @@ class LiveGame(
          * library, as "Game in progress".
          */
         result: GameResult? = null,
+        /** Null keeps an older caller's game unmarked — which reads as NOT RECORDED, not as
+         *  unaided. `GameSessionController` passes its ledger's log. */
+        hints: HintRecord? = null,
     ): StoredGame =
         StoredGame(
             id = id,
@@ -286,6 +303,7 @@ class LiveGame(
             black = black,
             sessionId = sessionId,
             segments = segments.map { GameSegment(it.startFen, it.moves.map { move -> move.move }, it.enteredBy) },
+            hints = hints,
         )
 }
 

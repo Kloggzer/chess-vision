@@ -50,6 +50,9 @@ class GameSessionController(
     private val capture: SessionCaptureController,
     private val now: () -> Long,
     private val idFor: (Long) -> String,
+    /** Null means tips were not watched for, and the stored game then says exactly that — see
+     *  [HintRecord]. The app passes the one ledger `HintController` writes into. */
+    private val hints: HintLedger? = null,
 ) {
     private val mutable = MutableStateFlow(GameSessionState())
     private var live: LiveGame? = null
@@ -148,11 +151,17 @@ class GameSessionController(
         val session = capture.stop()
         val game = live
         if (game == null) {
+            // Auch eine Partie ohne Ply endet hier: ein Tipp, den kein Zug mehr abholt, darf
+            // nicht auf den ersten Ply der NAECHSTEN Partie fallen.
+            hints?.endGame()
             mutable.value = GameSessionState(recordingReason = capture.reason)
             return null
         }
         live = null
-        val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId, white, black, result))
+        // The ledger is read HERE and cleared HERE, because this is the record boundary. Reading
+        // it in `HintController.endGame` would depend on which of the two the screen calls first.
+        val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId, white, black, result, hints?.log()))
+        hints?.endGame()
         mutable.value = GameSessionState(lastSavedId = saved?.id, recordingReason = capture.reason)
         return saved
     }
@@ -168,6 +177,7 @@ class GameSessionController(
     fun discard() {
         capture.stop()
         live = null
+        hints?.endGame()
         mutable.value = GameSessionState(recordingReason = capture.reason)
     }
 
@@ -206,7 +216,9 @@ class GameSessionController(
             )
             return
         }
-        val game = live ?: LiveGame(startFen, now(), profile).also { live = it }
+        val game = live ?: LiveGame(startFen, now(), profile, hints != null).also { live = it }
+        // Read BEFORE the commit: the tip was bound to the position this ply is played out of.
+        val hint = ucis.firstOrNull()?.let { hints?.markFor(game.currentFen, it) }
         // The engine states the decider ON the event, so it is always known. The debug payload adds
         // the evidence behind it and is off by default — reading the decider from THERE meant every
         // game stored `provenance: null`, including the ones recorded with debug on, because its
@@ -219,7 +231,7 @@ class GameSessionController(
                 ?.lastOrNull { it.accepted && it.uci == ucis.last() }
                 ?.toProvenance()
                 ?: MoveProvenance(decider = decider, reason = decider, priorUsed = priorUsed)
-        game.onCommitted(ucis, sans, fenAfter, now(), decision)
+        game.onCommitted(ucis, sans, fenAfter, now(), decision, hint)
         capture.queue(game.moveCount, fenAfter, sans.last(), isClean(status))
         if (resultFromFen(fenAfter) != GameResult.UNFINISHED) endAndSave()
     }

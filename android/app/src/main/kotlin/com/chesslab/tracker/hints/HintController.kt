@@ -1,12 +1,17 @@
 package com.chesslab.tracker.hints
 
+import com.chesslab.tracker.games.HintLedger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Wer fragen darf, wie oft noch, und ob der Tipp zu der Stellung gehoert, aus der er kam. Nichts
  *  hier passiert von selbst: das Telefon bietet nichts an, es beantwortet einen Druck. */
-class HintController {
+class HintController(
+    /** Wohin eine AUSGELIEFERTE Ansage faellt, damit der Record sie spaeter belegen kann. Null
+     *  heisst: nicht aufgezeichnet — und eine Partie ohne Vermerk behauptet dann nichts. */
+    private val ledger: HintLedger? = null,
+) {
     private val lock = Any()
     private val ui = MutableStateFlow(HintUiState())
     val state: StateFlow<HintUiState> = ui.asStateFlow()
@@ -17,6 +22,15 @@ class HintController {
 
     /** Beginnt die Partie mit diesem Plan. Das Kontingent steht damit frisch auf [HintPlan.quota]. */
     fun startGame(plan: HintPlan) {
+        adopt(plan)
+        ledger?.startGame(plan.side?.name, plan.quota)
+    }
+
+    /** Ende oder Verwurf: ohne laufende Partie gibt es keine Hilfe und kein Kontingent. Der Ledger
+     *  bleibt stehen — ihn raeumt `GameSessionController`, wenn der Record geschrieben ist. */
+    fun endGame() = adopt(HintPlan(side = null, quota = 0))
+
+    private fun adopt(plan: HintPlan) {
         synchronized(lock) {
             this.plan = plan
             used = 0
@@ -24,9 +38,6 @@ class HintController {
         }
         publish(null)
     }
-
-    /** Ende oder Verwurf: ohne laufende Partie gibt es keine Hilfe und kein Kontingent. */
-    fun endGame() = startGame(HintPlan(side = null, quota = 0))
 
     /** Ob der Knopf ueberhaupt erscheint. Gate und Alarm stehen bewusst NICHT darin — die Absage
      *  muss erreichbar bleiben, sonst verschwindet der Knopf wortlos unter der Hand des Nutzers. */
@@ -62,21 +73,16 @@ class HintController {
         val opened = moment()
         fault(opened, side)?.let { return publish(HintOutcome.Refused(it)) }
         val result = opened.result ?: return publish(HintOutcome.Refused(HintRefusal.EXPIRED))
-        val san = result.lines.firstOrNull()?.san ?: return publish(HintOutcome.Refused(HintRefusal.OVER))
+        val best = result.lines.firstOrNull() ?: return publish(HintOutcome.Refused(HintRefusal.OVER))
+        val san = best.san ?: return publish(HintOutcome.Refused(HintRefusal.OVER))
         val mateIn = mateForSide(result, side)
         val line =
             if (mateIn == null) {
                 emptyList()
             } else {
-                resolveLine(
-                    opened.fen,
-                    result.lines
-                        .first()
-                        .uci
-                        .orEmpty(),
-                )
+                resolveLine(opened.fen, best.uci.orEmpty())
             }
-        return publish(commit(opened.fen, san, mateIn, line, moment, side))
+        return publish(commit(opened.fen, san, best.uci.orEmpty(), mateIn, line, moment, side))
     }
 
     /** Der Riegel: derselbe kritische Abschnitt prueft die Stellung ein zweites Mal UND bucht ab,
@@ -84,6 +90,7 @@ class HintController {
     private fun commit(
         fen: String,
         san: String,
+        uci: String,
         mateIn: Int?,
         line: List<String>,
         moment: () -> HintMoment,
@@ -94,7 +101,10 @@ class HintController {
             if (settled.fen != fen) return HintOutcome.Refused(HintRefusal.EXPIRED)
             fault(settled, side)?.let { return HintOutcome.Refused(it) }
             used += 1
-            HintOutcome.Tip(fen = fen, san = san, mateIn = mateIn, line = line, remaining = remaining())
+            // Erst HIER, im selben Abschnitt wie die Abbuchung: was nicht zugestellt wurde, ist
+            // auch nicht vorgesagt, und der Record haette sonst eine Absage als Tipp gefuehrt.
+            ledger?.delivered(fen, san, uci)
+            HintOutcome.Tip(fen = fen, san = san, uci = uci, mateIn = mateIn, line = line, remaining = remaining())
         }
 
     /** Die Rangordnung von `gateBlock` bleibt, wie sie ist: ein Tipp kehrt sie nicht um, er bekommt

@@ -1,5 +1,7 @@
 package com.chesslab.tracker.hints
 
+import com.chesslab.tracker.games.HintStatus
+
 /** Wie viele Zuege der Mattweg hoechstens nennt — danach hoert niemand mehr zu. */
 private const val LINE_PLIES = 6
 
@@ -54,4 +56,36 @@ private val GERMAN =
         HintRefusal.OVER to "Die Partie ist zu Ende. Verbraucht ist nichts.",
         HintRefusal.SPENT to "Keine Tipps mehr in dieser Partie.",
         HintRefusal.NOT_YOUR_TURN to "Du bist nicht am Zug.",
+    )
+
+/** Der Vermerk an einer Zugzeile: ein Zeichen und sein Klartext, in denselben zwei Sprachen. Er
+ *  benotet NICHTS — und fuer eine Partie ohne Aufzeichnung sagt er genau das, nicht "kein Tipp". */
+object HintMark {
+    fun sign(status: HintStatus): String =
+        when (status) {
+            HintStatus.FOLLOWED -> "◆"
+            HintStatus.GIVEN -> "◇"
+            else -> ""
+        }
+
+    fun words(
+        status: HintStatus,
+        language: String,
+    ): String = (if (german(language)) MARK_GERMAN else MARK_ENGLISH)[status].orEmpty()
+
+    private fun german(language: String) = language.substringBefore('-').lowercase() == "de"
+}
+
+private val MARK_ENGLISH =
+    mapOf(
+        HintStatus.FOLLOWED to "◆ This move was told to the player.",
+        HintStatus.GIVEN to "◇ A tip was given here; a different move was played.",
+        HintStatus.NOT_RECORDED to "Whether tips were given was not recorded for this game.",
+    )
+
+private val MARK_GERMAN =
+    mapOf(
+        HintStatus.FOLLOWED to "◆ Dieser Zug wurde vorgesagt.",
+        HintStatus.GIVEN to "◇ Hier gab es einen Tipp; gespielt wurde ein anderer Zug.",
+        HintStatus.NOT_RECORDED to "Ob es Tipps gab, wurde fuer diese Partie nicht aufgezeichnet.",
     )

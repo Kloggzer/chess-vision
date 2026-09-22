@@ -77,6 +77,8 @@ data class StoredGame(
      * through [segmentsOrOne].
      */
     val segments: List<GameSegment> = emptyList(),
+    /** Null on every game written before tips existed — see [HintRecord] for why that matters. */
+    val hints: HintRecord? = null,
 )
 
 /**
@@ -133,7 +135,46 @@ data class StoredMove(
     val uci: String,
     val tsEpochMs: Long,
     val provenance: MoveProvenance? = null,
+    /** What was told to the player before this ply — see [MoveHint] and [hintStatus]. */
+    val hint: MoveHint? = null,
 )
+
+/** A tip delivered for the position this ply was played FROM. The binding is the POSITION and
+ *  never the clock — [HintLedger] files it under that FEN and hands it to the ply leaving it. */
+@Serializable
+data class MoveHint(
+    /** The move the tip NAMED, which is not necessarily the one that was played. */
+    val san: String,
+    val uci: String,
+    /** Whether the player then played it. A tip that was not followed is not a told move. */
+    val followed: Boolean,
+)
+
+/** That tips were WATCHED for at all, and under which handicap. Its presence is the point: a ply
+ *  with no [StoredMove.hint] in a game without this is unrecorded, not unaided — an unmeasured
+ *  cell read as zero. Every game written since carries one, help or no help. */
+@Serializable
+data class HintRecord(
+    /** "WHITE" | "BLACK" | null for a game nobody was allowed to ask in. */
+    val side: String? = null,
+    val quota: Int = 0,
+    val delivered: Int = 0,
+)
+
+/** What a surface may say about one ply. [NOT_RECORDED] is a game from before the ledger. */
+enum class HintStatus { NOT_RECORDED, NONE, GIVEN, FOLLOWED }
+
+/** The tri-state, in one place: `recorded` is whether the GAME carries a [HintRecord]. */
+fun hintStatus(
+    recorded: Boolean,
+    hint: MoveHint?,
+): HintStatus =
+    when {
+        !recorded -> HintStatus.NOT_RECORDED
+        hint == null -> HintStatus.NONE
+        hint.followed -> HintStatus.FOLLOWED
+        else -> HintStatus.GIVEN
+    }
 
 /**
  * 07b's `DebugDecision` minus the pixels — why the tracker believed this move happened.

@@ -58,6 +58,8 @@ sealed interface HintOutcome {
     data class Tip(
         val fen: String,
         val san: String,
+        /** Derselbe Zug in UCI: nur daran laesst sich hinterher pruefen, ob er gespielt wurde. */
+        val uci: String,
         val mateIn: Int?,
         val line: List<String>,
         val remaining: Int,

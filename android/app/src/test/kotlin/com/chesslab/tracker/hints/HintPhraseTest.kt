@@ -8,14 +8,14 @@ import org.junit.jupiter.api.Test
 class HintPhraseTest {
     @Test
     fun aPlainTipNamesTheMoveAndNothingElse() {
-        val tip = HintOutcome.Tip(FEN, "Nf3", mateIn = null, line = emptyList(), remaining = 2)
+        val tip = HintOutcome.Tip(FEN, "Nf3", "g1f3", mateIn = null, line = emptyList(), remaining = 2)
         assertEquals("Play Nf3", HintPhrase.of(tip, "en-US"))
         assertEquals("Spiel Nf3", HintPhrase.of(tip, "de-DE"))
     }
 
     @Test
     fun aMateSaysTheDistanceAndThenTheWay() {
-        val tip = HintOutcome.Tip(FEN, "Qh4", mateIn = 2, line = listOf("Qh4", "g3", "Qxg3"), remaining = 1)
+        val tip = HintOutcome.Tip(FEN, "Qh4", "d8h4", mateIn = 2, line = listOf("Qh4", "g3", "Qxg3"), remaining = 1)
         assertEquals("You have mate in 2. Play Qh4. Qh4 g3 Qxg3", HintPhrase.of(tip, "en-US"))
         assertTrue(HintPhrase.of(tip, "de-DE").startsWith("Du hast Matt in 2"))
     }

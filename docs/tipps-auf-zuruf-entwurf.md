@@ -183,3 +183,45 @@ Beide folgen bestehenden Konventionen dieses Projekts, keine davon braucht eine 
 
 Dieselbe Regel gilt fuer einen Tipp, dessen Stellung nicht mehr gilt (moeglicher Rueckzieher,
 stehender Alarm-Latch): er verfaellt, und er kostet nichts.
+
+## Aufgezeichnet 2026-09-22: der Record sagt, was vorgesagt war — und benotet es nicht
+
+Stufe 1 liess eine Luecke offen: ein vorgesagter Zug zaehlte in der Nachbetrachtung weiter als
+eigene Leistung. Wer drei Tipps nahm, bekam dafuer drei `BEST`-Bewertungen — als Ausgleichssystem
+gedacht, erzaehlte die Partie hinterher nicht mehr, was passiert ist. Das ist die Fehlerfamilie
+dieses Projekts: etwas Fremdes wird als gemessener Normalwert weitergereicht.
+
+**Aufgezeichnet wird die Tatsache, additiv.** `StoredMove.hint` (`MoveHint`) traegt den Zug, den
+der Tipp NANNTE, und ob der Spieler ihn dann spielte. Die Bindung ist die STELLUNG: `HintLedger`
+legt einen zugestellten Tipp unter dem FEN ab, aus dem er gerechnet wurde, und
+`GameSessionController` holt ihn genau fuer den Ply, der aus dieser Stellung gespielt wird. Ein
+verfallener Tipp wird nie zugestellt und faellt damit nirgends an; ein Tipp, der nicht befolgt
+wurde, bleibt ein Vermerk, ist aber **kein vorgesagter Zug**.
+
+**"Kein Tipp" und "nicht aufgezeichnet" sind zwei Dinge.** Die Partie traegt `StoredGame.hints`
+(`HintRecord`: Seite, Kontingent, zugestellte Tipps). Seine ANWESENHEIT sagt, dass ueberhaupt
+hingesehen wurde. Eine Partie von vorher traegt ihn nicht, und jede Zeile darin liest als
+`NOT_RECORDED` — nicht als "ohne Hilfe gespielt". `hintStatus(recorded, hint)` ist die eine
+Stelle, die das entscheidet.
+
+**Die Anzeige nennt es neutral:** `◆` an der Zugzeile heisst "dieser Zug wurde vorgesagt", `◇`
+heisst "hier gab es einen Tipp, gespielt wurde ein anderer Zug", beides mit Klartext (deutsch und
+englisch wie `AlarmPhrase`/`HintPhrase`) und als `contentDescription`. Die Legende erscheint nur
+unter einer Partie, die auch Zeichen traegt.
+
+### Offen, und ausdruecklich eine PRODUKTentscheidung: was die Benotung daraus macht
+
+Die Benotung ist **unveraendert**. `GameReviewer`, `PlyGrade` und `MoveQuality` sehen den Vermerk
+nicht; ein vorgesagter Zug bekommt weiter dieselbe Note wie jeder andere. Wie es weitergeht, ist
+eine Entscheidung des Nutzers, keine Implementierung:
+
+- **Nur markieren (heute).** Die Note bleibt, der Leser sieht die Herkunft und urteilt selbst.
+- **Aus der Genauigkeit herausrechnen.** Vorgesagte Zuege zaehlen nicht in `Accuracy`/`GameGrade`,
+  die Prozentzahl misst dann nur eigene Zuege — und faellt bei drei Tipps auf weniger Stichprobe.
+- **Getrennt ausweisen.** Zwei Zahlen nebeneinander, "eigene Zuege" und "mit Hilfe", ohne dass eine
+  von beiden die andere ersetzt.
+- **Abwerten.** Eine eigene Stufe unterhalb von `BEST` fuer einen vorgesagten Zug — das ist die
+  einzige Variante, die eine Wertung ERFINDET, und sie braucht eine Begruendung, die es nicht gibt.
+
+Solange nichts entschieden ist, gilt: die Tatsache steht im Record und auf dem Schirm, die Zahlen
+bleiben, wie sie waren.

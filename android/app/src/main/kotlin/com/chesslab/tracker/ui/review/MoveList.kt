@@ -28,18 +28,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.games.GameView
+import com.chesslab.tracker.games.HintStatus
 import com.chesslab.tracker.games.MoveRow
 import com.chesslab.tracker.games.ReviewPly
 import com.chesslab.tracker.games.SeamOrigin
+import com.chesslab.tracker.games.hintStatus
 import com.chesslab.tracker.games.moveRows
 import com.chesslab.tracker.games.startNumber
 import com.chesslab.tracker.games.startsWithBlack
+import com.chesslab.tracker.hints.HintMark
 import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.BoardDark
@@ -53,6 +58,7 @@ import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
 import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.SurfaceRaised
+import com.chesslab.tracker.ui.tracking.speechLanguage
 import kotlin.math.abs
 
 /** 94 dp until specs/50, when the number moved out of the bar and needed a column of its own. */
@@ -135,10 +141,25 @@ fun LazyListScope.moveListSection(
         segment.enteredBy?.let { seam -> item(key = "seam-$index") { SeamRow(seam) } }
         val rows = moveRows(segment.plies, startsWithBlack(segment.startFen), startNumber(segment.startFen))
         val visibleRows = remainingRows?.let(rows::take) ?: rows
-        segmentRows(index, visibleRows, grade, selected, onSelect)
+        segmentRows(index, visibleRows, grade, selected, onSelect, game.hintsRecorded)
         remainingRows = remainingRows?.let { (it - visibleRows.size).coerceAtLeast(0) }
     }
+    hintLegend(game)
 }
+
+/** Was die Zeichen heissen, und nur wenn welche dastehen — eine Partie ohne Tipps erklaert keine. */
+private fun LazyListScope.hintLegend(game: GameView) {
+    if (!game.hintsRecorded || game.plies.none { it.hint != null }) return
+    item(key = "hint-legend") {
+        Column(Modifier.fillMaxWidth().padding(top = Space.sm)) {
+            HINT_LEGEND.forEach {
+                Text(HintMark.words(it, speechLanguage()), style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+            }
+        }
+    }
+}
+
+private val HINT_LEGEND = listOf(HintStatus.FOLLOWED, HintStatus.GIVEN)
 
 @Composable
 private fun MoveColumnHeaders(showPosition: Boolean) {
@@ -182,9 +203,10 @@ private fun LazyListScope.segmentRows(
     grade: GameGrade?,
     selected: Int,
     onSelect: ((Int) -> Unit)?,
+    hintsRecorded: Boolean,
 ) {
     itemsIndexed(rows, key = { _, row -> "seg$segment-${row.number}" }) { _, row ->
-        MoveRowLine(row, grade, selected, onSelect)
+        MoveRowLine(row, grade, selected, onSelect, hintsRecorded)
     }
 }
 
@@ -217,6 +239,7 @@ private fun MoveRowLine(
     grade: GameGrade?,
     selected: Int,
     onSelect: ((Int) -> Unit)?,
+    hintsRecorded: Boolean,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs),
@@ -225,8 +248,8 @@ private fun MoveRowLine(
     ) {
         // A move number is a figure and the column only works if they line up.
         Figure("${row.number}.", OnSurfaceMuted, Modifier.width(MOVE_NUMBER_WIDTH))
-        MoveCell(row.white, grade, selected, onSelect, Modifier.weight(1f))
-        MoveCell(row.black, grade, selected, onSelect, Modifier.weight(1f))
+        MoveCell(row.white, grade, selected, onSelect, hintsRecorded, Modifier.weight(1f))
+        MoveCell(row.black, grade, selected, onSelect, hintsRecorded, Modifier.weight(1f))
         grade?.let { PositionCell(row, it) }
     }
 }
@@ -320,6 +343,7 @@ private fun MoveCell(
     grade: GameGrade?,
     selected: Int,
     onSelect: ((Int) -> Unit)?,
+    hintsRecorded: Boolean,
     modifier: Modifier = Modifier,
 ) {
     if (ply == null) {
@@ -329,6 +353,7 @@ private fun MoveCell(
     val plyGrade = grade?.of(ply.ply)
     val quality = plyGrade?.quality
     val impact = moveImpactLabel(plyGrade)
+    val hint = hintStatus(hintsRecorded, ply.hint)
     val cell = if (onSelect == null) modifier else modifier.clickable { onSelect(ply.ply) }
     Column(cell, verticalArrangement = Arrangement.spacedBy(Space.hair)) {
         Text(
@@ -343,6 +368,7 @@ private fun MoveCell(
             fontWeight = if (ply.ply == selected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
         )
+        HintSign(hint)
         if (quality != null || impact != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(Space.xs), verticalAlignment = Alignment.CenterVertically) {
                 quality?.let {
@@ -363,6 +389,23 @@ private fun MoveCell(
             }
         }
     }
+}
+
+/** Der Herkunftsvermerk an der Zugzeile — und NUR der Vermerk. Ob ein vorgesagter Zug anders
+ *  benotet oder aus der Statistik genommen wird, ist eine Produktentscheidung
+ *  (`docs/tipps-auf-zuruf-entwurf.md`); die Benotung bleibt bis dahin, wie sie ist. */
+@Composable
+private fun HintSign(status: HintStatus) {
+    val sign = HintMark.sign(status)
+    if (sign.isEmpty()) return
+    val words = HintMark.words(status, speechLanguage())
+    Text(
+        text = sign,
+        style = MaterialTheme.typography.labelMedium,
+        color = OnSurfaceMuted,
+        maxLines = 1,
+        modifier = Modifier.semantics { contentDescription = words },
+    )
 }
 
 /**
