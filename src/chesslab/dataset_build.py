@@ -317,6 +317,9 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
         "from_packs": bool(cfg.get(packs.PACKS_KEY)),
         "pack_size": _donor_pack_size(paths.datasets / _safe_name(donor), paths),
         "per_cell_cap": d.get("per_cell_cap"),
+        # Absent on every dataset built before this key existed, and None is exactly what those
+        # builds did. Present, it is the third thinning policy and `--like` must carry it too.
+        "per_position": d.get("per_position"),
         "phash_enabled": d.get("phash_enabled"),
         "phash_hamming": d.get("phash_hamming"),
         "rotations": tuple(cfg.get("rotations") or (0,)),
@@ -388,6 +391,11 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
     if not p.exists():
         raise ValueError(f"--like: dataset '{donor}' has no split.json at {p}")
     donor_splits = json.loads(p.read_text(encoding="utf-8")).get("splits") or {}
+    unknown = sorted({*add_test, *add_train} - have)
+    if unknown:
+        raise ValueError(
+            f"--add-test/--add-train name session(s) this build has no crop for: "
+            f"{', '.join(unknown)}. They would be accepted and then do nothing.")
     extra = [s for s in add_test if s in have]
     extra_train = [s for s in add_train if s in have]
     both = sorted(set(extra) & set(extra_train))
@@ -530,6 +538,7 @@ def build_dataset(
         # under a name that said otherwise.
         class_mode = class_mode or pol["class_mode"]
         per_cell_cap, phash_enabled = pol["per_cell_cap"], pol["phash_enabled"]
+        per_position = pol["per_position"]
         phash_hamming, rotations = pol["phash_hamming"], pol["rotations"]
         val_frac, test_frac, seed = pol["val_frac"], pol["test_frac"], pol["seed"]
         max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
@@ -596,6 +605,15 @@ def build_dataset(
         print(f"[source] {len(rows) - len(deduped)} rows listed by more than one source "
               f"manifest — kept once each")
     rows = deduped
+    # `_pack_manifests` already refuses this on the pack side; the pool side dropped the name
+    # silently while `dataset.yaml` went on listing it under `session_ids`.
+    have_rows = {r["session_id"] for r in rows}
+    barren = [s for s in dict.fromkeys(session_ids) if s not in have_rows]
+    if barren:
+        raise ValueError(
+            f"{len(barren)} session(s) named in the build have no crop in "
+            f"{', '.join(str(p.name) for p in srcs)}: {', '.join(barren)}. Drop them from "
+            f"--sessions, or slice them into the pool first.")
     n_raw = len(rows)
     if per_position:
         rows = keep_per_position(rows, per_position)
@@ -686,8 +704,11 @@ def build_dataset(
         "session_ids": list(session_ids),
         "variant_tag": variant_tag,
         "source_manifest": [p.as_posix() for p in srcs],
-        "dedup": {"per_cell_cap": per_cell_cap, "phash_enabled": bool(phash_enabled),
-                  "phash_hamming": phash_hamming},
+        # `per_position` belongs here: it thinned 979 363 rows to 634 594 on `real13-v7-thin16`
+        # and went unrecorded, so a `--like` twin of it carried 1.54x the rows under a name that
+        # promised the same corpus.
+        "dedup": {"per_cell_cap": per_cell_cap, "per_position": per_position,
+                  "phash_enabled": bool(phash_enabled), "phash_hamming": phash_hamming},
         "rotations": list(rotations),
         # Sessions pinned to the train split (e.g. all-empty lighting captures — in
         # val/test they would distort board metrics). Persisted so Rebuild keeps them.

@@ -270,9 +270,20 @@ def _replace_sessions_in_manifest(manifest_path: Path, replacements: dict[str, l
         tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
         with tmp.open("w", encoding="utf-8", newline="\n") as dst:
             if manifest_path.exists():
-                with manifest_path.open(encoding="utf-8") as src:
+                # Dieselbe Politik wie `read_jsonl`, sonst toetet ein Manifest, das jeder andere
+                # Leser annimmt, den ganzen Schnitt: `utf-8-sig` gegen PowerShells BOM, und die
+                # halbe LETZTE Zeile faellt weg statt zu werfen.
+                with manifest_path.open(encoding="utf-8-sig") as src:
                     for line in src:
-                        if line.strip() and json.loads(line).get(field) not in replacements:
+                        if not line.strip():
+                            continue
+                        try:
+                            keep = json.loads(line).get(field) not in replacements
+                        except ValueError:
+                            if line.endswith("\n"):
+                                raise
+                            break
+                        if keep:
                             dst.write(line if line.endswith("\n") else line + "\n")
             for lines in replacements.values():
                 for line in lines:

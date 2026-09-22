@@ -28,7 +28,7 @@ from statistics import median
 import yaml
 
 from . import config
-from .ioutil import read_jsonl, write_rows
+from .ioutil import append_rows, read_jsonl, write_rows
 
 log = logging.getLogger("chesslab.sessions")
 
@@ -262,8 +262,9 @@ def _record_archive_reason(dst, sid: str, reason: str, n_crops: int, paths: conf
             log.warning("could not stamp the reason into %s: %r", meta, e)
     index = paths.sessions_archive / "index.jsonl"
     row = {"session_id": sid, "archived_at": stamp, "reason": reason, "removed_crops": n_crops}
-    with index.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    # Roh angehaengt klebte die Zeile an einen abgerissenen Schwanz, und aus dem von `read_jsonl`
+    # tolerierten Rest wurde Beschaedigung MITTENDRIN, auf die danach jedes Lesen wirft.
+    append_rows(index, [row])
 
 
 def restore_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
@@ -1019,8 +1020,6 @@ def rewarp_boards_session(session_id: str) -> dict:
     energy in the finished crop, measured 2026-08-21), because the optics and the mesh fold into
     the same map the warp already builds.
     """
-    import json
-
     from .calibration import LensModel
     from .labeling import _profile_for_session, read_session_meta
     from .realgames import (

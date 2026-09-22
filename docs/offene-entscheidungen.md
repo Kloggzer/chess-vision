@@ -1782,3 +1782,83 @@ Gefunden im Architektur-Review von Astra.
 **Empfehlung in einem Satz:** Umbenennung mit Weiterlesen des alten Schluessels bauen, und den
 echten Arm-Schalter erst dann, wenn er gegen `-Satz v2` gemessen wird — auf dem Zehner-Satz
 waere auch diese Messung wieder eine Null ohne Aussage.
+
+## `per_position` fehlt in drei fertigen Datensaetzen (2026-09-22)
+
+`build_dataset` schreibt `per_position` seit heute in den `dedup`-Block von `dataset.yaml`, und
+`--like` erbt es. Die drei Saetze, die VOR dieser Aenderung ausgeduennt wurden, tragen die Zahl
+nicht — gemessen am eigenen `counts`-Block:
+
+| Datensatz | raw | after_dedup | Faktor | `dedup` sagt |
+|---|---|---|---|---|
+| `real13-v7-thin16` | 979 363 | 634 594 | 1,543 | `per_cell_cap: 0, phash_enabled: false` |
+| `real13-v7-thin16-core` | 979 361 | 634 595 | 1,543 | dito |
+| `real13-v7-thin16-rand` | 979 361 | 634 595 | 1,543 | dito |
+
+Ein `--like real13-v7-thin16` baut daraus weiterhin den VOLLEN Korpus: 1,54x der Zeilen unter
+einem Namen, der den Zwilling verspricht. Der Faktor passt auf `--per-position 16`, aber das ist
+eine Rekonstruktion aus dem Verhaeltnis, keine Aufzeichnung — und das Nachtragen schreibt in
+`data/`, also nicht ohne Anweisung.
+
+**Empfehlung in einem Satz:** `per_position: 16` in die drei `dataset.yaml` nachtragen, damit
+`--like` auf ihnen wieder ein Zwilling ist — oder, wenn die Zahl nicht sicher ist, `--like` auf
+einem Spender ohne `per_position`-Schluessel verweigern, wie es der `blind`-Riegel fuer `dedup`
+und `split` schon tut.
+
+## Die Ratsche `tests/json_doors.txt` sieht den Anhaenge-Modus nicht (2026-09-22)
+
+`doors_in` sucht `.write_text(`, `.open("w"` und `open(..., "w"` — `"a"` steht nicht in
+`_WRITE`. Vier rohe Anhaenge an eine `.jsonl` sind ihr deshalb nie aufgefallen. Einer davon
+(`sessions._record_archive_reason`) ist heute auf `ioutil.append_rows` umgestellt; die drei
+anderen liegen in fremden Dateien und bleiben offen:
+
+- `src/chesslab/session_writer.py:164` (`log.jsonl` des Recorders)
+- `src/chesslab/training/train.py:1397` (`metrics.jsonl` eines Laufs)
+- `scripts/fix_ply_offset.py:118`
+
+Das Muster ist genau das, wogegen die Web-App `appendRows` und `platform/app/write-doors.txt`
+bekommen hat: an eine halbe LETZTE Zeile geklebt wird aus dem tolerierten Schwanz Beschaedigung
+MITTENDRIN, auf die danach jedes Lesen wirft.
+
+**Empfehlung in einem Satz:** `_WRITE` um den Anhaenge-Modus erweitern und die drei Stellen
+gleichzeitig auf `append_rows` umstellen, damit die Ratsche beim Sehendwerden nicht waechst.
+
+## 43. `classify` nennt ein Intervall ohne Zeugen "clean" (2026-09-22, gemessen)
+
+`framescan.classify` baut seine Referenz nur, wenn `len(quiet) > ref_frames` (3). Darunter
+bleiben `stale_from` und `fall_from` auf `None`, und jeder Frame faellt allein nach dem
+Hand-Gate in `clean` oder `occluded` — das BRETT wurde nie gegen die Commit-Stellung geprueft.
+`clean` heisst danach "gemessen und unveraendert", gemessen wurde aber nichts. Genau die
+Fehlerfamilie dieser Woche, nur eine Ebene hoeher als `coverage or 0.0`.
+
+**Gemessen ueber den ganzen Korpus** (27 Aufnahmen mit `scan.jsonl`, 1 173 Intervalle,
+65 671 gescannte Frames): **14 Intervalle** tragen hoechstens drei ruhige Frames. Sie erklaeren
+**24 Frames als `clean`** (von 39 393 im Korpus, 0,06 %) und 108 als `occluded`. Der
+`occluded`-Teil ist unkritisch — der behaelt seine FEN ohnehin nur unter der Matte.
+
+Ein Fix ist eine EXPORT-Aenderung und macht kuenftige Datensaetze mit dem Archiv
+unvergleichbar, deshalb hier statt gebaut. Zwei Wege: die 24 Frames als `occluded` fuehren
+(sie kommen dann ueber den dirty-Stapel und die Matte zurueck) oder das ganze Intervall
+verwerfen.
+
+**Empfehlung in einem Satz:** beim naechsten ohnehin faelligen Re-Export mitnehmen und die
+24 Frames auf `occluded` setzen — verwerfen kostet ganze Intervalle fuer einen Effekt von
+0,06 %, und ein eigener Re-Export lohnt fuer diese Zahl nicht.
+
+## Nachtrag zur Ratsche `tests/json_doors.txt`: auch der MEHRZEILIGE Aufruf faellt durch
+
+Die Stelle oben zaehlt vier rohe Anhaenge. Es waren fuenf: `matte.alpha_worker` oeffnet
+`matte.jsonl` als `path.open(\n "a",\n encoding="utf-8",\n)` — ueber vier Zeilen. `doors_in`
+prueft `_WRITE` je ZEILE, ein um `"a"` erweitertes Muster haette diese Stelle also weiter nicht
+gesehen. Sie ist seit 2026-09-22 auf `ioutil.append_rows(path, [])` vor dem Anhaengen
+umgestellt (der Worker STREAMT danach weiter, ein Frame je `flush` bleibt die
+Haltbarkeitseinheit), der Befund an der Ratsche bleibt.
+
+Warum das gerade hier zaehlt: der Worker laeuft Minuten bis Stunden und verlaesst den Prozess
+mit `os._exit` (`matte.exit_with_parent`, und der CLI-Zweig am Ende) — ungeleerte Puffer sind
+der NORMALFALL, nicht der Stoerfall. Auf der Platte liegen heute vier abgerissene `.jsonl`
+(von 1 536), alle vier genau auf einer Puffergrenze (8 192 / 24 576 / 114 688 / 237 568 Bytes).
+
+**Empfehlung in einem Satz:** `_WRITE` nicht nur um `"a"` erweitern, sondern wie bei den
+anderen Ratschen ueber den SYNTAXBAUM statt je Zeile pruefen — mit eingepflanzter Gegenprobe
+fuer beide Formen.
