@@ -2263,3 +2263,28 @@ unvollendete Absichten aus der `<id>.json` nachziehen) waere die Antwort darauf 
 zugleich das PGN und den Index wieder ableitbar machen. Offen, weil es einen Startpfad braucht,
 den heute niemand hat, und weil der Verlust, den es abdeckt, nach dem Kleinen nur noch das
 abgeleitete Artefakt trifft, nicht mehr die Partie.
+
+## 44. `pose_of` meldet `foreshorten: 0.0`, wo nichts gemessen wurde (2026-09-22)
+
+Gefunden bei der Mutationsprobe ueber `src/chesslab/`. `capture_plan.pose_of` rechnet die hintere
+Kante durch die vordere:
+
+```python
+return Pose(foreshorten=round(edges[0] / front, 4) if front else 0.0, ...)
+```
+
+Ist die Vorderkante entartet (`front == 0`), steht in der Spalte eine **0,0** — und 0,0 heisst dort
+"maximal verkuerzt", also eine Messung, die nie stattgefunden hat. Nach der Projektregel gehoerte
+dort `None` hin, wie bei `coverage`, `settle_dev` und den Metriken mit leerem Nenner.
+
+**Nicht gebaut**, weil es das SCHEMA der `pose`-Spalte aendert: `foreshorten` ist heute
+`float`, und jeder Leser muesste `None` vertragen. Das ist eine Umstellung mit Radius, kein
+Einzeiler.
+
+**Heute ohne Fall** — eine entartete Vorderkante entsteht nur aus einem Quad, dessen `a1` und `h1`
+zusammenfallen, und den weist die Geometrie vorher ab. Der Waechter selbst erzeugt hier also die
+Luege, nicht die Daten.
+
+**Empfehlung in einem Satz:** beim naechsten ohnehin faelligen Anfassen der `pose`-Spalte auf
+`float | None` heben und die Leser mitziehen; ein eigener Gang lohnt fuer einen Fall, den es
+heute nicht gibt, nicht.
