@@ -1629,3 +1629,28 @@ Verzoegerungsverteilung an.
 **Empfehlung: BEFOERDERN.** Keine Ziffer und kein Verzug auf dem Zehner, 70 Treffer und 6 Phantome
 weniger auf handreichem Material, und kein Aufschlag dort, wo er wirklich greift. Zahlen:
 `docs/handreiches-material-2026-09-21.md`.
+
+## Der Settle-Sensor liegt in seiner eigenen Invalidierungsquelle (gemessen 2026-09-22)
+
+`sessions.settle_scan_session` schreibt `settle_dev`/`settle_seen`/`settle_left` in dieselbe
+`log.jsonl`, aus der es die Geometrie liest. Wird der Quad danach ersetzt, raeumt
+`write_corner_rows` nur `align_worst_px` weg — die drei Settle-Felder bleiben stehen und
+beschreiben ab da einen Quad, den die Zeile nicht mehr traegt. Danach verwirft
+`labeling.iter_session_crops` Zellen an `settle_left` und `position_flags.frame_flags` baut Karten
+aus diesen Abweichungen. Kein `_source` kann das sehen: Messung und Quelle stehen in DERSELBEN
+Datei, ihr Stempel ist also per Konstruktion immer aktuell. Dasselbe gilt fuer
+`fit_mesh_session` (Mesh) und jeden Schritt, der Ecken bewegt.
+
+**Betroffen sind heute 0 von 27 Aufnahmen.** Gemessen ueber `data/recordings/*`: alle 27 tragen
+`settle_dev`, und in keiner liegt ein `corners_set_at` oder ein `boards/*.webp` spaeter als die
+`interval-check.jsonl`, die der Settle-Lauf schreibt. Ein Re-Export traegt die Felder ohnehin nicht
+weiter (`realgames.REPAIRED_KEYS` kennt sie nicht), der Riss laeuft also nur ueber `autofix`,
+`adopt` und `fit-mesh` auf einer bereits gescannten Aufnahme.
+
+**Darum kein Fix.** Die Felder dort mitzuraeumen ist ein Dreizeiler, kostet aber jedem so
+behandelten Frame seine Messung und setzt die Lane auf `—` statt auf eine Zahl — eine
+Verhaltensaenderung ohne einen einzigen belegten Fall. Der Befund ist als
+`xfail(strict=True)` festgehalten: `tests/test_bug_hunt_20260922_provenance.py`,
+`test_a_new_quad_drops_the_settle_measurement`. **Wer die Zahl wieder misst und sie ist nicht
+mehr 0, gehoert gebaut** — dann am besten als Raeumen plus Knopf an der Kette, nicht als stilles
+Verwerfen.

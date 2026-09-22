@@ -22,7 +22,7 @@ from typing import Any
 
 import cv2
 
-from . import config, locks
+from . import config, locks, provenance
 from .calibration import (
     CalibrationProfile,
     GridMesh,
@@ -821,6 +821,10 @@ def run_slice(
                     for sid in sids:
                         try:
                             session_dir, _ = _resolve(sid)
+                            # Die Kette VERGLEICHT den Stempel, `read_matte` reduzierte ihn nur
+                            # weg: ein direktes `slice` trug sonst die Coverage eines aelteren
+                            # Schnitts ins Manifest, waehrend die Lane "Matte neu schneiden" zeigt.
+                            provenance.check(session_dir, session_dir / "matte.jsonl")
                             meta = read_session_meta(session_dir)
                             prof = _profile_for_session(meta, profile)
                             stats = slice_session(

@@ -760,6 +760,9 @@ def alpha_worker_all(
     released once every requested session has finished.
     """
     runs: list[dict] = []
+    #: Was schiefging, je Aufnahme. Ohne diese Liste war ein Stapel mit 20 Ausfaellen von einem
+    #: sauberen Lauf nicht zu unterscheiden — `[ERR]` scrollte weg, `[OK]` blieb stehen.
+    failed: list[dict] = []
 
     started_all = perf_counter()
 
@@ -803,6 +806,7 @@ def alpha_worker_all(
                 KeyError,
                 OSError,
             ) as exc:
+                failed.append({"session": name, "error": f"{type(exc).__name__}: {exc}"})
                 print(
                     f"[{_timestamp()}] "
                     f"[ERR] {name}: {exc}",
@@ -820,6 +824,7 @@ def alpha_worker_all(
                 for run in runs
             ),
             "runs": runs,
+            "failed": failed,
         }
 
         if progress:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config
+from . import config, provenance
 from .ioutil import read_jsonl, write_rows
 
 FLAGS_FILE = "hand-flags.jsonl"
@@ -82,9 +82,17 @@ def hand_flags(cut: float = DEFAULT_CUT) -> dict:
     from .occluded_model import READS_FILE
     from .training.occlusion import PIECE_VISIBLE_MAX
 
-    rows, per_session, without = [], {}, []
+    rows, per_session, without, stale = [], {}, [], []
     for reads_path in sorted(config.DATA.recordings.glob(f"*/{READS_FILE}")):
         session_dir = reads_path.parent
+        # Der Kopf traegt den Stempel des Schnitts, unter dem gelesen wurde; die Kette vergleicht
+        # ihn, dieser Leser nahm ihn nur mit. Lesarten von vorgestern gegen die Matte von heute
+        # sind keine Strittig-Karten, sondern Rauschen.
+        try:
+            provenance.check(session_dir, reads_path)
+        except provenance.Stale as exc:
+            stale.append({"session": session_dir.name, "reason": str(exc)})
+            continue
         lines = read_jsonl(reads_path)
         reads = [r for r in lines if r.get("square")]
         if not any("model_cov" in r or "cov" in r for r in reads):
@@ -100,4 +108,4 @@ def hand_flags(cut: float = DEFAULT_CUT) -> dict:
     path = write_flags(config.DATA.reports / FLAGS_FILE, rows, header)
     return {"path": path, "flags": len(rows),
             "frames": len({(r["session_id"], r["frame"]) for r in rows}),
-            "per_session": per_session, "without_coverage": without}
+            "per_session": per_session, "without_coverage": without, "stale": stale}

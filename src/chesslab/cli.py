@@ -1715,10 +1715,15 @@ def occluders_alpha_worker(
         resolver = (lambda n: matte_mod.flagged_frames(n, **flags)) if any(flags.values()) else None
         res = matte_mod.alpha_worker_all(wanted_names, limit=limit or None, reason=reason,
                                          frames_for=resolver)
-        print(f"[OK] {res['alphas']} Alphas ueber {res['sessions']} Sessions "
-              f"({res['already']} lagen schon vor)", flush=True)
+        # `[OK]` neben stundenlangen Ausfaellen war der dritte Fund derselben Form: der
+        # Ausstiegscode ist das einzige, was eine Automation von diesem Lauf liest.
+        for bad in res["failed"]:
+            print(f"[ERR] {bad['session']}: {bad['error']}", flush=True)
+        state = "OK" if not res["failed"] else "TEIL"
+        print(f"[{state}] {res['alphas']} Alphas ueber {res['sessions']} Sessions "
+              f"({res['already']} lagen schon vor, {len(res['failed'])} gescheitert)", flush=True)
         sys.stdout.flush()
-        os._exit(0)
+        os._exit(1 if res["failed"] else 0)
     name = wanted_names[0]
     frames = matte_mod.flagged_frames(name, **flags)
     if any(flags.values()):

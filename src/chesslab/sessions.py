@@ -507,12 +507,13 @@ def frame_path(sdir: Path, entry: dict) -> Path:
     return path
 
 
-def session_profile(sdir: Path):
+def session_profile(sdir: Path, *, allow_standin: bool = True):
     """The calibration profile a session was captured against, or a neutral stand-in.
 
     The stand-in matters: a session whose profile file is gone must still be reviewable, and a
     board-sized identity quad makes the geometry maths well defined without pretending to be a
-    measurement.
+    measurement. `allow_standin=False` is for the callers that MEASURE or MUTATE geometry — dort
+    ist der Ersatz keine Ansicht, sondern eine erfundene Kamera, und die Zahl landet im Log.
     """
     from . import calibration
 
@@ -523,7 +524,11 @@ def session_profile(sdir: Path):
         try:
             return calibration.load_profile(profile_name)
         except FileNotFoundError:
-            pass
+            if not allow_standin:
+                raise
+    elif not allow_standin:
+        raise FileNotFoundError(f"{sdir.name}: session.yaml nennt kein Profil — Geometrie laesst "
+                                "sich hier nicht messen")
     side = float(config.DEFAULT_BOARD_SIZE)
     corners = [[0.0, 0.0], [side, 0.0], [side, side], [0.0, side]]
     return calibration.CalibrationProfile(
@@ -670,7 +675,7 @@ def autofix_one(sdir: Path, entry: dict):
     frame = cv2.imread(str(frame_path(sdir, entry)))
     if frame is None:
         return None, float("nan"), float("nan")
-    return improve_quad(frame, entry["corners"], session_profile(sdir))
+    return improve_quad(frame, entry["corners"], session_profile(sdir, allow_standin=False))
 
 
 def scan_alignment(session_id: str) -> dict:
@@ -687,7 +692,7 @@ def scan_alignment(session_id: str) -> dict:
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
-    prof = session_profile(sdir)
+    prof = session_profile(sdir, allow_standin=False)
     measured = 0
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
@@ -1267,7 +1272,7 @@ def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
-    prof = session_profile(sdir)
+    prof = session_profile(sdir, allow_standin=False)
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
     targets = []

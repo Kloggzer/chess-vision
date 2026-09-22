@@ -150,7 +150,7 @@ def write_confirmation(name: str, candidate: dict, plies: list[int]) -> Path:
 
 
 def is_archived(name: str) -> bool:
-    """The UI's `ui-meta.json` archive flag — a human saying "not this one".
+    """The UI's `ui-meta.json` archive flag — a human saying "not this one". Wirft, wenn er unlesbar ist.
 
     Python ignored it, so a re-export happily wrote three archived games back into the corpus
     (2026-08-19). Hiding a game from a list and keeping it out of the training data are the same
@@ -160,9 +160,10 @@ def is_archived(name: str) -> bool:
     if not meta.exists():
         return False
     try:
-        return bool(json.loads(meta.read_text(encoding="utf-8")).get("archived"))
-    except (json.JSONDecodeError, OSError):
-        return False
+        return bool(json.loads(meta.read_text(encoding="utf-8-sig")).get("archived"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ValueError(f"{name}: ui-meta.json ist unlesbar ({exc}) — der Archiv-Status laesst "
+                         "sich nicht feststellen, also wird nichts exportiert") from exc
 
 
 def reference_is_the_phones_own(name: str) -> bool:

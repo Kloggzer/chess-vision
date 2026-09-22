@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config
+from . import config, provenance
 from .ioutil import read_jsonl, write_json, write_rows
 from .labeling import load_corrections
 
@@ -191,6 +191,13 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
     for path in sorted(rec.glob("*/model-reads.jsonl")):
         model, rows, classes = read_proposals(path)
         reason = None
+        # `read_proposals` liest Modell und Klassen aus dem Kopf und liess den `_source` daneben
+        # liegen. Lesarten aus einem aelteren Schnitt zeigen auf Frames, die es so nicht mehr gibt.
+        try:
+            provenance.check(path.parent, path)
+        except provenance.Stale as exc:
+            skipped.append({"session": path.parent.name, "reason": str(exc)})
+            continue
         if path.parent.name in skip:
             # Gemessen 2026-09-09: auf 21-01-04 sind die geflaggten Felder halb so hell wie der
             # Rest (35,6 gegen 64,3), die dunkelsten liegen bei 3-5 von 255. Dort liest das Modell
