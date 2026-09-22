@@ -63,6 +63,12 @@ def main():
                 Path(args.run), [im for _, im in keep]), strict=True):
             said[r["square"]][rd["pred_label"]] += 1
 
+    # Null gelesene Bretter sind kein bestandener Aufbau-Check: ohne Vergleich faellt die
+    # Schleife unten leer aus und das alte `[OK]` bestaetigte eine FEN, die niemand gesehen hat.
+    if not said:
+        raise SystemExit(f"[FAIL] {args.tag}: kein einziges Crop gelesen "
+                         f"({len(rows)} sichtbare von {total}) — nichts verglichen")
+
     bad = []
     for sq, counter in sorted(said.items()):
         n = sum(counter.values())

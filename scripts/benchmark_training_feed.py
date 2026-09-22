@@ -78,6 +78,28 @@ def private_mb(pids):
     return total / 1024**2
 
 
+def packed_source(dd: Path):
+    """`(Datei, (n, h, w), {Crop-Pfad: Packzeile})` aus `packed_meta.json` — nie aus der Zeilennummer.
+
+    Die Zeilennummer des Manifests IST die Packzeile nur bei einem direkt gepackten Satz; fuer
+    die fuenf `real13-straight-80-v3-*`-Links weichen bis zu 300 272 von 300 339 Zeilen ab, und
+    eine geratene Zuordnung paart Pixel mit fremden Labels, ohne dass etwas auffaellt.
+    """
+    meta_path = dd / "packed_meta.json"
+    if not meta_path.is_file():
+        raise SystemExit(f"[FAIL] {dd} hat kein packed_meta.json — erst `chesslab dataset pack`")
+    meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+    image = dd / "packed_images.u8"
+    if meta.get("packed_from"):
+        image = dd.parent / meta["packed_from"] / "packed_images.u8"
+    n, h, w = int(meta["n"]), int(meta["h"]), int(meta["w"])
+    if not image.is_file():
+        raise SystemExit(f"[FAIL] {image} fehlt — der Satz liest fremde oder gar keine Pixel")
+    if image.stat().st_size != n * h * w * 3:
+        raise SystemExit(f"[FAIL] {image}: {image.stat().st_size} Bytes, erwartet {n * h * w * 3}")
+    return str(image), (n, h, w), {q: i for i, q in enumerate(meta["paths"])}
+
+
 def main():
     import numpy as np
     import torch
@@ -109,14 +131,11 @@ def main():
     if args.reference:
         tf = reference_transform(tf)
     train = set(cfg['split']['splits']['train'])
-    rows = []
-    for i, r in enumerate(iter_jsonl(dd / 'manifest.jsonl')):
-        if r['session_id'] in train:
-            rows.append({**{k: r[k] for k in ('path', 'session_id', 'frame', 'square', 'label',
-                                              'brightness', 'coverage') if k in r}, '_packed_idx': i})
-    image = dd / 'packed_images.u8'
-    ds = PackedBoardDataset(rows, cfg['classes'], tf,
-                            (str(image), (image.stat().st_size // (80*80*3), 80, 80), None))
+    image, shape, path2idx = packed_source(dd)
+    keep = ('path', 'session_id', 'frame', 'square', 'label', 'brightness', 'coverage')
+    rows = [{k: r[k] for k in keep if k in r} for r in iter_jsonl(dd / 'manifest.jsonl')
+            if r['session_id'] in train and r['path'] in path2idx]
+    ds = PackedBoardDataset(rows, cfg['classes'], tf, (image, shape, path2idx))
     ds.rows = None
     del rows
     gc.collect()

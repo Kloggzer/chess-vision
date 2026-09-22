@@ -2222,3 +2222,15 @@ EACCES auf `reference.pgn` haette `adoptPgn` das Urteil eines Menschen ueberschr
 `if (stats === null)`). Weiter blind und bewusst gelassen: `ingest.sizeOf` (`-1` ist ein
 Sentinel, kein leerer Wert — ein EACCES laesst das Handy ein Gigabyte neu hochladen) und
 `data.frameSize` (faellt auf 720x816 zurueck, also auf eine GESCHAETZTE Zahl statt auf leer).
+
+## `scripts/benchmark_export_warp.py`: die Zahl 23 -> 7 s ist gegen einen warmen Cache gemessen
+
+Der Vergleich faehrt IMMER `uncached` zuerst und `cached` danach, je einmal, auf derselben
+Videodatei. Der zweite Lauf trifft also einen warmen Seitencache fuer Video und Bretter — genau
+das Muster aus CLAUDE.md ("ein warmer Cache sieht aus wie ein sauberes Ergebnis"). Die in
+`docs/export-geometry-performance.md` zitierte Beschleunigung der Mesh-Koordinatenkarte ist damit
+eine OBERE Schranke, kein gemessener Effekt. Wer sie verteidigen will, faehrt die Reihenfolge
+getauscht und zweimal warm, wie `docs/compiled-batch-aug.md` es fuer die Trainingszeiten verlangt.
+Zweiter Punkt derselben Datei: `results["byte_identical"] = True` ist eine feste Zusage; bei null
+gefundenen Brettern vergleicht die Schleife zwei leere Hash-Mengen und sagt trotzdem "identisch"
+(`"boards": 0` steht daneben, wird aber von niemandem gelesen).

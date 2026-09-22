@@ -454,7 +454,9 @@
 - **Ein Export: ~223 s → 27,8 s** auf 20-19 (262 Zeilen), Bretter bytegleich nachgewiesen. Der
   Brett-Schnitt skaliert über Prozesse NICHT (33 → 23 s, dann Sättigung, weil `grab` bei vier
   Prozessen 3,4 statt 1,4 ms kostet) — was ihn wirklich löste, war die zwischengespeicherte
-  Mesh-Koordinatenkarte (23 → 7 s, `docs/export-geometry-performance.md`).
+  Mesh-Koordinatenkarte (23 → 7 s, `docs/export-geometry-performance.md`) — **die Zahl ist eine
+  obere Schranke**: `benchmark_export_warp.py` faehrt `uncached` immer zuerst und `cached` danach,
+  je einmal, misst also gegen einen warmen Seitencache (nachgesehen 2026-09-22).
 - **Die Drehung war doppelt**: OpenCV dreht nach Container-Metadaten automatisch, der Export drehte
   zurück. `_combined_rotation` fasst beide zusammen. Die Winkel ADDIEREN — gemessen 2026-09-08 auf
   drei Aufnahmen, `ROTATE_90_CLOCKWISE` aufs rohe Bild ergibt das auto-gedrehte, das `META` 90

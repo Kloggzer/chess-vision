@@ -20,6 +20,28 @@ from PIL import Image, ImageDraw
 CELL, PAD, BAR = 112, 6, 40
 
 
+def episode_key(row: dict) -> tuple:
+    """Eine Episode ist (Aufnahme, Feld, Ply) — ohne die Aufnahme fallen fremde Faelle zusammen."""
+    return row.get("session_id"), row["square"], row.get("true"), row.get("ply")
+
+
+def disputed(rows: list[dict], preds_a: list[int], preds_b: list[int]) -> tuple[list[int], int]:
+    """Indizes strittiger, GEMESSEN sichtbarer Zellen, dazu die Zahl der ungemessenen.
+
+    `coverage is None` heisst nicht gemessen, nicht null (CLAUDE.md, Coverage Matte Trap);
+    als 0,0 gelesen waren 161 536 Zeilen eines Turntable-Satzes stillschweigend "sichtbar".
+    """
+    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+
+    live, unmeasured = [], 0
+    for i, r in enumerate(rows):
+        if r.get("coverage") is None:
+            unmeasured += 1
+        elif float(r["coverage"]) <= PIECE_VISIBLE_MAX and preds_a[i] != preds_b[i]:
+            live.append(i)
+    return live, unmeasured
+
+
 def predictions(run: str, split: str):
     from chesslab.dataset_build import dataset_dir
     from chesslab.training.boardnet import CELLS
@@ -54,24 +76,22 @@ def main() -> int:
     ap.add_argument("--out", default="data/reports/streit.png")
     args = ap.parse_args()
 
-    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
-
     rows, trues, preds_a, cfg, conf_a, packed = predictions(args.a, args.split)
     rows_b, trues_b, preds_b, _, conf_b, _ = predictions(args.b, args.split)
     if [r["path"] for r in rows] != [r["path"] for r in rows_b]:
         raise SystemExit("die beiden Laeufe sehen verschiedene Zeilen — nicht vergleichbar")
 
     cls = cfg["classes"]
-    hits = []
-    for i, r in enumerate(rows):
-        if float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX or preds_a[i] == preds_b[i]:
-            continue
-        hits.append({**r, "true": cls[trues[i]], "a": cls[preds_a[i]], "b": cls[preds_b[i]],
-                     "ca": conf_a[i], "cb": conf_b[i]})
+    live, unmeasured = disputed(rows, preds_a, preds_b)
+    hits = [{**rows[i], "true": cls[trues[i]], "a": cls[preds_a[i]], "b": cls[preds_b[i]],
+             "ca": conf_a[i], "cb": conf_b[i]} for i in live]
+    if unmeasured:
+        print(f"!! {unmeasured} Zellen ohne gemessene coverage — nicht gewertet "
+              f"(un-gemattete Aufnahme? `chesslab occluders recut-coverage`)")
     # Je Episode ein Bild: dieselbe Figur auf demselben Feld ueber viele Frames ist EIN Fall.
     best: dict[tuple, dict] = {}
     for h in hits:
-        k = (h["square"], h["true"], h.get("ply"))
+        k = episode_key(h)
         if k not in best or h["cb"] > best[k]["cb"]:
             best[k] = h
     show = sorted(best.values(), key=lambda h: -h["cb"])[:args.max]
