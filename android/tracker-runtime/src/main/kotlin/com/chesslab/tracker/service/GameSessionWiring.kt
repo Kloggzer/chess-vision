@@ -2,6 +2,7 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.games.GameBoundary
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.HintLedger
@@ -55,6 +56,8 @@ fun wireGameSession(
     recordingHooks: RecordingHooks = RecordingHooks(),
     /** The ledger `HintController` writes into. Null leaves every stored ply UNRECORDED. */
     hints: HintLedger? = null,
+    /** Was sonst noch an der Partiegrenze faellt — das Tipp-Kontingent ([GameBoundary]). */
+    alsoEnds: List<GameBoundary> = emptyList(),
 ): GameSessionController {
     scope.launch { settings.load() }
     // A recalibration replaces the profile under a running game; the capture path reads the latest.
@@ -70,6 +73,7 @@ fun wireGameSession(
             { publisher.status.value?.corners },
             recordingHooks,
             hints,
+            alsoEnds,
         )
     attachGameSession(scope, controller, publisher.events, publisher.status) { profile()?.name ?: DEFAULT_PROFILE }
     return controller
@@ -107,6 +111,7 @@ private fun buildController(
     corners: () -> FloatArray?,
     recordingHooks: RecordingHooks,
     hints: HintLedger?,
+    alsoEnds: List<GameBoundary>,
 ): GameSessionController {
     val sessions = SessionStore(paths.sessions)
     val source = LiveCaptureSource(frame, corners) { profile()?.let { it.sourceWidth to it.sourceHeight } }
@@ -128,7 +133,7 @@ private fun buildController(
                     },
                 ),
         )
-    return GameSessionController(GameStore(paths.games), capture, System::currentTimeMillis, ::gameId, hints)
+    return GameSessionController(GameStore(paths.games), capture, System::currentTimeMillis, ::gameId, hints, alsoEnds)
 }
 
 private fun openRecorder(

@@ -2244,3 +2244,22 @@ getauscht und zweimal warm, wie `docs/compiled-batch-aug.md` es fuer die Trainin
 Zweiter Punkt derselben Datei: `results["byte_identical"] = True` ist eine feste Zusage; bei null
 gefundenen Brettern vergleicht die Schleife zwei leere Hash-Mengen und sagt trotzdem "identisch"
 (`"boards": 0` steht daneben, wird aber von niemandem gelesen).
+
+## Das Partie-Journal: die groessere Loesung, bewusst nicht gebaut (2026-09-22)
+
+`GameStore.save` schreibt drei fuer sich atomare Artefakte (`<id>.json`, `<id>.pgn`,
+`index.json`). Die Partie als Ganzes ist damit keine Transaktion: bricht das PGN oder der Index
+weg, liegt eine halb geschriebene Partie auf der Platte. Gebaut ist heute nur das Kleine —
+`GameSessionController.endAndSave` gibt `live` erst auf, NACHDEM `store.save` durch ist
+(`SaveBeforeDropTest`), und `GameStore.rows` vereinigt den Index mit jedem `<id>.json`, das er
+nicht nennt, so dass ein lesbarer, aber alter Index keine geschriebene Partie mehr verbirgt
+(`CorruptGameIsNotMissingTest`). Die `<id>.json` ist damit der eine Nachweis, und `open` wirft
+`GameUnreadable`, statt eine beschaedigte Partie wie eine nie gespielte als `null` zu melden.
+
+Was das NICHT loest: ein `<id>.pgn`, das fehlt oder aelter ist als die `<id>.json`, faellt
+niemandem auf — `pgn(id)` liefert die alte Datei, und `buildPgn` wird nur beim Export gerufen.
+Ein Journal je Commit (Absicht schreiben, Artefakte schreiben, Absicht loeschen; beim Start
+unvollendete Absichten aus der `<id>.json` nachziehen) waere die Antwort darauf und wuerde
+zugleich das PGN und den Index wieder ableitbar machen. Offen, weil es einen Startpfad braucht,
+den heute niemand hat, und weil der Verlust, den es abdeckt, nach dem Kleinen nur noch das
+abgeleitete Artefakt trifft, nicht mehr die Partie.

@@ -367,7 +367,7 @@ class TrackerService :
         GameSessionHost.publish(null)
         CaptureRecorderHost.publish(null)
         SpeakerHost.publish(null)
-        HintHost.controller.endGame()
+        // Das Kontingent haengt an `games.endAndSave()` unten — eine Grenze, nicht zwei.
         // The service IS the session: stopping it ends the game rather than losing it. A game with
         // no moves saves nothing, so a start/stop cycle still leaves the library alone.
         games.endAndSave()
@@ -518,6 +518,9 @@ class TrackerService :
                 // Derselbe Ledger, in den `HintController` schreibt: der Record belegt damit, was
                 // vorgesagt war, und eine Partie OHNE Vermerk behauptet nicht, es sei nichts gewesen.
                 hints = HintHost.ledger,
+                // Dieselbe Grenze wie der Ledger: ein Matt beendet die Partie ohne Schirm, und das
+                // Kontingent blieb dabei stehen — der Knopf sagte erst beim Druck ab.
+                alsoEnds = listOf(HintHost.controller),
             )
         GameSessionHost.publish(games)
         // Targeted capture drives the SAME recorder without a game (plan/04-capture). The profile

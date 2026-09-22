@@ -1,5 +1,6 @@
 package com.chesslab.tracker.hints
 
+import com.chesslab.tracker.games.GameBoundary
 import com.chesslab.tracker.games.HintLedger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,7 +12,7 @@ class HintController(
     /** Wohin eine AUSGELIEFERTE Ansage faellt, damit der Record sie spaeter belegen kann. Null
      *  heisst: nicht aufgezeichnet — und eine Partie ohne Vermerk behauptet dann nichts. */
     private val ledger: HintLedger? = null,
-) {
+) : GameBoundary {
     private val lock = Any()
     private val ui = MutableStateFlow(HintUiState())
     val state: StateFlow<HintUiState> = ui.asStateFlow()
@@ -28,7 +29,7 @@ class HintController(
 
     /** Ende oder Verwurf: ohne laufende Partie gibt es keine Hilfe und kein Kontingent. Der Ledger
      *  bleibt stehen — ihn raeumt `GameSessionController`, wenn der Record geschrieben ist. */
-    fun endGame() = adopt(HintPlan(side = null, quota = 0))
+    override fun endGame() = adopt(HintPlan(side = null, quota = 0))
 
     private fun adopt(plan: HintPlan) {
         synchronized(lock) {

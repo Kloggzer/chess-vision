@@ -3,8 +3,16 @@ package com.chesslab.tracker.games
 import com.chesslab.tracker.io.writeAtomic
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
+import java.io.IOException
 
 private const val INDEX = "index.json"
+
+/** Die Datei ist da, aber nicht zu lesen. Sie ist der EINZIGE Partienachweis, also darf sie nicht
+ *  als `null` auftreten — nur was es wirklich nicht gibt, heisst hier nichts. */
+class GameUnreadable(
+    file: File,
+    cause: Throwable,
+) : IOException("$file ist nicht als Partie zu lesen", cause)
 
 private val JSON = GAMES_JSON
 
@@ -23,21 +31,26 @@ class GameStore(
 ) {
     private val indexFile get() = File(root, INDEX)
 
-    /** Newest first. Unreadable index = empty library, never a crash on the games screen. */
+    /** Newest first. Ein verlorener Index kostet die Sortierhilfe, nie ein Spiel — siehe [rows]. */
     fun list(): List<GameSummary> = rows().sortedByDescending { it.startedAtEpochMs }
 
     /**
-     * Die Zeilen des Index — und wo der nicht zu lesen ist, aus den Spielen selbst.
+     * Die Zeilen des Index, VEREINIGT mit jedem `<id>.json`, das er nicht nennt.
      *
-     * Nur auf diesem Pfad wird ein Spiel geoeffnet, denn `save` und `delete` schreiben den Index
-     * aus DIESER Liste neu: aus einer fehlgeschlagenen Lesung heraus haetten sie jedes bestehende
-     * `<id>.json` verwaist, was das KDoc oben ausdruecklich ausschliesst.
+     * Ein lesbarer, aber ALTER Index verbarg sonst eine bereits geschriebene Partie, und `save`
+     * schreibt den Index aus DIESER Liste neu. Geoeffnet wird nur, was er nicht kennt.
      */
-    private fun rows(): List<GameSummary> =
-        runCatching { JSON.decodeFromString(ListSerializer(GameSummary.serializer()), indexFile.readText()) }
-            .getOrNull()
-            ?: (root.listFiles { f -> f.isFile && f.name.endsWith(".json") && f.name != INDEX } ?: emptyArray())
+    private fun rows(): List<GameSummary> {
+        val indexed =
+            runCatching { JSON.decodeFromString(ListSerializer(GameSummary.serializer()), indexFile.readText()) }
+                .getOrNull()
+        val known = indexed.orEmpty().mapTo(HashSet()) { it.id }
+        val loose =
+            (root.listFiles { f -> f.isFile && f.name.endsWith(".json") && f.name != INDEX } ?: emptyArray())
+                .filterNot { it.nameWithoutExtension in known }
                 .mapNotNull { f -> runCatching { decodeStoredGame(f.readText()).summary() }.getOrNull() }
+        return indexed.orEmpty() + loose
+    }
 
     /**
      * One game, with the seams that CAN be closed already closed — and written back when any were.
@@ -49,7 +62,11 @@ class GameStore(
      * on calling a continuous game rebuilt for as long as the file existed.
      */
     fun open(id: String): StoredGame? {
-        val stored = runCatching { decodeStoredGame(File(root, "$id.json").readText()) }.getOrNull() ?: return null
+        val file = File(root, "$id.json")
+        // `null` heisst ab hier NUR "gibt es nicht". Eine beschaedigte Partie verschwand vorher wie
+        // eine nie gespielte, und die Datei ist der einzige Nachweis, den es von ihr gibt.
+        if (!file.isFile) return null
+        val stored = runCatching { decodeStoredGame(file.readText()) }.getOrElse { throw GameUnreadable(file, it) }
         val closed = stored.closeSeams()
         if (closed !== stored) runCatching { save(closed) }
         return closed

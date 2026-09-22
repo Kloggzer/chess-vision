@@ -40,7 +40,8 @@ internal fun accuracyOf(
     row: GameSummary,
 ): Pair<Double?, Double?>? {
     val scores = reviews.load(row.id, budget, row.moveCount + 1) ?: return null
-    val view = games.open(row.id)?.reviewView() ?: return null
+    // Eine unlesbare Partie hat keine Genauigkeit, bleibt aber in der Liste — `open` wirft hier.
+    val view = runCatching { games.open(row.id) }.getOrNull()?.reviewView() ?: return null
     val graded = grade(view, scores, budget)
     return graded.white.accuracy to graded.black.accuracy
 }

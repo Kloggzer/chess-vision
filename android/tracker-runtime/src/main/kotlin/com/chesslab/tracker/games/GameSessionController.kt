@@ -53,6 +53,9 @@ class GameSessionController(
     /** Null means tips were not watched for, and the stored game then says exactly that — see
      *  [HintRecord]. The app passes the one ledger `HintController` writes into. */
     private val hints: HintLedger? = null,
+    /** Alles Weitere, das mit der Partie endet — im `:app` das Tipp-Kontingent. Es haengt an
+     *  DIESER Grenze, weil ein Matt die Partie ohne jeden Schirm beendet ([GameBoundary]). */
+    private val alsoEnds: List<GameBoundary> = emptyList(),
 ) {
     private val mutable = MutableStateFlow(GameSessionState())
     private var live: LiveGame? = null
@@ -62,6 +65,9 @@ class GameSessionController(
     /** The rolled-back position waiting to prove it is a take-back, and since when — [onStatus]. */
     private var undoFen: String? = null
     private var undoSince: Long = 0L
+
+    /** Die Aufnahme einer Partie, deren Speichern noch aussteht — siehe [endAndSave]. */
+    private var pendingSession: String? = null
 
     val state: StateFlow<GameSessionState> = mutable
 
@@ -148,20 +154,27 @@ class GameSessionController(
         /** Null = read it off the board. The service's own auto-save never states one. */
         result: GameResult? = null,
     ): GameSummary? {
-        val session = capture.stop()
+        // Ein zweiter Anlauf findet den Recorder schon gestoppt — die Aufnahme-Id gehoert zur
+        // Partie und darf nicht daran haengen, ob das Speichern beim ERSTEN Mal durchkam.
+        val session = capture.stop()?.sessionId ?: pendingSession
+        pendingSession = session
         val game = live
         if (game == null) {
             // Auch eine Partie ohne Ply endet hier: ein Tipp, den kein Zug mehr abholt, darf
             // nicht auf den ersten Ply der NAECHSTEN Partie fallen.
-            hints?.endGame()
+            closeGame()
             mutable.value = GameSessionState(recordingReason = capture.reason)
             return null
         }
+        // Die Bestaetigung VOR der Aufgabe: `GameStore.save` schreibt drei Artefakte, jedes fuer
+        // sich atomar, die Partie als Ganzes aber nicht. Scheitert das PGN oder der Index, ist
+        // `live` die einzige verbliebene Kopie — wirf hier, und sie steht noch.
+        val saved = store.save(game.finish(idFor(now()), now(), session, white, black, result, hints?.log()))
         live = null
+        pendingSession = null
         // The ledger is read HERE and cleared HERE, because this is the record boundary. Reading
         // it in `HintController.endGame` would depend on which of the two the screen calls first.
-        val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId, white, black, result, hints?.log()))
-        hints?.endGame()
+        closeGame()
         mutable.value = GameSessionState(lastSavedId = saved?.id, recordingReason = capture.reason)
         return saved
     }
@@ -177,8 +190,16 @@ class GameSessionController(
     fun discard() {
         capture.stop()
         live = null
-        hints?.endGame()
+        pendingSession = null
+        closeGame()
         mutable.value = GameSessionState(recordingReason = capture.reason)
+    }
+
+    /** Die eine Partiegrenze. Ledger und Tipp-Kontingent fallen hier gemeinsam, denn das
+     *  automatische Ende nach einem Matt laeuft durch [onCommitted] und ruft keinen Schirm. */
+    private fun closeGame() {
+        hints?.endGame()
+        alsoEnds.forEach { it.endGame() }
     }
 
     private fun onCommitted(

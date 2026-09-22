@@ -4,7 +4,7 @@ package com.chesslab.tracker.games
  *  on nothing else — a tip is a statement about the position it was computed from, the same
  *  discipline `HintController` applies before delivering one. A tip overtaken by a take-back
  *  binds to no ply at all. */
-class HintLedger {
+class HintLedger : GameBoundary {
     private val lock = Any()
     private val open = mutableMapOf<String, MoveHint>()
     private var side: String? = null
@@ -47,5 +47,5 @@ class HintLedger {
     fun log(): HintRecord = synchronized(lock) { HintRecord(side = side, quota = quota, delivered = count) }
 
     /** The record boundary: `GameSessionController` clears it once the game is saved or dropped. */
-    fun endGame() = startGame(side = null, quota = 0)
+    override fun endGame() = startGame(side = null, quota = 0)
 }

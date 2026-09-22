@@ -131,8 +131,11 @@ class ReviewViewModel(
         val game = mutable.value.game ?: return
         val token = generation.get()
         scope.launch(Dispatchers.IO) {
-            store.updateDetails(game.id, white, black, event, result)
-            val stored = store.open(game.id) ?: return@launch
+            val stored =
+                runCatching {
+                    store.updateDetails(game.id, white, black, event, result)
+                    store.open(game.id)
+                }.getOrNull() ?: return@launch
             if (owns(token, game.id)) {
                 mutable.value =
                     mutable.value.copy(

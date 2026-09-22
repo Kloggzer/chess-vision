@@ -256,15 +256,15 @@ private fun TrackingModals(
                 moves = moves,
                 fen = ui.fen,
                 onSave = { white, black, result ->
+                    // Kein `HintHost.controller.endGame()` mehr: das Kontingent haengt an der
+                    // Partiegrenze im Record, nicht an der Reihenfolge zweier Aufrufe hier.
                     val saved = games?.endAndSave(white, black, result)
-                    HintHost.controller.endGame()
                     close()
                     TrackerRun.stop(context)
                     if (saved != null) onGameSaved(saved.id) else onGameDiscarded()
                 },
                 onReseed = {
                     games?.discard()
-                    HintHost.controller.endGame()
                     close()
                     TrackerRun.stop(context)
                     onGameDiscarded()
