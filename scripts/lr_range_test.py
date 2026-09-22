@@ -31,20 +31,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
 
-def main() -> int:
-    import numpy as np
-    import torch
+def prepare(args):
+    """Rows, Loader-Datensatz und Verlust GENAU wie `chesslab train` sie baut.
+
+    Unter `--head occlusion` (die Vorgabe von `train`) heisst das `OcclusionLoss` mit Gewichten
+    aus `visible_class_counts` — nicht CE mit den Gewichten aus `split.json`.
+    """
     import torch.nn as nn
-    from torch.utils.data import DataLoader
 
     from chesslab import config
-    from chesslab.dataset import subsample_classes
+    from chesslab.dataset import compute_class_weights, load_priority_paths, subsample_classes
     from chesslab.dataset_build import dataset_dir
-    from chesslab.training.boardnet import CELLS
     from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
-    from chesslab.training.engine import get_device
-    from chesslab.training.model import build_model
-    from chesslab.training.pack import load_packed
+    from chesslab.training.occlusion import OcclusionLoss
+    from chesslab.training.pack import load_packed, resolve_dataset_packs
+    from chesslab.training.packs import packed_shape
     from chesslab.training.torch_data import (
         PackedBoardDataset,
         PackedSquareDataset,
@@ -52,6 +53,64 @@ def main() -> int:
         build_transform,
         class_weights_tensor,
     )
+    from chesslab.training.train import visible_class_counts
+
+    dd = dataset_dir(args.dataset)
+    manifest, split = load_manifest(dd / "manifest.jsonl"), load_split(dd / args.split)
+    classes = split["classes"]
+    occluding = args.head == "occlusion"
+    ts = split.get("train_subsample") or {}
+    board_mode = args.backbone.startswith(("board:", "boardattn:"))
+    if board_mode and ts.get("max_empty_ratio"):
+        # Wie `train`: aus einem Brett laesst sich keine Zelle wegwerfen, sonst ist keines mehr
+        # vollstaendig und der Brett-Datensatz findet gar nichts.
+        print("[range] --max-empty-ratio wird ignoriert: der Brettkopf braucht alle 64 Zellen.")
+        ts = {**ts, "max_empty_ratio": None}
+    train_rows = subsample_classes(filter_rows_by_split(manifest, split, "train"),
+                                   max_empty_ratio=ts.get("max_empty_ratio"),
+                                   max_class_ratio=ts.get("max_class_ratio"),
+                                   seed=ts.get("seed", args.seed),
+                                   priority_paths=load_priority_paths())
+    # Dieselbe Tuer wie `train._load_training_pack`, mit `config.DATA` zur Laufzeit gelesen.
+    packed = (resolve_dataset_packs(args.dataset, config.DATA, manifest_rows=manifest)
+              or load_packed(args.dataset, config.DATA, manifest_rows=manifest))
+    if packed is not None:
+        _, ph, pw = packed_shape(packed)
+        out_size = (pw, ph)
+    else:
+        out_size = tuple(next(iter(manifest))["out_size"])
+    from dataclasses import replace
+    policy = replace(config.AUGMENT, erase_p=args.erase_p)
+    tf = build_transform(out_size, train=True, policy=policy, per_crop=False, input_repr="rgb")
+    if packed is not None:
+        ds = (PackedBoardDataset(train_rows, classes, tf, packed) if board_mode
+              else PackedSquareDataset(train_rows, classes, tf, packed, with_coverage=occluding))
+        kind = f"{len(ds)} Bretter" if board_mode else f"{len(train_rows)} crops"
+        print(f"[range] packed memmap loader: {kind}, {out_size[0]}x{out_size[1]}")
+    elif any(str(row["path"]).startswith("mm://") for row in train_rows):
+        raise RuntimeError("fused dataset has no valid packed memmap")
+    else:
+        ds = SquareDataset(train_rows, classes, tf, augment=True, policy=policy,
+                           with_coverage=occluding)
+    if occluding:
+        weights = class_weights_tensor(
+            {"class_weights": compute_class_weights(visible_class_counts(train_rows), classes)},
+            classes)
+        crit = OcclusionLoss(weights)
+    else:
+        crit = nn.CrossEntropyLoss(weight=class_weights_tensor(split, classes))
+    return ds, crit, classes, train_rows, board_mode, len(classes) + occluding
+
+
+def main() -> int:
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader
+
+    from chesslab import config
+    from chesslab.training.boardnet import CELLS
+    from chesslab.training.engine import get_device
+    from chesslab.training.model import build_model
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -60,7 +119,8 @@ def main() -> int:
                     help="Split-Datei im Datensatz — eine Fold-Datei misst den Fold, den man auch traniert.")
     ap.add_argument("--norm", required=True, choices=("batchnorm", "groupnorm", "none"))
     ap.add_argument("--backbone", default="mobilenetv4_conv_small_035")
-    ap.add_argument("--head", default="combined")
+    ap.add_argument("--head", default="occlusion", choices=("occlusion", "combined"),
+                    help="wie `chesslab train --head`: occlusion misst den Verlust, der faehrt")
     ap.add_argument("--resume", default=None, help="warm-start from data/models/<run>/best.pt")
     ap.add_argument("--scales", default="48,64,80,96",
                     help="mirror the training recipe: one size drawn per batch")
@@ -79,34 +139,7 @@ def main() -> int:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    dd = dataset_dir(args.dataset)
-    manifest, split = load_manifest(dd / "manifest.jsonl"), load_split(dd / args.split)
-    classes = split["classes"]
-    out_size = tuple(next(iter(manifest))["out_size"])
-    ts = split.get("train_subsample") or {}
-    board_mode = args.backbone.startswith(("board:", "boardattn:"))
-    if board_mode and ts.get("max_empty_ratio"):
-        # Wie `train`: aus einem Brett laesst sich keine Zelle wegwerfen, sonst ist keines mehr
-        # vollstaendig und der Brett-Datensatz findet gar nichts.
-        print("[range] --max-empty-ratio wird ignoriert: der Brettkopf braucht alle 64 Zellen.")
-        ts = {**ts, "max_empty_ratio": None}
-    train_rows = subsample_classes(filter_rows_by_split(manifest, split, "train"),
-                                   max_empty_ratio=ts.get("max_empty_ratio"),
-                                   max_class_ratio=ts.get("max_class_ratio"),
-                                   seed=ts.get("seed", args.seed))
-    from dataclasses import replace
-    policy = replace(config.AUGMENT, erase_p=args.erase_p)
-    tf = build_transform(out_size, train=True, policy=policy, per_crop=False, input_repr="rgb")
-    packed = load_packed(args.dataset)
-    if packed is not None:
-        ds = (PackedBoardDataset(train_rows, classes, tf, packed) if board_mode
-              else PackedSquareDataset(train_rows, classes, tf, packed))
-        kind = f"{len(ds)} Bretter" if board_mode else f"{len(train_rows)} crops"
-        print(f"[range] packed memmap loader: {kind}")
-    elif any(str(row["path"]).startswith("mm://") for row in train_rows):
-        raise RuntimeError("fused dataset has no valid packed memmap")
-    else:
-        ds = SquareDataset(train_rows, classes, tf, augment=True, policy=policy)
+    ds, crit, classes, train_rows, board_mode, n_out = prepare(args)
     # Ein Brett-Batch ist 64-mal so gross wie ein Zell-Batch — sonst sprengt er den Speicher.
     batch = max(1, args.batch_size // CELLS) if board_mode else args.batch_size
     dl = DataLoader(ds, batch_size=batch, shuffle=True, drop_last=True,
@@ -114,8 +147,8 @@ def main() -> int:
                     collate_fn=getattr(ds, "collate_fn", None))
 
     device = get_device(require_gpu=True)
-    model = build_model(args.backbone, len(classes), pretrained=False, norm=args.norm,
-                        head=args.head, in_chans=3).to(device)
+    model = build_model(args.backbone, n_out, pretrained=False, norm=args.norm,
+                        head="combined", in_chans=3).to(device)
     if args.resume:
         # Dieselbe Uebernahme wie `chesslab train` (`model.adopt_weights`): der Kopf des
         # Basismodells hat 13 Klassen, dieser Korpus 14 — ein striktes load_state_dict stirbt daran.
@@ -128,7 +161,7 @@ def main() -> int:
         print(f"[range] warm start: {checkpoint} — {keep} Tensoren uebernommen, {skipped} uebersprungen")
         if not keep:
             raise RuntimeError("warm start adopted 0 tensors — Backbone/Head passen nicht")
-    crit = nn.CrossEntropyLoss(weight=class_weights_tensor(split, classes).to(device))
+    crit = crit.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr_min)
     scales = [int(s) for s in args.scales.split(",") if s.strip()]
     rng = np.random.default_rng(args.seed)
@@ -162,8 +195,9 @@ def main() -> int:
                                                    align_corners=False)
             xb = flat.view(shape[0], CELLS, shape[2], s, s) if board_mode else flat
             yb = y.to(device, non_blocking=True)
-            # Das Ziel traegt seit dem Occlusion-Kopf mehrere Spalten; hier zaehlt nur die Klasse.
-            loss = crit(model(xb), (yb[:, 0] if yb.dim() > 1 else yb).long())
+            if n_out == len(classes):      # CE-Rezept: nur die Klassenspalte
+                yb = (yb[:, 0] if yb.dim() > 1 else yb).long()
+            loss = crit(model(xb), yb)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()

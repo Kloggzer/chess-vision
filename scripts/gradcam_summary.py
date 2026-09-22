@@ -23,7 +23,7 @@ from PIL import Image
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
 from chesslab.training.evaluate import load_run
-from chesslab.training.gradcam import compute_cam, jet, last_conv
+from chesslab.training.gradcam import _crop_reader, compute_cam, jet, last_conv
 from chesslab.training.torch_data import eval_transform_for
 
 #: Der aeussere Ring gehoert dem NACHBARN, nicht dieser Zelle: `pad_side` 0,05 schneidet auf
@@ -42,7 +42,7 @@ def edge_mass(cam: np.ndarray) -> float:
     return 1.0 - (float(inner.sum()) / tot if tot > 0 else 0.0)
 
 
-def collect(run: Path, rows, size, n_examples):
+def collect(run: Path, rows, size, n_examples, read=None):
     model, cfg = load_run(run)
     model.eval()
     layer = last_conv(model)
@@ -52,7 +52,7 @@ def collect(run: Path, rows, size, n_examples):
     per_class: dict[str, list[np.ndarray]] = {}
     cm, ex = [], []
     for r in rows:
-        img = Image.open(r["path"]).convert("RGB")
+        img = read(r) if read else Image.open(r["path"]).convert("RGB")
         x = tf(img).unsqueeze(0)
         cam, idx, prob = compute_cam(model, x, layer, None, len(classes))
         cam = np.asarray(Image.fromarray((cam * 255).astype(np.uint8)).resize((size, size))) / 255.0
@@ -84,7 +84,7 @@ def strip(items, size, gap=4):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", type=Path, nargs="+")
-    ap.add_argument("--dataset", default="real13-straight-80-v3")
+    ap.add_argument("--dataset", default="real13-mix-v7-80")
     ap.add_argument("--split", default="val")
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--examples", type=int, default=10)
@@ -96,23 +96,23 @@ def main() -> int:
     split = json.loads((dd / "split.json").read_text(encoding="utf-8"))["splits"][a.split]
     want = [r for r in read_jsonl(dd / "manifest.jsonl")
             if r["session_id"] in split and r["label"] != "empty"]
-    rows = [r for r in want if Path(r["path"]).exists()]
-    if len(rows) < len(want):
-        # `Image.open` liest nur Dateien; heute zeigen alle 24 Saetze zu 100 % mit `mm://` in Packs.
-        packed = sum(1 for r in want if str(r["path"]).startswith("mm://"))
-        raise SystemExit(f"[FAIL] {len(want) - len(rows)} von {len(want)} Zellen ohne Datei, "
-                         f"davon {packed} als `mm://` im Pack — der Mittelwert laege auf einer Teilmenge.")
-    if not rows:
+    if not want:
         raise SystemExit(f"[FAIL] keine besetzte Zelle in {a.split} von {a.dataset}")
-    step = max(1, len(rows) // a.n)
-    rows = rows[::step][:a.n]
+    step = max(1, len(want) // a.n)
+    rows = want[::step][:a.n]
+    # Dieselbe Tuer wie `gradcam.py` und `evaluate`: Session-Packs, Monolith oder Datei.
+    read = _crop_reader(a.dataset, rows)
+    try:
+        read(rows[0])
+    except ValueError as exc:
+        raise SystemExit(f"[FAIL] {exc}") from exc
     print(f"[i] {len(rows)} besetzte Zellen aus {a.split} von {a.dataset}")
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     means = []
     for run in a.runs:
-        mean, cm, per_class, ex, classes = collect(run, rows, a.size, a.examples)
+        mean, cm, per_class, ex, classes = collect(run, rows, a.size, a.examples, read)
         means.append((run.name, mean, cm, per_class))
         strip(ex, a.size).save(out / f"{run.name}-beispiele.png")
         print(f"  {run.name:24} Aufmerksamkeit im RAND-Ring: {100*cm:.1f} % (gleichverteilt waeren 51 %)"
