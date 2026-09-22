@@ -332,7 +332,8 @@ def classify(segment: dict, scan: list[dict], *, person_thr: float = PERSON_THR,
     rows = [r for r in scan if segment["start"] <= r["idx"] < segment["end"]]
     quiet = [r for r in rows if not occupied(r, person_thr) and r.get("cells")]
     stale_from = fall_from = None
-    if len(quiet) > ref_frames:
+    measured = len(quiet) > ref_frames
+    if measured:
         ref = np.median(np.array([r["cells"] for r in quiet[:ref_frames]], np.float32), axis=0)
         square = {cell_square(c, white_pov): c for c in range(64)}
         touched = [square[s] for s in (segment.get("next_touches") or ()) if s in square]
@@ -348,7 +349,10 @@ def classify(segment: dict, scan: list[dict], *, person_thr: float = PERSON_THR,
             out[idx] = "stale"
         elif fall_from is not None and idx >= fall_from:
             out[idx] = "changed"
-        elif occupied(row, person_thr):
+        elif occupied(row, person_thr) or not measured:
+            # Ohne Referenz ist `clean` eine Behauptung: das Brett wurde nie gegen die Commit-
+            # Stellung geprueft. Ueber die Matte zurueck ist billiger als 24 ungepruefte Frames im
+            # sauberen Vorrat. Wirkt nur auf KUENFTIGE Exporte, wie der `_persistent`-Fix.
             out[idx] = "occluded"
         else:
             out[idx] = "clean"

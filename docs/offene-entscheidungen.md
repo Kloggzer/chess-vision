@@ -2050,3 +2050,23 @@ drei Punkte, die eine Entscheidung und keine Korrektur sind:
   sieht dadurch aelter aus als sein Spender. **Offen:** gegen `crop_fingerprint` aus
   `packed_meta` pruefen (wie `_rewritten_since_pack`) statt gegen die mtime — nicht gefixt, weil
   das die Probe in eine echte Messung verwandelt und damit mehr ist als eine Korrektur.
+
+## Nachtrag zu 43 und zur Sekundenachse: beide am 2026-09-22 gebaut bzw. neu gemessen
+
+**Punkt 43 ist gebaut.** Die Zahlen der Vorlage sind vor dem Fix eigenhaendig nachgerechnet und
+stimmen auf die Ziffer: 27 Aufnahmen mit `scan.jsonl`, 1 173 Intervalle, 65 671 Frames INNERHALB
+der Intervalle (39 393 `clean`, 11 933 `occluded`, 5 986 `stale`, 8 359 `changed`), davon
+14 Intervalle mit hoechstens drei ruhigen Frames, die 24 Frames `clean` und 108 `occluded`
+nennen. `framescan.classify` fuehrt diese 24 jetzt als `occluded`: ohne Referenz ist `clean` eine
+Behauptung. Der Fix wirkt nur auf KUENFTIGE Exporte — was auf der Platte liegt, entstand unter
+der alten Regel (Kommentar an der Stelle, wie bei `_persistent`). Test:
+`tests/test_bug_hunt_20260922e_scan.py`, mit Gegenprobe rot gesehen.
+
+**Die Sekundenachse ist neu gemessen**, auf einem BENANNTEN Satz: den 13 Aufnahmen mit
+`model-reads.jsonl` zwischen 29,70 und 30,00 fps, Zeitbasis 29,94. Die FORM der Kurve aendert
+sich nicht — steil ueber den ersten Faktor, danach flach (1,50 s wieder ueber 1,00 s) —, das
+Niveau liegt rund drei Punkte tiefer (rho 0,904 / 0,849 / 0,797 / 0,798). Die Aussage ueber
+`cnnCooldownS` haelt damit unveraendert. Der 15-fps-Satz (10 Aufnahmen) traegt nur den ersten
+Punkt (0,20 s, 261 776 Paare, rho 0,905); alles weitere faellt unter die 200-Paar-Grenze, ein
+eigener Kurvenverlauf ist daraus nicht zu lesen. Tabelle und Satzliste:
+`docs/emission-correlation.md`.

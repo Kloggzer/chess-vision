@@ -31,22 +31,37 @@ Wenn ein Verfahren zwei Stimmen im Abstand von 0,7 s einholt, unterstellt es, da
 dieser Zeit vergisst. Er tut es nicht. Fehlerkorrelation nach zeitlichem Abstand, innerhalb
 derselben Stellung:
 
-| Abstand | Paare | P(Fehler \| Fehler) | ρ |
-|---|---|---|---|
-| 0,10 s | 149 877 | 0,945 | **0,935** |
-| 0,40 s | 137 793 | 0,914 | 0,897 |
-| 1,00 s | 96 968 | 0,900 | 0,872 |
-| 1,50 s | 81 677 | 0,907 | **0,874** |
+Gemessen 2026-09-22 auf einem BENANNTEN Satz: den 13 Aufnahmen mit `model-reads.jsonl`, die auf
+29,70–30,00 fps laufen (`2026-08-07-13-52-38`, `2026-08-08-00-39-57`, `2026-08-08-11-55-19`,
+`2026-08-08-11-59-12`, `2026-08-15-23-01-43`, `2026-08-16-20-19-54`, `2026-08-16-20-41-33`,
+`VID_20260726_233432`, `VID_20260727_233929`, `VID_20260802_222203`, `VID_20260802_222741`,
+`VID_20260824_153751`, `VID_20260824_154327`), Zeitbasis 29,94 fps. Die frühere Tabelle nannte
+ihren Satz nicht und rechnete `lag / 30` — von den 27 Aufnahmen mit Lesungen laufen zehn auf
+~14,95 fps, ihre Sekunden wären doppelt so lang gewesen.
 
-Sechs Punkte über den Faktor 15 im Abstand, danach flach. Drei Beobachtungen im Sekundentakt
-tragen also so viel wie drei direkt hintereinander — kosten aber zwei Sekunden mehr.
+| Abstand | Frames | Paare | P(Fehler \| Fehler) | P(Fehler \| ok) | ρ |
+|---|---|---|---|---|---|
+| 0,10 s | 3 | 129 766 | 0,906 | 0,0018 | **0,904** |
+| 0,40 s | 12 | 116 216 | 0,852 | 0,0029 | 0,849 |
+| 1,00 s | 30 | 71 125 | 0,804 | 0,0072 | 0,797 |
+| 1,50 s | 45 | 57 931 | 0,814 | 0,0156 | **0,798** |
+
+**Die Form der Kurve ändert sich nicht:** elf Punkte über den Faktor 15 im Abstand, danach flach
+(1,50 s liegt wieder über 1,00 s). Das Niveau liegt drei Punkte tiefer als in der alten Tabelle,
+die Aussage hält. Drei Beobachtungen im Sekundentakt tragen also so viel wie drei direkt
+hintereinander — kosten aber zwei Sekunden mehr.
+
+Der 15-fps-Satz (10 Aufnahmen) trägt nur den ersten Punkt: 0,20 s, 261 776 Paare, ρ 0,905. Die
+weiteren Abstände fallen unter die 200-Paar-Grenze des Skripts, ein eigener Kurvenverlauf ist
+daraus nicht zu lesen.
 
 Das entwertet Cooldowns als Mittel zur Unabhängigkeit. `cnnCooldownS` bleibt trotzdem sinnvoll,
 aber aus einem anderen Grund: als Kostenbremse gegen Reads, die nach derselben Messung ohnehin
 nichts beitragen. Was er NICHT leistet, ist die Stimmen unabhängiger zu machen — wer damit
 argumentiert, argumentiert gegen diese Tabelle.
 
-Gemessen mit `scripts/emission_lag.py` über dieselben 20 Recordings.
+Gemessen mit `scripts/emission_lag.py`; das Skript verweigert seit 2026-09-22 eine gemischte
+Zeitbasis (`clock.fps`), statt 30 fps zu unterstellen.
 
 ## Beobachtungen wegwerfen macht die Kette besser
 
