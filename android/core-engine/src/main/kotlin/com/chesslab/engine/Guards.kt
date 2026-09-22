@@ -37,6 +37,10 @@ internal fun EngineState.clearRef() {
     refGray = null
     refBgr = null
     refFen = null
+    // Die vierte Tuer, die die Referenz fallen laesst. Ohne diese Zeile fand der uebernaechste
+    // ruhige Frame den Merker vor und ueberschrieb die frisch gefasste Referenz ueber
+    // `setRef(fromCommit = true)` -- ohne `markGamutStale` (Invariante 6).
+    refProvisionalUntil = 0.0
 }
 
 /**

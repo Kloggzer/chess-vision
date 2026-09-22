@@ -340,6 +340,11 @@ class TrackerEngine(
         state.syncConfirmWindow()
         if (config.detSize != previous.detSize || config.overhang != previous.overhang) {
             state.rebuildBoxes()
+            // Die Census-Codes schluesseln auf die IDENTITAET von `refGray`, und die aendert sich
+            // hier nicht -- der naechste Frame verglich sonst Codes ueber die neuen Boxen gegen
+            // zwischengespeicherte ueber die alten. `maybePatchAnomaly` macht dasselbe.
+            state.refCensusFor = null
+            state.curCensusFor = null
         }
         // Jeder Knopf, der die MESSEBENE verschiebt, macht die Referenz unvergleichbar -- nicht nur
         // die Groesse. `diffClaheClip` baut in der Runtime den CLAHE-Operator neu, und der naechste

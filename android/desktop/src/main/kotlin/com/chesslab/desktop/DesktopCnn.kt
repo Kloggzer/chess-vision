@@ -178,7 +178,10 @@ fun TrackerConfig.withCoverageGateOf(
     if ("pOccludedThr" in overridden && spec?.coverageGate != null) {
         warn("set:pOccludedThr wird vom coverage_gate des Modells (${spec.coverageGate}) verworfen")
     }
-    if (spec == null) return this
+    // Nur MIT der Spalte, wie `:app` seit 2026-09-15: ohne `coverage_output` ist `pOccluded`
+    // immer 0,0, die Hand-Pruefung haengt am modellfreien Arm, und beide Schwellen zoegen an
+    // einer Zahl, gegen die nie etwas verglichen wird. Die zwei Seiten waren auseinander.
+    if (spec?.coverageOutput != true) return this
     // Dieselbe Bewegung wie oben, eine Achse weiter: die Konfidenz-Huerde bedeutete je Modell
     // etwas anderes, weil jedes anders ueberkonfident ist (`calibratedConfThr`).
     val gated = spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this

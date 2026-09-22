@@ -262,7 +262,10 @@ private fun EngineState.commitRecovery(
         refGray = null
         refBgr = null
         refFen = null
+        // Beide, nicht nur das Grau: sonst mittelt das Farbbild weiter ueber Frames der Stellung
+        // VOR der Bruecke, und `setRef` baut aus diesem ungleichen Paar `refBgr` samt Gamut.
         grayBuf.clear()
+        bgrBuf.clear()
     } else {
         setRefComposite(anchor.cur, anchor.curBgr, visibleSquares(snap), fromCommit = true)
     }
