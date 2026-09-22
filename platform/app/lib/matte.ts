@@ -6,7 +6,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName } from "@/lib/data";
 import { readJsonl } from "@/lib/jsonl";
-import { stampOrMissing } from "@/lib/measurement";
+import { absentOnly, stampOrMissing } from "@/lib/measurement";
 import { frameReviews } from "@/lib/review-notes";
 import { sessionDir, sessionId } from "@/lib/session";
 
@@ -38,13 +38,6 @@ export function mattePath(name: string, stem: string): string {
 /** `matte.FIXED_SUFFIX` — the hand-corrected alpha sits BESIDE SAM's cut and never over it. */
 export function fixedMattePath(name: string, stem: string): string {
   return path.join(sessionDir(name), "mattes", `${checkName(stem, "frame")}.fixed.webp`);
-}
-
-/** Nur ENOENT heisst „niemand hat gemalt". Ein Fehler AM `mattes/`-Verzeichnis liess die
- *  Korrektur eines Menschen verschwinden, und die Lane zeigte SAMs Zahlen als bestaetigt. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
 }
 
 /** What a viewer should show: the correction when there is one, SAM's cut otherwise. */

@@ -7,6 +7,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
 import { authorized } from "@/lib/ingest";
+import { absentOnly } from "@/lib/measurement";
 
 export type Gap = {
   piece: string;
@@ -52,13 +53,6 @@ const MAKE_GAPS = "uv run python scripts/coverage_gaps.py --dataset real13-mix-v
 
 function reportPath(file: string): string {
   return path.join(dataDir(), "reports", file);
-}
-
-/** Nur ENOENT heisst „der Befehl lief nie". Jeder andere Fehler ist ein Fehler und gehoert dem
- *  Handy als 500 gemeldet — als `shots: []` riet er zu dem Befehl, der den Bericht ueberschreibt. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
 }
 
 /**

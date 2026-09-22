@@ -14,6 +14,7 @@ import { gameDir } from "@/lib/data";
 import { dataDir } from "@/lib/data";
 import { readJsonl, stripBom } from "@/lib/jsonl";
 import { type MatteCensus, matteCensus, matteSources } from "@/lib/matte";
+import { absentOnly } from "@/lib/measurement";
 import { firstUnfinalized } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
@@ -52,13 +53,6 @@ export type ChainState = {
   /** The human's "nutzlos" verdict, active only — see `lib/useless.ts`. */
   useless: UselessFlag | null;
 };
-
-/** Nur ENOENT heisst „die Sprosse lief nie". Eine Datei, die DA ist und nicht gelesen werden
- *  kann, gehoert dem Aufrufer — als „nie gelaufen" bietet die Kette denselben Lauf erneut an. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
-}
 
 async function exists(file: string): Promise<boolean> {
   return (await stat(file).catch(absentOnly)) !== null;

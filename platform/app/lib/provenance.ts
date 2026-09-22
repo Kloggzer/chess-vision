@@ -9,6 +9,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
 import { stripBom } from "@/lib/jsonl";
+import { absentOnly } from "@/lib/measurement";
 
 export type Provenance = {
   name: string;
@@ -59,13 +60,6 @@ export function summarize(entries: Provenance[]): ProvenanceSummary {
     probRows: read.reduce((n, e) => n + (e.probs ?? 0), 0),
     models: [...new Set(read.map((e) => e.model).filter((m): m is string => m !== null))].sort(),
   };
-}
-
-/** Nur ENOENT heisst „nichts gemessen". Ein Fehler AM Aufnahme-Baum machte aus dem Nenner der
- *  Zusammenfassung eine 0 — „1 von 43" ist genau die Zahl, die das nie werden darf. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
 }
 
 type Store = Map<string, { key: string; value: Provenance }>;

@@ -10,7 +10,7 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { dataDir } from "@/lib/data";
-import { loadMeasurement, type Measurement } from "@/lib/measurement";
+import { absentOnly, loadMeasurement, type Measurement } from "@/lib/measurement";
 
 export type AuditFlag = {
   session_id: string;
@@ -37,13 +37,6 @@ export type AuditFlags = Measurement<AuditFlagsValue>;
 
 function auditFlagsPath(): string {
   return path.join(dataDir(), "reports", "audit-flags.jsonl");
-}
-
-/** Nur ENOENT heisst „es gibt das hier nicht". Jeder andere Fehler gehoert dem Aufrufer:
- *  als leere Antwort gemeldet wuerde er zu einer Messung, die niemand gemacht hat. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
 }
 
 /** The newest producer timestamp the summary saw. Older than a matte on disk = the flags are stale. */

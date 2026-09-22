@@ -15,6 +15,7 @@ import { IDENTITY_CLASSES, isIdentity, LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir } from "@/lib/ingest";
 import { stripBom } from "@/lib/jsonl";
+import { absentOnly } from "@/lib/measurement";
 
 /** Read verbatim — every figure in §7.1 is one of these keys, none of them recomputed. */
 export type Split = {
@@ -45,13 +46,6 @@ export type CorpusIndex = {
   coverage: CoverageTally | null;
   written_at: string;
 };
-
-/** Nur ENOENT ist eine Eigenschaft des Datensatzes. Eine DA-liegende, aber unlesbare Datei ist
- *  eine Stoerung — als „nicht da" gemeldet waere sie eine sachlich falsche Aussage. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
-}
 
 /** Der Datensatz, dessen `split.json` zuletzt geschrieben wurde — der, den ein Neubau erzeugt hat. */
 export async function newestDataset(entries: { name: string }[]): Promise<string | null> {

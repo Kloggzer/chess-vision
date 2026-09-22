@@ -8,14 +8,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
+import { absentOnly } from "@/lib/measurement";
 import { sessionLogs } from "@/lib/pool";
-
-/** Nur ENOENT ist eine Eigenschaft des Packs. Eine DA-liegende, aber unlesbare Zusammenfassung
- *  ist eine Stoerung — als „kein Pack" gemeldet verschwindet der Pack aus der Liste. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
-}
 
 type Counts = { frames: number | null; crops: number | null };
 export type PackSummary = {

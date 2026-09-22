@@ -392,3 +392,24 @@ export function measurementDoorsIn(source: string): number {
   }
   return n;
 }
+
+// --- ENOENT-Tuer ----------------------------------------------------------------------------
+
+const HANDLER =
+  /(?:\bfunction\s+(\w+)\s*\(\s*\w+\s*(?::[^)]*)?\)\s*(?::[^{]*)?|\b(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\(\s*\w+\s*(?::[^)]*)?\)|\w+)\s*(?::[^=]*)?=>\s*)(?=\{)/g;
+const GATE = String.raw`if\s*\([^;]*?\bcode\s*`;
+const ENOENT = String.raw`\s*["']ENOENT["'][^;]*?\)\s*`;
+const THROW_ELSE = new RegExp(String.raw`^\{\s*${GATE}!==?${ENOENT}throw\s+\w+\s*;?\s*return\b[^;{}]*;?\s*$`);
+const RETURN_ELSE = new RegExp(String.raw`^\{\s*${GATE}===?${ENOENT}return\b[^;{}]*;\s*throw\s+\w+\s*;?\s*$`);
+
+/** Benannte Fehler-Griffe, deren GANZER Rumpf die ENOENT-Regel ist — Kopien von `absentOnly`.
+ *  Zehn standen 2026-09-23 wortgleich in `lib/`; eine elfte, die `EACCES` mitfaengt, saehe gleich aus. */
+export function enoentGateCopiesIn(source: string): string[] {
+  const text = withoutComments(source);
+  const out: string[] = [];
+  for (const m of text.matchAll(HANDLER)) {
+    const body = loopBody(text, (m.index ?? 0) + m[0].length);
+    if (THROW_ELSE.test(body) || RETURN_ELSE.test(body)) out.push(m[1] ?? m[2]);
+  }
+  return out;
+}

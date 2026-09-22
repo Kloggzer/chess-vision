@@ -19,6 +19,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { readJsonl } from "@/lib/jsonl";
+import { absentOnly } from "@/lib/measurement";
 import { checkName, dataDir } from "@/lib/data";
 import { serialize } from "@/lib/serialize";
 
@@ -99,13 +100,6 @@ function stagingDir(name: string): string {
 
 export function targetDir(name: string): string {
   return path.join(dataDir(), "recordings", checkName(name, "transfer name"), "files");
-}
-
-/** Nur ENOENT heisst „noch nicht da". Ein Ledger, das DA ist und nicht gelesen werden kann,
- *  meldete „gar keine Transfers" — die eine Seite, die sagt, was je angekommen ist. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
 }
 
 /** Groesse, `null` nur wenn die Datei FEHLT. Ein `-1` fuer jeden Fehler liess ein EACCES wie

@@ -8,6 +8,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { checkName, gameDir } from "@/lib/data";
 import { jsonlRowsStrict } from "@/lib/jsonl";
+import { absentOnly } from "@/lib/measurement";
 import {
   boardToImage,
   type GridMesh,
@@ -68,13 +69,6 @@ export type StoredQuad = {
 const cache = new Map<string, { key: string; value: StoredSession }>();
 type FitCache = Map<string, { key: string; value: QuadFit }>;
 const fits: FitCache = ((globalThis as { __chesslabQuadFits?: FitCache }).__chesslabQuadFits ??= new Map());
-
-/** Nur ENOENT heisst „diese Sitzung liegt hier nicht". Jeder andere Fehler nahm sie lautlos aus
- *  der Liste — und mit ihr die einzigen Labels, die das Telefon selbst geschrieben hat. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
-}
 
 async function loadStored(name: string, dir: string, id: string): Promise<StoredSession | null> {
   const log = path.join(dir, "log.jsonl");

@@ -8,13 +8,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
-
-/** Nur ENOENT ist eine Eigenschaft des Berichts. Eine DA-liegende, aber unlesbare Datei ist eine
- *  Stoerung — als `runs: []` gemeldet wird sie danach ganz weggefiltert. */
-function absentOnly(error: unknown): null {
-  if ((error as { code?: string })?.code !== "ENOENT") throw error;
-  return null;
-}
+import { absentOnly } from "@/lib/measurement";
 
 type Confusion = { true: string; pred: string; count: number };
 export type PerfRun = {
