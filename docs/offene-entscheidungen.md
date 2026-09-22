@@ -1862,3 +1862,45 @@ der NORMALFALL, nicht der Stoerfall. Auf der Platte liegen heute vier abgerissen
 **Empfehlung in einem Satz:** `_WRITE` nicht nur um `"a"` erweitern, sondern wie bei den
 anderen Ratschen ueber den SYNTAXBAUM statt je Zeile pruefen — mit eingepflanzter Gegenprobe
 fuer beide Formen.
+
+## `split-f*.json` nach `drop_dead_rows`: nachziehbar ist nur, was das Manifest deckt
+
+`drop_dead_rows.py` schrieb das Manifest neu und liess `split*.json` stehen. Gemessen am
+geparkten Manifest vom 2026-09-17 traegt `real13-mix-v7-128` seitdem `counts.test` 188 102
+gegen 188 101 tatsaechliche Zeilen; eine der beiden toten Zeilen lag im test-, eine im
+train-Split. Seit 2026-09-22 rechnet das Skript jede Split-Datei mit
+`dataset.make_split(..., precomputed_splits=...)` neu — dieser Weg reproduziert die Datei
+bitgleich, wenn nichts fehlt, also aendert er nur, was sich wirklich geaendert hat.
+
+Offen bleiben die FOLD-Dateien. `split-f0.json` deckt nicht jede Sitzung des Manifests, und
+`make_split` stirbt darauf mit `KeyError` auf `split_of[session_id]` — ihren Zuschnitt neu zu
+raten hiesse, ihn zu erfinden. Das Skript benennt sie jetzt und endet mit 1, statt sie stumm
+stehen zu lassen. Auf der Platte betrifft das heute die sechs Split-Dateien von
+`real13-mix-v7-128`, davon vier Folds.
+
+Relevanz: 12 der 52 Datensaetze mit Manifest tragen heute tote `mm://`-Zeilen, vier davon
+mit `split*.json` (`sp-parity-packs` 4 814 von 50 310; `turntable-13bn-80-hn1`,
+`turntable-13bn-80-v2` und `turntable-13bn-v1` zu 100 %). Bei den drei turntable-Saetzen
+bliebe nach einem Lauf ein LEERES Manifest neben einem Split, der volle val- und
+test-Zahlen behauptet.
+
+**Empfehlung in einem Satz:** entweder `make_split` eine Sitzung ausserhalb aller Splits
+verkraften lassen (dann rechnen sich auch die Folds nach), oder die Fold-Dateien beim naechsten
+ohnehin faelligen Re-Build neu erzeugen statt nachzuziehen.
+
+## `learning_curve.py` schreibt `split-lc<k>.json` mit den Zahlen des VOLLEN Korpus
+
+Nachgemessen 2026-09-22 an `real13-straight-80-v3-c8d1`: alle vier Dateien (`lc4`, `lc8`,
+`lc12`, `lc17`) tragen dieselben `counts` (train 183 657) und dieselben `train_class_counts`
+und `class_weights` wie `split.json` — obwohl `lc4` nur 4 der 17 Trainings-Aufnahmen fuehrt.
+Fuer den Vorgabe-Kopf (`--head occlusion`) ist das folgenlos, weil `train.py` die Gewichte aus
+den sichtbaren Zeilen neu rechnet; der Kommentar im Skript sagt das auch. Ohne diesen Kopf
+trainiert ein k=4-Lauf mit den Gewichten von 17 Aufnahmen, und `validate_split` urteilt
+ueber `counts`, die nie zu diesem Split gehoerten.
+
+Nicht gebaut, weil ein Nachrechnen der Gewichte das REZEPT der vier Lernkurven-Punkte aendert
+und sie mit den schon gefahrenen Laeufen unvergleichbar macht.
+
+**Empfehlung in einem Satz:** `counts` und `train_class_counts` beim Schreiben nachrechnen,
+`class_weights` unangetastet lassen und den Grund in die Datei stempeln — dann stimmt der
+Nenner, ohne dass das Rezept wandert.
