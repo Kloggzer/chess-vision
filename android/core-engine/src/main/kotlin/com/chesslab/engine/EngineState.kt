@@ -469,6 +469,11 @@ internal data class PendingVerify(
     /** `nowS` at dispatch and at the last tick — the two ends of [TrackerConfig.verifyTimeoutS]. */
     var startedS: Double = 0.0,
     var lastTickS: Double = 0.0,
+    /** Eingefroren beim HEBEN: waehrend `pending` steht, bricht `tryDetect` vor `applyVetoes` ab,
+     *  der Baseline-Arm schreibt aber weiter. Die Entscheidungszeile mischte so zwei Frames und hat
+     *  damit drei Erklaerungsketten gekippt (`docs/verify-leiter-2026-09-22.md`). */
+    val shadowVetoedAtLift: Long = 0L,
+    val occludedVetoedAtLift: Long = 0L,
 )
 
 /** Waits for the user's promotion answer. */

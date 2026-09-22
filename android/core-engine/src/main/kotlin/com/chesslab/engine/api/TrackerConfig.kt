@@ -88,8 +88,10 @@ data class TrackerConfig(
     val desyncObsN: Int = 3,
     // 1,5 s verhindert den 0,21-s-Fehlalarm aus `VID_20260824_154327` (2026-08-24; 107/117 Plies verloren).
     val alarmMinS: Double = 1.5,
-    // Experiment (2026-08-08): require a completely hand-free frame to measure mid-reach safety.
-    val cleanCommitsOnly: Boolean = false,
+    // Kein Experiment mehr (befoerdert 2026-09-22): ein Blick mit Hand darf weder bestaetigen noch
+    // verwerfen. Handreich 17/70/6 -> 87/0/0, 142 statt 72 Plies bei gleichem Median-Verzug; am
+    // Zehner-Satz 396/3/0 und 8 Desync in der SUMME, auf vier Aufnahmen aber je um 1 verschoben.
+    val cleanCommitsOnly: Boolean = true,
     // Model-free grid veto blocks the resting-hand failure that fabricated `g4` in 003957 (2026-08-09).
     val gridHandGate: Boolean = true,
     // Hand-shape and motion/grid evidence filter the phantom queenside from 20260814-142947 (2026-08-14).

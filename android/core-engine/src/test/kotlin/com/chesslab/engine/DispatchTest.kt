@@ -297,10 +297,11 @@ class DispatchTest {
         assertTrue(state.commitGates(cand), "clean everywhere — the funnel opens")
     }
 
-    /** Off (the default) is byte-identical: a latch blocks squares, never the whole funnel. */
+    /** AUSGESCHALTET traegt ein Latch nur Felder, nie den ganzen Trichter. Vorgabe ist seit
+     *  2026-09-22 AN, der Knopf steht hier also ausdruecklich da. */
     @Test
     fun cleanCommitsOnlyOffLeavesTheFunnelAlone() {
-        val state = detectState()
+        val state = detectState(detectConfig().copy(cleanCommitsOnly = false))
         state.bestScore = 10.0
         state.tainted = ofSquares("a4")
         assertTrue(
@@ -526,6 +527,41 @@ class DispatchTest {
         assertEquals("frame-diff read a different move — CNN occupancy overruled it", state.decisionLog.last().reason)
         assertNull(state.pending)
         assertEquals(1, events.filterIsInstance<TrackerEvent.MoveCommitted>().size)
+    }
+
+    @Test
+    fun theDecisionRowKeepsTheVetoesFromTheLiftingFrame() {
+        // Waehrend `pending` steht, bricht `tryDetect` vor `applyVetoes` ab -- der Baseline-Arm
+        // schreibt aber weiter in dieselben Felder. Ungefroren trug die Zeile Felder, die gegen die
+        // Invariante `shadowVetoed subset hot` verstiessen (`docs/verify-leiter-2026-09-22.md`).
+        val state = detectState()
+        state.shadowVetoed = bit(Squares.index("g1"))
+        state.occludedVetoed = bit(Squares.index("h1"))
+        state.pending =
+            PendingVerify(
+                ucis = listOf("e2e4"),
+                uci = "e2e4",
+                fen = state.board.fen(),
+                cur = grayFrame(),
+                curBgr = null,
+                frames = 1,
+                priorUsed = false,
+                seq = 1,
+                shadowVetoedAtLift = state.shadowVetoed,
+                occludedVetoedAtLift = state.occludedVetoed,
+            )
+        state.shadowVetoed = bit(Squares.index("e1")) or bit(Squares.index("f1"))
+        state.occludedVetoed = bit(Squares.index("f2"))
+        val row = state.decisionRow(DECIDER_CNN_OCCUPANCY, "irgendein Grund")
+        assertEquals(listOf("g1"), row.shadowVetoed)
+        assertEquals(listOf("h1"), row.occludedVetoed)
+    }
+
+    @Test
+    fun withoutAPendingCandidateTheDecisionRowIsThisFrames() {
+        val state = detectState()
+        state.shadowVetoed = bit(Squares.index("e1"))
+        assertEquals(listOf("e1"), state.decisionRow(DECIDER_CNN_OCCUPANCY, "irgendein Grund").shadowVetoed)
     }
 
     @Test

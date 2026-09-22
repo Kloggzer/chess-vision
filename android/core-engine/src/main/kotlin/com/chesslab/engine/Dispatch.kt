@@ -58,6 +58,8 @@ internal fun EngineState.dispatch(
             seq = seq,
             startedS = nowS,
             lastTickS = nowS,
+            shadowVetoedAtLift = shadowVetoed,
+            occludedVetoedAtLift = occludedVetoed,
         )
     // NOT `recoveryConfirmer.reset()`: entering verification is no evidence against what the CNN
     // reads. While `pending` stands the recovery streak freezes rather than restarts — a phantom the

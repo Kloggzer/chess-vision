@@ -75,3 +75,30 @@ Verdeckungs-Achse, und dort ist er blind: alle drei Hand-Wachen lassen sich absc
 sich eine Ziffer bewegt (`docs/wachen-ablation-2026-09-21.md`). Der neue Teil des Satzes hat
 innerhalb eines Tages zwei Defekte freigelegt, die monatelang unsichtbar waren — einer davon
 kostete auf einer Aufnahme **alle 59 Züge**.
+
+## Befoerdert 2026-09-22 — und die Null war keine Null
+
+Der Knopf steht jetzt per Vorgabe auf AN. Der Nachweis am Zehner-Satz
+(`tmp/batch/cleanonly-v1-promote`, gegen `tmp/batch/baseline-an`):
+
+```
+found    396 -> 396  (+0)
+missed     3 -> 3    (+0)
+invented   0 -> 0    (+0)
+desync     8 -> 8    (+0)
+latched    7 -> 6    (-1)
+```
+
+**Die Summe haelt, die Verteilung nicht.** Vier Aufnahmen verschieben ihre Desync-Episoden um je
+eine, und sie heben sich gegenseitig auf: `00-39-57` 1 -> 0, `27-233929` 2 -> 1, `11-55-19`
+0 -> 1, `802-222203` 5 -> 6.
+
+Das widerlegt meinen eigenen Satz von gestern, der Knopf greife auf dem Zehner-Satz nie. Er
+greift — er kostet und bringt dort nur gleich viel. Weil ein Kontrolllauf derselben Konfiguration
+nachweislich **+0/+0/+0/+0** liefert (`docs/regression-reference.md`), ist jede dieser vier
+Verschiebungen ein echter Effekt und kein Rauschen.
+
+**Die Befoerderung steht trotzdem**, denn die Entscheidungsregel war die Summe, und auf der Achse,
+die dieser Satz ueberhaupt messen kann, bewegt sich nichts. Aber der Grund dafuer ist nicht
+"greift nie", sondern "gewinnt und verliert gleich viel" — und welche Seite auf ungesehenem
+Material ueberwiegt, weiss niemand.
