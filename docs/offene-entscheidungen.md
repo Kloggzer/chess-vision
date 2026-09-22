@@ -1787,7 +1787,30 @@ trotzdem, weil `:arena` und `:desktop` dieselbe Funktion unter Windows benutzen.
 Sprachen und nicht nur hier. **Zu entscheiden:** Sperre je Pfad in `io/Jsonl.kt`, oder die Regel
 festschreiben, dass ein Pfad genau einen Schreiber hat.
 
-## 42. Was der Modell-Handarm allein beitraegt, ist nie gemessen worden (2026-09-22)
+## 42. Was der Modell-Handarm allein beitraegt — GEMESSEN 2026-09-22
+
+> **Erledigt.** Der Schalter heisst jetzt `modelHandShapeFilter` (alter Schluessel wird weiter
+> gelesen), daneben steht `modelHandArm` als echter Ausschalter. Die Umbenennung ist am
+> Zehner-Satz nachgewiesen: 396/3/0, 8 Desync, latched 6 — Ziffer fuer Ziffer.
+>
+> **Und die Messung, die es vorher nicht geben konnte** — auf `-Satz v2` (875 verdeckte Frames
+> auf 988), wo die Achse ueberhaupt sichtbar ist:
+>
+> | Lauf | found | missed | invented | Desync |
+> |---|---:|---:|---:|---:|
+> | Arm an (Vorgabe) | 142 | 4 | 0 | **1** |
+> | `modelHandArm=0` | 142 | 4 | 0 | **2** |
+>
+> **Der Modellarm traegt genau eine Desync-Episode**, auf `16-26-22`. Keine Ziffer bei
+> found/missed/invented. Das ist wenig — aber es ist nicht null, und auf dem Zehner-Satz waere
+> es wieder eine Null ohne Aussage gewesen. Der Arm bleibt an.
+>
+> Die Lehre ist die groessere: die Ablation vom 2026-09-21 hat "Formfilter weg" gemessen und ich
+> habe "Modellarm weg" daraus gelesen. Ein Schalter, dessen Name luegt, macht jede Messung an ihm
+> wertlos.
+
+Der urspruengliche Stand, zur Nachvollziehbarkeit:
+
 
 Am 2026-09-21 stand in der Wachen-Ablation, `modelHandGate=0` bewege keine Ziffer, und ich habe
 das als "der Modellarm traegt hier nichts" gelesen. Das ist falsch, und zwar am Code belegbar:
