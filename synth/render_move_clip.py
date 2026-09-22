@@ -53,6 +53,19 @@ def _args() -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
+def _given_path(path: Path | None, flag: str) -> str | None:
+    """A flag that WAS given must point at something.
+
+    A mistyped `--pieces` fell through to the procedural Staunton fallback, so the clip rendered
+    low-poly stand-ins on a fixture whose whole point is the scanned set — and said nothing.
+    """
+    if path is None:
+        return None
+    if not Path(path).exists():
+        raise SystemExit(f"ERROR: {flag} {path} existiert nicht.")
+    return str(path)
+
+
 def main() -> None:
     args = _args()
     spec = json.loads(args.spec.read_text(encoding="utf-8"))
@@ -72,8 +85,8 @@ def main() -> None:
     except (AttributeError, TypeError):
         pass
 
-    pieces_dir = str(args.pieces) if args.pieces and args.pieces.exists() else None
-    board_texture = str(args.board_texture) if args.board_texture and args.board_texture.exists() else None
+    pieces_dir = _given_path(args.pieces, "--pieces")
+    board_texture = _given_path(args.board_texture, "--board-texture")
     templates, base_z, procedural = board_render.build_templates(pieces_dir)
     board_render.style_board_v2(board_texture)
     cam = board_render.setup_camera()

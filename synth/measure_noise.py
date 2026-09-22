@@ -33,6 +33,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from chesslab.ioutil import read_jsonl
+from chesslab.training.pack import _manifest_digest
+
 #: Optics cutoff. Everything above it is noise, not lens signal — the real webcam's blur
 #: kernel is well below this, so a real crop keeps its grain while a clean render has none.
 HF_SIGMA = 1.2
@@ -68,11 +71,16 @@ def crops_from_dir(d: Path, n: int, seed: int) -> list[np.ndarray]:
     return out
 
 
+def _packed_source(ds: Path, meta: dict) -> Path:
+    """Where this dataset's pixels actually live — a LINK has no memmap of its own."""
+    owner = meta.get("packed_from")
+    return (ds.parent / owner if owner else ds) / "packed_images.u8"
+
+
 def crops_from_dataset(ds: Path, label: str, n: int, seed: int,
                        sessions: tuple[str, ...] = ()) -> list[np.ndarray]:
     """Rows of `label` from a built dataset — packed memmap if present, else crop files."""
-    rows = [json.loads(x) for x in
-            (ds / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if x]
+    rows = read_jsonl(ds / "manifest.jsonl")
     idx = [i for i, r in enumerate(rows)
            if r["label"] == label
            and (not sessions or any(r["session_id"].startswith(s) for s in sessions))]
@@ -83,10 +91,17 @@ def crops_from_dataset(ds: Path, label: str, n: int, seed: int,
     meta_path = ds / "packed_meta.json"
     if meta_path.exists():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        mm = np.memmap(ds / "packed_images.u8", dtype=np.uint8, mode="r",
+        # `meta["paths"]` is the memmap order, the manifest is NOT: a link addresses its owner's
+        # superset and a pruned manifest has dropped rows. Reading by row number then measures
+        # somebody else's crops and calls the number a measurement.
+        if meta.get("digest") != _manifest_digest(rows):
+            raise ValueError(f"{ds}: the pack does not match this manifest — re-pack before "
+                             f"measuring (a pack is immutable, not automatically current).")
+        path2idx = {p: i for i, p in enumerate(meta["paths"])}
+        mm = np.memmap(_packed_source(ds, meta), dtype=np.uint8, mode="r",
                        shape=(meta["n"], meta["h"], meta["w"], 3))
         # The memmap stores RGB (see synth_build); hf_energy expects BGR.
-        return [np.ascontiguousarray(mm[i][:, :, ::-1]) for i in picked]
+        return [np.ascontiguousarray(mm[path2idx[rows[i]["path"]]][:, :, ::-1]) for i in picked]
     root = Path(__file__).resolve().parents[1]
     out = []
     for i in picked:

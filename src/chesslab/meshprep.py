@@ -134,10 +134,14 @@ def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview
     else:
         _copy_obj_verbatim(item.obj, obj_dst, stem)
         _write_clean_mtl(piece_dir, stem)
-        if item.tex is not None and Path(item.tex).exists():
-            shutil.copyfile(item.tex, tex_dst)
+        # Same chain as the GLB branch. Straight from `item.tex` this copied RealityScan's UV
+        # debug pattern whenever it happened to be the largest `*diffuse*` file.
+        src_tex = _first_real_texture(_texture_candidates(item))
+        if src_tex is not None:
+            shutil.copyfile(src_tex, tex_dst)
 
-    report = {"piece": item.name, "variant": stem, "verbatim": True}
+    report = {"piece": item.name, "variant": stem, "verbatim": True,
+              "texture": tex_dst.name if tex_dst.exists() else None}
     (piece_dir / f"{stem}_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     _log.info("verbatim import -> %s", obj_dst)
 
@@ -253,14 +257,17 @@ def _looks_like_debug_texture(path: Path) -> bool:
 
 
 def _first_real_texture(candidates) -> Path | None:
-    """First candidate (path) that exists and is NOT a debug pattern."""
-    for c in candidates:
-        if c is None:
-            continue
-        p = Path(c)
-        if p.exists() and not _looks_like_debug_texture(p):
+    """First candidate (path) that exists and is NOT a debug pattern.
+
+    The filter may only DESELECT, never leave the piece bare: its saturation cut sits inside the
+    real corpus (measured 2026-09-22 over the twelve shipped scans: 0.422-0.594 against a cut of
+    0.50, four of them flagged), so a sole texture is kept even when it trips.
+    """
+    existing = [Path(c) for c in candidates if c is not None and Path(c).exists()]
+    for p in existing:
+        if not _looks_like_debug_texture(p):
             return p
-    return None
+    return existing[0] if existing else None
 
 
 def _texture_candidates(item: ScanItem) -> list[Path | None]:

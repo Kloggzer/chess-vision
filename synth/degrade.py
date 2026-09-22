@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import os
 
 import cv2
@@ -99,11 +100,17 @@ def degrade_image(bgr: np.ndarray, rng: np.random.Generator,
 
 
 def _seed_from_name(path: str) -> int:
+    """Stable per FILENAME, because the module promises "deterministically per image".
+
+    `hash()` on a str is salted per process, so a non-numeric name degraded differently on every
+    run — the one thing a seed-from-the-filename exists to prevent.
+    """
     stem = os.path.splitext(os.path.basename(path))[0]
     try:
         return int(stem)
     except ValueError:
-        return abs(hash(stem)) % (2**31)
+        return int.from_bytes(hashlib.blake2s(stem.encode("utf-8"), digest_size=4).digest(),
+                              "big") % (2**31)
 
 
 def main() -> None:
