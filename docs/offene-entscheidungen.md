@@ -1568,7 +1568,32 @@ derselben Entscheidung wie Punkt 30: `test-v2` oder Trainingsmaterial.
 Wachen bewusst ohne Zeugen laufen. Ein drittes "spaeter" gibt es nicht — heute ist es das
 zweite, nur unausgesprochen.
 
-## 37. Die 80-px-Saetze tragen keine `brightness`-Spalte (2026-09-21, gemessen)
+## 37. Die 80-px-Saetze tragen keine `brightness`-Spalte — REPARIERT 2026-09-22
+
+> **Erledigt, und der Nachtrag war nicht kosmetisch.** Der Nutzer hat die Entscheidung delegiert
+> ("Fehler gehoeren behoben") und den Rechenaufwand genehmigt. `real13-mix-v7-80` traegt die
+> Spalte jetzt lueckenlos: 979 363 von 979 363 Zeilen, 161 Aufnahmen.
+>
+> **Nachgewiesen, nicht behauptet.** Zeile fuer Zeile gegen die Sicherung
+> (`manifest.jsonl.before-brightness`) verglichen: **exakt 376 640 Zeilen haben NUR den
+> `brightness`-Schluessel dazubekommen, null sonstige Abweichungen** — gleiche Zeilenzahl,
+> gleiche Labels, gleiche Pfade, gleiche `coverage`, gleiche Reihenfolge. Auf der
+> Nachweis-Aufnahme stimmen die Werte Ziffer fuer Ziffer mit dem v7-128-Zwilling ueberein.
+>
+> **Die Zahl, die zaehlt:** die nachgetragenen Zeilen sind zu **4,07 % dunkel** (15 315 von
+> 376 640), die Zeilen mit Spalte nur zu **0,40 %** (2 409 von 602 723) — Faktor zehn. Die
+> Komposite sind also deutlich dunkler als die echten Aufnahmen, und genau auf ihnen war
+> `CELL_DARK_MIN` wirkungslos. 15 315 Zellen treten damit neu in die Verlustmaske UND in die
+> Benotung ein.
+>
+> **Folge fuer Vergleiche:** ein 80-px-Lauf nach diesem Stand ist mit dem Archiv nicht mehr
+> vergleichbar — nicht wegen der Pixel, die sind gleich, sondern weil die Dunkelmaske jetzt
+> wirkt, wo sie vorher schlief. Der ausgelieferte Champion `p4a-80-clahe` sitzt auf dem ALTEN
+> Stand. `real13-mix-v6-80-clahe` traegt die Luecke noch (44,8 %) und gehoert gleich behandelt.
+> Damit ist auch Punkt 41 erledigt: beide Groessen benoten wieder auf derselben Zellmenge.
+
+Der urspruengliche Stand, zur Nachvollziehbarkeit:
+
 
 `real13-mix-v7-80` fehlt sie bei **376 640 von 979 363 Zeilen (38,5 %)**, `real13-mix-v6-80-clahe`
 bei 44,8 % — jeweils alle 138 Komposit-Aufnahmen vollstaendig. Die 128-px-Saetze tragen sie
@@ -1680,6 +1705,10 @@ hineinkomponierten Verdeckers.
 
 **Zu entscheiden:** die Zahl in der `occluders.json` korrigieren (Nutzer, eine Zeile unter
 `data/`), oder `plate_long_side` die Kachel messen lassen statt sie zu glauben.
+
+## 41. Die Dunkel-Maske greift je Datensatz auf einer anderen Zellmenge — ERLEDIGT mit Punkt 37
+
+> Dieselbe Wurzel, mit dem Nachtrag der Spalte behoben. Siehe Punkt 37 fuer Nachweis und Zahlen.
 
 ## 41. Die Dunkel-Maske greift je Datensatz auf einer anderen Zellmenge (gemessen 2026-09-22)
 
