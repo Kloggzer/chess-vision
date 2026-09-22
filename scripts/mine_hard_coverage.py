@@ -53,6 +53,8 @@ def main():
             if r.get("coverage") is None:
                 stat["ohne Matte"] += 1
                 continue
+            # Bewusst ohne Helligkeit: der Coverage-Kopf lernt auch auf dunklen Zellen
+            # (`OcclusionLoss.validation_terms`), `classification_eligible` waere die falsche Menge.
             tc = float(r["coverage"])
             # Zwei getrennte Baender statt eines symmetrischen Randes: die Schwelle liegt bei
             # 0,15, ein symmetrischer Rand klemmt die Untergrenze auf 0 und trifft dann nie.

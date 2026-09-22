@@ -8,7 +8,8 @@ Gemessen wird je STANDZEIT — (Feld, Figur, ununterbrochene Ply-Strecke), also 
 in der sich nichts bewegt haben SOLL.
 
 Verdeckte Zellen bleiben DRAUSSEN: eine Hand ueber der Figur ist keine Licht-Variation, und sie
-blaeht die Spannweite so auf, dass jede Auswahl gut aussieht (gemessen: 51 statt 95).
+blaeht die Spannweite so auf, dass jede Auswahl gut aussieht (gemessen: 51 statt 95). Dunkle
+ebenso: der Verlust lernt aus beiden nichts (`occlusion.classification_eligible`).
 
 Zwei Masse, weil das erste allein ein Selbstlob waere: Farthest-Point optimiert die SPANNWEITE
 direkt. `Deckung` misst stattdessen, wie weit ein durchschnittlicher Crop noch vom naechsten
@@ -28,12 +29,18 @@ from pathlib import Path
 import numpy as np
 
 from chesslab.ioutil import read_jsonl, write_rows
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+from chesslab.training.occlusion import classification_eligible
 
 PACKS = Path("data/packs")
 #: Auf diese Kantenlaenge heruntergerechnet verglichen — Pose und Licht bleiben, das Rauschen geht.
 THUMB = 16
 BUDGETS = (2, 4, 8, 16)
+
+
+def learnable(rows: list[dict], measured_only: bool = False) -> list[dict]:
+    """Die Zeilen, die der Klassenverlust lernt; `measured_only` wirft auch `coverage is None` raus."""
+    return [r for r in rows if classification_eligible(r)
+            and not (measured_only and r.get("coverage") is None)]
 
 
 def runs_of(rows: list[dict]) -> dict[tuple, list[dict]]:
@@ -90,7 +97,7 @@ def measure(pack: Path, dup: float, min_run: int, with_hands: bool) -> dict | No
     hidden = 0
     if not with_hands:
         before = len(rows)
-        rows = [r for r in rows if float(r.get("coverage") or 0.0) <= PIECE_VISIBLE_MAX]
+        rows = learnable(rows)
         hidden = before - len(rows)
     if not rows:
         return None
@@ -134,7 +141,7 @@ def main() -> int:
     ap.add_argument("--min-run", type=int, default=3, help="Standzeiten unter so vielen Crops "
                                                            "ueberspringen — da gibt es nichts zu waehlen.")
     ap.add_argument("--with-hands", action="store_true",
-                    help="Verdeckte Zellen mitzaehlen (Vorgabe: raus).")
+                    help="Verdeckte und dunkle Zellen mitzaehlen (Vorgabe: raus).")
     ap.add_argument("--json", help="Die Zeilen zusaetzlich hierhin schreiben.")
     args = ap.parse_args()
 
@@ -147,7 +154,7 @@ def main() -> int:
         print("--pack oder --all")
         return 1
 
-    head = (f"{'Aufnahme':30s}{'Crops':>8}{'verdeckt':>10}{'Standz.':>9}{'Median':>8}"
+    head = (f"{'Aufnahme':30s}{'Crops':>8}{'maskiert':>10}{'Standz.':>9}{'Median':>8}"
             f"{'Dubletten':>11}")
     print(head + "".join(f"{f'k={k}':>16}" for k in BUDGETS))
     print("-" * (len(head) + 16 * len(BUDGETS)))

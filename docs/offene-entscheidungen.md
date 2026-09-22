@@ -2288,3 +2288,29 @@ Luege, nicht die Daten.
 **Empfehlung in einem Satz:** beim naechsten ohnehin faelligen Anfassen der `pose`-Spalte auf
 `float | None` heben und die Leser mitziehen; ein eigener Gang lohnt fuer einen Fall, den es
 heute nicht gibt, nicht.
+
+## Nachtrag zu 38: die sieben Auswerter in `scripts/` (2026-09-23)
+
+Sechs schneiden jetzt ueber `occlusion.classification_eligible`, einer bleibt bewusst auf
+`coverage`. Tests: `tests/test_bug_hunt_20260923_zellmenge.py`, jeder gegen den alten Stand rot
+gesehen. Gemessen vor der Umstellung, wie viele coverage-sichtbare Zeilen herausfallen:
+
+| Werkzeug | Satz | wandern |
+|---|---|---|
+| `episode_eval.py`, `show_dispute.py` | v7-128/-80, Val (beide Split-Dateien) | **0** von 32 330 |
+| | v7-128, Test | 604 von 170 276 (0,35 %) |
+| | v6-80-clahe, `split.json` Val / Test | 41 / 1 514 (0,03 % / 1,35 %) |
+| `crop_redundancy*.py` | 24 Aufnahme-Packs `-128` | 2 126 von 669 772 (0,32 %), bis 4,5 % in `20-41-33` |
+| | 23 Aufnahme-Packs `-80` | 1 852 von 548 934 (0,34 %) |
+| `hand_audit.py` | v7-128 Train, `split-pin.json` | `maskiert` 33 507 -> 34 384, `RISIKO` 41 716 -> 41 536 |
+
+**Was stehen bleibt:** die Episoden- und Streitzahlen unter Phase 0.3 (`docs/plan-98/00-plan.md`:
+32 330 Zellen, 147 Episoden, 116 strittige) gelten unveraendert — der v7-Val traegt keine dunkle
+Zelle. **Vorbehalt** fuer die Redundanz-Messung vom 2026-09-17 weiter oben (669 571 sichtbare
+Crops, 90,3 % Dubletten, 65 250 nicht-redundante, die Deckungstabelle, 95 statt 51): sie lief auf
+dem Coverage-Schnitt; heute fallen dort 2 126 dunkle Crops zusaetzlich heraus. Nicht neu gemessen
+— ein Lauf haelt bis 1 758 Crops je Standzeit als Abstandsmatrix, rund 6 GB.
+
+**Bewusst auf `coverage`:** `mine_hard_coverage.py`. Es sucht Fehler des COVERAGE-Kopfs, und der
+lernt auch auf dunklen Zellen (`OcclusionLoss.validation_terms`); die Helligkeit dort zu maskieren
+hiesse, genau die Zellen zu verstecken, auf denen der Kopf sich irren darf.

@@ -25,10 +25,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from crop_redundancy import farthest_point as farthest  # noqa: E402
-from crop_redundancy import runs_of, thumbs  # noqa: E402
+from crop_redundancy import learnable, runs_of, thumbs  # noqa: E402
 
 from chesslab.ioutil import read_jsonl  # noqa: E402
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX  # noqa: E402
 
 PACKS = Path("data/packs")
 
@@ -41,8 +40,7 @@ def main() -> int:
     args = ap.parse_args()
 
     pack = PACKS / args.pack
-    rows = [r | {"_i": i} for i, r in enumerate(read_jsonl(pack / "manifest.jsonl"))
-            if float(r.get("coverage") or 0.0) <= PIECE_VISIBLE_MAX]
+    rows = learnable([r | {"_i": i} for i, r in enumerate(read_jsonl(pack / "manifest.jsonl"))])
     runs = {k: v for k, v in runs_of(rows).items() if len(v) >= 8}
     print(f"{args.pack}: {len(rows)} sichtbare Crops, {len(runs)} Standzeiten >= 8")
 
@@ -74,7 +72,7 @@ def main() -> int:
 
     fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.8))
     fig.suptitle(f"Wie viel einer Partie ist dieselbe Figur zweimal?  —  {args.pack}   "
-                 f"({len(rows)} sichtbare Crops, Haende raus)", fontsize=12)
+                 f"({len(rows)} sichtbare Crops, Haende und Dunkles raus)", fontsize=12)
 
     ax = axes[0]
     ax.hist(np.clip(nearest, 0, 20), bins=80, color="#4C72B0")

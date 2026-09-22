@@ -26,18 +26,18 @@ def episode_key(row: dict) -> tuple:
 
 
 def disputed(rows: list[dict], preds_a: list[int], preds_b: list[int]) -> tuple[list[int], int]:
-    """Indizes strittiger, GEMESSEN sichtbarer Zellen, dazu die Zahl der ungemessenen.
+    """Indizes strittiger, GEMESSEN benotbarer Zellen, dazu die Zahl der ungemessenen.
 
     `coverage is None` heisst nicht gemessen, nicht null (CLAUDE.md, Coverage Matte Trap);
     als 0,0 gelesen waren 161 536 Zeilen eines Turntable-Satzes stillschweigend "sichtbar".
     """
-    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+    from chesslab.training.occlusion import classification_eligible
 
     live, unmeasured = [], 0
     for i, r in enumerate(rows):
         if r.get("coverage") is None:
             unmeasured += 1
-        elif float(r["coverage"]) <= PIECE_VISIBLE_MAX and preds_a[i] != preds_b[i]:
+        elif classification_eligible(r) and preds_a[i] != preds_b[i]:
             live.append(i)
     return live, unmeasured
 

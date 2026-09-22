@@ -20,7 +20,6 @@ import cv2
 import numpy as np
 
 from chesslab.ioutil import read_jsonl
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 PACKS = Path("data/packs")
 THUMB = 16
@@ -96,8 +95,8 @@ def main() -> int:
     # `coverage is None` heisst NICHT GEMESSEN, nicht "frei" — das ist die Coverage Matte Trap
     # aus CLAUDE.md, und 49 % der Crops dieser Aufnahme tragen sie. Genau daraus kamen die Haende,
     # die Farthest-Point als "Vielfalt" auflas.
-    rows = [r | {"_i": i} for i, r in enumerate(read_jsonl(pack / "manifest.jsonl"))
-            if r.get("coverage") is not None and float(r["coverage"]) <= PIECE_VISIBLE_MAX]
+    rows = base.learnable([r | {"_i": i} for i, r in enumerate(read_jsonl(pack / "manifest.jsonl"))],
+                          measured_only=True)
     runs = base.runs_of(rows)
 
     picks = []

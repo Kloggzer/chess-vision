@@ -39,6 +39,13 @@ def episodes(rows: list[dict]) -> list[list[int]]:
     return out
 
 
+def graded(rows: list[dict]) -> list[int]:
+    """Indizes der Zellen, die der Klassenverlust lernt — verdeckte UND dunkle bleiben draussen."""
+    from chesslab.training.occlusion import classification_eligible
+
+    return [i for i, r in enumerate(rows) if classification_eligible(r)]
+
+
 def score(rows: list[dict], correct: list[bool]) -> dict:
     """Zellen-, Episoden- und Mehrheitsgenauigkeit, plus wie stark die Fehler klumpen."""
     eps = episodes(rows)
@@ -77,7 +84,6 @@ def main() -> int:
     from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
     from chesslab.training.engine import evaluate_dataset
     from chesslab.training.evaluate import _load_run
-    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
     from chesslab.training.pack import load_packed, resolve_dataset_packs
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
@@ -103,9 +109,7 @@ def main() -> int:
     res = evaluate_dataset(model, ds, device, batch_size=max(1, 256 // CELLS), keep_workers=False)
     trues, preds = res["trues"].tolist(), res["preds"].tolist()
 
-    # Nur sichtbare Zellen: alles ueber PIECE_VISIBLE_MAX ist aus dem Klassifikationsverlust
-    # maskiert, seine Fehler sagen ueber die Figurenerkennung nichts.
-    keep = [i for i, r in enumerate(ds.rows) if float(r.get("coverage") or 0.0) <= PIECE_VISIBLE_MAX]
+    keep = graded(ds.rows)
     vis_rows = [ds.rows[i] for i in keep]
     ok = [trues[i] == preds[i] for i in keep]
 
