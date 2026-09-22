@@ -17,6 +17,42 @@
 > **Keine Engine-Entscheidung stand darauf:** kein Skript ruft `configs=` auf, und der Optimierer
 > lief ueber den visuellen Cache. Zu reparieren ist das Werkzeug, nicht eine Messung.
 
+## Was seit 2026-09-23 gilt
+
+**Repariert, und zwar zwei Fehler, nicht einer.**
+
+1. **Crops fuer jeden Arm.** `SharedFrameWork` baut `OpenCvStages` mit einem EIGENEN Store und
+   warpt je FRAME einmal (nicht je `seq` — der ist je Engine gezaehlt). Jeder Arm, dessen Store
+   fragt, bekommt eine Kopie: `Mat.clone()` des Warps (und des Rillen-Warps), dazu seine eigenen
+   `seq`/`tsMs`/Seam-Planes. Geteilt bleibt der teure Teil, der Warp; die Kopie ist ein `memcpy`.
+   Das Schneiden der 64 Felder lag schon immer je Arm im `cropFrameSource` — es lief vorher nur
+   in einem Arm, weil die anderen nichts bekamen.
+2. **Ein Ring je Arm.** Alle Arme zogen ihre Grau-/BGR-Planes aus DEM Ring des geteilten
+   `OpenCvStages` (Tiefe 6). Die Engine haelt diese Planes per Referenz (invariant 14); ab sechs
+   Armen ueberschrieb jeder Frame die Planes, die die anderen noch mittelten. Jetzt wird die Plane
+   einmal je Frame erzeugt und je Arm in einen eigenen `PlaneRing` (`ringDepth` seiner Config)
+   kopiert.
+
+Dazu: `ExtraEngines.open` lehnt Arme ab, die sich in `boardSize`/`detectScale`/`diffClaheClip`
+unterscheiden — diese Knoepfe formen die geteilte Bildkette und galten bisher still nur fuer den
+ersten Arm. Und jeder Arm druckt am Ende `cnn[<tag>]: observations=… noCrops=…`.
+
+**Der Nachweis, der den Fehler gesehen haette:** `MultiReplayArmsTest` faehrt eine synthetische
+Partie (e4, e5; Farbklassifikator, echte `ExtraEngines`, echtes OpenCV) einmal als Einzellauf und
+dann mit **drei und mit sechs gleichen Armen**. Jeder Arm muss dieselben Beobachtungen, dasselbe
+`noCrops` und dieselben Zuege mit Frame und Entscheider liefern, und der Crop-Warp muss gleich oft
+laufen wie im Einzellauf (99, nicht 99 x N).
+
+| | Einzellauf | vor dem Fix | nur Crop-Fix | beide |
+|---|---|---|---|---|
+| `k1` Beobachtungen | 99 | **195** (bekam die Crops aller Arme) | 99 | 99 |
+| `k2`..`kN` Beobachtungen | 99 | **0**, `noCrops` 197 | 99 (3 Arme) / **100** (6 Arme) | 99 |
+
+`k1` war also auch vorher nicht der Einzellauf — er sah doppelt so viele Crops. Dass seine Zuege
+trotzdem stimmten (15/0/0 in `zehn4.log`), heisst nur, dass die Partie davon nicht abhing.
+
+**Weiter ungemessen:** die 1,8x und die Tabelle unten. Beides stammt aus dem kaputten Stand.
+
 
 ## Was es ist
 

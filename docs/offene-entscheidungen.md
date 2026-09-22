@@ -2453,3 +2453,19 @@ es misst die Vorgaben von `train`.
 `gradcam.py`, die Web-Route und `gradcam_summary.py` wenden `eval_transform_for(cfg)` ohne
 `skip_baked` an; auf einem mit CLAHE gebackenen Pack liefe CLAHE doppelt. Heute ohne Wirkung: kein
 `packed_meta.json` unter `data/datasets/` traegt `baked` (nachgesehen 2026-09-23).
+
+## Nachtrag zu 45 und zu `multireplay`: was repariert ist, was offen bleibt (2026-09-23)
+
+**45 (Code):** `PhoneCandidate.settingsJson` schreibt bei fremdem oder unlesbarem Schema jetzt
+`"effective_config": {"unknown": "<Notiz des Codecs>"}` statt der Vorgaben — kein einziger Knopf,
+der wie eine Messung aussieht (`PhoneCandidateTest`, fremdes Schema + Gegenprobe eigenes Schema).
+**Offen:** die neun Dateien unter `data/` tragen weiter die Vorgaben. Ein `phone-candidate force=1`
+je Aufnahme wuerde sie neu schreiben — das ist eine Entscheidung ueber `data/`, nicht Teil des Fixes.
+
+**`multireplay` (B1):** repariert, Nachweis und was jetzt gilt in `docs/multireplay-2026-09-20.md`.
+**Offen:** die 1,8x und die Zeitentabelle dort sind weiter ungemessen; der Messlauf steht aus.
+
+**B3 ("kein Brett" im `score`-Modus) ist widerlegt:** `score` nimmt die Ecken aus dem Candidate
+(`ReplayPlan.quad()` -> `quadFromCandidate`), und das wirft bei fehlender `geometry`. Der Zweig
+`no board found` ist im `score`-Modus unerreichbar. Mit Exit 0 enden kann er nur ohne `score`
+(schlichter `replay`, `frames`) — dort gibt es keinen Ergebnisblock, den jemand erwarten koennte.

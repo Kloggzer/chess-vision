@@ -586,6 +586,7 @@ internal fun replayRun(
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
         println("cnn: state=${stack.observer.state.value} observations=${stack.observations} ${stack.observer.counters}")
         println(stack.dropLine())
+        extras?.let { e -> e.tags.indices.forEach { println(e.cnnLine(it)) } }
         val totals = RunTotals(publisher.status.value?.note, stack.observations.toInt(), frames, stack.dropLine())
         session?.finish(video, options, config, geometry, totals)
         // Je Zusatz-Engine ein eigener Bewertungsblock, gegen DASSELBE Label wie der Hauptlauf.

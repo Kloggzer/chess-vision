@@ -589,7 +589,11 @@ private fun settingsJson(
     val root = runCatching { json.parseToJsonElement(file.readText()).jsonObject }.getOrNull() ?: return JsonObject(emptyMap())
     val envelope = root["config"] as? JsonObject ?: root
     val decoded = ConfigCodec.decode(json.encodeToString(JsonObject.serializer(), envelope))
-    decoded.note?.let { println("  settings.json: $it") }
+    // Die Notiz heisst: `config` sind VORGABEN, nicht das Geraet. Neun Candidates trugen sie als Messung.
+    decoded.note?.let {
+        println("  settings.json: $it")
+        return buildJsonObject { put("unknown", it) }
+    }
     return effectiveConfigJson(decoded.config, cnnOn = true)
 }
 

@@ -5,6 +5,7 @@ import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
 import com.chesslab.tracker.geometry.Distribution
 import com.chesslab.tracker.geometry.ScannedGeometry
+import com.chesslab.tracker.settings.CONFIG_SCHEMA_VERSION
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -257,6 +258,44 @@ class PhoneCandidateTest {
         assertEquals("phone", source.getValue("kind").jsonPrimitive.content)
         assertNotNull(source.getValue("crop").jsonObject["pad_side"])
     }
+
+    /** B2: ein fremdes Schema dekodiert zu VORGABEN — die durften nicht als gemessene Konfiguration landen. */
+    @Test
+    fun `settings json unter fremdem Schema wird als unbekannt vermerkt, nicht als Vorgabe`() {
+        val dir = bundle("old-schema", games = mapOf("g.json" to oneSegmentRecord()))
+        File(dir, "files/sessions/x/settings.json").writeText("""{"version":4,"values":{"boardSize":992,"pOccludedThr":0.15}}""")
+
+        val config = effectiveConfig(buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES))
+
+        assertEquals(setOf("unknown"), config.keys, "keine Knoepfe erfinden: $config")
+        assertTrue("schema 4" in config.getValue("unknown").jsonPrimitive.content)
+    }
+
+    /** Gegenprobe: das eigene Schema traegt weiter die gespeicherten Werte. */
+    @Test
+    fun `settings json unter dem eigenen Schema traegt die gespeicherten Werte`() {
+        val dir = bundle("own-schema", games = mapOf("g.json" to oneSegmentRecord()))
+        File(dir, "files/sessions/x/settings.json")
+            .writeText("""{"version":$CONFIG_SCHEMA_VERSION,"values":{"boardSize":992,"pOccludedThr":0.15}}""")
+
+        val config = effectiveConfig(buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES))
+
+        assertEquals(992, config.int("boardSize"))
+        assertEquals(
+            0.15,
+            config
+                .getValue("pOccludedThr")
+                .jsonPrimitive.content
+                .toDouble(),
+        )
+    }
+
+    private fun effectiveConfig(candidate: File): JsonObject =
+        Json
+            .parseToJsonElement(candidate.readText())
+            .jsonObject
+            .getValue("effective_config")
+            .jsonObject
 
     @AfterEach
     fun clean() {

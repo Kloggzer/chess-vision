@@ -38,7 +38,7 @@ private const val RING_HEADROOM = 3
  * be right for the defaults and wrong the moment `avgFramesOverride` is set — it is a live knob
  * (`ConfigKnobs.kt`), so the depth is derived, not hard-coded.
  */
-internal fun ringDepth(config: TrackerConfig): Int = max(config.avgFrames(cnnOn = true), config.avgFrames(cnnOn = false)) + RING_HEADROOM
+fun ringDepth(config: TrackerConfig): Int = max(config.avgFrames(cnnOn = true), config.avgFrames(cnnOn = false)) + RING_HEADROOM
 
 /**
  * A fixed number of reusable plane buffers, handed out round-robin.
@@ -47,7 +47,7 @@ internal fun ringDepth(config: TrackerConfig): Int = max(config.avgFrames(cnnOn 
  * or outlives the cycle (the CNN crop hand-off) must be COPIED by the caller, never taken from here;
  * see [CameraStages.updateCropFrame].
  */
-internal class PlaneRing(
+class PlaneRing(
     depth: Int,
 ) {
     private var slots = arrayOfNulls<ByteArray>(max(1, depth))

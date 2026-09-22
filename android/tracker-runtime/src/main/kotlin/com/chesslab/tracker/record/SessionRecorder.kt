@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.RandomAccessFile
 import java.time.Instant
 import java.util.Locale
 
@@ -99,6 +100,9 @@ class SessionRecorder(
     private val entries = mutableListOf<LogEntry>()
     private var video: SessionVideoMeta? = null
 
+    /** Laenge des Logs nach dem letzten GANZEN Anhang — was darueber steht, ist ein abgerissener Satz. */
+    private var logLength = 0L
+
     val sessionId: String get() = meta.sessionId
     val count: Int get() = entries.size
 
@@ -133,7 +137,11 @@ class SessionRecorder(
         // Frame, den der Guard oben verhindert — nur zaehlte ihn `count`/`bytes` schon mit.
         val entry = LogEntry(rel, ply, fen, now(), moveSan, cornerPairs(corners))
         val logged =
-            runCatching { logFile.appendText(JSON.encodeToString(LogEntry.serializer(), entry) + "\n") }.isSuccess
+            runCatching {
+                cutTornTail()
+                logFile.appendText(JSON.encodeToString(LogEntry.serializer(), entry) + "\n")
+                logLength = logFile.length()
+            }.isSuccess
         if (!logged) {
             dest.delete()
             return null
@@ -153,7 +161,14 @@ class SessionRecorder(
         bytes -= file.length()
         file.delete()
         logFile.writeText(entries.joinToString("") { JSON.encodeToString(LogEntry.serializer(), it) + "\n" })
+        logLength = logFile.length()
         return true
+    }
+
+    /** Wie `append_rows`/`appendRows`: ein halber Satz vom gescheiterten Anhang davor muss weg,
+     *  sonst klebt der naechste daran. Kuerzen braucht keinen Platz, auch auf voller Platte. */
+    private fun cutTornTail() {
+        if (logFile.length() > logLength) RandomAccessFile(logFile, "rw").use { it.setLength(logLength) }
     }
 
     fun finish(): SessionResult {

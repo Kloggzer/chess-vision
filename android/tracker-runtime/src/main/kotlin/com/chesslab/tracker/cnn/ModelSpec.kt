@@ -153,19 +153,25 @@ data class ModelSpec(
                 outHeight = outHeight,
                 padSide = padSide,
                 mean = normalize.statsOr("mean", IMAGENET_MEAN),
-                std = normalize.statsOr("std", IMAGENET_STD),
+                std = normalize.statsOr("std", IMAGENET_STD).onEach { require(it > 0f && it.isFinite()) { "std $it is no spread" } },
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
                 repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
                 coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
-                coverageGate = root["coverage_gate"]?.jsonPrimitive?.double,
-                temperature = root["temperature"]?.jsonPrimitive?.double ?: 1.0,
-                priorLambda = root["prior_lambda"]?.jsonPrimitive?.double,
+                coverageGate = root.measured("coverage_gate") { it in 0.0..1.0 },
+                temperature = root.measured("temperature") { it > 0.0 && it.isFinite() } ?: 1.0,
+                priorLambda = root.measured("prior_lambda") { it >= 0.0 && it.isFinite() },
                 claheClip = root["clahe_clip"]?.jsonPrimitive?.double ?: 0.0,
                 claheTile = root["clahe_tile"]?.jsonPrimitive?.content?.toInt() ?: DEFAULT_CLAHE_TILE,
                 claheMinMean = root["clahe_min_mean"]?.jsonPrimitive?.double ?: 0.0,
                 claheMaxMean = root["clahe_max_mean"]?.jsonPrimitive?.double ?: MAX_LEVEL,
             )
         }
+
+        /** Die Eichung des Modells an EINER Stelle geprueft, nicht je Leser (die Temperatur fiel dreimal). */
+        private fun JsonObject.measured(
+            key: String,
+            valid: (Double) -> Boolean,
+        ): Double? = this[key]?.jsonPrimitive?.double?.also { require(valid(it)) { "model declares $key=$it, outside its range" } }
 
         /**
          * Der Alt-Pfad ist das FEHLENDE `normalize`, nicht ein halbes. Ein Block, der den Schluessel

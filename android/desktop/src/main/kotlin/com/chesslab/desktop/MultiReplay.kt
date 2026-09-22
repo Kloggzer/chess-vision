@@ -21,7 +21,7 @@ import java.awt.image.BufferedImage
 /** N Konfigurationen im SELBEN Bilddurchgang, gemessen 1,8x. Der Hauptstack bleibt unangetastet;
  *  die Zusatz-Engines teilen sich eine zweite Bahn (`docs/multireplay-2026-09-20.md`). */
 internal class ExtraEngines private constructor(
-    private val stacks: List<TrackerStack<Mat>>,
+    val stacks: List<TrackerStack<Mat>>,
     private val shared: SharedFrameWork,
     val plies: List<MutableList<ScoredPly>>,
     val tags: List<String>,
@@ -42,6 +42,9 @@ internal class ExtraEngines private constructor(
     ) {
         for (stack in stacks) stack.coordinator.applyCalibration(geometry, quad, "desktop", delivered)
     }
+
+    /** Je Arm sichtbar: `k2..k10` standen mit `noCrops` = alle Versuche und niemand sah es. */
+    fun cnnLine(i: Int): String = "cnn[${tags[i]}]: observations=${stacks[i].observations} ${stacks[i].observer.counters}"
 
     override fun close() {
         for (stack in stacks) runCatching { stack.close() }
@@ -65,6 +68,11 @@ internal class ExtraEngines private constructor(
             cropClahe: CropClahe?,
         ): ExtraEngines? {
             if (configs.isEmpty()) return null
+            // Die Bildkette baut EIN Arm fuer alle: Knoepfe, die sie formen, galten sonst still nur fuer ihn.
+            val kette = configs.map { (_, c) -> Triple(c.boardSize, c.detectScale, c.diffClaheClip) }.distinct()
+            require(kette.size == 1) {
+                "configs=: boardSize/detectScale/diffClaheClip formen die geteilte Bildkette, je Lauf EIN Wert: $kette"
+            }
             // EINE ONNX-Sitzung fuer alle: je Engine eine eigene kostete elf Sitzungen mit je vier
             // Threads, und elf getrennte Memos drueckten die Cache-Trefferquote von 100 auf 72 %.
             // Gefahrlos, weil die Inferenz inline liegt und die Engines je Frame nacheinander laufen.
@@ -84,10 +92,10 @@ internal class ExtraEngines private constructor(
                             },
                             stages = { geo, c, store, frameBus, boardBus ->
                                 val work =
-                                    shared ?: SharedFrameWork(
-                                        OpenCvStages({ it }, {}, geo, c, store, frameBus, boardBus, optics),
-                                    ).also { shared = it }
-                                SharedStages(work, c)
+                                    shared ?: SharedFrameWork { cut ->
+                                        OpenCvStages({ it }, {}, geo, c, cut, frameBus, boardBus, optics)
+                                    }.also { shared = it }
+                                SharedStages(work, c, store)
                             },
                             nowMs = nowMs,
                             // Wie im Hauptlauf: die Inferenz liegt INLINE, damit der Schnappschuss
