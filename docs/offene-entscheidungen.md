@@ -1747,3 +1747,38 @@ trotzdem, weil `:arena` und `:desktop` dieselbe Funktion unter Windows benutzen.
 **Kein Fix gebaut.** Eine Sperre je Zieldatei waere die Antwort, aber sie gehoert dann in alle drei
 Sprachen und nicht nur hier. **Zu entscheiden:** Sperre je Pfad in `io/Jsonl.kt`, oder die Regel
 festschreiben, dass ein Pfad genau einen Schreiber hat.
+
+## 42. Was der Modell-Handarm allein beitraegt, ist nie gemessen worden (2026-09-22)
+
+Am 2026-09-21 stand in der Wachen-Ablation, `modelHandGate=0` bewege keine Ziffer, und ich habe
+das als "der Modellarm traegt hier nichts" gelesen. Das ist falsch, und zwar am Code belegbar:
+
+```kotlin
+internal fun EngineState.gridHandSquares(snap: CnnSnapshot): Long {
+    if (!config.gridHandGate) return 0L          // echter Ausschalter
+...
+internal fun EngineState.modelHandSquares(snap: CnnSnapshot): Long {
+    ...
+    if (flagged == 0L || !config.modelHandGate) return flagged   // die ROHE Menge
+```
+
+`modelHandGate=0` gibt die ungefilterte Kopfmenge zurueck, nimmt also nur den Form- und
+Bewegungsfilter weg. Der Arm wird dadurch eher breiter. Der Unit-Test sagt das seit je richtig
+(`TaintTest`: "restores the raw head"), der Name und meine Lesart sagten etwas anderes.
+Gefunden im Architektur-Review von Astra.
+
+**Zwei Dinge sind damit offen, und sie haengen zusammen.**
+
+1. **Der Name luegt.** `modelHandGate` heisst wie `gridHandGate`, tut aber etwas anderes.
+   `modelHandShapeFilter` waere ehrlich. Es ist eine reine Umbenennung, ABER der Name ist ein
+   Schluessel in `ConfigKnobs` und steht damit in gespeicherten Einstellungen auf dem Telefon —
+   ein stilles Fallenlassen des alten Schluessels waere genau die Fehlerfamilie, die wir jagen.
+   Also: neuer Name NEBEN dem alten, alter Schluessel wird weiter gelesen.
+2. **Die Messung fehlt.** Um den Arm wirklich abzuschalten, braucht es einen Schalter, den es
+   nicht gibt. Einen Knopf ohne Zeugen einzubauen ist hier ausdruecklich die falsche Richtung —
+   die Messung gehoert deshalb auf `-Satz v2` (875 verdeckte Frames auf 988), wo die Achse
+   ueberhaupt sichtbar ist, nicht auf den Zehner-Satz, der sie nicht messen kann.
+
+**Empfehlung in einem Satz:** Umbenennung mit Weiterlesen des alten Schluessels bauen, und den
+echten Arm-Schalter erst dann, wenn er gegen `-Satz v2` gemessen wird — auf dem Zehner-Satz
+waere auch diese Messung wieder eine Null ohne Aussage.

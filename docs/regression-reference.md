@@ -52,5 +52,5 @@ Effekt und kein Rauschen — das ist die Auflösung, mit der die Wachen-Ablation
 ## Was dieser Satz NICHT messen kann
 
 24 verdeckte Frames auf 11 001 (0,2 %). Alle drei Hand- und Verdeckungswachen
-(`baselineOcclusion`, `gridHandGate`, `modelHandGate`) lassen sich abschalten, ohne dass sich eine
+(`baselineOcclusion`, `gridHandGate`, und der Formfilter hinter `modelHandGate`) lassen sich abschalten, ohne dass sich eine
 Ziffer bewegt. Wer an ihnen arbeitet, misst hier nichts — `docs/wachen-ablation-2026-09-21.md`.

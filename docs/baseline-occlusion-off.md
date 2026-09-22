@@ -98,7 +98,8 @@ Kein Gütemaß — im Trace gibt es keine Wahrheit. Gemessen ist die Übereinsti
 Die Frage wurde danach systematisch gestellt — jede der zehn booleschen Wachen der Engine
 einzeln abgeschaltet, jedes Mal der volle Satz (`docs/wachen-ablation-2026-09-21.md`). Vier
 bewegen keine Ziffer, und **drei davon sind genau die Hand- und Verdeckungswachen**:
-`baselineOcclusion`, `gridHandGate`, `modelHandGate`.
+`baselineOcclusion`, `gridHandGate` — und bei `modelHandGate` nur dessen Formfilter, nicht der
+Arm selbst (Korrektur 2026-09-22, `docs/wachen-ablation-2026-09-21.md`).
 
 Damit ist der Befund oben nicht mehr ein Einzelfall, sondern das Muster: der Satz kann diese
 Achse als Ganzes nicht beurteilen. Zum Vergleich, was er SEHR WOHL sieht — `cnnVerify` aus

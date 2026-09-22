@@ -13,14 +13,25 @@ Zehn boolesche Wachen der Engine, jede EINZELN abgeschaltet, jedes Mal der volle
 | `windowEndBothEnds` | +0 | +0 | +0 | -1 | nur eine Episode |
 | `baselineOcclusion` | +0 | +0 | +0 | +0 | **der Satz merkt NICHTS** |
 | `gridHandGate` | +0 | +0 | +0 | +0 | **der Satz merkt NICHTS** |
-| `modelHandGate` | +0 | +0 | +0 | +0 | **der Satz merkt NICHTS** |
+| `modelHandGate`* | +0 | +0 | +0 | +0 | **misst nicht, was der Name sagt — siehe unten** |
 | `usePrior` | +0 | +0 | +0 | +0 | **der Satz merkt NICHTS** |
 
 ## Der Befund ist nicht verstreut, er ist ein Muster
 
 **Drei der vier stummen Wachen sind genau die Hand- und Verdeckungswachen.** `baselineOcclusion`
-nimmt beide engine-eigenen Verdeckungsarme heraus, `gridHandGate` den modellfreien Hand-Sensor,
-`modelHandGate` den des Modells. Keine davon bewegt eine einzige Ziffer.
+nimmt beide engine-eigenen Verdeckungsarme heraus, `gridHandGate` den modellfreien Hand-Sensor.
+Keine davon bewegt eine einzige Ziffer.
+
+> **\* Korrektur 2026-09-22: `modelHandGate=0` schaltet den Modellarm NICHT ab.** Die zwei
+> Schalter sind nicht gebaut wie ihre Namen klingen. `gridHandSquares` beginnt mit
+> `if (!config.gridHandGate) return 0L` — ein echter Ausschalter. `modelHandSquares` dagegen
+> endet die Abkuerzung mit `return flagged`, also mit der ROHEN, ungefilterten Kopfmenge; der
+> Schalter nimmt nur den Form- und Bewegungsfilter weg. Der Arm wird dadurch eher BREITER, nicht
+> leiser — und laut dem KDoc an der Stelle existiert der Filter, weil `real14-80` `occluded`
+> ueberpraediziert und ein einziges Phantomfeld die Recovery dauerhaft aushungerte.
+> Die Zeile misst also "Formfilter weg", nicht "Modellarm weg". Der Unit-Test sagt es seit je
+> richtig (`TaintTest`: *"restores the raw head"*); falsch war meine Lesart in dieser Tabelle.
+> **Was der Modellarm allein beitraegt, ist damit weiter ungemessen.**
 
 Das ist kein Freibrief fuer die Wachen und kein Beleg, dass das CNN die Arbeit traegt. Es ist
 eine Aussage ueber den SATZ: er traegt 24 verdeckte Frames auf 11 001 (0,2 %). Die zwei Partien
