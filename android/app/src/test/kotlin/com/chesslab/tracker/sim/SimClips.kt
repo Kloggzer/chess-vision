@@ -14,17 +14,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-// The clip catalogue of the end-to-end simulation.
-//
-// TWO sources, deliberately, because they answer different questions:
-//   * `tests/data/testclips/<clip>.labels.json` — GROUND TRUTH (the move list the Blender scene
-//     rendered) plus the frame corners. The clips carry no ArUco markers, so the corners are a
-//     property of the render and are read, never detected — exactly what
-//     `scripts/emit_parity_fixtures.py` does when it builds its throw-away profile with
-//     `live_align=False`.
-//   * `core-engine/src/test/resources/parity/<clip>/meta.json` — the `effectiveConfig` the Python
-//     tracker ACTUALLY ran with. Kotlin's own `TrackerConfig` defaults disagree with it (e.g.
-//     `occlusionColorThr` 3.0 vs 1.5), so building the config from defaults would fake a port bug.
+// Two sources: `tests/data/testclips/<clip>.labels.json` is GROUND TRUTH plus the rendered corners;
+// `parity/<clip>/meta.json` is the `effectiveConfig` Python ACTUALLY ran (Kotlin's defaults disagree,
+// e.g. `occlusionColorThr` 3.0 vs 1.5, which would fake a port bug).
 
 /** Walks up from the working directory to the repository root (the one holding `tests/data`). */
 internal fun repoRoot(): File {
@@ -37,17 +29,8 @@ internal fun repoRoot(): File {
 
 private const val DEFAULT_CLIP_DIR = "tests/data/testclips"
 
-/**
- * Where the `<clip>.mp4` + `<clip>.labels.json` pairs are read from, via `-Pchesslab.sim.clips`.
- *
- * The default is the committed fixture set, and it must stay that way: those exact files produced
- * `core-engine/src/test/resources/parity/`, so `ClipReplayParityTest` is only meaningful against
- * them. A re-render at a different resolution therefore goes into its OWN directory (e.g.
- * `tests/data/testclips-hires`, ~112 px/square instead of ~31) and is selected here — never by
- * overwriting the fixtures. The clip NAMES and the per-clip `effectiveConfig` still come from
- * `parity/index.json`, so both sets run the identical catalogue with the identical tracker knobs
- * and only the pixels differ.
- */
+/** `-Pchesslab.sim.clips`: a re-render goes into its OWN directory, never over the fixtures that
+ *  produced `parity/`; names and `effectiveConfig` still come from `parity/index.json`. */
 internal fun simClipDir(root: File): File {
     val spec = clipDirProperty().ifEmpty { DEFAULT_CLIP_DIR }
     val dir = File(spec).let { if (it.isAbsolute) it else File(root, spec) }
@@ -58,19 +41,8 @@ internal fun simClipDir(root: File): File {
 /** True when the run reads the committed fixture clips — the only set with a proven Python baseline. */
 internal fun usingDefaultClips(): Boolean = clipDirProperty().isEmpty()
 
-/**
- * `-Pchesslab.sim.defaults=true` — run the catalogue with the SHIPPED `TrackerConfig()` instead of
- * each clip's recorded `effectiveConfig`.
- *
- * The two modes answer different questions and neither replaces the other: the default mode asks
- * "does the port run like Python" (only meaningful against `effectiveConfig` — see the note on
- * [simClipDir]), this one asks "are the values we ship any good". Until it existed, no shipped
- * default was evaluated by anything (`TrackerConfig.kt`'s header proves it with `motionHoldS =
- * 5.00`); a green suite said nothing about e.g. `occlusionColorThr` 3.0 shipped vs 1.5 in every
- * fixture. Under this flag the run is a MEASUREMENT, not a gate — the baseline assertion is
- * replaced by a report, because a divergence here is a statement about the defaults, not a port
- * bug.
- */
+/** `-Pchesslab.sim.defaults=true`: the SHIPPED `TrackerConfig()` — "are our values any good" rather
+ *  than "does the port run like Python". A MEASUREMENT, reported, not a gate. */
 internal fun usingShippedDefaults(): Boolean =
     System
         .getProperty("chesslab.sim.defaults")
@@ -89,13 +61,8 @@ internal class SimModel(
     val dir: File,
 )
 
-/**
- * The models the run compares, from `-Pchesslab.sim.models=<dir>[,<dir>…]` (repo-relative or
- * absolute). Empty property = the bundled app assets alone, i.e. exactly what ships.
- *
- * Selectable rather than hand-swapped assets: swapping files in `app/src/main/assets` to compare
- * two runs makes the committed APK content depend on which experiment ran last.
- */
+/** `-Pchesslab.sim.models=<dir>[,<dir>…]`, empty = what ships; swapping assets would make the APK
+ *  depend on the last experiment. */
 internal fun simModels(): List<SimModel> {
     val spec = System.getProperty("chesslab.sim.models").orEmpty().trim()
     val dirs =
@@ -111,11 +78,7 @@ internal fun simModels(): List<SimModel> {
     }
 }
 
-/**
- * The DEFAULT bundled model, not the asset root: the app bundles them side by side
- * (`assets/cnn_model/<model>/`), so the root holds no `model.onnx` at all. Any other model
- * directory is an ordinary path and can be compared by naming it in `-Pchesslab.sim.models`.
- */
+/** A bundled model, not the asset root: the root holds no `model.onnx`. */
 private const val ASSET_MODEL_DIR = "android/app/src/main/assets/cnn_model/p4full-128"
 
 /** What the Blender scene rendered — the answer every run is scored against. */
@@ -133,37 +96,18 @@ internal class SimClip(
     val name: String,
     override val video: File,
     override val corners: List<DoubleArray>,
-    /**
-     * Board size AND the margin by which [corners] lie outside the playing field.
-     *
-     * One field rather than two loose numbers because they are one thing — `computeHomography`
-     * takes both and neither means anything without the other. `margin` defaults to
-     * `margins4(0.0)`, which is right for the Blender renders: their corners ARE the field
-     * corners, so every committed parity fixture stays byte-identical. It is wrong for anything
-     * detected from ArUco, whose markers are printed in the label border — replaying such a quad
-     * at 0.0 oversizes the board by 6-8 %, the grid lines miss the coverage band and the tracker
-     * sits in `occluded` forever. Measured on the Python side at 2232 of 2996 frames with zero
-     * commits, and fixed there in `721901a`; `ClipPipeline` had always had `margin` in its
-     * geometry and had never been given one.
-     */
+    /** Board size AND margin, one thing to `computeHomography`; see `SimClipMarginTest`. */
     override val geometry: BoardGeometry,
     override val fps: Double,
     override val config: TrackerConfig,
     val truth: SimTruth,
 ) : SimSource {
-    // What the clip knows and filmed footage does not. `truth` stays the one place ground truth
-    // lives; these only hand it to the replay through the seam both sources share.
     override val startFen: String get() = truth.startFen
     override val promotionPiece: Char get() = truth.promotionPiece
     override val truthFens: List<String?> get() = truth.fenPerFrame
 }
 
-/**
- * Every clip that has a committed parity fixture, in index order.
- *
- * `blender-italian` / `blender-opera` are excluded because `parity/index.json` skips them: they
- * have no `effectiveConfig`, so there is no non-invented config to run them with.
- */
+/** Every clip with a committed parity fixture; `blender-italian`/`-opera` have no `effectiveConfig`. */
 internal fun simClips(): List<SimClip> {
     val root = repoRoot()
     val clipDir = simClipDir(root)
@@ -184,17 +128,13 @@ internal fun simClips(): List<SimClip> {
             geometry =
                 BoardGeometry(
                     boardSize = boardSize,
-                    // A Blender clip has no `margin` key and must keep reading 0.0; a real clip's
-                    // entry carries the profile's value, which is what makes its warp right.
+                    // A Blender clip has no `margin` key and must keep reading 0.0.
                     margin = margins4(labels["margin"]?.jsonPrimitive?.double ?: 0.0),
                 ),
             fps = meta.getValue("fps").jsonPrimitive.double,
             config =
                 if (usingShippedDefaults()) {
-                    // `boardSize` is the one field the clip keeps even here: it is measured
-                    // geometry, not a preference — the app copies the calibration's value in the
-                    // same way, and `FrameLoop.step` refuses a plane whose size disagrees with its
-                    // boxes (see TrackerConfig.kt on the 1600 placeholder).
+                    // `boardSize` is measured geometry, not a preference: `FrameLoop.step` refuses a mismatch.
                     TrackerConfig(boardSize = boardSize)
                 } else {
                     trackerConfigOf(meta.getValue("effectiveConfig").jsonObject)
@@ -211,15 +151,8 @@ internal fun simClips(): List<SimClip> {
 }
 
 /**
- * The true FEN of every RENDERED VIDEO FRAME, `null` where the label marks the board occluded.
- *
- * `frame_labels` are KEYFRAMES, not video frames: each entry carries a `hold` count of how many
- * frames it was rendered for, and `sum(hold)` equals the mp4's frame count exactly for all 20
- * clips (verified 2026-07-25). Indexing the array by video-frame index — which this did before —
- * silently scores frame 24 against keyframe 24 and makes every audit number meaningless.
- *
- * Occluded frames are dropped at the source: a hand over the board makes the model's disagreement
- * with the position CORRECT, and counting it as an error would mask the misreads that matter.
+ * `frame_labels` are KEYFRAMES with a `hold` count (`sum(hold)` = frame count for all 20 clips,
+ * 2026-07-25). Occluded frames are `null`: under a hand, disagreeing with the position is CORRECT.
  */
 private fun truthFenOf(labels: JsonObject): List<String?> =
     labels.getValue("frame_labels").jsonArray.flatMap { entry ->
@@ -245,18 +178,8 @@ private fun JsonObject.i(key: String): Int = getValue(key).jsonPrimitive.int
 private fun JsonObject.b(key: String): Boolean = getValue(key).jsonPrimitive.boolean
 
 /**
- * `meta.effectiveConfig` -> `TrackerConfig`, field for field.
- *
- * EVERY field is taken from the fixture, which is what makes this a port-parity instrument and
- * NOT a tuning one: a `TrackerConfig` default can be changed to anything at all and this run will
- * not notice (proven 2026-08-02 with `motionHoldS = 5.00`). `verifyTimeoutS` was the one field the
- * list forgot, so it alone fell through to the Kotlin default — the same value today, and an
- * invisible trapdoor the moment it stopped being.
- *
- * `settleFrames` / `avgFrames` / `confirmFrames` are passed as explicit OVERRIDES, exactly like
- * `ParityFixtures.toTrackerConfig`. That is the one decision worth stating: attaching a CNN flips
- * `EngineState.cnnOn`, and without the overrides the derived counts would silently drop from 4/3/2
- * to 3/2/1 — a second, confounding change on top of the one the experiment is about.
+ * EVERY field from the fixture (a port-parity instrument, not a tuning one). The frame counts are
+ * OVERRIDES like `ParityFixtures.toTrackerConfig`: attaching a CNN would drop them from 4/3/2 to 3/2/1.
  */
 internal fun trackerConfigOf(cfg: JsonObject): TrackerConfig =
     TrackerConfig(

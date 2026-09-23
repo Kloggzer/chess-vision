@@ -24,7 +24,7 @@ internal class VisualObservationCache private constructor(
     private var lastAlignmentFrame = 0L
 
     /** Streng: ein fehlender Frame ist ein Fehler. TOLERANT: er wird gerechnet — noetig, weil der
-     *  Beobachter hoechstens jeden zweiten Frame sieht (`docs/visual-cache-2026-09-20.md`). */
+     *  Beobachter hoechstens jeden zweiten Frame sieht (`docs/desktop-replay.md`). */
     val lookup: ((Long) -> CropFrameStore.CachedVisual?)? =
         reader?.let { rows ->
             { seq ->

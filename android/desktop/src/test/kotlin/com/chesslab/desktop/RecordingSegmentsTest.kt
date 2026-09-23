@@ -5,12 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * Which files a recording is, before a single frame is decoded.
- *
- * The list is the whole safety of the segment mechanism: a tool that saw only `video.mp4` would
- * label the first minute of a killed-and-resumed recording and report success.
- */
+/** A tool that saw only `video.mp4` would label the first minute of a resumed recording and report success. */
 class RecordingSegmentsTest {
     @TempDir
     lateinit var dir: File

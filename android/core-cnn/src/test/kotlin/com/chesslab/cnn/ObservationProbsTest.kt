@@ -5,11 +5,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The rows an engine needs to score by likelihood, and the two ways they can go missing: dropped
- * on the way through, or silently weighted by a prior that the engine's own legality search will
- * apply a second time.
- */
+/** The rows an engine scores by likelihood can go missing two ways: dropped on the way through, or
+ *  weighted by a prior the engine's own legality search applies a second time. */
 class ObservationProbsTest {
     private val classes = listOf("empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")
 

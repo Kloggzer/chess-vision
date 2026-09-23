@@ -1,7 +1,5 @@
 package com.chesslab.tracker.hints
 
-import com.chesslab.tracker.analysis.AnalysisLine
-import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.speech.Silence
 import com.chesslab.tracker.speech.SpeechEngine
 import kotlinx.coroutines.test.runTest
@@ -56,22 +54,3 @@ private object SilentDevice : Silence {
 
     override fun abandonFocus() = Unit
 }
-
-private fun moment(alarmed: Boolean = false) =
-    HintMoment(
-        fen = FEN,
-        steadyMs = HINT_SETTLE_MS,
-        alarmed = alarmed,
-        result =
-            AnalysisResult(
-                fen = FEN,
-                gameOver = false,
-                cp = 20,
-                mate = null,
-                winWhite = 52.0,
-                lines = listOf(AnalysisLine(uci = "e7e5", san = "e5", cp = 20, mate = null)),
-                depth = 12,
-            ),
-    )
-
-private const val FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"

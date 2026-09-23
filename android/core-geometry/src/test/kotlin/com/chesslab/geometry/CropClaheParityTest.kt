@@ -9,13 +9,8 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import kotlin.random.Random
 
-/**
- * Tier C — braucht die OpenCV-Natives. Goldene Zahlen aus `tmp/clahe_golden.py`, das dieselben
- * Bilder durch `training/torch_data.py:_Clahe` schickt.
- *
- * Das ist die Bruecke, ohne die die Geraeteseite geraten waere: ein Modell, das auf behandelten
- * Crops trainiert wurde und rohe bekommt, ist still schlechter, und nichts im Build sagt es.
- */
+/** Goldene Zahlen aus `tmp/clahe_golden.py` (`training/torch_data.py:_Clahe`): ein Modell, das auf
+ *  behandelten Crops trainiert wurde und rohe bekommt, ist still schlechter. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class CropClaheParityTest {
     private fun mat(fill: (y: Int, x: Int) -> Int): Mat {

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -55,8 +56,7 @@ class GameStoreTest {
         store.save(sampleGame())
         val index = File(dir, "games/index.json")
         val before = index.readText()
-        // A directory where the temp file has to go: the write fails, and the point is that it
-        // fails BEFORE anything touches the destination.
+        // A directory where the temp file has to go: the write fails BEFORE touching the destination.
         File(dir, "games/index.json.tmp").mkdirs()
         sideFiles = { File(dir, "games/index.json.tmp") }
         runCatching { store.save(sampleGame(id = "g2")) }
@@ -85,12 +85,7 @@ class GameStoreTest {
         assertEquals("Alice", store.list().single().white)
     }
 
-    /**
-     * A stated result reaches all THREE places a result is kept: the record, the index row the
-     * library reads without opening anything, and the PGN that gets shared.
-     *
-     * This is what makes the end-game dialog's "unfinished" default honest — it is correctable.
-     */
+    /** All THREE places a result is kept; this is what makes the end-game dialog's "unfinished" default honest. */
     @Test
     fun aCorrectedResultReachesTheRecordTheIndexAndThePgn() {
         val store = store()
@@ -112,12 +107,8 @@ class GameStoreTest {
         assertEquals(GameResult.BLACK.tag, store.open("split")?.result)
     }
 
-    /**
-     * The games recorded before `closeSeams` existed are split on disk, and the split is in three
-     * places: the move list, the stored PGN and the index row. `list()` never opens a game, so
-     * without writing the closed record back the library would go on calling a continuous game
-     * "rebuilt 1×" — with a review beside it that shows no seam at all.
-     */
+    /** Games from before `closeSeams` are split on disk in three places; `list()` never opens a game, so
+     *  without the write-back the library would call a continuous game "rebuilt 1×". */
     @Test
     fun openingAnOldSplitGameClosesItAndWritesItBack() {
         val store = store()
@@ -142,6 +133,31 @@ class GameStoreTest {
         assertNull(store.pgn("g1"))
         assertFalse(File(dir, "games/g1.json").exists())
         assertTrue(store.list().isEmpty())
+    }
+
+    /** Die `<id>.json` ist der EINZIGE Partienachweis: `open` gab bei fehlender wie bei unlesbarer
+     *  Datei dasselbe `null` — beschaedigt sah aus wie nie dagewesen. */
+    @Test
+    fun `a missing game is null and a damaged one says so`() {
+        val store = store()
+        store.save(sampleGame())
+        assertNull(store.open("nie-dagewesen"))
+
+        File(dir, "games/g1.json").writeText("{ das ist kein Spiel")
+
+        assertThrows(GameUnreadable::class.java) { store.open("g1") }
+        assertEquals(listOf("g1"), store.list().map { it.id }, "und die Bibliothek fuehrt die Zeile weiter")
+    }
+
+    @Test
+    fun `a stale index does not hide a game that is on disk`() {
+        val store = store()
+        store.save(sampleGame())
+        store.save(sampleGame(id = "g2"))
+        // Lesbar, aber alt: genau der Fall, in dem `rows` NICHT auf die Einzeldateien zurueckfiel.
+        File(dir, "games/index.json").writeText("[]")
+
+        assertEquals(setOf("g1", "g2"), store.list().map { it.id }.toSet())
     }
 }
 

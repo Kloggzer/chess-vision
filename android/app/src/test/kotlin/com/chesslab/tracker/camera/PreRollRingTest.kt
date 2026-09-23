@@ -80,10 +80,8 @@ class PreRollRingTest {
 
     @Test
     fun `a real feed keeps the full window, not the newest GOP`() {
-        // The shape of the phone's stream, not a miniature: the shipped caps, 1 s GOPs at 30 fps,
-        // ~83 kB a sample (20 Mbit/s), fed for a minute. At that bitrate the BYTE cap binds before
-        // the 45 s window does (80 MB ≈ 32 s), and the assertion that matters is the floor:
-        // whatever the trim drops, half a minute of board must survive it.
+        // The shipped caps, 1 s GOPs at 30 fps, ~83 kB a sample (20 Mbit/s) for a minute: the BYTE
+        // cap binds before the 45 s window (80 MB ≈ 32 s), and half a minute of board must survive.
         val ring = PreRollRing(PRE_ROLL_SECONDS * SECOND_US, preRollMaxBytes(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, DEFAULT_FPS))
         val frameUs = SECOND_US / 30
         for (frame in 0 until 30 * 60) {
@@ -105,5 +103,19 @@ class PreRollRingTest {
         assertEquals(3, ring.flush().size)
         assertTrue(ring.flush().isEmpty(), "a second flush would write the pre-roll into the file twice")
         assertEquals(0L, ring.bytes)
+    }
+
+    @Test
+    fun `the shipped caps still hold half a minute of board at the shipped bit rate`() {
+        val bytesPerSample = bitRateFor(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, DEFAULT_FPS) / 8 / DEFAULT_FPS
+        val ring = PreRollRing(PRE_ROLL_SECONDS * SECOND_US, preRollMaxBytes(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, DEFAULT_FPS))
+        val frameUs = SECOND_US / DEFAULT_FPS
+        for (frame in 0 until DEFAULT_FPS * 60) {
+            ring.add(sample(frame * frameUs, sync = frame % DEFAULT_FPS == 0, bytes = bytesPerSample))
+        }
+        assertTrue(
+            ring.durationUs >= 30 * SECOND_US,
+            "the ring held ${ring.durationUs / SECOND_US}s of a ${PRE_ROLL_SECONDS}s window at $bytesPerSample B/sample",
+        )
     }
 }

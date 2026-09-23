@@ -44,7 +44,7 @@ fun interface ExposureGovernor {
  * Referenz hin ist.
  *
  * Sie faehrt traege, weil jede Verstellung die Pixel-Referenz kostet — also einen Zug und
- * nicht ein Bild (`docs/board-exposure.md`).
+ * nicht ein Bild (`docs/camera.md`).
  */
 class BoardExposureGovernor(
     private val port: CameraLookPort,

@@ -148,7 +148,7 @@ private val WACHE =
     )
 
 /** Dieselbe Ablation wie `scripts/guard_ablation.ps1`, aber synthetisch und in Sekunden statt
- *  18 Minuten je Wache (`docs/baseline-occlusion-off.md`). */
+ *  18 Minuten je Wache (`docs/regression-reference.md`). */
 internal fun fuzzAblate(args: List<String>) {
     val knopf = args.firstOrNull() ?: error("fuzz ablate <knopf> [aus=0]")
     val aus = args.getOrNull(1)?.toDoubleOrNull() ?: 0.0

@@ -34,9 +34,57 @@ class TemperatureTest {
         assertArrayEquals(softmaxAt(logProbs, T_SHIPPED), softmaxAt(shifted, T_SHIPPED), TOLERANCE)
     }
 
+    /** `spec.temperature` wird an DREI Stellen gelesen, `softmaxAt` teilte ungeprueft: negativ wird
+     *  der Argmax die UNwahrscheinlichste Klasse, bei 0 jede Zeile NaN, und 0,85 wird 0,005. */
+    @Test
+    fun `all three readers of the temperature refuse the same values`() {
+        for (t in listOf(0.0, -T_SHIPPED, -1.0)) {
+            assertEquals(ENGINE_THR, calibratedConfThr(ENGINE_THR, t, CLASSES), EXACT_D, "confThr bei $t")
+            assertEquals(LAMBDA, priorOnTempered(LAMBDA, t), EXACT_D, "prior bei $t")
+            assertArrayEquals(softmax(logProbs), softmaxAt(logProbs, t), 0f, "softmax bei $t")
+        }
+    }
+
+    /** Die Sperre darf keinen ausgelieferten Lauf bewegen: alle sieben liegen ueber 1. */
+    @Test
+    fun `every shipped temperature still divides exactly as before`() {
+        for (t in SHIPPED) {
+            val expected = FloatArray(logProbs.size) { (logProbs[it] / t).toFloat() }
+
+            assertArrayEquals(softmaxAt(expected, 1.0), softmaxAt(logProbs, t), 0f, "T = $t")
+        }
+    }
+
+    @Test
+    fun `a temperature of one leaves the threshold alone`() {
+        assertEquals(ENGINE_THR, calibratedConfThr(ENGINE_THR, 1.0, CLASSES), EXACT_D)
+    }
+
+    /** Gemessen am Regressionssatz: mit T = 1,495 und dieser Schwelle ist der Lauf Ziffer fuer
+     *  Ziffer die Referenz (385/14/1/167 bei 6 Alarmen, 2026-09-16). */
+    @Test
+    fun `the default model's 0_85 is really 0_58`() {
+        assertEquals(0.584, calibratedConfThr(ENGINE_THR, T_SHIPPED, CLASSES), 0.001)
+    }
+
+    @Test
+    fun `a more overconfident model needs a lower number for the same demand`() {
+        val mild = calibratedConfThr(ENGINE_THR, SHIPPED.first(), CLASSES)
+        val sharp = calibratedConfThr(ENGINE_THR, SHIPPED.last(), CLASSES)
+
+        assertTrue(sharp < mild, "je ueberkonfidenter, desto tiefer liegt dieselbe Forderung")
+        assertEquals(0.703, mild, 0.001)
+        assertEquals(0.480, sharp, 0.001)
+    }
+
     private companion object {
-        /** `p4a-80-clahe`, die Vorgabe. */
+        /** `config.json` der sieben gebundelten Modelle, `p4a-80-clahe` (1,495) ist die Vorgabe. */
+        val SHIPPED = listOf(1.2603, 1.495, 1.5285, 1.5963, 1.6684, 1.7202, 1.7551)
         const val T_SHIPPED = 1.495
+        const val ENGINE_THR = 0.85
+        const val LAMBDA = 4.0
+        const val CLASSES = 13
         const val TOLERANCE = 1e-6f
+        const val EXACT_D = 1e-12
     }
 }

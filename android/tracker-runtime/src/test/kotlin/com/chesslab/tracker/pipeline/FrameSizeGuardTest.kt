@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.File
 
 class FrameSizeGuardTest {
     private val warnings = mutableListOf<String>()
@@ -63,5 +64,26 @@ class FrameSizeGuardTest {
         assertNull(guard.mismatch)
         assertEquals(0, regenerations)
         assertTrue(warnings.isEmpty())
+    }
+
+    /** The a7dab73 fall-back warning needs `requestedW`, and nothing outside a test ever set it. */
+    @Test
+    fun `the fallback warning has a production caller or is gone`() {
+        val production =
+            File("..")
+                .canonicalFile
+                .listFiles { f: File -> f.isDirectory }
+                .orEmpty()
+                .map { File(it, "src/main/kotlin") }
+                .filter { it.isDirectory }
+                .flatMap { it.walkTopDown().filter { f -> f.isFile && f.extension == "kt" }.toList() }
+        val guard = production.single { it.name == "FrameSizeGuard.kt" }
+        val callers = production.filter { it != guard && it.readText().contains("setRequested") }
+        val declared = guard.readText().contains("fun setRequested")
+        assertTrue(
+            callers.isNotEmpty() || !declared,
+            "FrameSizeGuard.setRequested has no production caller: wire it where the camera mode is requested, " +
+                "or delete setRequested/requestedW/requestedH and the dead branch with it.",
+        )
     }
 }

@@ -4,6 +4,7 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.board.BOARD_PX
 import com.chesslab.engine.board.GRID
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class NoiseFloorTest {
@@ -33,11 +34,7 @@ class NoiseFloorTest {
         assertEquals(4, pulls)
     }
 
-    /**
-     * A quad re-measured between the two frames shifts the warp by a fraction of a pixel, which
-     * lands in every cell. Such a pair is not evidence of noise, it is no evidence: the second
-     * frame becomes the new reference and the measurement is simply late.
-     */
+    /** A re-measured quad shifts the warp by a fraction of a pixel in every cell: no evidence, just a late measurement. */
     @Test
     fun `a re-alignment between the two frames is dropped, not measured`() {
         val floor = NoiseFloor()
@@ -56,6 +53,20 @@ class NoiseFloorTest {
         floor.disarm()
         floor.observe(2, still) { board(RAISED) }
         assertEquals(NOISE_UNMEASURED, floor.busy)
+    }
+
+    /** Corners that never match used to re-arm without advancing `due`, so `LiveAlign` made it measure EVERY frame. */
+    @Test
+    fun `corners that never match do not turn the interval off`() {
+        val floor = NoiseFloor(everyFrames = INTERVAL)
+        var pulls = 0
+        for (seq in 1L..2 * INTERVAL) {
+            floor.observe(seq, FloatArray(CORNERS) { seq.toFloat() }) {
+                pulls += 1
+                board(0)
+            }
+        }
+        assertTrue(pulls <= 10, "zwei Intervalle duerfen hoechstens 10 Bretter kosten, gerechnet wurden $pulls")
     }
 
     private fun board(raisedCells: Int): BgrImage {

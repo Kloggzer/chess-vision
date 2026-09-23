@@ -40,7 +40,7 @@ private fun EngineState.llFloorGate(
 ): Boolean {
     if (!cand.vote || config.commitLlFloor <= 0 || bestScore >= config.commitLlFloor) return true
     confirmer.reset()
-    // Wiederholte Ablehnungen holen die CNN dazu; siehe `docs/refused-streak.md`.
+    // Wiederholte Ablehnungen holen die CNN dazu; siehe `docs/tracker-flow.md`.
     refusedStreak = if (key == refusedKey) refusedStreak + 1 else 1
     refusedKey = key
     note =

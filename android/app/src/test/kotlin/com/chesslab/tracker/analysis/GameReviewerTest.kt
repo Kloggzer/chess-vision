@@ -1,9 +1,5 @@
 package com.chesslab.tracker.analysis
 
-import com.chesslab.tracker.games.StoredGame
-import com.chesslab.tracker.games.StoredMove
-import com.chesslab.tracker.games.reviewView
-import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -12,41 +8,18 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.IOException
 
-private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-
 private const val SANS = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7"
 
 private val INFO = listOf("info depth 30 multipv 1 score cp 20 pv e2e4 e7e5")
 
-private fun game() =
-    MoveList().apply { loadFromSan(SANS) }.let { moves ->
-        val sans = moves.toSanArray()
-        StoredGame(
-            id = "g",
-            startFen = START,
-            startedAtEpochMs = 0,
-            finishedAtEpochMs = 0,
-            profileName = "t",
-            result = "*",
-            moves = moves.mapIndexed { index, move -> StoredMove(index + 1, sans[index], move.toString(), 0L) },
-        ).reviewView()
-    }
+private fun game() = reviewGameOf(SANS)
 
-/**
- * The streaming half of specs/44: how many SEARCHES the reader waits through, which is the only part
- * of "the first useful thing arrives quickly" that is not a property of today's phone.
- *
- * The wall clock is the device's — measured 2026-08-03 at the shipped budget, ~2.2 s per position.
- * What is asserted here is the multiplier on it.
- */
+/** specs/44: how many SEARCHES the reader waits through — the multiplier on the device's ~2.2 s
+ *  per position (measured 2026-08-03), the only part that is not a property of today's phone. */
 class GameReviewerTest {
     private fun reviewer() = GameReviewer({ UciEngine("fake") { ScriptedEngineProcess(engineScript(INFO)) } })
 
-    /**
-     * **The number the pack exists for.** The screen opens on the last ply, and a ply needs the two
-     * positions either side of it — so a grade appears after TWO searches, whatever the game's
-     * length. The pass it replaced showed nothing until all eleven (84 on the real game) were done.
-     */
+    /** The pass it replaced showed nothing until all eleven searches (84 on the real game) were done. */
     @Test
     fun theFirstGradeArrivesAfterTwoSearchesAndNotAfterTheWholeGame() {
         val game = game()
@@ -77,10 +50,7 @@ class GameReviewerTest {
         assertEquals(4, first)
     }
 
-    /**
-     * A stored analysis must make reopening free, which is the other half of the complaint: leaving
-     * the screen used to throw every second of engine time away.
-     */
+    /** Leaving the screen used to throw every second of engine time away. */
     @Test
     fun aFullSeedNeedsNoEngineAtAll() {
         val game = game()

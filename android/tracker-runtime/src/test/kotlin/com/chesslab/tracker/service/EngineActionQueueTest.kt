@@ -4,42 +4,13 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.EngineAction
-import com.chesslab.engine.api.EngineOps
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
-import com.chesslab.engine.api.TrackerEvent
-import com.chesslab.engine.api.TrackerStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.concurrent.thread
-
-/** Records the ORDER of the calls; the order is the contract this class exists to protect. */
-private class RecordingOps : EngineOps {
-    val calls = mutableListOf<String>()
-    var configs = 0
-
-    override fun onFrame(input: FrameInput): List<TrackerEvent> {
-        calls += "frame:${input.seq}"
-        return listOf(TrackerEvent.Note("frame"))
-    }
-
-    override fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> {
-        calls += "snap:${snap.seq}"
-        return emptyList()
-    }
-
-    override fun apply(action: EngineAction): List<TrackerEvent> {
-        calls += if (action is EngineAction.SetFen) "SetFen:${action.fen}" else action::class.simpleName.orEmpty()
-        if (action is EngineAction.UpdateConfig) configs += 1
-        return emptyList()
-    }
-
-    override fun status(): TrackerStatus = statusOf()
-
-    override fun fen(): String = statusOf().fen
-}
 
 private fun frameInput(seq: Long) =
     FrameInput(
@@ -118,8 +89,7 @@ class EngineActionQueueTest {
         val host = EngineHost(ops)
         repeat(100) { host.submit(EngineAction.SetFen("fen$it")) }
         host.tick(null)
-        // Bounded, and what survived is the NEWEST — a stale action is worth less than a fresh
-        // one, and blocking here would stall whichever UI thread submitted it.
+        // What survives is the NEWEST: blocking here would stall whichever UI thread submitted it.
         assertTrue(ops.calls.size < 100, "queue is unbounded: ${ops.calls.size} actions drained")
         assertEquals("SetFen:fen99", ops.calls.last())
     }

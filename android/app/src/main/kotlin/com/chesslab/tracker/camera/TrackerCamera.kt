@@ -344,7 +344,7 @@ class TrackerCamera(
      * Eine breitere Spanne zu waehlen, damit AE laenger belichtet statt das ISO zu heben, wurde
      * am 2026-08-30 versucht und gemessen verworfen: bei `[15,15]` sind 66,7 ms erlaubt, und das
      * Geraet fuhr trotzdem 10,0 ms. Die Aufteilung ist hier nicht zu holen
-     * (`docs/board-exposure.md`, "Die 10,0 ms sind nicht verhandelbar").
+     * (`docs/camera.md`, "Die 10,0 ms sind nicht verhandelbar").
      *
      * The trade is real and belongs in the log: a pinned rate caps exposure time, so the frame
      * gets darker, and `darkLumaThr = 18` is a gate that can then start firing.
@@ -376,7 +376,7 @@ class TrackerCamera(
      *
      * Dieses Tuning waehlt sonst 10,0 ms und bezahlt den Rest mit Verstaerkung. Qualcomms
      * `iso_exp_priority` ist der Weg daran vorbei, der die AE anlaesst — gemessen 2026-08-30:
-     * ISO 404 auf 55, bei gleicher Helligkeit und Bildrate (`docs/board-exposure.md`).
+     * ISO 404 auf 55, bei gleicher Helligkeit und Bildrate (`docs/camera.md`).
      */
     @OptIn(ExperimentalCamera2Interop::class)
     private fun pinExposureTime(

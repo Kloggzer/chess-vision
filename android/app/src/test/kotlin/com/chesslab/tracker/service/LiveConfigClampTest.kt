@@ -44,8 +44,7 @@ class LiveConfigClampTest {
 
     @Test
     fun `the measured board still wins, calibration runs under the tracker`() {
-        // `applyCalibration` schiebt die gemessene Brettgroesse bewusst in einen laufenden Stack:
-        // die Ebene wechselt live mit, und `FrameLoop` weist eine Ebene ab, die den Boxen widerspricht.
+        // `applyCalibration` schiebt die gemessene Brettgroesse bewusst in einen laufenden Stack.
         val run = TrackerConfig(boardSize = 800)
 
         val out = liveConfig(RunSeed(run, FrameRateMode.FPS30), run, FrameRateMode.FPS30, BoardGeometry(boardSize = 928), null)
@@ -60,5 +59,26 @@ class LiveConfigClampTest {
         val out = liveConfig(RunSeed(run, FrameRateMode.FPS15), run, FrameRateMode.FPS15, geometry, null)
 
         assertEquals("halbe Rate heisst doppelt, nicht vierfach", 0.5, out.motionThr, 1e-9)
+    }
+
+    /** Die BILDRATE ist restart-pflichtig und skaliert `motionThr`; gelesen aus den AKTUELLEN
+     *  Einstellungen verschob ein Live-Knopf die Schwelle auf eine Rate, die die Kamera nicht liefert. */
+    @Test
+    fun `a frame rate changed but not restarted does not move the running threshold`() {
+        val run = RunSeed(TrackerConfig(boardSize = 928, motionThr = 0.25), FrameRateMode.FPS30)
+        val stored = run.config.copy(motionThr = 0.40)
+
+        val out = liveConfig(run, stored, FrameRateMode.FPS15, geometry, null)
+
+        assertEquals("der Live-Knopf kommt durch", 0.40, out.motionThr, 1e-9)
+    }
+
+    @Test
+    fun `without a running stack the stored rate decides`() {
+        val stored = TrackerConfig(boardSize = 928, motionThr = 0.25)
+
+        val out = liveConfig(null, stored, FrameRateMode.FPS15, geometry, null)
+
+        assertEquals("halbe Rate heisst doppelt", 0.5, out.motionThr, 1e-9)
     }
 }

@@ -16,32 +16,9 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 /**
- * **The CNN coverage gap, closed without a phone.**
- *
- * `scripts/emit_parity_fixtures.py` replays every clip with `cnn_run=None`, so all 969 fixture
- * frames exercise the DIFF path only. Everything the CNN touches — the verify ladder, pair verify,
- * recovery, the illegal-move alarm — has only ever seen hand-built probability arrays. This test
- * runs the whole chain on real pixels: mp4 -> board warp -> 64 crops -> real `model.onnx` ->
- * [CnnRecovery] -> [com.chesslab.engine.api.TrackerEngine] -> committed move list, against each
- * clip's `.labels.json`.
- *
- * It is an EXPERIMENT, not a gate on model quality. What is asserted is the harness contract and
- * the diff-only baseline (which Python reproduces at full rate for every one of these clips); the
- * CNN-on move lists are REPORTED, and their failures belong in
- * `specs/17-android-rewrite/STATUS.md`, not in a loosened assertion.
- *
- * Opt-in, because it decodes 18 videos and runs ONNX on every frame:
- * ```
- * .\gradlew.bat :app:testDebugUnitTest -Pchesslab.sim=true --tests "com.chesslab.tracker.sim.*"
- * ```
- * Without `-Pchesslab.sim=true` the class is skipped, so `:app:testDebugUnitTest` stays fast.
- *
- * `-Pchesslab.sim.models=data/models/tiny-p3,data/models/tiny-light` compares several runs in one
- * pass (default: the bundled assets). The diff-only baseline is model-independent and is replayed
- * ONCE, so every model is scored against the identical reference.
- *
- * `-Pchesslab.sim.defaults=true` swaps each clip's recorded `effectiveConfig` for the shipped
- * `TrackerConfig()` — the run that measures the defaults instead of the port. Report-only.
+ * The 969 parity frames exercise the DIFF path only; this runs the CNN chain on real pixels. An
+ * EXPERIMENT: harness contract and diff-only baseline are asserted, CNN-on lists REPORTED. Opt-in:
+ * `-Pchesslab.sim=true` (plus `.models=<dir>,…` / `.defaults=true`, see `SimClips.kt`).
  */
 @EnabledIfSystemProperty(named = "chesslab.sim", matches = "true")
 class CnnClipSimulationTest {
@@ -171,18 +148,8 @@ private fun assertHarnessRan(results: List<Pair<SimResult, SimResult>>) {
 }
 
 /**
- * The one MOVE assertion. Python reproduces every one of the COMMITTED clips' `labels.json` at full
- * rate (`meta.sanMatchesManifestAtFullRate`), and this run is full rate with the same config, so a
- * diff-only failure there is a real Kotlin finding — never something to relax.
- *
- * That premise is a property of `tests/data/testclips`, not of the harness: a re-rendered set
- * (`-Pchesslab.sim.clips=…`) has no Python reference, so its diff-only rate is a MEASUREMENT of the
- * new pixels and is reported instead of asserted. Failing there would only mean "these clips are
- * not those clips".
- *
- * The same holds for `-Pchesslab.sim.defaults=true`: the Python full-rate premise is a property of
- * the recorded `effectiveConfig`, so a run under the shipped defaults has no reference either — its
- * rate is the measurement the mode exists to produce (see [usingShippedDefaults]).
+ * The one MOVE assertion: Python reproduces every committed clip at full rate
+ * (`meta.sanMatchesManifestAtFullRate`). Alternate clips or shipped defaults have no reference: reported.
  */
 private fun assertBaselineReproducesGroundTruth(baselines: List<SimResult>) {
     val failed = baselines.filterNot { it.ok }

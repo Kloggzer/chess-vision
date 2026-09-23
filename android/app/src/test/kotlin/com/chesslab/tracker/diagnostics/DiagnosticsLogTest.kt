@@ -3,6 +3,7 @@ package com.chesslab.tracker.diagnostics
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.debugDecision
 import com.chesslab.tracker.service.CnnRuntimeInfo
 import com.chesslab.tracker.settings.AppSettings
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -50,16 +51,12 @@ class DiagnosticsLogTest {
             .sortedBy { it.name.filter(Char::isDigit).toInt() }
             .flatMap { file -> file.readLines().filter(String::isNotBlank).map { PARSER.parseToJsonElement(it).jsonObject } }
 
-    /**
-     * The sink runs on the analyzer thread, whose whole-frame budget is 23.1 ms median at 26–28 fps
-     * (measured live, 2026-08-02). A file handle on that thread is the failure this design exists to
-     * avoid, so the absence of one is asserted rather than intended.
-     */
+    /** The sink runs on the analyzer thread: 23.1 ms median whole-frame budget at 26–28 fps (2026-08-02). */
     @Test
     fun offerTouchesNoFile() =
         runTest {
             val log = log()
-            log.offer(decision())
+            log.offer(debugDecision())
             assertFalse(dir().exists(), "offer opened a file on the calling thread")
             runCurrent()
             assertEquals(1, dir().listFiles()?.size, "the consumer never wrote")
@@ -71,7 +68,7 @@ class DiagnosticsLogTest {
     fun rotationDropsTheOldestFileAndLeavesTheNewestWhole() =
         runTest {
             val log = log(maxFileBytes = 900L, maxFiles = 2)
-            repeat(20) { log.offer(decision(ply = it)) }
+            repeat(20) { log.offer(debugDecision(ply = it)) }
             runCurrent()
             log.close()
             advanceUntilIdle()
@@ -85,42 +82,25 @@ class DiagnosticsLogTest {
             newest.forEach { PARSER.parseToJsonElement(it) }
         }
 
+    /** Rotation deletes the file the header was written into: a header written once leaves anonymous numbers. */
     @Test
-    fun seqIsStrictlyIncreasingAcrossARotation() =
+    fun aRotationKeepsSeqOrderAndEveryFileRepeatsTheRunHeader() =
         runTest {
             val log = log(maxFileBytes = 900L, maxFiles = 4)
             log.runStart(runStart())
-            repeat(20) { log.offer(decision(ply = it)) }
-            runCurrent()
-            log.close()
-            advanceUntilIdle()
-
-            assertTrue(dir().listFiles().orEmpty().size > 1, "the test never rotated")
-            val seqs =
-                lines()
-                    .filter { it.str("kind") == KIND_DECISION }
-                    .map { it.str("seq").toLong() }
-            assertEquals(seqs.sorted(), seqs, "the rows are out of order")
-            assertEquals(seqs.toSet().size, seqs.size, "a seq repeats")
-        }
-
-    /**
-     * Rotation deletes the oldest file, which is exactly the one the header was written into — so a
-     * header that is written once produces exports of anonymous numbers as soon as a session runs
-     * long enough to matter.
-     */
-    @Test
-    fun everyFileRepeatsTheRunHeader() =
-        runTest {
-            val log = log(maxFileBytes = 900L, maxFiles = 4)
-            log.runStart(runStart())
-            repeat(20) { log.offer(decision(ply = it)) }
+            repeat(20) { log.offer(debugDecision(ply = it)) }
             runCurrent()
             log.close()
             advanceUntilIdle()
 
             val files = dir().listFiles().orEmpty()
             assertTrue(files.size > 1, "the test never rotated")
+            val seqs =
+                lines()
+                    .filter { it.str("kind") == KIND_DECISION }
+                    .map { it.str("seq").toLong() }
+            assertEquals(seqs.sorted(), seqs, "the rows are out of order")
+            assertEquals(seqs.toSet().size, seqs.size, "a seq repeats")
             files.forEach { file ->
                 val first = PARSER.parseToJsonElement(file.readLines().first()).jsonObject
                 assertEquals(KIND_RUN_START, first.str("kind"), file.name)
@@ -133,7 +113,7 @@ class DiagnosticsLogTest {
         runTest {
             val log = log()
             log.runStart(runStart())
-            repeat(300) { log.offer(decision(ply = it)) }
+            repeat(300) { log.offer(debugDecision(ply = it)) }
             runCurrent()
             log.close()
             advanceUntilIdle()
@@ -141,12 +121,8 @@ class DiagnosticsLogTest {
             assertEquals(KIND_RUN_START, lines().first().str("kind"), "der Lauf-Kopf fiel aus der Schlange")
         }
 
-    /**
-     * `motionRecencyS` and the model directory by NAME, not "some config".
-     *
-     * Those two are the whole phase: `motionRecencyS` sat at 0.0 in the DataStore and rejected every
-     * diff-path commit for an evening, and nothing on the device ever said which model was loaded.
-     */
+    /** `motionRecencyS` sat at 0.0 in the DataStore and rejected every diff commit for an evening, and
+     *  nothing on the device said which model was loaded. */
     @Test
     fun runStartCarriesTheConfigInForceAndTheModelIdentity() =
         runTest {
@@ -166,23 +142,18 @@ class DiagnosticsLogTest {
             val model = row.obj("model")
             assertEquals("occ-v6-f5nd", model.str("loadedDir"))
             assertEquals("80x80", model.str("inferSize"))
-            // Both halves of the crop question: what the model asked for, and what it got. A run
-            // whose `declaredPads` is null was served a box nobody chose (specs/45).
+            // A null `declaredPads` was served a box nobody chose (specs/45).
             assertEquals("0.05", model.str("declaredPads"))
             assertEquals("side=0.050", model.str("servedPads"))
             assertEquals("XNNPACK", model.str("actualEp"))
         }
 
-    /**
-     * The surrogate mirrors an `:core-engine` type it cannot annotate, so nothing but this test
-     * connects the two. A field added to `DebugDecision` and forgotten here would otherwise be
-     * missing from every exported row, silently and forever.
-     */
+    /** The surrogate mirrors a `:core-engine` type it cannot annotate; only this test connects the two. */
     @Test
     fun theSurrogateCarriesEveryFieldOfDebugDecision() =
         runTest {
             val log = log()
-            log.offer(decision())
+            log.offer(debugDecision())
             runCurrent()
             log.close()
             advanceUntilIdle()
@@ -206,7 +177,7 @@ class DiagnosticsLogTest {
     fun noPixelsReachTheFile() =
         runTest {
             val log = log()
-            log.offer(decision())
+            log.offer(debugDecision())
             log.runStart(runStart())
             runCurrent()
             log.close()
@@ -222,35 +193,6 @@ class DiagnosticsLogTest {
             forbidden.forEach { assertFalse(text.contains(it), "the file mentions '$it'") }
         }
 }
-
-private fun decision(ply: Int = 2) =
-    DebugDecision(
-        tsS = 1.0,
-        ply = ply,
-        uci = "e2e4",
-        san = null,
-        fenBefore = null,
-        fenAfter = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        decider = "rejected",
-        reason = "e4? evidence too weak (0.00 < 2.0) — not committing",
-        priorUsed = false,
-        bestScore = 1.0,
-        secondScore = 0.0,
-        margin = 1.0,
-        changed = listOf("f4", "d4"),
-        changedVals = listOf("f4" to 9.25, "d4" to 4.5),
-        shadowVetoed = listOf("e5"),
-        occludedVetoed = listOf("h2"),
-        gridCoverage = 1.0,
-        zThr = 3.0,
-        motion = 0.0,
-        cnnRun = true,
-        cnnAgreement = 1.0,
-        cnnBestMove = null,
-        stuckReason = null,
-        verifyOutcome = null,
-        accepted = false,
-    )
 
 private fun runStart() =
     runStartOf(

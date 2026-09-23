@@ -22,11 +22,7 @@ class ReviewStoreTest {
         assertEquals(scores, store.load("g1", ReviewBudget(), positions = 3))
     }
 
-    /**
-     * The budget is the KEY. Measured on the device: 14 of 83 plies change class between
-     * `movetime 400` and depth 16 — so a stored result that does not say what produced it would mix
-     * two opinions of the same move under one number.
-     */
+    /** The budget is the KEY: on the device 14 of 83 plies change class between `movetime 400` and depth 16. */
     @Test
     fun aResultFromADifferentBudgetIsAMissAndNeverAMerge() {
         val store = store()
@@ -44,11 +40,7 @@ class ReviewStoreTest {
         assertNull(store.load("g1", ReviewBudget(), positions = 5))
     }
 
-    /**
-     * A file written before a stored score gained a field must be a MISS, not a silent downgrade —
-     * `ignoreUnknownKeys` plus a defaulted field would otherwise hand back a complete-looking
-     * analysis with the engine's advice missing from every ply.
-     */
+    /** Else `ignoreUnknownKeys` plus a defaulted field hands back an analysis missing the advice on every ply. */
     @Test
     fun aFileFromAnOlderStoreFormatIsAMiss() {
         val store = store()
@@ -58,12 +50,8 @@ class ReviewStoreTest {
         assertNull(store.load("g1", ReviewBudget(), positions = 1))
     }
 
-    /**
-     * **The budget key cannot police a change to the budget's own shape**, and on the device it did
-     * not: the budget went from `depth`/`movetimeMs` to `nodes`/`capMs`, `ignoreUnknownKeys` dropped
-     * the two unrecognised keys, the two new ones took their defaults, and a depth-30 analysis
-     * compared equal to a node-budget one and was served as if it were current.
-     */
+    /** On the device `depth`/`movetimeMs` became `nodes`/`capMs`, both defaulted, and a depth-30
+     *  analysis compared equal to a node-budget one. */
     @Test
     fun aBudgetWrittenWithDifferentFIELDNAMESIsAMiss() {
         val store = store()

@@ -136,7 +136,7 @@ data class CameraAbilities(
 /**
  * Zeit und Verstaerkung, wie das Geraet sie zuletzt GEWAEHLT hat — ein Messwert, kein
  * Stellwert. Selbst stellen war die erste Fassung und ist live verworfen worden
- * (`docs/board-exposure.md`).
+ * (`docs/camera.md`).
  */
 data class ExposureSetting(
     val timeNs: Long,

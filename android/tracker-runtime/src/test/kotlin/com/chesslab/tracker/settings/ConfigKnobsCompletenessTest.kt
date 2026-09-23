@@ -5,20 +5,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * Every `TrackerConfig` field has a Knob, and every Knob a field.
- *
- * The catalog is the ONLY persistence path — a field without a knob is a setting the phone
- * silently drops on the round-trip, and nothing else in the build would say so: the codec
- * tolerates missing keys by design (they decode to defaults). Written 2026-08-14 while chasing
- * exactly that suspicion against `confirmFramesOverride`; the knob turned out to exist, and this
- * test is what makes the answer a compile-adjacent fact instead of a manual count. Verified to go
- * RED when the `confirmFramesOverride` row is deleted from [KNOBS], and green as committed.
- *
- * Field enumeration without kotlin-reflect: a data class's `toString()` prints every CONSTRUCTOR
- * property as `name=value`, which is exactly the set a knob can persist. `detSize` is derived
- * (`boardSize * detectScale`, a body property) — it never appears in `toString()` and correctly
- * has no knob; it is named below so that the day it becomes a stored field this test states the
- * exemption instead of failing cryptically.
+ * The catalog is the ONLY persistence path: a field without a knob is silently dropped. Fields come
+ * from `toString()` (no kotlin-reflect); derived `detSize` is named so its exemption stays explicit.
  */
 class ConfigKnobsCompletenessTest {
     private val derived = setOf("detSize")

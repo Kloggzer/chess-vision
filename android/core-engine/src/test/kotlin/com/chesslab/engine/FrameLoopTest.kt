@@ -4,6 +4,7 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.parity.meanPlane
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -14,12 +15,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 // The per-frame body of `_loop` (`tracker.py`) and `_RunningMean`.
-//
-// Scenarios mirrored from `tests/test_move_tracker.py`:
-//   test_raw_core_vs_dilated (:2304)                     -> occludedGateCountsRawCoreNotDilated
-//   test_mean_equals_stack / test_drift_resync_after_64 /
-//   test_clear_and_reuse (:561/:571/:581)                -> runningMean*
-//   test_detect_scale_half_det_size_and_e2e4 (:2134)     -> detectScaleHalfDetSize
 
 private const val U8 = 0xFF
 
@@ -169,18 +164,13 @@ class FrameLoopTest {
     }
 
     /**
-     * `:1646-1647` — BOTH conditions gate `ready`; a satisfied settle count is not enough.
-     *
-     * The hold is set HERE rather than taken from the default. The scenario needs a hold that
-     * outlives the settle count, and which of the two binds is exactly what the default decides —
-     * at `motionHoldS = 0.1` the settle count is the later of the two and this test would have
-     * been asserting nothing. A test for "both gates" must construct both gates.
+     * `:1646-1647` — BOTH conditions gate `ready`. The hold is set here: at the default 0.1 s the
+     * settle count binds later and this test would assert nothing.
      */
     @Test
     fun readyRequiresSettleFramesAndHold() {
         val h = Harness(testConfig().copy(motionHoldS = 0.4))
-        // Motion at t = 0.05 s arms holdUntil = 0.45 s; the quiet frames are 0.05 s apart, so the
-        // settle count (4) is reached long before the hold expires.
+        // Motion at 0.05 s arms holdUntil = 0.45 s; the settle count (4) is reached long before.
         h.feed(motionRoi = 5.0, tsMs = 50L)
         for (ts in listOf(100L, 150L, 200L, 250L, 300L)) h.feed(tsMs = ts)
         assertTrue(h.state.stableCount > h.state.settleFrames, "the settle count is satisfied")
@@ -206,9 +196,8 @@ class FrameLoopTest {
     }
 
     /**
-     * `:1663-1672` — the grid gate just cleared: extend the hold by another `motionHoldS`, DROP
-     * both averaging buffers and force `ready` false, so residual hand pixels never reach the
-     * first post-occlusion mean.
+     * `:1663-1672` — residual hand pixels must never reach the first post-occlusion mean. The state
+     * must leave `occluded` too: it used to stick until the next MOTION frame, killing the periodic CNN check.
      */
     @Test
     fun gridGateReleaseExtendsHoldAndClearsBuffers() {
@@ -233,23 +222,7 @@ class FrameLoopTest {
         assertTrue(h.state.holdUntil > holdBefore)
         assertTrue(released is FrameOutcome.Skip, "the release frame can never detect")
         assertNull(h.state.lastCur, "the mean of an emptied buffer is null, exactly as in Python")
-    }
-
-    /**
-     * The occluder left, so the state has to leave `occluded` with it. The tail only resets a state
-     * that is neither MOVE nor OCCLUDED, so it used to stick until the next MOTION frame — and
-     * `CnnTick.evaluationDue`'s stable arm asks for WAITING or MOVE, which killed the periodic CNN
-     * check for the whole quiet stretch after every grid occlusion.
-     */
-    @Test
-    fun gridGateReleaseReturnsToWaiting() {
-        val h = Harness(testConfig(minGridLineCoverage = 0.5))
-        repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
-        h.feed(coverage = 0.3)
-        assertEquals(STATE_OCCLUDED, h.state.state)
-
-        h.feed(coverage = 0.9)
-
+        assertTrue(h.state.refHoldUntil >= h.state.nowS + h.state.config.occluderHoldS, "auch die Referenz wartet")
         assertEquals(STATE_WAITING, h.state.state, "the release frame must leave the occluded state")
         repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
         assertEquals(STATE_WAITING, h.state.state, "and quiet frames never put it back")
@@ -264,11 +237,7 @@ class FrameLoopTest {
         assertEquals(1, h.refCaptures.size, "a disabled gate never blocks")
     }
 
-    /**
-     * entry.md invariant 3 — the `>2 -> occluded` gate counts the RAW UNDILATED
-     * core. The dilated set of the same event has five squares; counting it would lock the tracker
-     * in `occluded`, where `_try_detect` (and the CNN move-vs-hand arbitration) never runs.
-     */
+    /** entry.md invariant 3: counting the dilated set would lock the tracker in `occluded`, where `_try_detect` never runs. */
     @Test
     fun occludedGateCountsRawCoreNotDilated() {
         val h = armedHarness()
@@ -287,17 +256,15 @@ class FrameLoopTest {
     }
 
     /**
-     * A hold shorter than the 0.1 s keep-alive lets `ready` fire on live core stamps. The
-     * occluded state then re-measured the quiet board against the old reference every frame
-     * and latched on a played move (2026-08-07-13-52-38 lost 8 plies at 50 ms holds).
+     * A hold under the 0.1 s keep-alive lets `ready` fire on live core stamps; the occluded state then
+     * latched on a played move (2026-08-07-13-52-38 lost 8 plies at 50 ms holds).
      */
     @Test
     fun coreOccludedStateExitsOnAQuietBoard() {
         val h =
             Harness(
                 testConfig().copy(
-                    // Der Vorfall haengt an der Empfindlichkeit von 2026-08-07; die Vorgabe ist
-                    // seit dem Optimierer 34.5 und betritt den Verdeckungszustand hier nicht mehr.
+                    // Die Empfindlichkeit von 2026-08-07; die Vorgabe (34.5) betritt den Zustand hier nicht.
                     motionHoldS = 0.05,
                     occluderHoldS = 0.05,
                     commitHoldS = 0.067,
@@ -470,7 +437,7 @@ class FrameLoopTest {
         val frames = (0 until RM_FRAMES).map { randomGray(it.toLong(), RM_SIDE) }
         for (frame in frames) rm.append(frame)
 
-        val expected = stackMean(frames.takeLast(RM_WINDOW).map { it.data })
+        val expected = meanPlane(frames.takeLast(RM_WINDOW).map { it.data })
         assertTrue(expected.contentEquals(requireNotNull(rm.meanUint8()).data))
     }
 
@@ -481,7 +448,7 @@ class FrameLoopTest {
         val frames = (0 until RM_DRIFT_FRAMES).map { randomGray(RM_DRIFT_SEED + it, RM_DRIFT_SIDE) }
         for (frame in frames) rm.append(frame)
 
-        val expected = stackMean(frames.takeLast(RM_DRIFT_WINDOW).map { it.data })
+        val expected = meanPlane(frames.takeLast(RM_DRIFT_WINDOW).map { it.data })
         assertTrue(expected.contentEquals(requireNotNull(rm.meanUint8()).data))
     }
 
@@ -509,24 +476,13 @@ class FrameLoopTest {
     }
 
     /**
-     * entry.md **invariant 14**, from the frame source's side — the contract `pipeline/PlaneRing.kt`
-     * has to satisfy.
-     *
-     * The running mean keeps the planes it averaged BY REFERENCE, so the pipeline may recycle its
-     * per-frame byte arrays only through a ring deeper than everything the engine holds at once.
-     * The bound is `window + 1`: at the moment the ring hands out the plane for frame `N` the mean
-     * still holds `N-1 .. N-window`, and [PlaneMean.append] reads the evicted plane `N-window`
-     * in the same pass as the new one, so those two must be different arrays as well. The ring runs
-     * at `window + 3`.
-     *
-     * The second half is the mutation proof this test exists for: against the naive fix — ONE shared
-     * buffer — the mean does not throw, it silently converges on the newest frame. Nothing else in
-     * the suite would notice.
+     * Invariant 14, the contract `pipeline/PlaneRing.kt` satisfies: the mean holds its planes BY REFERENCE and
+     * [PlaneMean.append] reads the evicted one, so the bound is `window + 1`. One shared buffer fails SILENTLY.
      */
     @Test
     fun theBufferRingNeverHandsBackAPlaneTheRunningMeanStillHolds() {
         val frames = (0 until RING_FRAMES).map { randomGray(RING_SEED + it, RM_SIDE).data }
-        val expected = stackMean(frames.takeLast(RM_WINDOW))
+        val expected = meanPlane(frames.takeLast(RM_WINDOW))
 
         assertTrue(expected.contentEquals(meanThroughRing(RM_WINDOW + RING_HEADROOM, frames)), "the ring's depth is safe")
         assertTrue(expected.contentEquals(meanThroughRing(RM_WINDOW + 1, frames)), "and `window + 1` is where it becomes safe")
@@ -537,13 +493,8 @@ class FrameLoopTest {
     }
 
     /**
-     * The `detSize` guard of [FrameLoop.step] (commit `c315908`).
-     *
-     * `detSize` is derived twice in this app — here from `boardSize * detectScale`, and in the frame
-     * pipeline from the CALIBRATION PROFILE's measured board size. They agreed only while both were
-     * 1600. A divergence is otherwise SILENT: the engine reads square boxes at one scale out of a
-     * plane rendered at another, so every square is the wrong square. The message must name both
-     * sizes, because the whole point is to say which of the two producers is off.
+     * `c315908`: `detSize` is derived twice (config and calibration profile); a divergence is otherwise
+     * SILENT, and the message must name both sizes to say which producer is off.
      */
     @Test
     fun aDetectionPlaneThatDisagreesWithTheBoxesIsRefused() {
@@ -559,12 +510,7 @@ class FrameLoopTest {
         assertEquals(0, h.state.frameSeq, "the guard fires before any state is touched")
     }
 
-    /**
-     * Das eine Bewegungsfenster, das `commitRecovery` gewaehrt, war tot: der Commit hinterliess
-     * `STATE_MOVE`, `stableMeans` detektiert nur ausserhalb davon, und `stableBranch` haelt MOVE bis
-     * zur naechsten Bewegung — also lief nichts bis zur naechsten Hand, wo `motionSinceRef` ohnehin
-     * gesetzt worden waere. Eine waehrend des Fensters gespielte Antwort blieb so liegen.
-     */
+    /** Das Bewegungsfenster von `commitRecovery` war tot: der Commit hinterliess `STATE_MOVE`, und MOVE hielt bis zur naechsten Hand. */
     @Test
     fun aRecoveryCommitReopensDetectionWithoutANewHand() {
         val h = Harness(recoveryConfig())
@@ -589,15 +535,6 @@ class FrameLoopTest {
         rm.resize(RM_WINDOW + 1)
         assertEquals(0, rm.size)
         assertNull(rm.meanUint8())
-    }
-
-    @Test
-    fun gridGateReleaseAlsoHoldsTheReference() {
-        val h = Harness(testConfig(minGridLineCoverage = 0.5))
-        repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
-        h.feed(coverage = 0.3)
-        h.feed(coverage = 0.9)
-        assertTrue(h.state.refHoldUntil >= h.state.nowS + h.state.config.occluderHoldS, "auch die Referenz wartet")
     }
 
     @Test
@@ -637,11 +574,7 @@ class FrameLoopTest {
         return GrayImage(side, side, ByteArray(side * side) { rng.nextInt(U8 + 1).toByte() })
     }
 
-    /**
-     * [frames] pushed through a [depth]-slot ring of reusable buffers into a [RM_WINDOW] running
-     * mean, exactly as the analyzer thread does it — the plane the engine is handed IS the ring's
-     * buffer, and the next frame overwrites the slot that comes round.
-     */
+    /** [frames] through a [depth]-slot ring of reusable buffers, as the analyzer thread does it. */
     private fun meanThroughRing(
         depth: Int,
         frames: List<ByteArray>,
@@ -654,14 +587,6 @@ class FrameLoopTest {
             mean.append(GrayImage(RM_SIDE, RM_SIDE, slot))
         }
         return requireNotNull(mean.meanUint8()).data
-    }
-
-    private fun stackMean(planes: List<ByteArray>): ByteArray {
-        val acc = LongArray(planes[0].size)
-        for (plane in planes) {
-            for (i in acc.indices) acc[i] += (plane[i].toInt() and U8).toLong()
-        }
-        return ByteArray(acc.size) { (acc[it] / planes.size).toByte() }
     }
 
     private companion object {

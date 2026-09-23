@@ -37,7 +37,6 @@ class ModelSpecRangeTest {
         }
     }
 
-    /** Die sieben ausgelieferten Modelle gehen bitgleich durch. */
     @Test
     fun `die ausgelieferten Modelle gehen unveraendert durch`() {
         val dirs = File("../app/src/main/assets/cnn_model").listFiles { f: File -> File(f, MODEL_CONFIG_FILE).isFile }.orEmpty()
@@ -71,6 +70,18 @@ class ModelSpecRangeTest {
                 dir.name,
             )
         }
+    }
+
+    /** `JsonObject?.floats` konnte "Block fehlt" nicht von "Schluessel fehlt" trennen: `mean` kam still von ImageNet. */
+    @Test
+    fun `a normalize block missing one of its stats is refused, not filled from ImageNet`() {
+        val partial = """, "normalize": {"mode": "fixed", "std": [0.229, 0.224, 0.225]}"""
+        assertThrows(IllegalArgumentException::class.java) { ModelSpec.parse(modelConfigJson(mean = null, extra = partial)) }
+    }
+
+    @Test
+    fun `a config with no normalize block at all still reads as the legacy ImageNet run`() {
+        assert(ModelSpec.parse(modelConfigJson(mean = null)).mean.isNotEmpty()) { "der Alt-Pfad muss bleiben" }
     }
 
     private companion object {

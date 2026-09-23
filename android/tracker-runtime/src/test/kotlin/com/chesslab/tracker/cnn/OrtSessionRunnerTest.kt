@@ -15,11 +15,7 @@ import java.nio.FloatBuffer
 
 private const val CROPS = 64
 
-/**
- * The bundled model's own tensor shape. Read from its `config.json` rather than written down: the
- * graph is exported at the run's `infer_size` (96 since specs/23 phase 02, 128 before it) and these
- * are REAL sessions, so a literal here would feed the wrong shape and ORT would refuse the tensor.
- */
+/** Read from `config.json`, not written down: the graph is exported at the run's `infer_size` (96 since specs/23). */
 private val ASSET_SPEC: ModelSpec by lazy { ModelSpec.parse(File(assetDir(), MODEL_CONFIG_FILE).readText()) }
 
 private val INPUT_SHAPE: LongArray
@@ -38,19 +34,14 @@ private fun zeroInput(): FloatBuffer =
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
 
-private fun stageAssets(tmp: File): StagedModel =
+internal fun stageAssets(tmp: File): StagedModel =
     CnnModelAssets({ name -> File(assetDir(), name).takeIf { it.isFile }?.inputStream() }, tmp).stage()
 
 private fun leftoverProfiles(dir: File): List<String> = dir.list().orEmpty().filter { it.startsWith("ep-verify") }
 
 /**
- * The session's own configuration, which nothing verified before.
- *
- * The desktop JVM has working ORT natives (the CPU provider builds and runs the bundled graph), so
- * these are real sessions — but `OrtSession.SessionOptions` is write-only: no getter reads a thread
- * count or an optimisation level back out. The pinned values are therefore asserted on
- * [SessionTuning], the object they are applied FROM; the profiling flag, which does have an
- * observable consequence, is asserted end to end.
+ * Real sessions, but `OrtSession.SessionOptions` is write-only: the pinned values are asserted on
+ * [SessionTuning], the object they are applied FROM; the profiling flag is asserted end to end.
  */
 class OrtSessionRunnerTest {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()

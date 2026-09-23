@@ -36,13 +36,9 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import java.util.concurrent.atomic.AtomicLong
 
-/** B1: ab dem zweiten Zusatzarm bekam keine Engine einen Crop. Der alte Nachweis lief mit EINEM Arm
- *  — hier laufen drei und sechs gleiche Arme gegen den Einzellauf, echter Weg ueber [ExtraEngines]. */
+/** B1: ab dem zweiten Zusatzarm bekam keine Engine einen Crop; bei sechs reichten die geteilten
+ *  Graustufen-Ringe nicht mehr. Echter Weg ueber [ExtraEngines]. */
 class MultiReplayArmsTest {
-    @Test
-    fun `drei gleiche Zusatzarme sehen und entscheiden jeder wie der Einzellauf`() = armsMatchSingleRun(3)
-
-    /** Sechs: ab da reichten die geteilten Graustufen-Ringe nicht mehr fuer alle Engines. */
     @Test
     fun `sechs gleiche Zusatzarme sehen und entscheiden jeder wie der Einzellauf`() = armsMatchSingleRun(6)
 

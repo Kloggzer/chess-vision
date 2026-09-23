@@ -148,7 +148,7 @@ class OpticsLock(
      *
      * Wie die AE ihr Ziel auf Zeit und Verstaerkung aufteilt, stand bisher nur in der Zeile einer
      * VERSTELLUNG — und genau wenn die Regelung nichts tut, war sie unsichtbar. Das ISO treibt
-     * ueber `busy` die Schwelle in `ChangeEvidence` (`docs/board-exposure.md`).
+     * ueber `busy` die Schwelle in `ChangeEvidence` (`docs/camera.md`).
      */
     private fun traceExposure(seen: ExposureSetting) {
         val was = lastTraced

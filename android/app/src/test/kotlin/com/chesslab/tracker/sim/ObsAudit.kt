@@ -7,14 +7,8 @@ import com.chesslab.cnn.expectedOccupancy
 import com.chesslab.cnn.labelConfidentSquares
 import com.github.bhlangonijr.chesslib.Board
 
-// What the model actually SAW, scored against `labels.json`'s per-frame FEN.
-//
-// This is the instrument that separates the two explanations for a diverging clip:
-//   * a PORT bug — the engine mishandles a correct observation;
-//   * a MODEL weakness — the observation itself is wrong on these Blender renders.
-// The ground truth here is the render's own frame label, not the engine's belief, so the audit
-// stays valid even after the run has desynced. Frames the label marks `occluded` are skipped:
-// a hand over the board makes a disagreement correct behaviour, not an error.
+// What the model SAW against the render's own frame label — separates a PORT bug from a MODEL
+// weakness, and stays valid after a desync.
 
 private const val TOP_OFFENDERS = 8
 
@@ -27,10 +21,8 @@ internal class ObsAudit {
     private var labelChecked = 0
     private var labelWrong = 0
 
-    // The UNGATED statistic, over all 64 squares of every clear observation. `occupied()` is a
-    // plain `pOcc > pEmpty` comparison, so this is what the model says when it is not allowed to
-    // abstain — the number the tracker's occupancy consumers (`resyncCheck`, `verifyMove`, the
-    // alarm gate) actually live on, and the one the stored evals were trying to measure.
+    // The UNGATED statistic (`pOcc > pEmpty`, no abstaining): what `resyncCheck`, `verifyMove` and
+    // the alarm gate actually live on.
     private var allSquares = 0
     private var misses = 0
     private var phantoms = 0
@@ -58,9 +50,8 @@ internal class ObsAudit {
             allSquares += 1
             val got = obs.occupied(square)
             if (got != want) {
-                // Direction matters downstream: a MISS (piece read as empty) lets an unseen move
-                // be baked into the reference (S17-SIM-1); a PHANTOM (empty read as occupied)
-                // trips the desync veto and starves the re-anchor (S17-SIM-2).
+                // A MISS bakes an unseen move into the reference (S17-SIM-1); a PHANTOM trips the
+                // desync veto and starves the re-anchor (S17-SIM-2).
                 if (want) misses += 1 else phantoms += 1
                 allWrongSquares.merge(square, 1, Int::plus)
                 boardWrong += 1
@@ -113,15 +104,8 @@ internal class ObsAudit {
             "      identity confusions: ${top(confusions)}"
 
     /**
-     * The ungated occupancy numbers over every observation — THE decision metric. Occupancy is
-     * all the tracker consumes: which piece moved, whether it is legal and how to disambiguate
-     * are settled by the deterministic diff + legality code, never by the CNN. Identity is
-     * printed as context only and must not decide anything.
-     *
-     * `implied` is `perSquareAcc^64` — the whole-board rate if the 64 errors were independent.
-     * Measured far above implied means the errors are CLUSTERED on a few squares (bad boards are
-     * very bad, good boards are clean); at or below it means they are spread, which is a
-     * resolution ceiling rather than a data gap.
+     * THE decision metric: occupancy is all the tracker consumes, identity is context only. Far above
+     * `implied` (`perSquareAcc^64`) = errors CLUSTERED; at or below = spread, a resolution ceiling.
      */
     fun occupancyAccuracy(): String {
         val right = allSquares - allSquaresWrong

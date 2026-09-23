@@ -223,7 +223,7 @@ class LiveAlign(
     private val cachedMarkers: ((Long) -> Map<Int, DoubleArray>)? = null,
     /**
      * Die Rektifizierung ist gewechselt — dieselbe Lage wie bei der Belichtung, siehe [onFrame].
-     * Vorgabe leer; live haengt daran die Pixel-Referenz (`docs/verifier-stall.md`).
+     * Vorgabe leer; live haengt daran die Pixel-Referenz (`docs/tracker-flow.md`).
      */
     private val onRectificationChanged: () -> Unit = {},
     /** The calibrated quad this run starts on — the only corner values measured with every marker. */
@@ -369,7 +369,7 @@ class LiveAlign(
 
     /**
      * Drop the correction when the board is no longer where it was fitted. Logged both ways round:
-     * a silent vanish debugs as badly as a silent persist (`docs/verifier-stall.md`).
+     * a silent vanish debugs as badly as a silent persist (`docs/tracker-flow.md`).
      */
     private fun expireCorrection(
         current: FloatArray,

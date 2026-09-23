@@ -16,14 +16,8 @@ import org.junit.jupiter.api.Test
 import com.chesslab.engine.api.STARTPOS as API_STARTPOS
 
 /**
- * **The phase-03d integration gate**: every committed clip is replayed through
- * [TrackerEngine.onFrame] and the emitted per-frame decision record must equal Python's Tier B
- * frame for frame.
- *
- * The fixture *is* the input stream (`parity/README.md`): the tracker was driven over exactly the
- * frames in `meta.frames`, with a virtual clock advancing by video time, so a Kotlin replay of the
- * committed planes has no hidden inputs. A divergence is a port bug or a `STATUS.md` discrepancy —
- * never a reason to loosen an assertion.
+ * The phase-03d integration gate: every clip through [TrackerEngine.onFrame] must equal Python's Tier B
+ * frame for frame. The fixture IS the input stream, so a divergence is a port bug, never a tolerance.
  */
 class ClipReplayParityTest {
     @Test
@@ -32,15 +26,16 @@ class ClipReplayParityTest {
         assertTrue(index.clips.isNotEmpty(), "no clips in parity/index.json")
         assertEquals(emptyList<String>(), index.tierBDegraded, "a degraded clip must never count as passing")
         val divergences = mutableListOf<Divergence>()
+        val runs = mutableListOf<Pair<ParityClip, ReplayResult>>()
         var framesAsserted = 0
         var clipsPassed = 0
         for (name in index.clips) {
             val clip = ParityFixtures.load(name)
-            // A clip flagged degraded reproduces a DIFFERENT move list than Python at full rate;
-            // it must be excluded loudly, never silently accepted.
+            // A degraded clip reproduces a DIFFERENT move list; excluded loudly, never silently.
             assertTrue(clip.meta.tierBComplete, "$name: meta.tierBComplete is false — excluded from the strict gate")
             assertTrue(name in index.tierBComplete, "$name: index.json disagrees with meta.tierBComplete")
             val run = replay(clip)
+            runs += clip to run
             framesAsserted += run.frames
             divergences += run.divergences
             if (run.divergences.isEmpty()) clipsPassed += 1
@@ -51,17 +46,10 @@ class ClipReplayParityTest {
         }
         assertEquals(index.clips.size, clipsPassed, "every clip must replay with zero diverging frames ($summary)")
         assertTrue(framesAsserted > 0, "no frame was asserted")
-    }
-
-    @Test
-    fun singleMoveDetected() {
-        // `tests/test_move_tracker.py::test_single_move_detected` at clip scale: the whole move
-        // list of every clip has to come out of the engine, in order.
-        for (name in ParityFixtures.clips()) {
-            val clip = ParityFixtures.load(name)
-            val run = replay(clip)
-            assertEquals(clip.meta.replayedSans, run.sans, "$name: committed SAN sequence")
-            assertEquals(clip.meta.replayedFen, run.fen, "$name: final FEN")
+        // `test_single_move_detected` at clip scale: the whole move list, in order.
+        for ((clip, run) in runs) {
+            assertEquals(clip.meta.replayedSans, run.sans, "${clip.name}: committed SAN sequence")
+            assertEquals(clip.meta.replayedFen, run.fen, "${clip.name}: final FEN")
         }
     }
 }
@@ -98,8 +86,7 @@ private fun replay(clip: ParityClip): ReplayResult {
     // Never Kotlin defaults: `occlusionColorThr` is 1.5 here and 3.0 in TRACK_DEFAULTS (D00b-3).
     // Parity with the Python tracker, which had no commit hold.
     val engine = TrackerEngine(meta.effectiveConfig.toTrackerConfig().copy(commitHoldS = null), meta.startFen ?: API_STARTPOS)
-    // The emitter constructs the tracker and then calls `reset_to_start(start_fen)`
-    // (`emit_parity_fixtures.py`), which is what puts "Reference set" on frame 0.
+    // The emitter calls `reset_to_start(start_fen)` after construction: "Reference set" on frame 0.
     engine.setFen(meta.startFen ?: API_STARTPOS)
     val promotionPiece = meta.movesUci.firstOrNull { it.length == PROMO_UCI_LENGTH }?.get(PROMO_UCI_LENGTH - 1) ?: 'q'
     val divergences = mutableListOf<Divergence>()
@@ -108,8 +95,7 @@ private fun replay(clip: ParityClip): ReplayResult {
     var previous = meta.frames.first()
     var asserted = 0
     for ((position, index) in meta.frames.withIndex()) {
-        // Video time, exactly like the emitter: a flat 1/fps for the first frame, the real gap
-        // afterwards (that is what `tests/test_clips.py`'s `realtime=True` produces).
+        // Video time like the emitter (`realtime=True`): 1/fps for the first frame, the real gap after.
         clock += if (position == 0) 1.0 / meta.fps else (index - previous) / meta.fps
         previous = index
         val frame = clip.frame(index)
@@ -141,8 +127,7 @@ private fun frameInput(
         bgrDet = requireNotNull(clip.bgr(frame.frame)) { "frame ${frame.frame} has no BGR plane" },
         corners = FROZEN_CORNERS,
         motionRoiScore = frame.motionRoiScore,
-        // The clips run with `min_grid_line_coverage = 0.0`, so the gate is off and the coverage
-        // value is never read (`_occluded_by_grid`, `tracker.py`).
+        // `min_grid_line_coverage = 0.0` in the clips: never read.
         gridLineCoverage = 1.0,
         lumaPreClahe = frame.lumaPreClahe,
         timestampMs = Math.round(clock * MS_PER_S),

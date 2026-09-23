@@ -27,10 +27,7 @@ class StageTimingsTest {
         assertEquals(2, lines.size)
     }
 
-    /**
-     * The stack closes but `StageTimings` outlives it, so the pause between two stacks lands in
-     * the EMA as one enormous frame gap — a restart reported as "the sensor is the bottleneck".
-     */
+    /** `StageTimings` outlives the stack: the pause between two used to land in the EMA as one huge frame gap. */
     @Test
     fun `the pause between two stacks is not a frame period`() {
         repeat(30) {
@@ -51,11 +48,7 @@ class StageTimingsTest {
         assertTrue(lines.last().contains("fps=10.0 idle=45.0"), lines.last())
     }
 
-    /**
-     * `idle` is the whole diagnosis: 55 ms of work inside a 100 ms frame means the analyzer spent
-     * 45 ms waiting for the sensor, and no pipeline optimisation can buy a frame. Idle near zero
-     * would be the opposite finding.
-     */
+    /** `idle` is the diagnosis: 45 ms waiting for the sensor means no pipeline optimisation can buy a frame. */
     @Test
     fun `the logged rate is the gap between frames, and idle says who is the bottleneck`() {
         // 20 ms of pipeline + 30 ms of engine + 5 ms of publish inside a 100 ms frame: 10 fps.
@@ -72,10 +65,7 @@ class StageTimingsTest {
         assertTrue(lines.last().contains("frame=55.0 fps=10.0 idle=45.0"), lines.last())
     }
 
-    /**
-     * A skipped frame runs neither `grayDet` nor the engine. Printing the previous frame's numbers
-     * for them reads as work that happened — the log has to say the stage did not run.
-     */
+    /** A skipped frame runs neither `grayDet` nor the engine; the previous frame's numbers would read as work. */
     @Test
     fun `a stage that did not run this frame is not reported as a duration`() {
         timings.begin()
@@ -132,19 +122,8 @@ class StageTimingsTest {
         assertFalse("grid" in snap, snap.toString())
         assertTrue("convert" in snap, snap.toString())
     }
-}
 
-/*
- * The verdict fields were added 2026-08-01. A dash for gray/motion/grid says a frame was skipped
- * and nothing about WHICH of `readFrame`'s three exits took it, so a device that had paused itself
- * for two minutes could not say why — that diagnosis needed a log capture and two agents. `skip=`
- * carries the note and `luma=` the number the dark gate judged on.
- */
-class StageTimingsVerdictTest {
-    private var now = 0L
-    private val lines = mutableListOf<String>()
-    private val timings = StageTimings(nowNs = { now }, logLine = { lines += it })
-
+    /** Verdict fields (2026-08-01): a dash said a frame was skipped, not WHICH of `readFrame`'s three exits took it. */
     @Test
     fun `an emitted frame reports no skip reason and no luma`() {
         timings.begin()

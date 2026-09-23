@@ -17,9 +17,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// Shared helpers for the phase-03d tests. They mirror `_make_tracker`
-// (`tests/test_move_tracker.py`): a 400 px identity profile, `avg_frames = 1`,
-// `confirm_frames = 1`, `require_motion_for_move = False` and detection at full resolution.
+// Shared helpers of the phase-03d tests, mirroring `_make_tracker` (`tests/test_move_tracker.py`).
 
 internal fun detectConfig(
     confirmFrames: Int = 1,
@@ -75,10 +73,7 @@ internal class FakeObs(
     override fun occupancyOnly(): CnnObservation = this
 }
 
-/**
- * Ein LESBARES Brett: jedes Feld sicher gelesen, [flips] dagegen. Der Desync-Veto verlangt seit
- * dem Livelock vom 2026-08-29 `minConfidentBoard` sichere Felder, sonst redet ein dunkles Brett.
- */
+/** Ein LESBARES Brett: seit dem Livelock vom 2026-08-29 verlangt der Desync-Veto `minConfidentBoard` sichere Felder. */
 internal fun litObs(
     state: EngineState,
     flips: Map<String, Boolean> = emptyMap(),
@@ -114,12 +109,7 @@ internal fun moveOf(
     uci: String,
 ): Move = state.board.legalMoves().first { uciOf(it) == uci }
 
-/**
- * Step 9 (`_dispatch`) plus the three gates in front of it (6b LL floor, 7 motion, 8 confirmer).
- *
- * Python reference: `tests/test_move_tracker.py::TestCnnVerify`, `TestMotionPrerequisite`,
- * `TestWeakEvidenceHold` and `test_quiet_reanchor_vetoed_by_confident_cnn_conflict`.
- */
+/** Step 9 (`_dispatch`) plus gates 6b (LL floor), 7 (motion) and 8 (confirmer). */
 class DispatchTest {
     @Test
     fun noCnnCommitsDirectly() {
@@ -159,8 +149,7 @@ class DispatchTest {
 
     @Test
     fun alarmDiscardsPendingCandidate() {
-        // With CNN verify on, a clean candidate would normally become `pending` — the alarm gate
-        // runs first, so nothing is queued for verification either.
+        // The alarm gate runs before verification, so nothing is queued either.
         val state = detectState(ref = grayFrame(listOf("e2")))
         state.cnnRun = true
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1"), null, null)
@@ -198,28 +187,18 @@ class DispatchTest {
         assertEquals(DECIDER_DIFF_PAIR, state.decisionLog.last().decider)
     }
 
-    /**
-     * `motionRecencyS = 0` means OFF, not "reject everything".
-     *
-     * Read literally the gate was `age > 0`, and by the time a candidate exists the hand is long
-     * gone — settle frames plus `motionHoldS` — so the age is never zero and EVERY commit was
-     * refused. Found live on 2026-08-01: the device sat at 0.0 and the deterministic channel had
-     * not committed one move all session; every move waited out the 10 s CNN recovery poll instead,
-     * which is exactly the "why does it take so long" the user reported. Zero means off for every
-     * other knob in the catalog, so it means off here too.
-     */
+    /** `motionRecencyS = 0` means OFF: read as `age > 0` it refused every commit all session (live, 2026-08-01). */
     @Test
     fun aZeroRecencyWindowMeansOffNotAlwaysStale() {
         val config = detectConfig(requireMotion = true).copy(motionRecencyS = 0.0)
         val state = detectState(config, ref = grayFrame(listOf("e2")))
         state.motionSinceRef = true
         state.lastMotionTs = 0.0
-        state.nowS = 30.0 // half a minute since the hand left — with a 0 window, still fine
+        state.nowS = 30.0
         state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
         assertEquals(listOf("e4"), state.history, "note was '${state.note}'")
     }
 
-    /** A positive window still expires, which is the whole point of the drift guard. */
     @Test
     fun aPositiveRecencyWindowStillGoesStale() {
         val config = detectConfig(requireMotion = true).copy(motionRecencyS = 5.0)
@@ -346,8 +325,7 @@ class DispatchTest {
 
     @Test
     fun weakCandidateHoldsReference() {
-        // White-on-white: e2 (z 2.5) and e4 (z 1.5) are BOTH below z_thr but above z_thr/2, so
-        // e2e4 stays viable at best-LL -2.0 — between the floor (-4) and 0 -> HOLD.
+        // White-on-white: e2 (z 2.5), e4 (z 1.5) keep e2e4 viable at LL -2.0, between the floor (-4) and 0.
         val ref = grayFrame(blobs = listOf("e2"), blobLevel = TEST_BASE_LEVEL + 15)
         val cur = grayFrame(blobs = listOf("e4"), blobLevel = TEST_BASE_LEVEL + 9)
         val state = detectState(detectConfig(censusZWeight = 0.0), ref = ref)
@@ -360,8 +338,7 @@ class DispatchTest {
 
     @Test
     fun cnnDesyncVetoesReanchor() {
-        // Bxc3 incident: the CNN confidently sees e2 EMPTY while the start position believes a
-        // pawn there -> the quiet re-anchor is vetoed and the standoff goes to the recovery.
+        // Bxc3 incident: a confident e2 EMPTY against the believed pawn vetoes the quiet re-anchor.
         val ref = grayFrame()
         val state = detectState(ref = ref)
         state.cnnRun = true
@@ -379,12 +356,7 @@ class DispatchTest {
         assertTrue(events.any { it is TrackerEvent.ReAnchored })
     }
 
-    /**
-     * S17-SIM-2: when the CNN is simply WRONG no legal move explains the standoff, so the recovery
-     * the veto defers to can never end it. `desyncObsN` stable observations that NAME a move must
-     * raise the illegal-move alarm — and never an auto re-anchor, which would reopen the Bxc3 hole
-     * the veto exists to close.
-     */
+    /** S17-SIM-2: a WRONG CNN leaves recovery nothing to find; named observations alarm, never re-anchor (Bxc3). */
     @Test
     fun persistentCnnMisreadEscalatesVetoToAlarm() {
         val ref = grayFrame()
@@ -425,11 +397,7 @@ class DispatchTest {
         assertEquals(1, state.desyncObs)
     }
 
-    /**
-     * An observation that names no move must never escalate. Measured on the clips: a chronically
-     * missed piece (blender-promocapture) alarmed falsely and cost that clip its real exd8=Q+, and
-     * a moving shadow (blender-shadowsweep) fabricated two occupied squares plus one missed pawn.
-     */
+    /** Measured on the clips: unnamed desyncs alarmed falsely (blender-promocapture, blender-shadowsweep). */
     @Test
     fun unnamedDesyncNeverAlarms() {
         val ref = grayFrame()
@@ -447,11 +415,7 @@ class DispatchTest {
         assertSame(ref, state.refGray)
     }
 
-    /**
-     * Der Livelock vom 2026-08-29: auf einem dunklen Brett vetote EIN sicheres Feld das ruhige
-     * Nachziehen, waehrend `identityRead` denselben Blick als `inconclusive` verwarf und die Serie
-     * gleich wieder loeschte — 25 Minuten `cnn_desync` ohne Alarm und ohne Referenz.
-     */
+    /** Livelock 2026-08-29: EIN sicheres Feld vetote auf dunklem Brett, 25 Minuten `cnn_desync` ohne Alarm. */
     @Test
     fun blindGlanceCannotVetoTheQuietReanchor() {
         val ref = grayFrame()
@@ -496,28 +460,17 @@ class DispatchTest {
         assertNull(state.refGamut)
         state.tryDetect(grayFrame(), bgrFrame(), seq = 1)
         val rebuilt = requireNotNull(state.refGamut) { "the quiet re-anchor rebuilds the colour gamut" }
-        // A commit-time reference may carry hand residue and must NOT touch the gamut (invariant 6).
+        // Invariant 6: a commit-time reference may carry hand residue.
         state.setRef(grayFrame(), bgrFrame(level = 200), fromCommit = true)
         assertSame(rebuilt, state.refGamut)
     }
 
     @Test
     fun cnnOverruleReplacementMoveIsExpressible() {
-        // entry.md invariant 10 / legacy specs/12 D3: the verdict carries a REPLACEMENT move, so
-        // the real move commits in the same cycle instead of a cycle later.
+        // entry.md invariant 10 / specs/12 D3: the REPLACEMENT move commits in the same cycle.
         val state = detectState()
         val cur = grayFrame()
-        val pending =
-            PendingVerify(
-                ucis = listOf("e2e4"),
-                uci = "e2e4",
-                fen = state.board.fen(),
-                cur = cur,
-                curBgr = null,
-                frames = 1,
-                priorUsed = false,
-                seq = 1,
-            )
+        val pending = e2e4Pending(state, cur = cur)
         state.pending = pending
         val replacement = listOf(moveOf(state, "d2d4"))
         val events = state.applyVerdict(VerifyVerdict.For(DECIDER_CNN_OVERRULE, replacement), pending)
@@ -530,54 +483,13 @@ class DispatchTest {
     }
 
     @Test
-    fun theDecisionRowKeepsTheVetoesFromTheLiftingFrame() {
-        // Waehrend `pending` steht, bricht `tryDetect` vor `applyVetoes` ab -- der Baseline-Arm
-        // schreibt aber weiter in dieselben Felder. Ungefroren trug die Zeile Felder, die gegen die
-        // Invariante `shadowVetoed subset hot` verstiessen (`docs/verify-leiter-2026-09-22.md`).
-        val state = detectState()
-        state.shadowVetoed = bit(Squares.index("g1"))
-        state.occludedVetoed = bit(Squares.index("h1"))
-        state.pending =
-            PendingVerify(
-                ucis = listOf("e2e4"),
-                uci = "e2e4",
-                fen = state.board.fen(),
-                cur = grayFrame(),
-                curBgr = null,
-                frames = 1,
-                priorUsed = false,
-                seq = 1,
-                shadowVetoedAtLift = state.shadowVetoed,
-                occludedVetoedAtLift = state.occludedVetoed,
-            )
-        state.shadowVetoed = bit(Squares.index("e1")) or bit(Squares.index("f1"))
-        state.occludedVetoed = bit(Squares.index("f2"))
-        val row = state.decisionRow(DECIDER_CNN_OCCUPANCY, "irgendein Grund")
-        assertEquals(listOf("g1"), row.shadowVetoed)
-        assertEquals(listOf("h1"), row.occludedVetoed)
-    }
-
-    @Test
     fun theCommittedRowKeepsTheVetoesFromTheLiftingFrame() {
-        // Der echte Weg, nicht die Fixture: `applyVerdict` loescht `pending`, BEVOR `commitMove`
-        // seine Zeile schreibt. Mein erster Riegel war deshalb auf genau dem Pfad wirkungslos,
-        // fuer den er gebaut wurde (Astra, 2026-09-22).
+        // Der echte Weg, nicht `decisionRow` direkt: `applyVerdict` loescht `pending`, BEVOR
+        // `commitMove` seine Zeile schreibt (Astra, 2026-09-22).
         val state = detectState()
         state.shadowVetoed = bit(Squares.index("g1"))
         state.occludedVetoed = bit(Squares.index("h1"))
-        val pending =
-            PendingVerify(
-                ucis = listOf("e2e4"),
-                uci = "e2e4",
-                fen = state.board.fen(),
-                cur = grayFrame(),
-                curBgr = null,
-                frames = 1,
-                priorUsed = false,
-                seq = 1,
-                shadowVetoedAtLift = state.shadowVetoed,
-                occludedVetoedAtLift = state.occludedVetoed,
-            )
+        val pending = e2e4Pending(state, shadowAtLift = state.shadowVetoed, occludedAtLift = state.occludedVetoed)
         state.pending = pending
         state.shadowVetoed = bit(Squares.index("e1")) or bit(Squares.index("f1"))
         state.occludedVetoed = bit(Squares.index("f2"))
@@ -590,22 +502,10 @@ class DispatchTest {
 
     @Test
     fun theNextRowAfterACommitIsNoLongerTheLiftingFrames() {
-        // Genau EINE Zeile erbt den Spruch der Leiter -- wie bei `verdictOutcome`. Bliebe der
-        // Traeger stehen, truege die naechste, unbeteiligte Entscheidung fremde Felder.
+        // Genau EINE Zeile erbt den Spruch der Leiter, wie bei `verdictOutcome`.
         val state = detectState()
         state.shadowVetoed = bit(Squares.index("g1"))
-        val pending =
-            PendingVerify(
-                ucis = listOf("e2e4"),
-                uci = "e2e4",
-                fen = state.board.fen(),
-                cur = grayFrame(),
-                curBgr = null,
-                frames = 1,
-                priorUsed = false,
-                seq = 1,
-                shadowVetoedAtLift = state.shadowVetoed,
-            )
+        val pending = e2e4Pending(state, shadowAtLift = state.shadowVetoed)
         state.pending = pending
         state.applyVerdict(VerifyVerdict.For(DECIDER_CNN_OCCUPANCY), pending)
         state.shadowVetoed = bit(Squares.index("a1"))
@@ -622,17 +522,7 @@ class DispatchTest {
     @Test
     fun verdictWithoutReplacementCommitsThePendingMove() {
         val state = detectState()
-        val pending =
-            PendingVerify(
-                ucis = listOf("e2e4"),
-                uci = "e2e4",
-                fen = state.board.fen(),
-                cur = grayFrame(),
-                curBgr = null,
-                frames = 1,
-                priorUsed = false,
-                seq = 1,
-            )
+        val pending = e2e4Pending(state)
         state.pending = pending
         state.applyVerdict(VerifyVerdict.For(DECIDER_CNN_OCCUPANCY), pending)
         assertEquals(listOf("e4"), state.history)
@@ -641,21 +531,10 @@ class DispatchTest {
 
     @Test
     fun verdictAnchorsOnTheCallerSuppliedFrame() {
-        // entry.md invariant 5: the recovery path anchors on the OBSERVED frame, never on
-        // `lastCur` and not necessarily on the pending candidate's own image.
+        // entry.md invariant 5: anchored on the OBSERVED frame, not `lastCur` nor the pending's image.
         val state = detectState()
         val observed = grayFrame()
-        val pending =
-            PendingVerify(
-                ucis = listOf("e2e4"),
-                uci = "e2e4",
-                fen = state.board.fen(),
-                cur = grayFrame(),
-                curBgr = null,
-                frames = 1,
-                priorUsed = false,
-                seq = 1,
-            )
+        val pending = e2e4Pending(state)
         state.lastCur = grayFrame()
         state.applyVerdict(
             VerifyVerdict.For(DECIDER_CNN_RECOVERY),
@@ -665,4 +544,22 @@ class DispatchTest {
         assertSame(observed, state.refGray)
         assertTrue(state.recoveredLast)
     }
+
+    private fun e2e4Pending(
+        state: EngineState,
+        cur: GrayImage = grayFrame(),
+        shadowAtLift: Long = 0L,
+        occludedAtLift: Long = 0L,
+    ) = PendingVerify(
+        ucis = listOf("e2e4"),
+        uci = "e2e4",
+        fen = state.board.fen(),
+        cur = cur,
+        curBgr = null,
+        frames = 1,
+        priorUsed = false,
+        seq = 1,
+        shadowVetoedAtLift = shadowAtLift,
+        occludedVetoedAtLift = occludedAtLift,
+    )
 }

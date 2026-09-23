@@ -11,17 +11,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty
 
 /**
- * Hot-path profiler for the scalar pixel stages. **Asserts nothing** — it prints a per-stage
- * breakdown so an optimisation is aimed at the stage that actually costs, not the one that looks
- * expensive. Off by default; run with `-Pchesslab.profile=true`.
- *
- * The wall-clock ban is a *production* rule (replay determinism); a benchmark harness may time
- * whatever it likes.
- *
- * The committed clips are 320x320 (`meta.detSize`), the phone runs at 800x800
- * (`boardSize 1600 * detectScale 0.5`), and every stage here is O(pixels) — so the planes are
- * nearest-upscaled to 800 before timing. Absolute numbers are desktop-JVM numbers; what transfers
- * to the phone is the RATIO between stages.
+ * Per-stage profiler; asserts nothing, `-Pchesslab.profile=true`. The 320 px clip planes are upscaled
+ * to the phone's 800 (every stage is O(pixels)); what transfers to the phone is the RATIO between stages.
  */
 @EnabledIfSystemProperty(named = "chesslab.profile", matches = "true")
 class EngineProfileTest {

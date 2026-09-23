@@ -8,9 +8,9 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 /**
- * Die Politik der drei Treuhaender, Zusicherung fuer Zusicherung — hier die Kotlin-Seite.
- * Zwillinge: `tests/test_io_policy_parity.py`, `lib/io-policy-parity.test.ts`. Wer eine Antwort
- * hier aendert, aendert sie dort mit. */
+ * Die Politik der drei Treuhaender, Kotlin-Seite. Zwillinge: `tests/test_io_policy_parity.py`,
+ * `lib/io-policy-parity.test.ts` — wer eine Antwort hier aendert, aendert sie dort mit.
+ */
 class JsonlPolicyParityTest {
     @TempDir
     lateinit var dir: File

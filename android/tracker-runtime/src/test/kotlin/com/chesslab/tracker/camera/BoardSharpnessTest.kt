@@ -5,22 +5,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class BoardSharpnessTest {
-    private fun board(
-        size: Int = 128,
-        value: (x: Int, y: Int) -> Int,
-    ): BgrImage {
-        val data = ByteArray(size * size * 3)
-        for (y in 0 until size) {
-            for (x in 0 until size) {
-                val v = value(x, y).coerceIn(0, 255).toByte()
-                val i = (y * size + x) * 3
-                data[i] = v
-                data[i + 1] = v
-                data[i + 2] = v
-            }
-        }
-        return BgrImage(size, size, data)
-    }
+    private fun board(value: (x: Int, y: Int) -> Int): BgrImage = lumaBoard(128, value)
 
     /** Ein Schachbrettmuster je Feld: Kanten ueberall, also Varianz ueberall. */
     private fun textured(period: Int) = board { x, y -> if ((x / period + y / period) % 2 == 0) 30 else 220 }

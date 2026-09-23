@@ -8,10 +8,7 @@ import org.opencv.core.Mat
 import java.io.File
 import java.nio.ByteBuffer
 
-// mp4 -> `org.opencv.core.Mat` on the desktop JVM, via JavaCV's FFmpeg.
-//
-// Frames are STREAMED, never collected: a 126-frame 640x640 clip is 155 MB of BGR, and every
-// clip is replayed twice (diff-only baseline and CNN-on run). The caller owns nothing — the Mat
+// mp4 -> BGR `Mat` via JavaCV's FFmpeg, STREAMED: a 126-frame clip is 155 MB of BGR. The Mat
 // handed to the callback is reused and invalid after it returns.
 
 private const val BGR_CHANNELS = 3
@@ -26,18 +23,13 @@ internal fun forEachFrame(
     body: (Int, Mat) -> Unit,
 ): Int = forEachFrameTimed(video) { index, mat, _ -> body(index, mat) }
 
-/**
- * [forEachFrame] plus each frame's presentation timestamp in ms of VIDEO time — what the
- * geometry scan's clock check consumes (a variable-rate source makes every wall-clock knob mean
- * a different number of seconds in every second of the video).
- */
+/** [forEachFrame] plus each frame's presentation timestamp in ms of VIDEO time. */
 internal fun forEachFrameTimed(
     video: File,
     body: (Int, Mat, Double) -> Unit,
 ): Int {
     val grabber = FFmpegFrameGrabber(video)
-    // Asked for explicitly: the default depends on the stream, and every consumer below (warp,
-    // ROI motion, crops) assumes interleaved 8-bit BGR.
+    // The default depends on the stream; every consumer assumes interleaved 8-bit BGR.
     grabber.pixelFormat = avutil.AV_PIX_FMT_BGR24
     grabber.start()
     val mat = Mat()

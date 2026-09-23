@@ -189,10 +189,7 @@ class BaselineOcclusionUnitTest {
         assertThrows<IllegalArgumentException> { motionScore(ByteArray(4), ByteArray(5)) }
     }
 
-    /**
-     * The integer threshold must answer exactly what `d > pxThr` answered, including where the
-     * two could most easily part: fractions, the 255 ceiling, a negative, and NaN.
-     */
+    /** The integer threshold answers exactly `d > pxThr`, including fractions, 255, a negative and NaN. */
     @Test
     fun motionScoreMatchesTheStrictDoubleComparison() {
         val zeros = ByteArray(256)

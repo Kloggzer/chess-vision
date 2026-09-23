@@ -20,38 +20,17 @@ import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.tan
 
-/**
- * Alignment on a synthetic board whose true geometry is known exactly.
- *
- * The board is rendered rectified and then displaced by a chosen transform, so "where the grid
- * really is" is not an estimate here — it is the matrix the frame was built from.
- *
- * **Everything on the truth side of these assertions is computed independently of the code under
- * test.** The 3x3 helpers below duplicate `Alignment.kt`'s; that duplication is the point. A truth
- * test that borrows the implementation's own arithmetic can only prove self-consistency, and
- * self-consistency is precisely what the tilt-blind version had: it reported 0.01 px for a 3.05 px
- * shear, passed every directional test ("the shear is visible"), and certified 302 frames whose
- * grid the eye can see is wrong.
- *
- * Mirrors `tests/test_alignment.py`, including the bars: half a pixel on the bare board, one pixel
- * once pieces sit on the grooves and genuinely drag their centroids.
- */
+/** Mirrors `tests/test_alignment.py`. The 3x3 helpers duplicate `Alignment.kt`'s ON PURPOSE: the
+ *  tilt-blind version was self-consistent, reported 0.01 px for a 3.05 px shear and certified 302
+ *  wrong frames. Bars: 0.5 px on the bare board, 1 px once pieces drag the groove centroids. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class AlignmentTruthTest {
     // --- the frame the board is seen through ---------------------------------------------------
 
     private fun geometry() = BoardGeometry(boardSize = BS, margin = margins4(0.0))
 
-    /**
-     * A rectified board with a [BORDER] px surround: alternating squares, a dark groove on every
-     * cell boundary, and the same groove on the playing-field boundary itself.
-     *
-     * The border is not decoration. Since 2026-08-03 `gridLines` MEASURES the two outer lines per
-     * axis instead of pinning them at 0 and `boardSize`, and a fixture without a surround would
-     * exercise a path no real frame takes — as well as making
-     * [aUniformScaleIsReportedAtItsTrueSize] impossible, which is the test that used to assert the
-     * blind spot instead of closing it.
-     */
+    /** A rectified board with a [BORDER] px surround: since 2026-08-03 `gridLines` MEASURES the outer
+     *  lines instead of pinning them at 0 and `boardSize`, and without a surround no real path runs. */
     private fun board(): Mat {
         val n = BS + 2 * BORDER
         val img = Mat(n, n, CvType.CV_8UC3, Scalar(SURROUND, SURROUND, SURROUND))
@@ -73,11 +52,7 @@ class AlignmentTruthTest {
         return img
     }
 
-    /**
-     * The padded board displaced by [m], which keeps meaning what it means in RECTIFIED
-     * coordinates — the transform is conjugated by the pad shift, which is what `trueWorst`
-     * computes against.
-     */
+    /** [m] stays in RECTIFIED coordinates: conjugated by the pad shift, as `trueWorst` assumes. */
     private fun displaced(m: DoubleArray): Mat {
         val n = BS + 2 * BORDER
         val out = Mat()
@@ -151,13 +126,8 @@ class AlignmentTruthTest {
         }
     }
 
-    /**
-     * What `squareOffsets` owes for a board displaced by [h].
-     *
-     * Mirrors the metric's own DEFINITION — the largest displacement of any square edge, evaluated
-     * where that edge passes the square — while sharing none of its code. That is what makes this a
-     * calibration rather than a restatement.
-     */
+    /** What `squareOffsets` owes for [h]: its DEFINITION (largest square-edge displacement where the
+     *  edge passes the square), sharing none of its code — a calibration, not a restatement. */
     private fun trueWorst(h: DoubleArray): Double {
         var worst = 0.0
         for (f in 0 until 8) {
@@ -250,17 +220,12 @@ class AlignmentTruthTest {
         assertTrue(result.worst < 1.5, "truth board reads ${result.worst}")
     }
 
-    /**
-     * The calibration: the reported number against the analytic one, over the three families of
-     * error that behave differently.
-     *
-     * A directional test passes for a metric that reports a third of the error, which is exactly
-     * what the whole-board collapse did — exact on a translation, silent on rotation and shear. A
-     * number that is right for one family and blind to another is worse than no number, because it
-     * reads as a verdict.
-     */
+    /** A directional test passes a metric that reports a third of the error — the whole-board
+     *  collapse was exact on translation, silent on rotation and shear. Scale is largest at the
+     *  outer edges, which `linePositions` once pinned and reported at 0.75 x truth. */
     @Test
     fun theReportedNumberIsTheTrueNumber() {
+        assertTrue(trueWorst(scale(1.005)) > 1.9, "the scale case must carry a real error, not a rounding one")
         val cases =
             listOf(
                 "shift 2 px" to shift(2.0, 0.0),
@@ -294,24 +259,6 @@ class AlignmentTruthTest {
         }
     }
 
-    /**
-     * The blind spot that used to be recorded here as structural, closed by measuring the edges.
-     *
-     * `linePositions` pinned index 0 and 8 at 0 and `boardSize` because the warp puts them there by
-     * construction. A scale error is largest at exactly those outer edges, so the metric saw only
-     * what was left at the innermost measurable lines and reported three quarters of it — this test
-     * asserted `0.75 * truth` and passed. `gridLines` looks for those lines in a padded warp.
-     */
-    @Test
-    fun aUniformScaleIsReportedAtItsTrueSize() {
-        val m = scale(1.005)
-        val img = displaced(m)
-        val reported = squareOffsets(img, BS, BORDER).worst
-        img.release()
-        assertTrue(trueWorst(m) > 1.9, "the fixture must carry a real error, not a rounding one")
-        assertTrue(abs(reported - trueWorst(m)) < 0.5, "reported $reported against ${trueWorst(m)}")
-    }
-
     @Test
     fun gridLinesReportsTheTilt() {
         val geom = geometry()
@@ -325,7 +272,7 @@ class AlignmentTruthTest {
         assertTrue(abs(abs(slope) - expected) < 0.004, "slope $slope against $expected")
     }
 
-    /** The verdict: absolute, and a FAILURE when a line could not be found. */
+    /** The verdict is absolute: `quadSpread` scored a CONSISTENTLY bent quad at p90 0.93 px. */
     @Test
     fun theVerdictPassesTheTruthAndFailsABentQuad() {
         val geom = geometry()
@@ -358,22 +305,6 @@ class AlignmentTruthTest {
         f.release()
         assertTrue(verdict.unread in 1..17, "teilweise unlesbar, gemessen ${verdict.unread}")
         assertTrue(!verdict.ok, "nicht gemessen ist nicht bestanden: ${verdict.reason}")
-    }
-
-    /**
-     * A CONSISTENTLY wrong quad must fail. The script path's `quadSpread` scored exactly this case
-     * at p90 0.93 px, because every frame carries the same displacement and they all agree with
-     * each other. The verdict is not a measure of agreement.
-     */
-    @Test
-    fun theVerdictIsAbsoluteNotASpreadAboutItsOwnMedian() {
-        val geom = geometry()
-        val bent = bend(TRUTH, shift(9.0, 0.0))
-        repeat(3) {
-            val f = frame()
-            assertTrue(!alignmentOf(f, bent, geom).ok)
-            f.release()
-        }
     }
 
     // --- through a camera frame ----------------------------------------------------------------
@@ -439,15 +370,8 @@ class AlignmentTruthTest {
         assertTrue(drift < 1.0, "an already-correct quad was moved $drift px")
     }
 
-    /**
-     * The correction has to SURVIVE live alignment, which is what makes the refinement more than
-     * decoration.
-     *
-     * `boardCornersForFrame` re-derives the quad from the ArUco markers every three frames and
-     * knows nothing about grooves, so a refined quad written into the pipeline is overwritten
-     * within ~0.2 s. Re-measuring at that cadence is not affordable; re-applying is four points
-     * through a 3x3. This asserts the cheap path reproduces the expensive one.
-     */
+    /** `boardCornersForFrame` re-derives the quad from ArUco every three frames, overwriting a
+     *  refinement within ~0.2 s; re-applying is four points through a 3x3, re-measuring is not. */
     @Test
     fun theCorrectionReappliedReproducesTheRefinement() {
         val geom = geometry()
@@ -467,11 +391,7 @@ class AlignmentTruthTest {
         f.release()
     }
 
-    /**
-     * And it has to hold on a quad the correction was NOT measured on — that is the live case: the
-     * markers move a little between aligns, and the grid residual is a property of the board and
-     * the lens, not of where the quad currently sits.
-     */
+    /** The live case: markers move between aligns, and the residual belongs to board and lens. */
     @Test
     fun theCorrectionTransfersToAQuadItWasNotMeasuredOn() {
         val geom = geometry()
@@ -518,13 +438,8 @@ class AlignmentTruthTest {
 
     private fun scale(s: Double) = centred(doubleArrayOf(s, 0.0, 0.0, 0.0, s, 0.0, 0.0, 0.0, 1.0))
 
-    /**
-     * A pure PROJECTIVE displacement — the family an affine correction cannot remove.
-     *
-     * A three-marker quad is `getAffineTransform`'s parallelogram standing in for a perspective
-     * view of a plane, so this is the shape of its error and the reason `ProjectiveFit.kt` replaced
-     * the affine one.
-     */
+    /** A pure PROJECTIVE displacement: the error of a three-marker affine quad, and why
+     *  `ProjectiveFit.kt` replaced the affine fit. */
     private fun persp(
         kx: Double,
         ky: Double,

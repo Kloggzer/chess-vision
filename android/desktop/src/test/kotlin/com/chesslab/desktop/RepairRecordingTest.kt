@@ -9,11 +9,8 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
 
-/**
- * The walk is the whole safety of a repair: it either accounts for every byte of `mdat` or the file
- * is not what it claims to be. A repair that guesses is worse than a broken file, because it looks
- * fine — so the failure is an exception, never a shorter list.
- */
+/** A repair that guesses looks fine and is worse than a broken file: every `mdat` byte is
+ *  accounted for, or it throws — never a shorter list. */
 class RepairRecordingTest {
     @TempDir
     lateinit var dir: File

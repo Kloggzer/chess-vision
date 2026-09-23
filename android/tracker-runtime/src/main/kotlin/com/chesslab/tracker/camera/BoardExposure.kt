@@ -6,7 +6,7 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
- * Belichtung, die das BRETT misst statt des Bildes — `docs/board-exposure.md`.
+ * Belichtung, die das BRETT misst statt des Bildes — `docs/camera.md`.
  *
  * Die Geraete-Automatik hat eine Zahl fuer den ganzen Rahmen, ein Frame spannt aber 11- bis
  * 163-fach. Gestellt wird die Belichtungskorrektur und nicht Zeit/ISO: manuell faellt die
@@ -75,7 +75,7 @@ data class ExposurePolicy(
  * Stellwert in EV plus Sperrklinke.
  *
  * Die Klinke ist noetig, weil Saettigung die Information zerstoert, die man zum Gegensteuern
- * braeuchte — ein Regler pendelte hier (`docs/board-exposure.md`).
+ * braeuchte — ein Regler pendelte hier (`docs/camera.md`).
  */
 data class ExposureState(
     val ev: Double = 0.0,
@@ -98,7 +98,7 @@ fun nextExposure(
 ): ExposureState? {
     val ceiling = updatedCeiling(state, reading, policy)
     // Die Klinke begrenzt nur die EIGENE Aufhellung: sie blendete sonst ein gut belichtetes Brett
-    // ab, sobald Spitzlichter ueber `clipCap` lagen (`docs/board-exposure.md`, 2026-08-30).
+    // ab, sobald Spitzlichter ueber `clipCap` lagen (`docs/camera.md`, 2026-08-30).
     val floorEv = maxOf(limitEv.start, baseEv)
     val wanted = minOf(state.ev + desiredStepEv(reading, policy), ceiling).coerceIn(floorEv, limitEv.endInclusive)
     val step = wanted - state.ev

@@ -4,11 +4,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/**
- * Wirkungsloser Code, nachgewiesen ueber alle Aufrufer im Repo, Tests eingeschlossen: jeder Name
- * hier wird geschrieben oder berechnet und nirgends gelesen. Der Fix ist Loeschen — dann faellt
- * auch der Eintrag aus dieser Liste.
- */
+/** Jeder Name hier wird geschrieben oder berechnet und nirgends gelesen (alle Aufrufer, Tests eingeschlossen). */
 class DeadEngineCodeTest {
     @Test
     fun noWriteOnlySymbolsSurviveInTheEngine() {

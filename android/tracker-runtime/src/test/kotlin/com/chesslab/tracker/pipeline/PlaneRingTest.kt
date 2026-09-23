@@ -7,13 +7,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 
 /**
- * The per-frame seam buffers the analyzer thread recycles.
- *
- * The invariant the depth has to satisfy is asserted where the holder lives —
- * `:core-engine`'s `FrameLoopTest.theBufferRingNeverHandsBackAPlaneTheRunningMeanStillHolds`, which
- * pushes frames through a ring of exactly this shape and shows the running mean silently corrupted
- * at depth 1. What is tested here is that the ring has that shape: the depth it derives, that it
- * really cycles, and that a resolution change replaces buffers rather than handing back short ones.
+ * The ring's SHAPE only; the depth invariant itself (running mean corrupted at depth 1) is asserted in
+ * `:core-engine`'s `FrameLoopTest.theBufferRingNeverHandsBackAPlaneTheRunningMeanStillHolds`.
  */
 class PlaneRingTest {
     @Test

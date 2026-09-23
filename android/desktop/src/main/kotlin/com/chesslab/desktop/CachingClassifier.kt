@@ -27,7 +27,7 @@ import java.security.MessageDigest
  * 3,5 KB in einem Verzeichnis: ein zufaelliger Zugriff kostete unter Last 10–13 ms, und bis zu
  * 70 % eines Replays waren Warten auf die Platte. Jetzt liest der Konstruktor die Scherben der
  * Aufnahme EINMAL sequenziell in eine Map, und jeder Treffer ist eine Suche im RAM.
- * `docs/obs-cache-architektur-2026-09-20.md`.
+ * `docs/desktop-replay.md`.
  */
 internal class CachingClassifier(
     private val inner: SquareClassifier,

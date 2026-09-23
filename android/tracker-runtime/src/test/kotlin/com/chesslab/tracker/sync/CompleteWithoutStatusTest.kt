@@ -21,8 +21,6 @@ class CompleteWithoutStatusTest {
         server.start()
         try {
             val base = "http://127.0.0.1:${server.address.port}"
-            // Wirft wie `declare` und `putChunk`: wer den Status nicht nennt, hat ihn nicht
-            // gesagt — und `landed` ist der eine, auf den der Aufraeumer loescht.
             assertThrows(IllegalStateException::class.java) {
                 HttpIngestClient("token").complete(base, "20260916-120000")
             }

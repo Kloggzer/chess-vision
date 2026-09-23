@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * Der Zwilling in `:app` steigt ohne `coverage_output` aus (`CoverageGateNeedsTheColumnTest`),
+ * Der Zwilling in `:app` steigt ohne `coverage_output` aus (`CoverageGateConfigTest.withCoverageGateOfIgnoresAGateWithoutTheColumn`),
  * dieser hier fragt die Spalte nie. Faellt die Entscheidung andersherum, gehoert der Fix dorthin.
  */
 class CoverageGateColumnParityTest {

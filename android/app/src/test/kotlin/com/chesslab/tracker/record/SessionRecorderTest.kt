@@ -100,8 +100,7 @@ class SessionRecorderTest {
         assertTrue(yaml.contains("video_duration_ns: 12000000000"))
         // Nothing downstream can measure the pre-roll from the frames, so the session states it.
         assertTrue(yaml.contains("video_pre_roll_ns: 19000000000"))
-        // A recording from before the bit rate was written down states no rate at all — 0 would
-        // read as "recorded at zero" and is exactly the silence that hid a factor of 2,4.
+        // No rate at all rather than 0 — "recorded at zero" is the silence that hid a factor of 2,4.
         assertTrue(!yaml.contains("video_bit_rate"), yaml)
         assertEquals("", File(rec.dir, "log.jsonl").readText())
     }

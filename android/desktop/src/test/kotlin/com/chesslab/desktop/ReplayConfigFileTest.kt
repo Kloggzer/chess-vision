@@ -13,11 +13,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * `config=<file>`: the recorded knobs win, the measured geometry wins harder. This is the path
- * that replays a phone recording under the phone's TRUE config (`settings.json`) instead of a
- * guess at it — the question `2026-08-13-19-34-23` could not answer.
- */
+/** `config=<file>` replays a phone recording under its TRUE config (`settings.json`), the
+ *  question `2026-08-13-19-34-23` could not answer; the measured geometry wins over the file. */
 class ReplayConfigFileTest {
     @TempDir
     lateinit var dir: File
@@ -39,22 +36,8 @@ class ReplayConfigFileTest {
         assertEquals(552, config.detSize)
     }
 
-    /**
-     * The whole-object invariant behind every `config=` measurement: an envelope whose values
-     * equal `TrackerConfig()` yields a config EQUAL — data class equality, every field — to the
-     * one the no-config path builds from the same geometry. Written for the 2026-08-14
-     * three-run discriminator on `2026-08-13-19-34-23`, which suspected this exact seam; the
-     * divergence turned out to live in the runs' QUAD source (label-plan scan median vs
-     * `locateBoard`'s first frames — the open specs/52 geometry A/B), not here, and this test is
-     * what keeps that diagnosis cheap next time. `cnnOn` never enters this construction:
-     * settle/avg/confirm are resolved from the config INSIDE the engine, so there is no arm here
-     * to skip.
-     *
-     * Re-measured end to end on 2026-08-14 against `20260814-143233` (`real14-80`, `quiet`): the
-     * no-config run and the all-defaults-envelope run produced the same 15 decision rows and the
-     * same 9 commits, differing only in the config banner and the timings. This seam is a no-op
-     * where it must be; the one below is what was not.
-     */
+    /** An all-defaults envelope must equal the no-config path field for field: the 2026-08-14
+     *  discriminator on `2026-08-13-19-34-23` suspected this seam, the divergence was the QUAD source. */
     @Test
     fun `an all-defaults envelope reproduces the no-config path exactly`() {
         val file = File(dir, "defaults.json")
@@ -86,12 +69,8 @@ class ReplayConfigFileTest {
         assertEquals(TrackerConfig().copy(alignEvery = 2, boardSize = 1104), config)
     }
 
-    /**
-     * The other half of `config=`: a knob the file DOES carry must reach what reads it.
-     * `alignEvery`/`alignScale`/`liveAlign` did not — `LiveAlign` and the marker prepass took them
-     * off the settings repository, which a replay leaves at defaults, so 20260814-143233's
-     * recorded `alignEvery=2` replayed every 3rd frame, bit-identical to the defaults run.
-     */
+    /** `LiveAlign` and the marker prepass read the align knobs off the settings repository, so
+     *  20260814-143233's recorded `alignEvery=2` replayed every 3rd frame. */
     @Test
     fun `the recorded alignment knobs reach the run, not the settings defaults`() {
         val file = File(dir, "settings.json")

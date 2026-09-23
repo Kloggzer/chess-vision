@@ -1,20 +1,15 @@
 package com.chesslab.cnn
 
 import com.chesslab.engine.api.BgrImage
-import com.github.bhlangonijr.chesslib.Board
 
-/**
- * Test double for [SquareClassifier]: derives a one-hot-ish distribution from a FEN, with
- * per-square overrides for chronic-misread and occlusion scenarios. Phase 04 reuses it, so
- * the constructor is stable: `FakeSquareClassifier(fen, conf, overrides)`.
- */
+/** A one-hot-ish distribution from a FEN; [overrides] are `square -> (label, confidence)`. */
 class FakeSquareClassifier(
     fen: String,
     private val conf: Double = 0.99,
     private val overrides: Map<String, Pair<String, Double>> = emptyMap(),
     override val classes: List<String> = EXPECTED_CLASSES,
 ) : SquareClassifier {
-    private val expected: Map<String, String> = expectedLabels(Board().also { it.loadFromFen(fen) })
+    private val expected: Map<String, String> = expectedLabels(boardOf(fen))
 
     /** The full probability row for one square: target class at its confidence, rest uniform. */
     fun probsFor(square: String): FloatArray {

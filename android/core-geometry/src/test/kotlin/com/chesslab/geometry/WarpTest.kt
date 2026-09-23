@@ -2,16 +2,13 @@ package com.chesslab.geometry
 
 import com.chesslab.geometry.testutil.SyntheticBoard
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import org.opencv.core.Mat
 
-/**
- * Tier C — entry.md invariant 1. The borderless detection warp and the bordered crop warp are
- * two DIFFERENT things and this test exists to make a future "simplification" fail loudly.
- */
+/** Tier C — entry.md invariant 1. The borderless detection warp and the bordered crop warp are
+ *  two DIFFERENT things and this test exists to make a future "simplification" fail loudly. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class WarpTest {
     private val geom = BoardGeometry(boardSize = 640, padSide = 0.10)
@@ -75,15 +72,6 @@ class WarpTest {
         }
         // The border really carries the source background, not black padding.
         assertEquals(SyntheticBoard.BACKGROUND, SyntheticBoard.sample(bordered, 2, 2), 1.0)
-    }
-
-    @Test
-    fun `the two warps are not interchangeable`() {
-        val frame = SyntheticBoard.frame()
-        assertNotEquals(
-            warpBoardForCrops(frame, geom, SyntheticBoard.CORNERS).width(),
-            warpFromCorners(frame, geom, SyntheticBoard.CORNERS).width(),
-        )
     }
 
     @Test

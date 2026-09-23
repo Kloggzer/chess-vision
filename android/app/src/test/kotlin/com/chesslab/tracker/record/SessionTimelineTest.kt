@@ -1,6 +1,7 @@
 package com.chesslab.tracker.record
 
 import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.tracker.debugDecision
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -52,5 +53,24 @@ class SessionTimelineTest {
             assertEquals("1", rows[0].getValue("sensorTsNs").jsonPrimitive.content)
             assertEquals("timeline_dropped", rows[2].getValue("event").jsonPrimitive.content)
             assertEquals("1 rows evicted", rows[2].getValue("reason").jsonPrimitive.content)
+        }
+
+    /** What `RecordingBundleHost.opened` does with a decision buffered before the session opened. */
+    @Test
+    fun aBufferedDecisionReachesTheTimeline() =
+        runTest {
+            val timeline = SessionTimeline(dir, this, UnconfinedTestDispatcher(testScheduler))
+            timeline.decision(debugDecision(ply = 1, san = "e4"), 1_000_000_000L)
+            timeline.close()
+            advanceUntilIdle()
+
+            val row =
+                File(dir, "timeline.jsonl")
+                    .readLines()
+                    .map { Json.parseToJsonElement(it).jsonObject }
+                    .single { it.getValue("kind").jsonPrimitive.content == "decision" }
+            assertEquals("1", row.getValue("ply").jsonPrimitive.content)
+            assertEquals("e2e4", row.getValue("uci").jsonPrimitive.content)
+            assertEquals("e4", row.getValue("san").jsonPrimitive.content)
         }
 }

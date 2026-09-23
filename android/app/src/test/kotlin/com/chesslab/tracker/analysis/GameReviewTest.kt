@@ -1,12 +1,10 @@
 package com.chesslab.tracker.analysis
 
-import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.ReviewSegment
 import com.chesslab.tracker.games.SeamOrigin
 import com.chesslab.tracker.games.StoredGame
 import com.chesslab.tracker.games.StoredMove
 import com.chesslab.tracker.games.reviewView
-import com.github.bhlangonijr.chesslib.move.MoveList
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -21,29 +19,13 @@ private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 
 /** A real opening, so every ply carries a legal `fenAfter` and a SAN the grader can name. */
 private const val SANS = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6"
 
-/** The first [count] plies of [SANS] as one continuous segment. */
-private fun game(count: Int): GameView {
-    val moves = MoveList().apply { loadFromSan(SANS) }
-    val sans = moves.toSanArray()
-    val stored = moves.take(count).mapIndexed { index, move -> StoredMove(index + 1, sans[index], move.toString(), 0L) }
-    return StoredGame(
-        id = "t",
-        startFen = START,
-        startedAtEpochMs = 0,
-        finishedAtEpochMs = 0,
-        profileName = "t",
-        result = "*",
-        moves = stored,
-    ).reviewView()
-}
-
 private fun score(
     cp: Int,
     best: String? = null,
     mate: Int? = null,
 ) = Score(cp, 18, listOfNotNull(best), mate)
 
-private fun grade(scores: List<Score?>) = grade(game(scores.size - 1), scores, BUDGET)
+private fun grade(scores: List<Score?>) = grade(reviewGameOf(SANS, scores.size - 1), scores, BUDGET)
 
 class GameReviewTest {
     @Test
@@ -66,10 +48,7 @@ class GameReviewTest {
         assertEquals(42, ply.moveNumber)
     }
 
-    /**
-     * The sign flip is the classic bug: a losing move by Black moves the WHITE-POV score UP. Read as
-     * win expectancy it is the same flip, and the MOVER's own chances are what the screen prints.
-     */
+    /** The classic sign flip: a losing move by Black moves the WHITE-POV score UP. */
     @Test
     fun aLossIsMeasuredFromTheMoversPointOfView() {
         // +20 -> -60 with White to move: White's own winning chances fall.
@@ -93,14 +72,8 @@ class GameReviewTest {
         assertEquals(1, graded.black.count(MoveQuality.BLUNDER))
     }
 
-    /**
-     * **The defect that removed centipawns as the unit, 2026-08-03.**
-     *
-     * Read as centipawns, trading a forced mate for a merely winning endgame is a subtraction of
-     * thousands and grades BLUNDER. Read through lichess' ±1000 ceiling it is what it is: nothing.
-     * Measured on the device game `2026-08-02_2159`, ply 63 `Rxc6+` lost 1 866 cp and moved the
-     * winning chances not at all. Three plies of that game were badged BLUNDER on this arithmetic.
-     */
+    /** The defect that removed centipawns as the unit, 2026-08-03: on `2026-08-02_2159` ply 63 `Rxc6+`
+     *  lost 1 866 cp and moved the winning chances not at all, yet was badged BLUNDER. */
     @Test
     fun tradingAMateForAWonEndgameIsNotABlunder() {
         val kept = grade(listOf(score(10_000), score(8_134))).of(1)!!
@@ -126,10 +99,6 @@ class GameReviewTest {
         assertTrue(graded.white.accuracy!! < 50.0, "and White's blunder is not averaged away by it")
     }
 
-    /**
-     * BEST is the engine's own move, so the grader compares against the line it stored — this is the
-     * whole "what would have been better" feature, and it costs no extra search.
-     */
     @Test
     fun theEnginesOwnMoveIsBothTheBadgeAndTheAdvice() {
         val played = grade(listOf(score(20, best = "e2e4"), score(20))).of(1)!!
@@ -142,10 +111,7 @@ class GameReviewTest {
         assertEquals("d4", other.bestSan, "named in SAN from the position BEFORE the ply")
     }
 
-    /**
-     * The whole continuation, not just its first move — the engine returned it and specs/42 read one
-     * token of it. An illegal tail truncates rather than losing the line: half an idea beats none.
-     */
+    /** specs/42 read one token of the line; an illegal tail truncates rather than losing it. */
     @Test
     fun theEnginesWholeLineIsNamedInSanAndStopsAtTheFirstMoveItCannotPlay() {
         val line = grade(listOf(Score(20, 18, listOf("d2d4", "d7d5", "c2c4")), score(20))).of(1)!!
@@ -197,21 +163,11 @@ class GameReviewTest {
         assertEquals(1, blackLosesOwnMate.missedMates(white = false))
     }
 
-    /**
-     * **A GAP in the record is the one thing that cannot be graded.**
-     *
-     * A seam is where the app lost the board and picked it up somewhere else; the plies that got
-     * there appear in no segment's move list. So the position before the first ply of the new segment
-     * is NOT the result of the move before it, and grading that ply charges a player for whatever
-     * happened in the gap.
-     *
-     * The `cnn_recovery` DECIDER is a different thing and is deliberately not consulted: it says how
-     * the app found out what was played, not whether it happened, and recovery normally reconstructs
-     * the real move. Dropping those was throwing away half a game's evidence.
-     */
+    /** Across a seam the "before" is not the previous move's result. The `cnn_recovery` DECIDER is
+     *  deliberately not consulted: dropping recovered moves threw away half a game's evidence. */
     @Test
     fun theFirstPlyAfterASeamIsNotGraded() {
-        val whole = game(4)
+        val whole = reviewGameOf(SANS, 4)
         val seamed =
             whole.copy(
                 segments =
@@ -240,11 +196,7 @@ class GameReviewTest {
         assertEquals(listOf(1), graded.findings().map { it.ply })
     }
 
-    /**
-     * A finish played out against a forced mate scores 100 % per move for free. Measured on the
-     * device game, whose last 15 plies per side are exactly that: counting them reads White 76.5 /
-     * Black 75.6, dropping them reads 71.4 / 66.5.
-     */
+    /** A finish against a forced mate scores 100 % for free: device game 76.5 / 75.6 counted, 71.4 / 66.5 not. */
     @Test
     fun movesPlayedAfterTheGameWasDecidedDoNotCount() {
         val graded = grade(listOf(score(0), score(-600), score(-2_000), score(-3_000), score(-2_500)))
@@ -254,20 +206,12 @@ class GameReviewTest {
         assertEquals(1, graded.white.scored, "only the ply that was still a game")
     }
 
-    /**
-     * A grade is a claim only as deep as the search behind it, and the SHALLOWER of the two searches
-     * bounds it.
-     */
     @Test
     fun aPlyIsWeightedByTheShallowerOfItsTwoSearches() {
         assertEquals(9, grade(listOf(Score(0, 20), Score(0, 9))).of(1)!!.depth)
         assertEquals(9, grade(listOf(Score(0, 9), Score(0, 20))).of(1)!!.depth)
     }
 
-    /**
-     * The pass is no longer frontloaded, so a half-scored game must grade to a half-grade rather
-     * than to nothing — that IS the feature.
-     */
     @Test
     fun aPartialRunGradesOnlyThePliesWhoseBothPositionsAreIn() {
         val graded = grade(listOf(score(0), score(-600), null, score(0)))
@@ -287,13 +231,7 @@ class GameReviewTest {
         assertNull(graded.of(99), "asking for a ply that is not there is null, not a crash")
     }
 
-    /**
-     * "What decided the game" is sorted by SWING, and by nothing else.
-     *
-     * It used to sort `compareByDescending { missedMate }` first, so a mate missed from a position
-     * that was already 98 % — and stayed 98 % — outranked every real turning point by construction.
-     * That move belongs in "Missed chances" and in no ranking of what decided anything.
-     */
+    /** Sorted by SWING only: a `missedMate`-first sort let a mate missed at 98 % outrank every turning point. */
     @Test
     fun aMissedMateThatChangedNothingIsNotWhatDecidedTheGame() {
         val graded =

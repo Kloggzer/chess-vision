@@ -49,6 +49,77 @@ internal fun bgrFrame(
     level: Int = TEST_BASE_LEVEL,
 ): BgrImage = BgrImage(boardSize, boardSize, ByteArray(boardSize * boardSize * 3) { level.toByte() })
 
+/** Board colour of the synthetic shadow scenarios (Python's `_bgr` helper, `:1210`). */
+internal const val SHADOW_LIGHT = 120
+
+/** The same board under a hand's shadow — same chroma, ratio 0.6, well inside `[vLo, vHi]`. */
+internal const val SHADOW_DARK = 72
+
+/** Rows 0..99 of a 400 px board = ranks 8 and 7, so the upper median stays at the light level. */
+private const val SHADOW_ROWS = 100
+
+private const val BGR = 3
+
+private const val U8 = 0xFF
+
+/** The two-rank hand shadow of `test_shadow_squares_not_learned_into_noise`, gray plane. */
+internal fun handShadowGray(): GrayImage {
+    val image = grayFrame(base = SHADOW_LIGHT)
+    for (i in 0 until SHADOW_ROWS * TEST_BOARD_SIZE) image.data[i] = SHADOW_DARK.toByte()
+    return image
+}
+
+internal fun handShadowBgr(): BgrImage {
+    val image = bgrFrame(level = SHADOW_LIGHT)
+    for (i in 0 until SHADOW_ROWS * TEST_BOARD_SIZE * BGR) image.data[i] = SHADOW_DARK.toByte()
+    return image
+}
+
+/** Python's `cv2.GaussianBlur(noise, (5, 5), 0)` — a realistically smooth board texture. */
+internal fun smoothTexture(seed: Long): GrayImage {
+    val rng = java.util.Random(seed)
+    val plane = ByteArray(TEST_BOARD_SIZE * TEST_BOARD_SIZE) { (LO_TEXTURE + rng.nextInt(HI_TEXTURE - LO_TEXTURE)).toByte() }
+    return GrayImage(TEST_BOARD_SIZE, TEST_BOARD_SIZE, gauss5(gauss5(plane, horizontal = true), horizontal = false))
+}
+
+/** One separable pass of the `[1,4,6,4,1]/16` kernel with BORDER_REFLECT_101. */
+private fun gauss5(
+    plane: ByteArray,
+    horizontal: Boolean,
+): ByteArray {
+    val n = TEST_BOARD_SIZE
+    val out = ByteArray(plane.size)
+    for (y in 0 until n) {
+        for (x in 0 until n) {
+            var sum = 0
+            for (k in -2..2) {
+                val q = reflect101((if (horizontal) x else y) + k, n)
+                sum += GAUSS5[k + 2] * (plane[if (horizontal) y * n + q else q * n + x].toInt() and U8)
+            }
+            out[y * n + x] = ((sum + GAUSS5_SUM / 2) / GAUSS5_SUM).toByte()
+        }
+    }
+    return out
+}
+
+private fun reflect101(
+    p: Int,
+    n: Int,
+): Int =
+    when {
+        p < 0 -> -p
+        p >= n -> 2 * n - 2 - p
+        else -> p
+    }
+
+private const val LO_TEXTURE = 60
+
+private const val HI_TEXTURE = 200
+
+private val GAUSS5 = intArrayOf(1, 4, 6, 4, 1)
+
+private const val GAUSS5_SUM = 16
+
 /** A config whose `detSize` is exactly [boardSize] (`detectScale = 1.0` switches the scaling off). */
 internal fun testConfig(
     boardSize: Int = TEST_BOARD_SIZE,

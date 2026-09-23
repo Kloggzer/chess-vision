@@ -4,13 +4,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Drift is what tells `LiveAlign` that the pose its grid correction was fitted at is gone.
- *
- * Every assertion below is in CELLS. A raw pixel figure would be meaningless — four pixels is 4 %
- * of a square at `boardSize` 800 and 2 % at 1600 — and the whole point of the unit is that the
- * threshold transfers between the phone, the rig and the recorded clips.
- */
+/** Drift tells `LiveAlign` its grid correction's pose is gone. Everything is in CELLS, so the
+ *  threshold transfers between phone, rig and clips (4 px is 4 % of a cell at 800, 2 % at 1600). */
 class QuadDriftTest {
     private val geom = BoardGeometry(boardSize = 800, margin = margins4(0.0))
     private val quad = floatArrayOf(0f, 0f, 800f, 0f, 800f, 800f, 0f, 800f)
@@ -33,10 +28,7 @@ class QuadDriftTest {
         assertEquals(0.5, quadDriftCells(quad, moved, geom), 1e-6)
     }
 
-    /**
-     * A quarter cell is the threshold `LiveAlign` acts on, so it is worth pinning from both sides:
-     * 20 px of an 100 px cell must not fire, 30 px must.
-     */
+    /** A quarter cell is the threshold `LiveAlign` acts on: 20 px of a 100 px cell must not fire. */
     @Test
     fun theThresholdHasTeethOnBothSides() {
         val small = FloatArray(8) { i -> quad[i] + if (i % 2 == 0) 20f else 0f }
@@ -45,11 +37,8 @@ class QuadDriftTest {
         assertTrue(quadDriftCells(quad, large, geom) > 0.25)
     }
 
-    /**
-     * A rotation about the centre moves no corner's distance from the centre and every corner's
-     * position — a translation-only metric would report zero, which is the blind spot that made the
-     * old alignment metric worthless (`CLAUDE.md`: 0.01 px reported for a 3.05 px shear).
-     */
+    /** A translation-only metric reads zero here — the blind spot that reported 0.01 px for a
+     *  3.05 px shear. */
     @Test
     fun aRotationAboutTheCentreIsNotInvisible() {
         val c = 400.0

@@ -20,7 +20,7 @@ import org.opencv.imgproc.Imgproc
 // Interpolation follows Python EXACTLY, and the two sides differ on purpose (2026-09-14):
 // `warpFromCorners` stays at OpenCV's default INTER_LINEAR like Python's `warp_from_corners`,
 // while the CROP warp is INTER_CUBIC like Python's `warp_board_for_crops` — bilinear keeps
-// 63,6 % of the Laplacian energy against 92,1 % (`docs/warp-resampling.md`). Border stays
+// 63,6 % of the Laplacian energy against 92,1 % (`docs/export-decode.md`). Border stays
 // BORDER_CONSTANT black. Der GITTER-Warp bleibt bilinear: er MISST, und kubisch gemessen
 // verschob er das gefittete Quad um 2,78 px. `test_crop_pixel_parity` haelt beide Seiten zusammen.
 

@@ -106,11 +106,7 @@ class FramePipelineOrderTest {
         assertEquals(1, stages.gridCalls)
     }
 
-    /**
-     * A disabled gate (`minGridLineCoverage <= 0`, which several parity clips run) makes the
-     * engine return before it reads the value, so the Canny pass behind [FrameStages.gridCoverage]
-     * must not run at all.
-     */
+    /** A disabled gate (`minGridLineCoverage <= 0`, several parity clips) never reads the value. */
     @Test
     fun `a disabled grid gate skips the canny pass`() {
         stages.coverage = 0.1
@@ -120,11 +116,7 @@ class FramePipelineOrderTest {
         assertEquals(GRID_GATE_OFF, input.gridLineCoverage)
     }
 
-    /**
-     * The stillness and changeset engines read neither number — they measure the board on their
-     * own 160 warp — so neither stage may run. The grid pass is the one that pays for this: a
-     * Canny over the whole detection plane, 7-20 ms per frame on the phone.
-     */
+    /** Stillness and changeset measure on their own 160 warp; the grid Canny costs 7-20 ms per frame on the phone. */
     @Test
     fun `an engine that reads neither takes neither measurement`() {
         stages.motion = 1.75
@@ -146,12 +138,8 @@ class FramePipelineOrderTest {
     }
 
     /**
-     * The lens sits between the convert and the publish, and that placement IS the design.
-     *
-     * `publishFrame` feeds `CameraFrameBus`, and through it `latestCalibrationFrame()` — which is
-     * what ArUco re-detection and the once-per-pose grid fit read. A lens applied after it would
-     * correct the pixels the warps sample and leave the pixels the board geometry is measured from
-     * uncorrected, which is a split coordinate space wearing the costume of a working feature.
+     * `publishFrame` feeds `latestCalibrationFrame()` (ArUco, grid fit): a lens after it would correct
+     * the warps' pixels but not the ones the geometry is measured from — a split coordinate space.
      */
     @Test
     fun `the lens runs after the convert and before anything reads the frame`() {
@@ -159,11 +147,7 @@ class FramePipelineOrderTest {
         assertEquals(listOf("convert", "undistort", "publishFrame", "warpDetection"), stages.calls.take(4))
     }
 
-    /**
-     * LiveAlign writes `corners` from its own thread, so a frame warped with A must not be
-     * reported with B: the engine would tag a reference built from A with B and `cornersJumped`
-     * would never see the swap.
-     */
+    /** LiveAlign writes `corners` from its own thread; a frame warped with A reported as B hides the swap. */
     @Test
     fun `the emitted corners are the ones the warp used`() {
         val swapped = floatArrayOf(9f, 9f, 90f, 9f, 90f, 90f, 9f, 90f)
@@ -272,9 +256,4 @@ private class FakeStages : FrameStages<FakeImage> {
     override fun close() = Unit
 }
 
-/**
- * A frame is whatever the host says it is. This used to be a 20-method `ImageProxy` stub whose only
- * reachable members were `width` and `height` — the pipeline never touched the rest, and now cannot
- * even name it. The delivered size travels beside the frame instead.
- */
 private class FakeImage

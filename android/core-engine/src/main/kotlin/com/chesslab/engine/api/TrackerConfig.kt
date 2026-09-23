@@ -4,7 +4,7 @@ package com.chesslab.engine.api
 // frueher bei 396/3/0 am vollen Satz und netto ruhiger (Desync-Episoden 15 -> 8).
 // Mehr Aufnahmen sind im Zulauf, der naechste Lauf loest ihn wahrscheinlich ab.
 data class TrackerConfig(
-    // Optimiert 2026-09-20 (`docs/latenz-optimierer.md`), vorher 0.25 ungeprueft.
+    // Optimiert 2026-09-20 (`docs/regression-reference.md`), vorher 0.25 ungeprueft.
     val motionThr: Double = 0.219,
     // Optimiert 2026-09-20, vorher 20.0 ungeprueft.
     val motionPxThr: Double = 34.544,
@@ -28,14 +28,14 @@ data class TrackerConfig(
     // 3 s gives the quiet-board drift check a measured 0.5% CNN duty cycle.
     val cnnCheckIntervalS: Double = 3.0,
     // Lies, sobald das Brett einrastet, statt wenn die Uhr es erlaubt: 304/90/7 gegen 302/92/9,
-    // und der 2-s-Latenzschwanz faellt weg (`docs/emission-correlation.md`).
+    // und der 2-s-Latenzschwanz faellt weg (`docs/tracker-flow.md`).
     val cnnEvalOnSettle: Boolean = true,
     // Nur der Default, und fuer JEDES ausgelieferte Modell zu locker: die Schwelle folgt aus der
     // Modellguete und reist als `coverage_gate` im Modell (gemessen 2026-09-14 bei lambda 3,
     // 0.05 bis 0.35 — `docs/occlusion-gate.md`).
     val pOccludedThr: Double = 0.5,
     // Nach so vielen identischen Ablehnungen darf die CNN sehen, auch wenn kein anderes Tor
-    // aufgeht — wiederholtes Scheitern hielt sie bisher AUS (`docs/refused-streak.md`).
+    // aufgeht — wiederholtes Scheitern hielt sie bisher AUS (`docs/tracker-flow.md`).
     val refusedStreakForEval: Int = 3,
     // So viele Beobachtungen ueber `desyncObsN` hinaus wartet der Latch — Luft fuer den
     // Hand-Latch, in der Einheit, die der Rest des Desyncs benutzt (bei ~10 Obs/s ist 1 ~ 100 ms).
@@ -77,7 +77,7 @@ data class TrackerConfig(
     val verifyObserveNow: Boolean = true,
     val occlusionColorThr: Double = 3.0,
     /** Der engine-eigene Verdeckungs- UND Schattenarm. AUS laesst nur den Modell-Kopf uebrig --
-     *  zum Messen, was er allein traegt (`docs/baseline-occlusion-off.md`). */
+     *  zum Messen, was er allein traegt (`docs/regression-reference.md`). */
     val baselineOcclusion: Boolean = true,
     val minGridLineCoverage: Double = 0.5,
     val diffClaheClip: Double = 2.0,
@@ -109,7 +109,7 @@ data class TrackerConfig(
     // Window end accepts the diff only with BOTH endpoints readable (pairs: every touched square);
     // one readable square on a dark board is an empty conflict set, not a clear view. `VerifySingle`
     // never fires it (2026-09-05, 0 × diff_after_verify) — but `VerifyPair` does: off, the set
-    // loses one desync episode (2026-09-21, `docs/wachen-ablation-2026-09-21.md`).
+    // loses one desync episode (2026-09-21, `docs/regression-reference.md`).
     val windowEndBothEnds: Boolean = true,
     val observerIntervalS: Double = 0.0,
     val darkLumaThr: Double = 18.0,
@@ -148,7 +148,7 @@ const val MOTION_THR_REFERENCE_FPS: Double = 30.0
 
 /**
  * `motionThr` auf [fps] umgerechnet — ein Prozentsatz gegen den VORIGEN Frame haengt an der
- * Bildperiode. Am Regressionssatz gemessen (`docs/battery.md`); stand bis 2026-09-15 zweimal
+ * Bildperiode. Am Regressionssatz gemessen (`docs/android-performance.md`); stand bis 2026-09-15 zweimal
  * im Baum, je mit eigener Referenzkonstante.
  */
 fun TrackerConfig.atFrameRate(fps: Double): TrackerConfig =

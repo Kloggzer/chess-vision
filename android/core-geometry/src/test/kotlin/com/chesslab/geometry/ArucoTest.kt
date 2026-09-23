@@ -7,11 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 
-/**
- * Tier C — no fixture exists for ArUco DETECTION (the parity clips replay with
- * `live_align=False`, so no marker was ever detected). Hand-written over
- * `Objdetect.generateImageMarker`, as the phase file specifies.
- */
+/** No fixture exists for ArUco DETECTION (the parity clips replay with `live_align=False`). */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class ArucoTest {
     @Test

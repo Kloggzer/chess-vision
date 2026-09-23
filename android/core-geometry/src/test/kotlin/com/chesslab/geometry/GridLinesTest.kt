@@ -11,10 +11,7 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-/**
- * Tier C — golden rows from `parity/_geometry/grid_coverage.jsonl` with self-contained raw
- * gray planes (no PNG decoder needed). Port check for `tracker.py _grid_line_coverage`.
- */
+/** Tier C — `_geometry/grid_coverage.jsonl` with raw gray planes, port of `tracker.py _grid_line_coverage`. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class GridLinesTest {
     @Test

@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 
 /**
  * `motionThr` haengt an der Bildperiode, und die Kopplung ist am Regressionssatz gemessen
- * (`docs/battery.md`). Bis 2026-09-15 stand sie zweimal im Baum — im Dienst und im Desktop-Replay,
+ * (`docs/android-performance.md`). Bis 2026-09-15 stand sie zweimal im Baum — im Dienst und im Desktop-Replay,
  * jede Kopie mit eigener Referenzkonstante. Driftet eine, misst das Replay einen Tracker, den das
  * Handy nicht faehrt.
  */

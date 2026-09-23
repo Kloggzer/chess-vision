@@ -6,9 +6,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * Die zwei Sonderzweige in `decodeAppSettings` sind heute wirkungslos — beide Mengen sind disjunkt
- * zu `BUNDLED_MODELS`. Gepinnt statt geloescht: liefert ein kuenftiges APK einen dieser Namen
- * wieder mit, werden sie scharf und ihre Reihenfolge zaehlt.
+ * Die zwei Sonderzweige in `decodeAppSettings` sind wirkungslos, solange beide Mengen disjunkt zu
+ * `BUNDLED_MODELS` sind; gepinnt, weil ein kuenftiges APK sie wieder scharf machen kann.
  */
 class RetiredModelBranchesTest {
     @Test

@@ -86,4 +86,16 @@ class ScoreTest {
         assertEquals(0, scored.invented.size)
         assertEquals(null, scored.medianLag)
     }
+
+    @Test
+    fun `lag can be negative when the run commits before the truth frame`() {
+        assertEquals(listOf(-50L), score(listOf(TruthPly("e4", 100)), listOf(RunPly("e4", 50, 0.0))).lag)
+    }
+
+    @Test
+    fun `medianLag is the middle value`() {
+        val scored = score(truth("e4", "e5", "Nf3"), run("e4" to 10, "e5" to 90, "Nf3" to 220))
+        assertEquals(listOf(10L, -10L, 20L), scored.lag)
+        assertEquals(10L, scored.medianLag)
+    }
 }

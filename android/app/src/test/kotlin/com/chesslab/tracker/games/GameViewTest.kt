@@ -96,12 +96,8 @@ class GameViewTest {
         assertEquals(AFTER_E4, view.fenAt(9), "past the end is the last position, never a crash")
     }
 
-    /**
-     * A stored game may hold a line chesslib rejects — the engine's board once accepted it. The
-     * screen must open on the last position it could reach rather than refuse the whole game, and
-     * it must never FABRICATE one: chesslib's default `doMove` applies an illegal move without
-     * complaint, which teleported the e-pawn to e5 and made every position after it fiction.
-     */
+    /** chesslib's default `doMove` applies an illegal move without complaint: it teleported the e-pawn
+     *  to e5 and made every later position fiction. Open on the last reachable one instead. */
     @Test
     fun anIllegalStoredPlyIsANoOpAndNeverMovesAPiece() {
         val view = stored(moves = listOf(move(1, "??", "e2e5"), move(2, "e4", "e2e4"))).reviewView()

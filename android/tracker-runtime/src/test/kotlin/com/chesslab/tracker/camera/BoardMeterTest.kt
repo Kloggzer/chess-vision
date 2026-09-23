@@ -2,27 +2,13 @@ package com.chesslab.tracker.camera
 
 import com.chesslab.engine.api.BgrImage
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class BoardMeterTest {
-    private fun board(
-        size: Int = 160,
-        value: (row: Int, col: Int) -> Int,
-    ): BgrImage {
-        val cell = size / 8
-        val data = ByteArray(size * size * 3)
-        for (y in 0 until size) {
-            for (x in 0 until size) {
-                val v = value(y / cell, x / cell).coerceIn(0, 255).toByte()
-                val i = (y * size + x) * 3
-                data[i] = v
-                data[i + 1] = v
-                data[i + 2] = v
-            }
-        }
-        return BgrImage(size, size, data)
-    }
+    /** A 160-px board whose level is set per cell. */
+    private fun board(value: (row: Int, col: Int) -> Int): BgrImage = lumaBoard(160) { x, y -> value(y / 20, x / 20) }
 
     @Test
     fun `each cell gets its own mean`() {
@@ -75,5 +61,13 @@ class BoardMeterTest {
         val range = ExposureRange(indices = -24..24, stepEv = 1f / 6f)
         val next = nextExposure(ExposureState(), meterBoard(board { _, _ -> 12 }), range.evLimits())
         assertTrue(next != null && next.ev > 0.0)
+    }
+
+    /** Beide Messungen leiteten die Feldkante nur aus der BREITE ab: ein Index-Fehler statt des `require`. */
+    @Test
+    fun `a non-square raster is refused by the guard, not by the pixel loop`() {
+        val oblong = BgrImage(160, 120, ByteArray(160 * 120 * 3))
+        assertThrows(IllegalArgumentException::class.java) { meterSharpness(oblong) }
+        assertThrows(IllegalArgumentException::class.java) { meterBoard(oblong) }
     }
 }

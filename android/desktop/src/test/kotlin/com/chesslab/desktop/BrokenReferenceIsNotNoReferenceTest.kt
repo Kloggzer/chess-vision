@@ -5,12 +5,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * `labelPlies` faellt von einer unlesbaren `reference.pgn` still auf `candidate.json` zurueck —
- * also wird der Tracker gegen SEINE EIGENE Ausgabe benotet, und der Satz meldet dann
- * found = alles. Der Docstring derselben Funktion nennt genau das falsch ("scoring against the
- * guess punishes the tracker that read it right"). Gefunden von Codex, 2026-09-15.
- */
+/** Eine unlesbare `reference.pgn` fiel still auf `candidate.json` zurueck: der Tracker wurde
+ *  gegen seine eigene Ausgabe benotet (found = alles). Codex, 2026-09-15. */
 class BrokenReferenceIsNotNoReferenceTest {
     @TempDir
     lateinit var dir: File

@@ -5,11 +5,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/**
- * The scorer against known inputs — a test of the SCORER, not of the tracker. The plan's
- * acceptance: a label scored against itself must reproduce itself exactly (found = all,
- * missed = invented = 0), because the label exists and the comparison owes it nothing less.
- */
 class RealGameScoreTest {
     @Test
     fun aLabelScoredAgainstItselfIsAllFound() {
@@ -111,10 +106,19 @@ class RealGameScoreTest {
     }
 
     @Test
+    fun aPhantomStaysAPhantomWhenTheLabelCarriesNoFrames() {
+        // `labelPlies` stamps `frame = -1` on plies the reference.pgn and the candidate disagree
+        // about; `referenceEnd` then went to -1 and every late commit escaped into `beyond`.
+        val label = listOf("e4", "e5", "Nf3").map { ScoredPly(it, frame = -1, decider = "reference") }
+        val score = scoreMoves(label, plies("e4", "e5", "Bc4"))
+        assertEquals(listOf("Nf3"), score.missed.map { it.san })
+        assertEquals(listOf("Bc4"), score.invented.map { it.san })
+        assertTrue(score.beyond.isEmpty(), "beyond: ${score.beyond.map { it.san }}")
+    }
+
+    @Test
     fun theRealPythonLabelRoundTripsThroughTheReader() {
-        // The committed 2026-08-02 candidate is the schema contract; when it is present on this
-        // machine the reader must reproduce its 22 plies. Data is gitignored, so absent = skipped,
-        // exactly like the video-gated harness runs.
+        // Data is gitignored, so an absent candidate skips, like the video-gated harness runs.
         val candidate = File("../../data/recordings/game-2026-08-02/candidate.json")
         if (!candidate.isFile) return
         val label = labelPlies(candidate)

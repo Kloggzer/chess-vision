@@ -8,17 +8,11 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 
-/**
- * The measurement pieces against synthetic truth — the specs/41 trap encoded as tests: quad
- * spread is a MOVEMENT check that scores a consistently wrong quad beautifully, so nothing here
- * may read it as correctness, and the refusal gates must key on the absolute verdict.
- */
+/** The specs/41 trap: quad spread is a MOVEMENT check that scores a consistently wrong quad beautifully. */
 class GeometryScanTest {
     @Test
     fun aStaticQuadHasNoSpreadButCanStillBeWrong() {
-        // Identical quads — wherever they sit, the spread about their median is zero. This is
-        // exactly why spread must never be a correctness gate: these corners are nowhere near a
-        // real board and the number is perfect.
+        // Nowhere near a real board, and the spread is perfect: never a correctness gate.
         val quad = floatArrayOf(10f, 900f, 20f, 40f, 950f, 60f, 930f, 940f)
         val quads = List(5) { quad.copyOf() }
         val spread = quadSpreadRectified(quads, medianQuadOf(quads), boardSize = 800)
@@ -61,26 +55,20 @@ class GeometryScanTest {
         val ok = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(ok).isEmpty())
 
-        // The decision of 2026-08-08: a HANDSY video with plenty of aligned evidence is labelable
-        // — the pass rate measures playing speed, and rec-20260808-003957 (82.5 %, 837 aligned,
-        // flawless geometry) is exactly this row. Only a video without ENOUGH aligned samples
-        // (board out of shot, footage too short) is refused.
+        // 2026-08-08: the pass rate measures playing speed — rec-20260808-003957 (82.5 %, 837 aligned) is
+        // labelable. Only a video without ENOUGH aligned samples is refused.
         val handsyButEvidenced = scanned(alignPassRate = 0.5, aligned = 500, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(handsyButEvidenced).isEmpty())
 
         val sparse = scanned(alignPassRate = 0.5, aligned = 40, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(sparse).single().contains("align to the board's own grid"))
 
-        // A moving board is a WARNING, not a refusal: the spread compares the quads against their
-        // own median, so it measures movement and never correctness (CLAUDE.md). Reading it as a
-        // gate refused `2026-08-13-19-34-23`, whose absolute gate passes on 97.2 % of its samples.
+        // A moving board is a WARNING: as a gate it refused `2026-08-13-19-34-23` (absolute gate 97.2 %).
         val nudged = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 9.0, clockP90 = 0.0)
         assertTrue(geometryRefusals(nudged).isEmpty())
         assertTrue(geometryWarnings(nudged).single().contains("does not stand for every frame"))
 
-        // Variable rate is a WARNING since 2026-08-14: the replay clock reads each frame's own
-        // PTS, so VFR footage carries correct time — the phone records it (26.35/23.47 fps
-        // segments), and refusing it demanded a lossy re-encode for nothing.
+        // VFR is a WARNING since 2026-08-14: the replay clock reads each frame's PTS (phone: 26.35/23.47 fps).
         val vfr = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 20.0)
         assertTrue(geometryRefusals(vfr).isEmpty())
         assertTrue(geometryWarnings(vfr).single().contains("variable-rate")) { geometryWarnings(vfr).toString() }

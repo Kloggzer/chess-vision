@@ -2,26 +2,18 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.parity.ParityCensusCrop
-import com.chesslab.engine.parity.ParityClip
 import com.chesslab.engine.parity.ParityFixtures
 import com.chesslab.engine.parity.ParityFrame
 import com.chesslab.engine.parity.assertClose
 import com.chesslab.engine.parity.assertCloseMap
+import com.chesslab.engine.parity.assertConsumed
+import com.chesslab.engine.parity.meanOf
 import com.chesslab.engine.parity.toTrackerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Parity of the census channel against the phase-00b golden fixtures
- * (`parity/README.md` is the normative schema).
- *
- * The `TrackerConfig` always comes from `meta.effectiveConfig` — several clips run with
- * `overhang = 0.0` and `detSize` is 320, not 800 (STATUS D00b-3/D00b-4).
- *
- * The census channel is asserted against **`tierA.censusRaw`** (entry.md invariant 8:
- * `censusThr` compares against the raw channel; normalization is the caller's business).
- */
+/** Census channel parity, asserted against `tierA.censusRaw` (entry.md invariant 8: normalization is the caller's business). */
 class CensusParityTest {
     @Test
     fun censusCodesMatchPython() {
@@ -29,7 +21,7 @@ class CensusParityTest {
         for (name in ParityFixtures.clips()) {
             val clip = ParityFixtures.load(name)
             val size = clip.meta.detSize
-            val planes = grayPlanes(clip)
+            val planes = clip.grayPlanes()
             val codes = ByteArray(size * size)
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
@@ -39,13 +31,13 @@ class CensusParityTest {
                 assertEquals(region[0].coerceIn(0, size - crop.w), crop.x0, "$name: crop x0")
                 assertEquals(region[1].coerceIn(0, size - crop.h), crop.y0, "$name: crop y0")
 
-                val cur = averaged(planes, tierA.curFrames, size)
+                val cur = GrayImage(size, size, planes.meanOf(tierA.curFrames))
                 censusTransform(cur, out = codes)
                 assertCrop(codes, size, crop, "$name/${frame.frame}")
                 checked++
             }
         }
-        assertConsumedCount(checked, "censusCodeCrop frames")
+        assertConsumed(checked, "censusCodeCrop frames")
     }
 
     @Test
@@ -54,10 +46,10 @@ class CensusParityTest {
         forEachReconstructableFrame { ctx, frame ->
             val tierA = requireNotNull(frame.tierA)
             perSquareCensusChange(ctx.refCodes, ctx.cur, ctx.boxes, ctx.out)
-            assertCloseMap(tierA.censusRaw, asMap(ctx.out), "${ctx.name}/${frame.frame}: censusRaw")
+            assertCloseMap(tierA.censusRaw, ctx.out.asSquareMap(), "${ctx.name}/${frame.frame}: censusRaw")
             checked++
         }
-        assertConsumedCount(checked, "perSquareCensusChange frames")
+        assertConsumed(checked, "perSquareCensusChange frames")
     }
 
     @Test
@@ -84,8 +76,8 @@ class CensusParityTest {
             }
             checked++
         }
-        assertConsumedCount(checked, "band census frames")
-        assertConsumedCount(inBandSquares, "in-band squares")
+        assertConsumed(checked, "band census frames")
+        assertConsumed(inBandSquares, "in-band squares")
     }
 
     @Test
@@ -108,7 +100,7 @@ class CensusParityTest {
             assertTrue(interior >= SQUARES / 4, "${ctx.name}/${frame.frame}: only $interior interior squares")
             checked++
         }
-        assertConsumedCount(checked, "band-interior frames")
+        assertConsumed(checked, "band-interior frames")
     }
 
     // -----------------------------------------------------------------------------------
@@ -141,23 +133,20 @@ class CensusParityTest {
         val out = DoubleArray(SQUARES)
     }
 
-    /**
-     * Walks every Tier-A frame that can be reconstructed from the planes. Frames where
-     * `refFrames` is null had `ref_gray` mutated in place by `_maybe_patch_anomaly` (D01a-6).
-     */
+    /** Frames with `refFrames == null` had `ref_gray` mutated in place by `_maybe_patch_anomaly` (D01a-6). */
     private fun forEachReconstructableFrame(body: (Ctx, ParityFrame) -> Unit) {
         for (name in ParityFixtures.clips()) {
             val clip = ParityFixtures.load(name)
             val cfg = clip.meta.effectiveConfig.toTrackerConfig()
             val size = clip.meta.detSize
             val ctx = Ctx(name, size, clip.meta.whitePov, cfg.overhang, squareBoxes(size, clip.meta.whitePov, cfg.overhang))
-            val planes = grayPlanes(clip)
+            val planes = clip.grayPlanes()
             val codes = ByteArray(size * size)
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
                 val refFrames = tierA.refFrames ?: continue
-                ctx.cur = averaged(planes, tierA.curFrames, size)
-                ctx.refCodes = censusTransform(averaged(planes, refFrames, size), out = codes)
+                ctx.cur = GrayImage(size, size, planes.meanOf(tierA.curFrames))
+                ctx.refCodes = censusTransform(GrayImage(size, size, planes.meanOf(refFrames)), out = codes)
                 body(ctx, frame)
             }
         }
@@ -190,48 +179,6 @@ class CensusParityTest {
         boxes.area[i] > 0 &&
             boxes.y0[i] >= yLo + (if (yLo > 0) 1 else 0) &&
             boxes.y1[i] <= yHi - (if (yHi < boardSize) 1 else 0)
-
-    private fun asMap(values: DoubleArray): Map<String, Double> =
-        buildMap(SQUARES) {
-            for (i in 0 until SQUARES) {
-                put(Squares.ALL[i], values[i])
-            }
-        }
-
-    /** Decodes the whole delta-coded gray chain once — `curFrames`/`refFrames` look backwards. */
-    private fun grayPlanes(clip: ParityClip): Map<Int, ByteArray> =
-        buildMap {
-            for (index in clip.meta.frames) {
-                put(index, clip.gray(index).data)
-            }
-        }
-
-    /** Python `_RunningMean.mean_uint8`: `(sum / n).astype(uint8)` — truncation, not rounding. */
-    private fun averaged(
-        planes: Map<Int, ByteArray>,
-        frames: List<Int>,
-        size: Int,
-    ): GrayImage {
-        require(frames.isNotEmpty()) { "empty frame window" }
-        val n = size * size
-        val sum = LongArray(n)
-        for (index in frames) {
-            val plane = planes.getValue(index)
-            for (i in 0 until n) {
-                sum[i] += (plane[i].toInt() and BYTE_MASK).toLong()
-            }
-        }
-        val data = ByteArray(n)
-        for (i in 0 until n) {
-            data[i] = (sum[i] / frames.size).toInt().toByte()
-        }
-        return GrayImage(size, size, data)
-    }
-
-    private fun assertConsumedCount(
-        count: Int,
-        what: String,
-    ) = assertTrue(count > 0, "$what must not be empty — the fixture was never consumed")
 
     private companion object {
         const val SQUARES = 64

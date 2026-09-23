@@ -1,6 +1,6 @@
 package com.chesslab.cnn
 
-import com.github.bhlangonijr.chesslib.Board
+import com.chesslab.engine.api.STARTPOS
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -36,7 +36,7 @@ class ResyncTest {
 
     @Test
     fun `an identity-only conflict must never alarm`() {
-        val obs = FakeSquareClassifier(START_FEN, overrides = mapOf("b1" to ("wB" to 0.99))).observe()
+        val obs = FakeSquareClassifier(STARTPOS, overrides = mapOf("b1" to ("wB" to 0.99))).observe()
         assertFalse(
             hasOccupancyConflict(startBoard(), obs, THR, listOf("b1")),
             "wN read as wB is the N/B/R gap, not an illegal move",
@@ -45,8 +45,18 @@ class ResyncTest {
 
     @Test
     fun `an empty-versus-occupied conflict does alarm`() {
-        val obs = FakeSquareClassifier(START_FEN, overrides = mapOf("b1" to ("empty" to 0.99))).observe()
+        val obs = FakeSquareClassifier(STARTPOS, overrides = mapOf("b1" to ("empty" to 0.99))).observe()
         assertTrue(hasOccupancyConflict(startBoard(), obs, THR, listOf("b1")))
+    }
+
+    /** `hasOccupancyConflict` IS the alarm gate: without the confidence question every hand alarms. */
+    @Test
+    fun `an unconfident conflict square never reaches the alarm`() {
+        val unsure = FakeSquareClassifier(STARTPOS, overrides = mapOf("e2" to ("empty" to 0.50))).observe()
+
+        assertFalse(unsure.confident("e2", THR), "0,50 liegt unter der Schwelle")
+        assertFalse(unsure.occupied("e2"), "die Zelle wird als leer gelesen")
+        assertFalse(hasOccupancyConflict(startBoard(), unsure, THR, listOf("e2")))
     }
 
     @Test
@@ -54,19 +64,19 @@ class ResyncTest {
         // The test compares "expected empty" against "observed empty" and nothing else — the name
         // says so. Only the CONFIDENCE was read off the identity axis, and the null-label guard
         // then discarded every 2-class observation, so no shipped model could ever conflict.
-        val obs = FakeSquareClassifier(START_FEN, overrides = mapOf("b1" to ("empty" to 0.99))).observe()
+        val obs = FakeSquareClassifier(STARTPOS, overrides = mapOf("b1" to ("empty" to 0.99))).observe()
         assertTrue(hasOccupancyConflict(startBoard(), obs.occupancyOnly(), THR, listOf("b1")))
     }
 
     @Test
     fun `an occupancy-only run reports no conflict on a board that agrees`() {
-        val obs = FakeSquareClassifier(START_FEN).observe()
+        val obs = FakeSquareClassifier(STARTPOS).observe()
         assertFalse(hasOccupancyConflict(startBoard(), obs.occupancyOnly(), THR, listOf("b1")))
     }
 
     @Test
     fun `a clean board resyncs with full agreement`() {
-        val check = CnnRecovery().resyncCheckFull(startBoard(), FakeSquareClassifier(START_FEN).observe())
+        val check = CnnRecovery().resyncCheckFull(startBoard(), FakeSquareClassifier(STARTPOS).observe())
         assertTrue(check.match)
         assertTrue(check.conflicts.isEmpty())
         assertNull(check.move)
@@ -75,16 +85,15 @@ class ResyncTest {
 
     @Test
     fun `the seam reports the confident-square count`() {
-        val obs = FakeSquareClassifier(START_FEN).observe()
-        val result = CnnRecovery().resyncCheck(START_FEN, obs)
+        val obs = FakeSquareClassifier(STARTPOS).observe()
+        val result = CnnRecovery().resyncCheck(STARTPOS, obs)
         assertTrue(result.match)
         assertEquals(ALL_SQUARES.size, result.checked)
     }
 
+    private fun startBoard() = boardOf(STARTPOS)
+
     private companion object {
         const val THR = 0.85
-        const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-
-        fun startBoard(): Board = Board().also { it.loadFromFen(START_FEN) }
     }
 }

@@ -36,7 +36,7 @@ const val DEFAULT_MODEL = "p4a-80-clahe"
  *
  * `p4a` = Aufmerksamkeitskopf ueber die 64 Zellen, Zahl = Crop-Groesse, `full` = langes Rezept.
  * Der Vorgabe-Zweig ist seit 2026-08-30 `p4a-80-clahe` — das Modell, das erforscht wird, und das
- * einzige mit eigener Vorverarbeitung (`docs/clahe-band.md`). Ein Replay ohne `model=` misst es.
+ * einzige mit eigener Vorverarbeitung (`docs/camera.md`). Ein Replay ohne `model=` misst es.
  */
 val BUNDLED_MODELS =
     listOf(

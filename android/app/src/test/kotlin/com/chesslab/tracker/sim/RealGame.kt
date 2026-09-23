@@ -4,23 +4,16 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.margins4
 import com.chesslab.tracker.geometry.CropParams
+import com.chesslab.tracker.geometry.GeometryScan
+import com.chesslab.tracker.geometry.ScannedGeometry
+import com.chesslab.tracker.geometry.geometryRefusals
+import com.chesslab.tracker.geometry.geometryReport
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
 import org.opencv.core.Mat
 import java.io.File
 
-// The phone's engine over FILMED footage — the same seam `runClip` drives, minus the answer key.
-//
-// `SimClip` cannot express this. It is built from a `labels.json` that says what the moves were,
-// and a real game has none: the machine proposes and a human disposes, which is the entire point
-// of the review this feeds.
-
-/**
- * A filmed game: everything the engine needs, and no claim about what the moves were.
- *
- * Every geometry field is an INPUT here. Measuring the quad from the footage belongs to the phase
- * that owns `:core-geometry`; this type only refuses to guess any of them.
- */
+/** A filmed game: everything the engine needs and no claim about the moves (`SimClip` has an answer key). */
 internal data class RealGameSource(
     override val video: File,
     override val config: TrackerConfig,
@@ -31,25 +24,11 @@ internal data class RealGameSource(
     val margin: Double,
     val boardSize: Int,
     override val fps: Double,
-    /**
-     * The crop box the model is served — deliberately WITHOUT a default value.
-     *
-     * specs/41: `ClipDriver` built its profile with the config-wide crop (`pad_side` 0.10) while
-     * the profile the models are trained and served against says 0.05, and the resulting 120 px
-     * box against 110 desynced the CNN three seconds into the 2026-08-02 game. A harness that can
-     * leave the crop unsaid is a harness that can cut at the wrong size without saying so, so the
-     * type does not let the caller leave it unsaid. specs/45 hands it over from the model's own
-     * declaration; until that branch merges the caller passes the profile's.
-     */
+    /** Deliberately WITHOUT a default (specs/41): a 0.10 harness crop against the served 0.05 desynced
+     *  the CNN three seconds into the 2026-08-02 game. */
     val cropParams: CropParams,
 ) : SimSource {
-    /**
-     * The board geometry of this footage — the ONE place the crop reaches the warp.
-     *
-     * `outW`/`outH` are the crop's output size, and when a model is attached `ClipPipeline`
-     * overrides them with the size that model's graph takes (`withCropSizeOf`). `padSide` is the
-     * box itself and is never overridden by anything.
-     */
+    /** The ONE place the crop reaches the warp; an attached model overrides only `outW`/`outH`. */
     override val geometry: BoardGeometry
         get() =
             BoardGeometry(
@@ -61,13 +40,8 @@ internal data class RealGameSource(
             )
 }
 
-/**
- * One COMMITTED BATCH, as the engine emitted it.
- *
- * A recovery bridge pushes up to `recoveryMaxPlies` moves at once and reports all of them in a
- * single `TrackerEvent.SequenceCommitted`, with ONE decider and ONE FEN — the position after the
- * LAST of them. [realGamePlies] is what turns that back into plies.
- */
+/** One committed batch: a recovery bridge reports up to `recoveryMaxPlies` moves with ONE decider and
+ *  ONE FEN, after the LAST of them; [realGamePlies] turns it back into plies. */
 internal data class SimBatch(
     val frame: Int,
     val ucis: List<String>,
@@ -89,15 +63,8 @@ internal data class RealGamePly(
     /** Video time in seconds, on the same clock the replay paces the engine with. */
     val t: Double,
     val decider: String,
-    /**
-     * Whether the illegal-move alarm was standing when this ply committed.
-     *
-     * **An observation this harness makes, not a property the engine records.** No decision row on
-     * either platform carries it — not `DebugDecision`, not the persisted
-     * `DiagnosticsRecords.DecisionRow`, not Python's `_record_decision`. It is polled from
-     * `TrackerEngine.status()` at the commit, so anything that reports it must say so rather than
-     * let a reader believe the tracker wrote it down.
-     */
+    /** The alarm standing at the commit, polled from `status()` — the HARNESS's observation; no
+     *  decision row on either platform records it. */
     val alarm: Boolean,
     /** The position after THIS ply, never after the batch it came in. */
     val fenAfter: String,
@@ -111,20 +78,9 @@ internal data class RealGameResult(
 )
 
 /**
- * The batches the engine committed, expanded to one row per ply, each carrying the FEN after ITSELF.
- *
- * `fenAfter` at a commit is the position after the LAST move of the batch. Stamping that on every
- * ply of a three-move recovery bridge shows a reviewer the wrong board for two of them, and telling
- * those three apart is the whole job of the review. Python does this in
- * `scripts/replay_clip_cnn.py::_fens_after` by popping and re-pushing a COPY of the tracker's own
- * board; `EngineState` is `internal` to `:core-engine` and no board is reachable from here, so this
- * replays the committed ucis on a board of its own — a copy by construction, with nothing the live
- * engine holds ever touched.
- *
- * The engine stays the authority on where the game IS: the last ply of a batch takes the engine's
- * own [SimBatch.fenAfter] (exactly where Python's `_fens_after` ends, at `board.fen()`), and the
- * replay board is re-seated on it, so a move this replay could not play stays a local hole instead
- * of poisoning every later ply.
+ * One row per ply with the FEN after ITSELF, replayed on a board of its own (Python's `_fens_after`).
+ * The engine stays the authority: the batch's last ply takes [SimBatch.fenAfter] and the board is
+ * re-seated on it, so an unplayable move stays a local hole.
  */
 internal fun realGamePlies(
     batches: List<SimBatch>,
@@ -154,14 +110,7 @@ internal fun realGamePlies(
     return plies
 }
 
-/**
- * Drives the phone's engine over [source] and reports what it committed — the real-game twin of
- * `runClip`, and the same runner underneath.
- *
- * [onFrame] is handed each decoded frame together with the index that decoded it, once, in decode
- * order; see [replayVideo]. Everything this returns is the engine's own opinion: nothing here
- * scores it, because there is nothing to score it against.
- */
+/** The real-game twin of `runClip` on the same runner; unscored, there is nothing to score it against. */
 internal fun runRealGame(
     source: RealGameSource,
     cnn: SimCnn?,
@@ -178,3 +127,22 @@ internal fun runRealGame(
 
 /** `Game.fen()`'s spelling, so a replayed FEN is comparable string-for-string with the engine's. */
 private fun Board.engineFen(): String = getFen(true, true)
+
+/**
+ * specs/52 phase 01: measured with the shipping `GeometryScan`, every tenth frame. A refusal is an
+ * `error`: a label on crooked geometry is worse than none (2026-07-31, the corpus 3-6 px out).
+ */
+internal fun measuredGeometryOf(video: File): ScannedGeometry {
+    val scan = GeometryScan(videoFps(video)) { println("  $it") }
+    forEachFrameTimed(video) { _, mat, timestampMs -> scan.offer(mat, timestampMs) }
+    val measured =
+        requireNotNull(scan.result()) {
+            "no sampled frame of ${video.name} aligned to the board's grid — is the board in shot?"
+        }
+    println(geometryReport(measured))
+    val refusals = geometryRefusals(measured)
+    require(refusals.isEmpty()) {
+        "this footage cannot become a candidate:\n  - " + refusals.joinToString("\n  - ")
+    }
+    return measured
+}

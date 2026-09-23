@@ -34,9 +34,8 @@ private class ClosingClassifier :
 }
 
 /**
- * A tracker restart closes an observer while the app keeps running, so the teardown has to be real
- * AND finished when [CnnObserver.close] returns: `TrackerStack.close` releases the pipeline and the
- * CLAHE right after it, and the next stack opens the next ONNX session.
+ * A restart closes the observer while the app runs: the teardown must be finished when [CnnObserver.close]
+ * returns, because `TrackerStack.close` releases the pipeline right after it and the next stack opens a session.
  */
 class CnnObserverCloseTest {
     private val classifier = ClosingClassifier()
@@ -139,6 +138,20 @@ class CnnObserverCloseTest {
         repeat(10) { observer.onFrameAvailable() }
 
         assertEquals(before, takes.get())
+    }
+
+    /** `retry()` returned true from ANY state and `load` overwrote the running session unclosed. */
+    @Test
+    fun retryOnAReadyObserverDoesNotLeakTheRunningSession() {
+        val observer = observer()
+        val second = ClosingClassifier()
+
+        observer.retryAttach { Attached(second, "CPU", MODEL_FP32_FILE) }
+        awaitReady(observer)
+
+        assertEquals(1, classifier.closes.get(), "the replaced ONNX session leaked, one native arena per retry")
+        observer.close()
+        assertEquals(1, second.closes.get(), "the live session is still closed on teardown")
     }
 
     private fun awaitReady(observer: CnnObserver) {

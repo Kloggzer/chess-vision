@@ -2,6 +2,11 @@ package com.chesslab.tracker.games
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.tracker.hints.HintController
+import com.chesslab.tracker.hints.HintPlan
+import com.chesslab.tracker.hints.HintSide
+import com.chesslab.tracker.io.defaultSideFiles
+import com.chesslab.tracker.io.sideFiles
 import com.chesslab.tracker.record.CaptureFrame
 import com.chesslab.tracker.record.CaptureSource
 import com.chesslab.tracker.record.FrameWriter
@@ -16,6 +21,7 @@ import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.move.Move
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -31,7 +37,7 @@ private const val FOOLS_MATE = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR
 
 /**
  * A jump nothing explains: [AFTER_JUMP] with White's queen's rook gone. [AFTER_JUMP] itself is no
- * longer a seam, so a seam test needs a gap with no legal explanation (`docs/game-record-seams.md`).
+ * longer a seam, so a seam test needs a gap with no legal explanation (`docs/game-review.md`).
  */
 private const val AFTER_LOST_BOARD = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/1NBQKB1R b Kkq - 1 2"
 private const val AFTER_LOST_BOARD_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/1NBQKB1R w Kkq - 2 3"
@@ -96,7 +102,7 @@ class GameSessionControllerTest {
 
     /**
      * The ways a game ends that the BOARD cannot see. `resultFromFen` returns `*` for all of them,
-     * so every normally ended game read "Game in progress" (`docs/game-record-seams.md`).
+     * so every normally ended game read "Game in progress" (`docs/game-review.md`).
      */
     @Test
     fun theStatedResultIsWhatIsStored() {
@@ -135,7 +141,7 @@ class GameSessionControllerTest {
 
     /**
      * The LIVE source and the ARCHIVE source must project the same game — the whole claim of "one
-     * view, two sources" (`docs/game-record-seams.md`).
+     * view, two sources" (`docs/game-review.md`).
      */
     @Test
     fun theLiveViewAndTheStoredGamesViewAreTheSameProjection() {
@@ -154,17 +160,15 @@ class GameSessionControllerTest {
         assertEquals(live.plies.map { it.uci }, archived.plies.map { it.uci })
         assertEquals(live.plies.map { it.ply }, archived.plies.map { it.ply })
         assertEquals(live.plies.map { it.decider }, archived.plies.map { it.decider })
-        // The positions too. Compared on placement + side to move, which is exactly what the board
-        // renders: the live source carries the ENGINE's FEN string and the archive replays it
-        // through chesslib, and the two legitimately differ in the halfmove/en-passant fields. A
-        // pair commit publishes only its FINAL fen, so this is where a lazy replay would show up.
+        // Placement + side to move only: the engine's FEN and chesslib's replay legitimately differ in the
+        // halfmove/en-passant fields. A pair publishes only its FINAL fen, so a lazy replay shows up here.
         assertEquals(live.plies.map { position(it.fenAfter) }, archived.plies.map { position(it.fenAfter) })
         assertEquals(live.startFen, archived.startFen)
     }
 
     /**
      * Discard must drop the RECORD, not only reset the engine — a left-standing record opened a seam
-     * inside a game the user had already thrown away (`docs/game-record-seams.md`).
+     * inside a game the user had already thrown away (`docs/game-review.md`).
      */
     @Test
     fun discardDropsTheRunningGameWithoutStoringIt() {
@@ -206,13 +210,11 @@ class GameSessionControllerTest {
         val capture = capture(enabled = true)
         val controller = controller(capture)
         controller.onIdle(STARTPOS, "board-a")
-        // Ein sauberer Status, nicht `null`: ohne Status ist die Sauberkeit unbewiesen und das Foto
-        // wird aufgeschoben — hier soll es geschrieben werden.
+        // Ein sauberer Status, nicht `null`: ohne Status wird das Foto aufgeschoben.
         controller.onEvent(move("e2e4", "e4", AFTER_E4), idleTrackerStatus(AFTER_E4))
         assertEquals(1, capture.recorder?.count)
         assertEquals("s", controller.state.value.recordingSessionId)
-        // The published position went BACK to the one before the move, and STAYED there: that is an
-        // undo, and a taken-back move must survive neither in the library nor as labeled data.
+        // The published position went BACK and STAYED there: an undo, in neither library nor labels.
         controller.onStatus(idleTrackerStatus(STARTPOS))
         now += 1_000
         controller.onStatus(idleTrackerStatus(STARTPOS))
@@ -222,7 +224,7 @@ class GameSessionControllerTest {
 
     /**
      * The bug behind every seam in the games on the device: a late status sample is bit-for-bit a
-     * take-back, and 69 announced plies were stored as 39 (2026-08-10, `docs/game-record-seams.md`).
+     * take-back, and 69 announced plies were stored as 39 (2026-08-10, `docs/game-review.md`).
      */
     @Test
     fun aStatusThatArrivesOnePlyLateDoesNotDeleteTheMoveItMissed() {
@@ -248,7 +250,7 @@ class GameSessionControllerTest {
 
     /**
      * D1. The engine commits through TWO events, and this controller handled only `MoveCommitted`.
-     * One photo per COMMIT, not per ply (`docs/game-record-seams.md`).
+     * One photo per COMMIT, not per ply (`docs/game-review.md`).
      */
     @Test
     fun aFastPlayPairIsRecordedAsTwoMovesAndOnePhoto() {
@@ -263,9 +265,7 @@ class GameSessionControllerTest {
         val saved = controller.endAndSave()
         val stored = store.open(saved!!.id)!!
         assertEquals(listOf("e4", "e5", "Nf3", "Nc6"), stored.moves.map { it.san })
-        // BOTH plies of the pair carry the decider — one decision produced them. Writing `null` for
-        // the earlier one lost it: 89 of 113 plies across 16 stored games read as "unknown", which
-        // is exactly the figure needed to see how much of a game recovery is responsible for.
+        // BOTH plies carry the decider: `null` on the earlier one left 89 of 113 stored plies "unknown".
         assertEquals(
             listOf("diff", "diff", "diff_pair", "diff_pair"),
             stored.moves.map { it.provenance?.decider },
@@ -288,7 +288,7 @@ class GameSessionControllerTest {
 
     /**
      * D3. Four of five device games were not legal sequences from their own `startFen`. A seam opens
-     * a SEGMENT, and only for a gap nothing explains (`docs/game-record-seams.md`).
+     * a SEGMENT, and only for a gap nothing explains (`docs/game-review.md`).
      */
     @Test
     fun aCommitThatLeftTheRecordsLineOpensASegmentNotANewRecord() {
@@ -316,7 +316,7 @@ class GameSessionControllerTest {
 
     /**
      * A CNN recovery commits from where the BOARD is, and exactly one legal sequence gets from the
-     * record to there — so the plies are appended, not split off (`docs/game-record-seams.md`).
+     * record to there — so the plies are appended, not split off (`docs/game-review.md`).
      */
     @Test
     fun aGapTheMissedPlyExplainsIsClosedInsteadOfSplit() {
@@ -359,7 +359,7 @@ class GameSessionControllerTest {
 
     /**
      * All 77 plies across five device sessions stored `provenance: null`, debug ON included — the
-     * decider belongs on the commit event, not in the debug payload (`docs/game-record-seams.md`).
+     * decider belongs on the commit event, not in the debug payload (`docs/game-review.md`).
      */
     @Test
     fun theDeciderIsRecordedWithoutADebugPayload() {
@@ -372,10 +372,7 @@ class GameSessionControllerTest {
         val moves = store.open(saved!!.id)!!.moves
         assertEquals("cnn_overrule", moves[0].provenance?.decider)
         assertTrue(moves[0].provenance!!.priorUsed)
-        // Both plies of the pair name the decider; only the LAST carries the evidence, because that
-        // is the only ply the engine recorded evidence against (`Commit.kt:157`). This used to
-        // assert `null` on the earlier ply, which pinned the defect: with the decider dropped too,
-        // 89 of 113 plies across 16 stored games read as "unknown".
+        // Only the LAST ply carries evidence, the only one the engine recorded it against (`Commit.kt:157`).
         assertEquals("diff_pair", moves[1].provenance?.decider, "the pair's first ply names it too")
         assertTrue(moves[1].provenance!!.changed.isEmpty(), "but claims no evidence of its own")
         assertEquals("diff_pair", moves[2].provenance?.decider, "and a pair states its decider too")
@@ -383,7 +380,7 @@ class GameSessionControllerTest {
 
     /**
      * D2. The Kotlin engine emits `ReAnchored` unconditionally, so flushing on every one of them
-     * photographs a hand — 64 crops labeled as pieces nobody can see (`docs/game-record-seams.md`).
+     * photographs a hand — 64 crops labeled as pieces nobody can see (`docs/game-review.md`).
      */
     @Test
     fun aReAnchorWithSquaresStillOccludedDoesNotTakeThePhoto() {
@@ -401,9 +398,8 @@ class GameSessionControllerTest {
 
     /**
      * While the illegal-move latch is up, no frame may be written: a photo now is poisoned training
-     * data. Pinned at the CONSUMER so it survives whatever the engine does (`docs/game-record-seams.md`).
+     * data. Pinned at the CONSUMER so it survives whatever the engine does (`docs/game-review.md`).
      */
-
     @Test
     fun nothingIsRecordedWhileTheAlarmIsLatched() {
         val capture = capture(enabled = true)
@@ -424,7 +420,7 @@ class GameSessionControllerTest {
 
     /**
      * A seam must not swallow the plies that caused it — they fit neither move list, and Qxd4, Qe5+
-     * and Be7 appear in none of one game's three stored files (`docs/game-record-seams.md`).
+     * and Be7 appear in none of one game's three stored files (`docs/game-review.md`).
      */
     @Test
     fun aSeamRecordsThePliesThatCausedItOnTheNewSegment() {
@@ -494,7 +490,7 @@ class GameSessionControllerTest {
 
     /**
      * The 2026-07-28 fragments are pre-segment: `ignoreUnknownKeys` would drop `openedBySeam` on the
-     * first read and the next write would erase it, so it is migrated (`docs/game-record-seams.md`).
+     * first read and the next write would erase it, so it is migrated (`docs/game-review.md`).
      */
     @Test
     fun aRecordWrittenBeforeSegmentsLoadsAsOneSegment() {
@@ -521,7 +517,7 @@ class GameSessionControllerTest {
 
     /**
      * The device's own fragments predate `openedBySeam` too. They must still open — as one segment
-     * claiming no seam, because none was ever recorded (`docs/game-record-seams.md`).
+     * claiming no seam, because none was ever recorded (`docs/game-review.md`).
      */
     @Test
     fun aRecordWrittenBeforeSeamsWereRecordedLoadsAsOneSegmentWithNoSeam() {
@@ -538,5 +534,43 @@ class GameSessionControllerTest {
         assertEquals(AFTER_JUMP, game.segments.single().startFen)
         assertNull(game.segments.single().enteredBy)
         assertEquals(0, game.summary().seams)
+    }
+
+    /** `GameStore.save` writes three separately atomic artefacts; the controller dropped the game
+     *  before they were through, leaving the lost `live` state as its only copy. */
+    @Test
+    fun `a game whose pgn cannot be written is still live afterwards`() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        // Throws AFTER the `<id>.json` is written and before the index knows it.
+        sideFiles = { f -> if (f.name.endsWith(".pgn")) File(dir, "weg/x.tmp") else defaultSideFiles(f) }
+        try {
+            assertTrue(runCatching { controller.endAndSave() }.isFailure, "das Schreiben muss scheitern")
+        } finally {
+            sideFiles = defaultSideFiles
+        }
+
+        assertEquals(1, controller.state.value.moveCount, "der Zug steht noch im Zustand")
+        val saved = controller.endAndSave()
+        assertNotNull(saved, "und sie muss sich ein zweites Mal speichern lassen")
+        assertEquals(listOf("e4"), store.open(saved!!.id)?.moves?.map { it.san })
+    }
+
+    /** Das automatische Partieende ruft keinen Schirm: es raeumte den Ledger, liess aber Plan und
+     *  Restkontingent im `HintController` stehen — der Knopf blieb auf der beendeten Stellung. */
+    @Test
+    fun `a mate ends the hint quota with the record`() {
+        val ledger = HintLedger()
+        val hints = HintController(ledger)
+        val games = GameSessionController(store, capture(enabled = false), { now }, { "game-$it" }, ledger, listOf(hints))
+        hints.startGame(HintPlan(side = HintSide.WHITE, quota = 3))
+        games.onIdle(STARTPOS, "board-a")
+
+        games.onEvent(move("d8h4", "Qh4#", FOOLS_MATE), null)
+
+        assertEquals(1, store.list().size, "die Partie ist von selbst gespeichert")
+        assertFalse(hints.offered(FOOLS_MATE), "und danach wird kein Tipp mehr angeboten")
+        assertEquals(0, hints.state.value.remaining)
     }
 }

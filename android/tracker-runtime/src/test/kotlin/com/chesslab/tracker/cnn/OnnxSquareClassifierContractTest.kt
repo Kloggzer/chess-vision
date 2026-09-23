@@ -119,9 +119,8 @@ class OnnxSquareClassifierContractTest {
     }
 
     /**
-     * 13 classes plus the coverage unit is the SAME 14 columns the old model emits, and only the
-     * declaration tells them apart. The classes must still sum to 1 and the coverage must arrive as
-     * a sigmoid: softmaxing all 14 would turn it into a class probability and bend every other one.
+     * 13 classes plus coverage are the SAME 14 columns the old model emits; only the declaration tells
+     * them apart. Softmaxing all 14 would turn coverage into a class probability and bend every other one.
      */
     @Test
     fun coverageRidesBesideTheClassProbabilitiesAsItsOwnSigmoid() {
@@ -165,36 +164,28 @@ class OnnxSquareClassifierContractTest {
         runner.buffers.forEach { assertSame(runner.buffers.first(), it) }
     }
 
-    /**
-     * The real bundled graph, staged and run end to end. On the desktop JVM only the CPU
-     * provider builds — QNN and NNAPI fall through, which is exactly the chain's contract.
-     */
+    /** The real bundled graph end to end; on the desktop JVM only the CPU provider builds. */
     @Test
     fun stagesAndRunsTheRealAssetModelOnTheFallbackProvider(
         @TempDir tmp: File,
     ) {
         val log = RecordingLog()
-        val staged = CnnModelAssets({ name -> File(assetDir(), name).takeIf { it.isFile }?.inputStream() }, tmp).stage()
+        val staged = stageAssets(tmp)
         OnnxSquareClassifier.open(staged, log).use { classifier ->
-            // Not "CPU (unverified)": ORT's own profile named CPUExecutionProvider for the
-            // warm-up batch. A bare provider name is only ever printed after it was observed.
+            // Not "CPU (unverified)": a bare provider name is only printed after ORT's profile observed it.
             assertEquals("CPU", classifier.backend)
             assertEquals(assetClasses(), classifier.classes)
             val assetSpec = ModelSpec.parse(staged.configJson)
             val probs = classifier.classify(crops(assetSpec.outWidth))
             assertEquals(ALL_SQUARES.size, probs.size)
-            // The CLASSES sum to one. A coverage run carries one more column, and that one is a
-            // sigmoid beside them — adding it in would assert against a number that means nothing.
+            // The CLASSES sum to one; a coverage run's extra column is a sigmoid beside them.
             probs.forEach {
                 val classMass = if (assetSpec.coverageOutput) it.dropLast(1).sum() else it.sum()
                 assertTrue(abs(classMass - 1.0f) < 1e-4f, "row classes sum to $classMass")
             }
             assertTrue(classifier.lastRunMs > 0.0)
         }
-        // Derived, not a literal: the desktop natives carry the CPU provider and nothing else, so
-        // every EP ABOVE CPU has to warn and fall through rather than fail silently. Counted to CPU
-        // rather than to the chain's end — CPU is no longer the last entry, NNAPI is, and NNAPI is
-        // never reached here because CPU succeeds first.
+        // Every EP ABOVE CPU must warn and fall through; counted to CPU, since NNAPI (last) is never reached.
         assertEquals(
             epChain(staged.qnn != null).indexOf(Ep.CPU),
             log.warnings.size,

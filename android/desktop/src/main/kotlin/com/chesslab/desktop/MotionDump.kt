@@ -10,7 +10,7 @@ import java.io.Writer
  *
  * The score is a PERCENT of strongly-changed pixels against the PREVIOUS frame, so what the gate
  * separates is two populations (still board, hand in the ROI) and the threshold belongs in the
- * valley between them. `docs/motion-threshold.md` measures both, and the scaling with frame rate.
+ * valley between them. The frame-rate scaling: `docs/android-performance.md` (Strom).
  */
 internal class MotionDump(
     private val inner: FrameStages<Mat>,

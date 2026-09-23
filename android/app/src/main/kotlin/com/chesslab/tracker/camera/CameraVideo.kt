@@ -21,7 +21,7 @@ private const val VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_AVC
 
 /**
  * How much a pixel is worth, ONE decision for both paths (2026-09-13): 1,5x the 0,362 the corpus
- * measures today, so 1440p/15 lands on 29,9 Mbit/s (`docs/camera-video-encoder.md`).
+ * measures today, so 1440p/15 lands on 29,9 Mbit/s (`docs/camera.md`).
  */
 const val BITS_PER_PIXEL = 0.54
 
@@ -29,7 +29,7 @@ private const val MB_BYTES = 1024L * 1024L
 
 /**
  * The floor, so an implausibly small delivered frame cannot produce an unusable file. It is where
- * the weakest recording on disk already sits, and that one is borderline (`docs/camera-video-encoder.md`).
+ * the weakest recording on disk already sits, and that one is borderline (`docs/camera.md`).
  */
 const val MIN_VIDEO_BIT_RATE = 8_000_000
 
@@ -57,7 +57,7 @@ private const val VIDEO_I_FRAME_SECONDS = 1
 
 /**
  * How much footage a killed process may cost. An MP4's index is written when the muxer CLOSES, and
- * 1.99 GB of transferred recordings had none (2026-08-13; `docs/camera-video-encoder.md`).
+ * 1.99 GB of transferred recordings had none (2026-08-13; `docs/camera.md`).
  */
 private const val SEGMENT_SECONDS = 60L
 private const val US_PER_SECOND = 1_000_000L
@@ -69,7 +69,7 @@ private const val BYTES_PER_MB = 1024L * 1024L
 
 /**
  * How often the ARMED ring reports its depth to logcat — that phase has no session, so a recording
- * carrying 1.4 s where 20 were due could not say when it was armed (`docs/camera-video-encoder.md`).
+ * carrying 1.4 s where 20 were due could not say when it was armed (`docs/camera.md`).
  */
 private const val ARMED_LOG_INTERVAL_MS = 5000L
 
@@ -88,7 +88,7 @@ data class VideoProgress(
 
 /**
  * The video seam, as its ONE consumer (`RecordingBundleHost`) sees it. Arming has an owner and it is
- * the recorder, not the encoder's callbacks (`docs/camera-video-encoder.md`).
+ * the recorder, not the encoder's callbacks (`docs/camera.md`).
  */
 interface VideoRecorderPort {
     val videoResolution: DeliveredSize?
@@ -116,7 +116,7 @@ interface VideoRecorderPort {
 
 /**
  * Encodes the same QHD YUV frames that feed the tracker, and starts ARMED: an unkept run writes
- * NOTHING, which kept 4.7 GB of setup footage off the disk (`docs/camera-video-encoder.md`).
+ * NOTHING, which kept 4.7 GB of setup footage off the disk (`docs/camera.md`).
  */
 @Suppress("TooManyFunctions")
 class CameraVideo : AutoCloseable {
@@ -161,7 +161,7 @@ class CameraVideo : AutoCloseable {
 
     /**
      * The footage that actually preceded the first committed move, as flushed — it reaches
-     * `session.yaml` as `video_pre_roll_ns`, and zero means armed AT the commit (`docs/camera-video-encoder.md`).
+     * `session.yaml` as `video_pre_roll_ns`, and zero means armed AT the commit (`docs/camera.md`).
      */
     @Volatile
     var preRollUs: Long = 0L
@@ -198,7 +198,7 @@ class CameraVideo : AutoCloseable {
 
     /**
      * The encoder's rate-control hint, from the camera request. `KEY_BIT_RATE` is per SECOND and
-     * spent per FRAME, so a 15 fps stream told 30 budgets half of it away (`docs/camera-video-encoder.md`).
+     * spent per FRAME, so a 15 fps stream told 30 budgets half of it away (`docs/camera.md`).
      */
     @Volatile
     var frameRate: Int = VIDEO_FRAME_RATE
@@ -272,7 +272,7 @@ class CameraVideo : AutoCloseable {
 
     /**
      * What this encoder will really do with the asked-for size and rate, said out loud — `configure`
-     * silently re-interprets a rate above its range instead of refusing it (`docs/camera-video-encoder.md`).
+     * silently re-interprets a rate above its range instead of refusing it (`docs/camera.md`).
      */
     private fun agreedProfile(
         encoder: MediaCodec,
@@ -366,7 +366,7 @@ class CameraVideo : AutoCloseable {
 
     /**
      * EVERY segment, not just `video.mp4`: segment 0 alone reported 76,7 MB where 761 MB lay in 13
-     * files. Read after [releaseEncoder], so every index is written (`docs/camera-video-encoder.md`).
+     * files. Read after [releaseEncoder], so every index is written (`docs/camera.md`).
      */
     private fun writtenBytes(): Long {
         if (outputFile == null) return encodedBytes
@@ -438,7 +438,7 @@ class CameraVideo : AutoCloseable {
 
     /**
      * Open the muxer for segment 0 and write the buffered pre-roll, rebased to zero — flushed and
-     * live samples share one clock, so nothing overlaps at the seam (`docs/camera-video-encoder.md`).
+     * live samples share one clock, so nothing overlaps at the seam (`docs/camera.md`).
      */
     private fun goLive() {
         val format = trackFormat ?: return
@@ -477,7 +477,7 @@ class CameraVideo : AutoCloseable {
 
     /**
      * Close the current file and open the next one, at a SYNC frame — hence "at or after the limit"
-     * rather than on it, and no frame is dropped or duplicated (`docs/camera-video-encoder.md`).
+     * rather than on it, and no frame is dropped or duplicated (`docs/camera.md`).
      */
     private fun rotateIfDue(info: MediaCodec.BufferInfo) {
         val sync = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0

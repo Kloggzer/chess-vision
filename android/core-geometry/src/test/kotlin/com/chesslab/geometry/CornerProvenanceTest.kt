@@ -8,10 +8,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import kotlin.math.abs
 
-/**
- * Wo eine SCHAETZUNG als MESSUNG weitergereicht werden koennte. Der Anker gegen die affine
- * Rekonstruktion (57,2 px) schloss eine solche Stelle; diese drei sind die Nachbarn davon.
- */
+/** Wo eine SCHAETZUNG als MESSUNG weitergereicht werden koennte. Der Anker gegen die affine
+ *  Rekonstruktion (57,2 px) schloss eine solche Stelle; diese drei sind die Nachbarn davon. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class CornerProvenanceTest {
     /** Zwei Marker rekonstruieren die anderen beiden unter QUADRAT-Annahme. Wer drei fordert,

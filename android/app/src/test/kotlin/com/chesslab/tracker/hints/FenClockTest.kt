@@ -20,12 +20,8 @@ class FenClockTest {
         val clock = FenClock { now }
         clock.steadyMs(FEN)
         now += 10_000L
-        assertEquals(0L, clock.steadyMs(OTHER))
+        assertEquals(0L, clock.steadyMs(OTHER_FEN))
         now += 1L
-        assertEquals(1L, clock.steadyMs(OTHER))
+        assertEquals(1L, clock.steadyMs(OTHER_FEN))
     }
 }
-
-private const val FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
-
-private const val OTHER = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2"

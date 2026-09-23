@@ -1,9 +1,7 @@
 package com.chesslab.cnn
 
-// A ~90-line JSON reader for the phase-00b golden fixtures. `:core-cnn`'s build file is
-// owned by phase 00a and carries no JSON dependency (and `org.json` is stubbed in Android
-// unit tests), so the loader is local to this module's test sources - the `:core-engine`
-// ParityFixtures.kt loader is deliberately NOT moved or duplicated here.
+// A small JSON reader for the golden fixtures: `:core-cnn` carries no JSON dependency, and
+// `org.json` is stubbed in Android unit tests.
 internal class MiniJson(
     private val src: String,
 ) {

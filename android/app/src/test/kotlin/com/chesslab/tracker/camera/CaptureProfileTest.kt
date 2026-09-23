@@ -37,8 +37,7 @@ class CaptureProfileTest {
 
     @Test
     fun `a rate that ran free is not as asked`() {
-        // Kein gepinnter AE-Bereich heisst, die Automatik durfte die Periode strecken — genau der
-        // stille Rueckfall, den diese Zeile rot faerben soll.
+        // Ohne gepinnten AE-Bereich durfte die Automatik die Periode strecken.
         assertFalse(observed(DeliveredSize(3840, 2160, 0)).copy(aeFpsRange = null).asAsked)
     }
 

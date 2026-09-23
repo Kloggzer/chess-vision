@@ -1,23 +1,14 @@
 package com.chesslab.tracker.service
 
-import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.EngineAction
-import com.chesslab.engine.api.EngineOps
-import com.chesslab.engine.api.FrameInput
-import com.chesslab.engine.api.TrackerEvent
-import com.chesslab.engine.api.TrackerStatus
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.concurrent.thread
 
-/**
- * Records what happened, and — crucially — what the switch was holding at the moment it happened.
- * A frame arriving during the teardown must find NO stack, not a closing one.
- */
+/** Records what the switch was holding at each step: a frame during the teardown must find NO stack. */
 private class FakeStack(
     val id: Int,
     private val trace: MutableList<String>,
@@ -77,17 +68,13 @@ class TrackerRestartTest {
         assertTrue(live.closed)
     }
 
-    /**
-     * A restart builds a NEW [EngineHost] on purpose. The old one keeps its claim (and keeps
-     * rejecting foreign threads), the new one is unclaimed and latches onto whichever thread drives
-     * it first — that is how the ownership `check` is re-established instead of defeated.
-     */
+    /** A restart builds a NEW [EngineHost]: the old one keeps rejecting foreign threads, the new one latches afresh. */
     @Test
     fun aRebuiltEngineHostRelatchesOnItsNewOwningThread() {
-        val old = EngineHost(CountingOps())
+        val old = EngineHost(RecordingOps())
         old.tick(null)
 
-        val fresh = EngineHost(CountingOps())
+        val fresh = EngineHost(RecordingOps())
         var onFresh: Throwable? = null
         var onOld: Throwable? = null
         thread {
@@ -101,37 +88,13 @@ class TrackerRestartTest {
 
     @Test
     fun aRebuiltEngineHostStartsWithEmptyQueues() {
-        val ops = CountingOps()
+        val ops = RecordingOps()
         val old = EngineHost(ops)
         old.submit(EngineAction.Undo)
 
-        val fresh = EngineHost(CountingOps())
+        val fresh = EngineHost(RecordingOps())
         fresh.tick(null)
 
-        assertEquals(0, ops.applied, "an action queued before the restart must not resurface after it")
-        assertFalse(ops.claimed, "the discarded host must never have been ticked")
+        assertEquals(emptyList<String>(), ops.calls, "an action queued before the restart must not resurface after it")
     }
-}
-
-private class CountingOps : EngineOps {
-    var applied = 0
-        private set
-    var claimed = false
-        private set
-
-    override fun onFrame(input: FrameInput): List<TrackerEvent> {
-        claimed = true
-        return emptyList()
-    }
-
-    override fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> = emptyList()
-
-    override fun apply(action: EngineAction): List<TrackerEvent> {
-        applied += 1
-        return emptyList()
-    }
-
-    override fun status(): TrackerStatus = statusOf()
-
-    override fun fen(): String = statusOf().fen
 }

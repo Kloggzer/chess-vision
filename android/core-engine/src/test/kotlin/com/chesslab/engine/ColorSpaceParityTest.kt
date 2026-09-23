@@ -10,12 +10,8 @@ import org.junit.jupiter.api.Test
 import kotlin.math.abs
 
 /**
- * Parity of the hand-written BGR -> HSV / Lab against the OpenCV-produced `parity/_colorspace/`
- * fixture (a 0..255 sweep patch plus a real 320x320 board warp).
- *
- * Bound per `parity/README.md`: **<= 1 LSB per channel** — OpenCV's 8-bit path is a fixed-point
- * pipeline over integer LUTs, so bit-exactness is not required. Every *derived square set* must
- * still be exact; that is `ShadowGamutParityTest`'s job.
+ * BGR -> HSV / Lab against OpenCV's `parity/_colorspace/`: <= 1 LSB per channel, since OpenCV's 8-bit
+ * path is fixed-point. The DERIVED square sets must still be exact (`ShadowGamutParityTest`).
  */
 class ColorSpaceParityTest {
     @Serializable

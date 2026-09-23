@@ -5,13 +5,8 @@ import com.chesslab.geometry.BoardGeometry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * `fps=<n>` emulates the phone's frame drops, so it has to emulate the phone's answer to them:
- * `motionThr` is a percent of pixels changed against the PREVIOUS frame, and `TrackerService`
- * scales it by `30 / fps` before the engine ever sees it. A replay that skipped the scaling
- * measured a tracker the phone never runs — the same hand at half the rate crossed a threshold
- * calibrated for the full one.
- */
+/** `TrackerService` scales `motionThr` by `30 / fps`; a replay at `fps=<n>` that skipped it
+ *  measured a tracker the phone never runs. */
 class ReplayMotionThrTest {
     private val geometry = BoardGeometry(boardSize = 1104)
     private val reference = TrackerConfig().motionThr

@@ -9,17 +9,11 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `_maybe_patch_anomaly` — the per-cell self-healing of the reference.
- *
- * Python reference: `tests/test_move_tracker.py::TestNudgePatch`.
- */
+/** `_maybe_patch_anomaly` — `tests/test_move_tracker.py::TestNudgePatch`. */
 class AnomalyPatcherTest {
     @Test
     fun nudgePatchesOccupiedSquare() {
-        // One OCCUPIED square is persistently changed and no viable move explains it (a nudge /
-        // j'adoube). With `nudgeTimeoutS = 0` the cell is pulled forward immediately and the
-        // tracker keeps running instead of staying stuck.
+        // An OCCUPIED square changed with no move behind it (a nudge) is pulled forward at once.
         val config = detectConfig().copy(nudgeTimeoutS = 0.0)
         val state = detectState(config, ref = grayFrame())
         val cur = grayFrame(listOf("e2"))
@@ -46,13 +40,8 @@ class AnomalyPatcherTest {
 
     @Test
     fun aDesyncedBoardIsNeverPatched() {
-        // The patcher absorbs shadow and drift, and a square that differs because the PHYSICAL
-        // board moved on looks identical to it. Healing that into the reference makes the diff
-        // channel agree with the wrong position permanently — the silent desync the quiet-re-anchor
-        // veto exists to prevent, on a path the veto never covered.
-        //
-        // Each of these three must hold ALONE. The first version of this guard also tested
-        // `stuckReason == STUCK_CNN_DESYNC`, which is unreachable here — see the next test.
+        // Healing a PHYSICALLY moved board into the reference is the silent desync the quiet-re-anchor
+        // veto prevents, on a path it never covered. Each of the three must hold ALONE.
         for (desync in listOf("alarm", "streak", "status")) {
             val state = detectState(ref = grayFrame())
             val ref = requireNotNull(state.refGray)
@@ -70,36 +59,19 @@ class AnomalyPatcherTest {
     }
 
     /**
-     * The guard has to be keyed to something that can be TRUE where the patcher runs.
-     *
-     * Its first version tested `stuckReason == STUCK_CNN_DESYNC`. Both callers
-     * (`Hypothesis.kt:147`, `:198`) call `markStuck` on the line above, so the reason at the guard
-     * is always `too_many_changed` or `no_legal_move`; `STUCK_CNN_DESYNC` is written in exactly one
-     * place (`TrackerEngine.kt:424`) on a frame where `changed == 0`, which the patcher's own
-     * `n > 0` excludes. Half the guard was dead and the test set the field by hand, so it passed.
-     *
-     * This drives the engine there instead of asserting it.
+     * The first guard tested `stuckReason == STUCK_CNN_DESYNC`, which is only written where `changed == 0`
+     * and so is never the reason at the patcher. Half the guard was dead; this drives the engine there.
      */
     @Test
     fun theStuckReasonAtThePatcherIsNeverTheDesyncOne() {
         val state = detectState(ref = grayFrame())
         state.nowS = 100.0
-        // A single hot square with no legal move behind it — the state the patcher fires from.
         state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
         state.tryDetect(grayFrame(listOf("e4")), null, seq = 2)
-        // This one assertion IS the finding: the reason the engine arrives at is `no_legal_move`,
-        // so a guard keyed on `cnn_desync` can never fire here. An `assertNotEquals` against
-        // `STUCK_CNN_DESYNC` used to follow it and could not fail — two unequal constants compared
-        // after the first assertion has already pinned the value to one of them.
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
     }
 
-    /**
-     * The guard says "while the CNN disagrees" and `desyncObs` said "ever disagreed": the streak
-     * only ever counted UP, and the one place that put it back to zero was `clearAlarm`, which
-     * returns early unless a latch is actually set. One disagreeing glance therefore disabled the
-     * healing for the rest of the session, on a path where nothing else would ever say so.
-     */
+    /** `desyncObs` only counted UP outside a latch, so one disagreeing glance disabled healing for the session. */
     @Test
     fun aMatchingObservationLetsThePatcherHealAgain() {
         val state = recoveryState()
@@ -123,11 +95,7 @@ class AnomalyPatcherTest {
         assertTrue(ref.data.any { it == TEST_BLOB_LEVEL.toByte() }, "the CNN agreed again — healing must resume")
     }
 
-    /**
-     * Der Zeitgeber lief gegen die ALTE Referenz. `finishCommit` und der stille Neu-Anker raeumen
-     * `anomalySince` ab, die beiden CNN-Uebergaenge nicht — ein dort schon abgelaufener Timer
-     * autorisierte damit sofort einen Patch gegen eine Referenz, die er nie gesehen hat.
-     */
+    /** Die beiden CNN-Uebergaenge raeumten `anomalySince` nicht: ein abgelaufener Timer patchte gegen eine neue Referenz. */
     @Test
     fun aMatchOkPullForwardRestartsTheAnomalyTimers() {
         val state = recoveryState()
@@ -175,11 +143,7 @@ class AnomalyPatcherTest {
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason, "and the refusal stands instead of being patched away")
     }
 
-    /**
-     * Der Zeitgeber wurde nur in den beiden Verweigerungs-Armen gepflegt. Ein Feld, das bei t=0
-     * heiss war, ueber den Kandidaten-Pfad hundert Sekunden lang NICHT `changed` ist und dann wieder
-     * auftaucht, kam mit dem alten Start zurueck -- und war damit sofort faellig.
-     */
+    /** Der Zeitgeber wurde nur in den Verweigerungs-Armen gepflegt; nach 100 s Kandidaten-Pfad war er sofort faellig. */
     @Test
     fun aQuietStretchRestartsTheAnomalyTimer() {
         // The vote count keeps the candidate from committing — a commit clears the timers itself.
@@ -204,8 +168,7 @@ class AnomalyPatcherTest {
     fun patchInvalidatesRefCensusCache() {
         val state = detectState(ref = grayFrame())
         val ref = requireNotNull(state.refGray)
-        // Warm the identity-keyed cache, then patch: `refGray` is mutated IN PLACE, so a stale
-        // cache would keep comparing against the pre-patch codes forever.
+        // `refGray` is mutated IN PLACE, so the identity-keyed cache would go stale.
         state.refCensusCodes(ref)
         assertNotNull(state.refCensusFor)
         state.nowS = 100.0
@@ -219,8 +182,7 @@ class AnomalyPatcherTest {
 
     @Test
     fun patchRegionIncludesOverhang() {
-        // The patched box must be exactly the pixels the diff looks at, overhang included: patching
-        // only the base cell leaves the strip above it hot forever and the healing never converges.
+        // Patching only the base cell leaves the overhang strip hot forever.
         val config = detectConfig(overhang = 0.25).copy(nudgeTimeoutS = 0.0)
         val state = detectState(config, ref = grayFrame())
         val ref = requireNotNull(state.refGray)
@@ -261,8 +223,7 @@ class AnomalyPatcherTest {
 
     @Test
     fun restingHandIsNeverPatched() {
-        // More than `maxChanged + 2` changed squares is a hand, not a nudge — patching would copy
-        // the hand into the reference.
+        // More than `maxChanged + 2` changed squares is a hand, not a nudge.
         val state = detectState(detectConfig().copy(nudgeTimeoutS = 0.0), ref = grayFrame())
         val squares = listOf("a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "a2")
         state.nowS = 10.0

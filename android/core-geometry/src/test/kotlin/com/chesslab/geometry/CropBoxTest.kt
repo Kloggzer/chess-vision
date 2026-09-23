@@ -6,11 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Tier A — pure math, no OpenCV. Golden rows come from
- * `parity/_geometry/meta.json -> cropBoxes[] / squareRegions[]` (phase 00b); integers are
- * compared EXACTLY.
- */
+/** Tier A — golden rows from `_geometry/meta.json -> cropBoxes[] / squareRegions[]`, compared EXACTLY. */
 class CropBoxTest {
     @Test
     fun `every fixture crop box matches exactly`() {

@@ -638,7 +638,7 @@ private fun openView(
 
 /**
  * The signals the engine had AT COMMIT TIME. Measured 2026-08-24: they do not separate fabrications
- * from hits (`docs/commit-calibration.md`), so this stays a diagnostic.
+ * from hits (`docs/commit-latency.md`), so this stays a diagnostic.
  */
 private fun DebugDecision.confidenceLine(): String =
     (

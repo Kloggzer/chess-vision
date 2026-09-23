@@ -33,37 +33,18 @@ internal class SimTimings {
     fun perObservation(value: Double): Double = if (observations == 0) 0.0 else value / observations
 }
 
-/**
- * The clip harness's binding to the SHIPPING pipeline.
- *
- * This class used to be "the desktop twin of `FramePipeline` + `CnnCropAdapter`", with the stage
- * order copied by hand because — in its own words — the order is behaviour. It is not a twin any
- * more: it constructs the same `FramePipeline` and the same `OpenCvStages` the phone runs, with
- * `toBgr` as identity because a decoded video frame is already BGR. Whatever the phone does with a
- * frame, this does, because it is the same object graph.
- *
- * Two things the phone's host does that this one must do too, and they are the whole adapter:
- * request a crop frame BEFORE the frame is processed (the pull `CnnObserver` makes), and take the
- * result afterwards.
- */
+/** The SHIPPING `FramePipeline` + `OpenCvStages` (no hand-copied twin), `toBgr` as identity. The whole
+ *  adapter: request crops BEFORE the frame (as `CnnObserver` pulls), take them afterwards. */
 internal class ClipPipeline(
     source: SimSource,
     private val timings: SimTimings,
-    /**
-     * The model whose crops this run feeds, or null for the diff-only baseline.
-     *
-     * The harness has to size its crops the way `TrackerService` does (specs/23 phase 01), or it
-     * stops being a parity harness: `preprocessInto` REQUIRES `crop.width == outW`, so a 96 px
-     * model against this class's former hard-coded 128 threw on the first observation.
-     */
+    /** Null for the diff-only baseline; crops are sized as `TrackerService` does (specs/23 phase 01). */
     spec: ModelSpec? = null,
 ) {
     private val config = source.config
     private val corners = source.corners
 
-    // The clip's OWN geometry, margin included. The CROP, though, is the model's (specs/45): a run
-    // declaring `pad_side` gets the box it was trained on even here — a harness that invents the
-    // box measures its own invention.
+    // The clip's OWN geometry, but the model's CROP (specs/45): an invented box measures only itself.
     private val geometry = source.geometry.withCropOf(spec)
     private val cropStore = CropFrameStore()
     private val stages = OpenCvStages<Mat>({ it }, {}, geometry, config, cropStore)
@@ -94,10 +75,7 @@ internal class ClipPipeline(
         val mark = System.nanoTime()
         val result = pipeline.onFrame(frame, frame.cols(), frame.rows(), timestampMs)
         timings.warpMs += elapsed(mark)
-        // A clip frame is never legitimately skipped: the corners are fixed, and the dark gate
-        // cannot fire on a Blender render. If it ever does, the harness has silently stopped
-        // showing the engine what the video contains — which is the class of divergence this
-        // whole class was rewritten to make impossible. So it fails here, loudly.
+        // Fixed corners, no dark gate on a render: a skipped clip frame is a silent divergence, so fail loudly.
         val ready =
             result as? FrameResult.Ready
                 ?: error("the pipeline skipped a clip frame: ${(result as FrameResult.Skipped).note}")
@@ -106,12 +84,7 @@ internal class ClipPipeline(
         return ready.input
     }
 
-    /**
-     * The 64 CNN crops of the frame [input] just processed, in `allSquares()` order.
-     *
-     * Taken from the store the pipeline filled, which is the same bordered full-resolution warp
-     * `CnnCropAdapter` hands the model on the phone — not a second warp computed here.
-     */
+    /** The 64 crops of the frame [input] just processed, from the pipeline's own store — no second warp. */
     fun crops(): List<BgrImage>? {
         val pending = cropStore.take() ?: return null
         val cropWarp = requireNotNull(pending.cropWarp)
@@ -136,5 +109,5 @@ internal class ClipPipeline(
 
 private const val NANOS_PER_MS = 1_000_000.0
 
-/** Wall time since [since] in ms. It lived in this file before; the callers still need it. */
+/** Wall time since [since] in ms. */
 internal fun elapsed(since: Long): Double = (System.nanoTime() - since) / NANOS_PER_MS

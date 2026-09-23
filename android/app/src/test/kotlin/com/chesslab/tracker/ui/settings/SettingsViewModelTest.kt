@@ -4,6 +4,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.ConfigStore
 import com.chesslab.tracker.settings.EpRequest
+import com.chesslab.tracker.settings.MemoryStore
 import com.chesslab.tracker.settings.NOTE_TUNED_LIVE
 import com.chesslab.tracker.settings.SLOT_CONFIG
 import com.chesslab.tracker.settings.SettingsRepository
@@ -15,19 +16,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-
-private class MemoryStore : ConfigStore {
-    val slots = mutableMapOf<String, String>()
-
-    override suspend fun read(slot: String): String? = slots[slot]
-
-    override suspend fun write(
-        slot: String,
-        text: String,
-    ) {
-        slots[slot] = text
-    }
-}
 
 private fun knob(key: String) = KNOB_CATALOG.first { it.key == key }
 

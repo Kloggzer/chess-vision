@@ -9,10 +9,8 @@ import org.junit.jupiter.api.Test
 /** Was ein Zug BERUEHRT und wie er heisst, wenn er das Modul verlaesst. Beides entscheidet
  *  darueber, ob die Leiter danach noch denselben Zug meint. */
 class MoveShapeTest {
-    /**
-     * En passant raeumt DREI Felder: von, nach und den geschlagenen Bauern daneben. Fehlt das
-     * dritte, bestaetigt `verifyMove` den Zug mit 1,0, obwohl der geschlagene Bauer noch steht.
-     */
+    /** En passant raeumt DREI Felder: von, nach und den geschlagenen Bauern daneben. Fehlt das
+     *  dritte, bestaetigt `verifyMove` den Zug mit 1,0, obwohl der geschlagene Bauer noch steht. */
     @Test
     fun `en passant is verified over the captured pawn as well`() {
         val obs = FakeSquareClassifier(EP_AFTER_WITH_PAWN).observe()

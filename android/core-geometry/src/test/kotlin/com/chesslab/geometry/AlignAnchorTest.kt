@@ -6,10 +6,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import kotlin.math.hypot
 
-/**
- * Tier C — the quad an INCOMPLETE marker set may produce. The points are the measured
- * `[a8, h8, h1, a1]` of `2026-09-19-16-26-22`, whose h8 the detector reads on 8 of 100 frames.
- */
+/** Tier C — the quad an INCOMPLETE marker set may produce. The points are the measured
+ *  `[a8, h8, h1, a1]` of `2026-09-19-16-26-22`, whose h8 the detector reads on 8 of 100 frames. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class AlignAnchorTest {
     private val geom = BoardGeometry(boardSize = 928)
@@ -47,10 +45,8 @@ class AlignAnchorTest {
         assertTrue(worst <= CORNER_JUMP_PX, "the quad moved %.1f px when h8 arrived".format(worst))
     }
 
-    /**
-     * The counter-test: `MarkerTracker` already holds a vanished marker's last point, so a drop-out
-     * AFTER the corner was measured never moved the quad — with or without an anchor.
-     */
+    /** The counter-test: `MarkerTracker` already holds a vanished marker's last point, so a drop-out
+     *  AFTER the corner was measured never moved the quad — with or without an anchor. */
     @Test
     fun `losing a marker that was already measured does not move the quad`() {
         val tracker = MarkerTracker()

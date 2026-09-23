@@ -8,16 +8,8 @@ import org.junit.jupiter.api.Test
 private const val EPS = 1e-9
 
 class AccuracyTest {
-    /**
-     * Lichess' judgement thresholds, pinned. `Advice.scala`:
-     * `winningChanceJudgements = List(.3 -> Blunder, .2 -> Mistake, .1 -> Inaccuracy)` — on
-     * `winningChances`, which runs **-1..+1**. `winPercent = 50 + 50 * winningChances`, so those are
-     * 15 / 10 / 5 points on the scale this file uses.
-     *
-     * The widely quoted "a 30 % change is a blunder" is the same constant read on the ±1 scale.
-     * Taking it as percentage points doubles every band, and chess.com's PUBLISHED Expected-Points
-     * cutoffs (inaccuracy 0.05, mistake 0.10) agree with 5 and 10, not with 10 and 20.
-     */
+    /** Lichess `Advice.scala` judges .3/.2/.1 on `winningChances` (-1..+1), i.e. 15/10/5 points here;
+     *  the quoted "30 % is a blunder" misreads that scale (chess.com's 0.05/0.10 agree with 5 and 10). */
     @Test
     fun judgementThresholdsAreLichessOnTheirOwnScale() {
         assertEquals(MoveQuality.BLUNDER, classify(15.0, playedEngineMove = false))
@@ -28,11 +20,7 @@ class AccuracyTest {
         assertEquals(MoveQuality.GOOD, classify(4.999, playedEngineMove = false))
     }
 
-    /**
-     * BEST is a FACT, not a threshold of ours: the player found the engine's own first choice.
-     * A bad enough drop still outranks it — playing the engine's move out of a position that
-     * collapsed anyway is not what a reader would call "best".
-     */
+    /** BEST is a FACT (the engine's first choice), but a bad enough drop still outranks it. */
     @Test
     fun bestMeansTheEngineMoveAndNothingElse() {
         assertEquals(MoveQuality.BEST, classify(0.0, playedEngineMove = true))
@@ -41,15 +29,8 @@ class AccuracyTest {
         assertEquals(MoveQuality.GOOD, classify(0.0, playedEngineMove = false))
     }
 
-    /**
-     * Lichess' fitted accuracy curve, pinned digit for digit against values computed outside this
-     * codebase. `AccuracyPercent.scala`:
-     * `103.1668100711649 * exp(-0.04354415386753951 * winDiff) + -3.166924740191411`, then their
-     * `+ 1 // uncertainty bonus`, clamped to 0..100.
-     *
-     * A fitted curve cannot be re-derived, so it is used with attribution — the same arrangement
-     * `WinChance.kt` already has with their logistic.
-     */
+    /** Lichess `AccuracyPercent.scala`, used with attribution, `+ 1` uncertainty bonus, clamped 0..100:
+     *  `103.1668100711649 * exp(-0.04354415386753951 * winDiff) + -3.166924740191411`. */
     @Test
     fun accuracyCurveIsLichessVerbatim() {
         assertEquals(100.0, accuracyPercent(0.0), EPS, "the uncertainty bonus takes a perfect move over 100; it clamps")
@@ -62,14 +43,8 @@ class AccuracyTest {
         assertEquals(0.0, accuracyPercent(100.0), EPS, "and it clamps at the bottom too")
     }
 
-    /**
-     * The aggregation is OURS and the screen says so — lichess averages this with a
-     * volatility-weighted mean whose weight floors at 0.5, which is exactly how a long decided
-     * finish leaks into their score.
-     *
-     * The harmonic mean is the half worth keeping: one terrible move is not averaged away. The
-     * `max(1.0, …)` guard is lichess', from `Maths.harmonicMean`.
-     */
+    /** The aggregation is OURS (lichess' volatility weight lets a decided finish leak in); the
+     *  `max(1.0, …)` guard is lichess' `Maths.harmonicMean`. */
     @Test
     fun gameAccuracyIsTheHarmonicMeanAndOneDisasterSurvivesIt() {
         assertNull(gameAccuracy(emptyList()))
@@ -78,11 +53,7 @@ class AccuracyTest {
         assertEquals(16.806722689075632, gameAccuracy(List(19) { 100.0 } + 0.0)!!, EPS)
     }
 
-    /**
-     * Lichess ceils every score to ±1000 cp before the logistic (`Cp.CEILING`, and `fromMate` maps a
-     * mate straight onto it). So a mate, +30 pawns and +10 pawns are one number, and the difference
-     * between them is not a move quality.
-     */
+    /** Lichess ceils every score to ±1000 cp (`Cp.CEILING`, `fromMate`) before the logistic. */
     @Test
     fun theWinCurveSaturatesAtLichessCeiling() {
         assertEquals(97.54474363414323, winChanceCeiled(1_000), EPS)

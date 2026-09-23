@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -169,6 +171,60 @@ class StockfishAnalyzerTest {
             assertEquals(30, subject.result.value?.cp)
             subject.stop()
         }
+
+    /** Eine Suche ohne `info`-Zeile hat nichts gemessen; sie erfand stattdessen 50,0. */
+    @Test
+    fun aSearchWithoutAnyScoreIsNotPublishedAsAnEvenPosition() =
+        runTest {
+            val proc = ScriptedEngineProcess(engineScript(emptyList()))
+            val subject = analyzer(testScheduler, { STARTPOS }) { UciEngine("fake") { proc } }
+            subject.start(backgroundScope)
+            testScheduler.advanceTimeBy(1_000)
+            runCurrent()
+            subject.stop()
+
+            assertNull(subject.result.value?.winWhite, "ohne Bewertung darf keine Zahl auf dem Balken stehen")
+        }
+
+    /** `ensureEngine` wies `engine` erst NACH `start()` zu: ein gescheiterter Handshake liess den Prozess stehen. */
+    @Test
+    fun aFailedHandshakeLeavesNoRunningProcessBehind() =
+        runTest {
+            val spawned = mutableListOf<DeadProcess>()
+            val subject = analyzer(testScheduler, { STARTPOS }) { UciEngine("fake") { DeadProcess().also { spawned += it } } }
+            subject.start(backgroundScope)
+            testScheduler.advanceTimeBy(2_000)
+            runCurrent()
+            subject.stop()
+
+            assertTrue(spawned.isNotEmpty(), "der Lauf hat keinen Prozess gestartet — der Test misst nichts")
+            assertEquals(
+                spawned.size,
+                spawned.count { it.destroyed > 0 },
+                "jeder Fehlversuch laesst einen Stockfish-Prozess zurueck, den niemand mehr halten kann",
+            )
+        }
+
+    /** Tot ab Sekunde null: `readUntil` bricht dann ohne Warteschleife ab. */
+    private class DeadProcess : Process() {
+        var destroyed = 0
+
+        override fun getOutputStream(): OutputStream = OutputStream.nullOutputStream()
+
+        override fun getInputStream(): InputStream = InputStream.nullInputStream()
+
+        override fun getErrorStream(): InputStream = InputStream.nullInputStream()
+
+        override fun waitFor(): Int = 0
+
+        override fun exitValue(): Int = 0
+
+        override fun isAlive(): Boolean = false
+
+        override fun destroy() {
+            destroyed += 1
+        }
+    }
 
     @Test
     fun analysisRunsOnItsOwnDispatcher() {

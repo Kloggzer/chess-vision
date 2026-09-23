@@ -23,13 +23,7 @@ private const val VCLOCK_START = 1_700_000_000.0
 
 private const val MS_PER_S = 1000.0
 
-/**
- * What ONE replay needs: a video, the geometry to warp it with, and the config to run it under.
- *
- * The two callers differ only in what they know about the OUTCOME — a `SimClip` has a `labels.json`
- * of ground truth, a `RealGameSource` has none — so this is the whole of what [replayVideo] is
- * allowed to see, and neither caller can quietly grow a second replay around it.
- */
+/** All [replayVideo] may see; `SimClip` and `RealGameSource` differ only in knowing the outcome. */
 internal interface SimSource {
     val video: File
     val fps: Double
@@ -43,12 +37,7 @@ internal interface SimSource {
     /** The answer the promotion dialog would get; `q` when nothing is known to promote. */
     val promotionPiece: Char get() = 'q'
 
-    /**
-     * Per decoded frame, the true FEN where one is known.
-     *
-     * Empty for footage nobody has labelled, which is what keeps [ObsAudit] silent there: an audit
-     * needs an answer to compare against, and inventing one is worse than reporting none.
-     */
+    /** Per decoded frame, the true FEN where known; empty keeps [ObsAudit] silent on unlabelled footage. */
     val truthFens: List<String?> get() = emptyList()
 }
 
@@ -56,11 +45,7 @@ internal interface SimSource {
 internal class SimCnn(
     val classifier: SquareClassifier,
     val evaluator: CnnEvaluator,
-    /**
-     * The model's own `config.json`, parsed — the harness crops at the size it declares, exactly as
-     * `TrackerService` does. Null keeps [BoardGeometry]'s 128 px default for callers that predate
-     * specs/23; the CNN clip simulation passes the staged asset's spec.
-     */
+    /** The model's own `config.json`: crops at its declared size, as `TrackerService` does; null = 128 px. */
     val spec: ModelSpec? = null,
 )
 
@@ -114,15 +99,8 @@ internal class SimReplay(
 )
 
 /**
- * Replays [source] at FULL frame rate. [cnn] null = the diff-only baseline (what every committed
- * parity fixture exercises); non-null = the same run with the real model attached.
- *
- * [onFrame] fires once per decoded frame, after the engine has seen it, WITH the index that decoded
- * it. The two travel together and are never stored apart: the decode happens once, in order, so
- * anything that wants a picture of a moment has to take it while the frame is in hand. Seeking back
- * for it later is not equivalent — h.264 seeking by index is approximate, so a caller that seeks
- * hands its user a NEARBY frame while claiming it is the one, and a writer that pairs the current
- * frame with a stale index does the same thing without even seeking.
+ * Replays [source] at FULL rate; [cnn] null = the diff-only baseline. [onFrame] gets each frame WITH
+ * its index, while in hand: h.264 seeking by index is approximate and would hand over a NEARBY frame.
  */
 internal fun replayVideo(
     source: SimSource,
@@ -142,9 +120,7 @@ internal fun replayVideo(
             val nowS = VCLOCK_START + (index + 1) / source.fps
             observer?.deliver(nowS)?.let { log.record(index, engine.onCnnSnapshot(it)) }
             log.pollStatus(index)
-            // Ask BEFORE the frame is processed, exactly as `CnnObserver` does on the phone: the
-            // pipeline answers one request with one crop warp, cut from the frame it just warped.
-            // Asking afterwards would hand the observer the NEXT frame's pixels.
+            // Ask BEFORE the frame, as `CnnObserver` does; afterwards would hand over the NEXT frame's pixels.
             if (observer?.idle() == true) pipeline.requestCrops()
             val input = pipeline.input(frame, Math.round(nowS * MS_PER_S))
             val mark = System.nanoTime()
@@ -162,13 +138,7 @@ internal fun replayVideo(
     return SimReplay(log, timings, audit, engine.status().note)
 }
 
-/**
- * One clip against its ground truth.
- *
- * A thin caller of [replayVideo] and nothing else: the 18 committed parity clips are the only
- * evidence that this harness still runs what the phone runs, and a second copy of the loop would
- * turn them into evidence about a loop nobody drives.
- */
+/** One clip against its ground truth — a thin caller of [replayVideo], never a second loop. */
 internal fun runClip(
     clip: SimClip,
     cnn: SimCnn?,
@@ -186,15 +156,8 @@ internal fun runClip(
 }
 
 /**
- * The desktop stand-in for `CnnObserver`, with the device's pacing rather than a synchronous call
- * inside `onFrame`.
- *
- * The device runs at most ONE observation at a time on its own thread, and its result reaches the
- * engine some latency later — so a snapshot always describes a frame the engine has already
- * decided on. Reproduced here by spawning at most one observation and holding its snapshot until
- * the video clock has advanced past the MEASURED inference time. With `observerIntervalS = 0.0`
- * (the fixture value) that is "re-observe as soon as the previous one landed", which is exactly
- * what the free-running observer does.
+ * `CnnObserver` with the device's pacing: at most ONE observation in flight, its snapshot held until
+ * the video clock passes the MEASURED inference time — a snapshot describes an already-decided frame.
  */
 private class SimObserver(
     private val cnn: SimCnn,
@@ -257,23 +220,12 @@ internal class SimEventLog(
 ) {
     val commits = mutableListOf<SimCommit>()
 
-    /**
-     * The same commits as [commits], un-flattened: one entry per COMMIT rather than per ply.
-     *
-     * A recovery bridge arrives as ONE `SequenceCommitted` and [commits] loses that grouping —
-     * which is exactly what a per-ply FEN needs back (`realGamePlies`).
-     */
+    /** [commits] per COMMIT rather than per ply: the grouping a per-ply FEN needs (`realGamePlies`). */
     val batches = mutableListOf<SimBatch>()
     val alarms = mutableListOf<String>()
     val stuck = mutableListOf<String>()
 
-    /**
-     * Note and verify-state transitions, consecutive duplicates dropped.
-     *
-     * POLLED from `status()`, not collected from `TrackerEvent.Note`: only `onFrame` diffs the
-     * note and emits the event, so everything the snapshot path writes — including
-     * `"reference pulled forward"` — is invisible on the event bus.
-     */
+    /** Note and verify transitions, POLLED from `status()`: the snapshot path's notes never reach the bus. */
     val notes = mutableListOf<String>()
     private var lastNote: String? = null
     private var lastVerify: String? = null
@@ -312,13 +264,7 @@ internal class SimEventLog(
         if (promotion) record(frame, engine.choosePromotion(promotionPiece))
     }
 
-    /**
-     * The alarm is read from `status()` HERE, at the commit, because nothing else can tell it.
-     *
-     * `status()` is a pure function of the engine's state, so asking costs the run nothing — but
-     * asking LATER is a different question: the latch clears, and a ply that committed under a
-     * standing alarm would then read clean.
-     */
+    /** The alarm is read HERE, at the commit: later the latch may have cleared and the ply reads clean. */
     private fun batch(
         frame: Int,
         ucis: List<String>,

@@ -3,15 +3,8 @@ package com.chesslab.geometry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
-/**
- * This module has always been platform-free; until it stopped being an Android module the claim was
- * untestable, because the Android stubs were on every classpath by construction.
- *
- * The second assertion is the one with teeth: `org.opencv.android.OpenCVLoader` lives only in the
- * OpenCV AAR, never in the `org.bytedeco:opencv` jar this module compiles against. So native
- * initialisation cannot be named from here, and the seam between "the API" and "whoever mapped the
- * natives" is enforced by the compiler rather than by a comment.
- */
+/** `OpenCVLoader` lives only in the OpenCV AAR, never in the `org.bytedeco:opencv` jar: native
+ *  initialisation cannot be named from here, so the compiler enforces the seam, not a comment. */
 class PlatformPurityTest {
     @Test
     fun theClasspathIsPlainJvmPlusOpenCv() {

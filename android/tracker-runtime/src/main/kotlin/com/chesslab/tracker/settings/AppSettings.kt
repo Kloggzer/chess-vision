@@ -37,7 +37,7 @@ enum class ResolutionMode(
  *
  * A LOCKED range, never an upper bound: `[15, 30]` leaves auto-exposure its old freedom, so only
  * `[15, 15]` halves the sensor, the ISP and every per-frame stage. Every entry is a range this
- * device advertises — `pinFrameRate` refuses to ask for one that is not (`docs/battery.md`).
+ * device advertises — `pinFrameRate` refuses to ask for one that is not (`docs/android-performance.md`).
  */
 enum class FrameRateMode(
     val label: String,
@@ -98,10 +98,9 @@ data class AppSettings(
     val resolutionMode: ResolutionMode = ResolutionMode.R1440,
     /**
      * 15, not the sensor's 30: at 30 the tracker drew more than the charger delivered and the
-     * battery fell while plugged in — 490 mA, `docs/battery.md`. It is NOT free. The regression set
-     * reads 273/55/102 against 303/25/6, because `settleFrames` counts FRAMES for a window that
-     * means TIME, so halving the rate halves it. Shipped at 15 on the user's call (2026-08-25);
-     * 30 is the way back.
+     * battery fell while plugged in — 490 mA, `docs/android-performance.md`. The cost sat in
+     * `motionThr`, not in the settle window; `engineConfig()` scales it by 30/fps. Shipped at 15 on
+     * the user's call (2026-08-25).
      */
     val frameRate: FrameRateMode = FrameRateMode.FPS15,
     val orientation: BoardOrientation = BoardOrientation.WHITE_BOTTOM,

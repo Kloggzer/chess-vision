@@ -18,14 +18,8 @@ import org.opencv.objdetect.Objdetect
 import java.io.File
 import java.nio.ByteBuffer
 
-/**
- * The prepass has to answer exactly the frames the run asks it for.
- *
- * Two ways it stopped doing that, both on session 143233 (2026-08-14): it decoded only `video.mp4`
- * of a segmented recording and died at the swap ("no frame 1596"), and it modelled the publish gate
- * on the nominal frame rate after the replay clock had moved to each frame's own PTS, which on
- * variable-rate footage puts the publishes on other frames than the bus ("no frame 9").
- */
+/** Session 143233 (2026-08-14) broke this twice: only `video.mp4` of a segmented recording was
+ *  decoded ("no frame 1596"), and the publish gate ran on the nominal rate instead of PTS ("no frame 9"). */
 class AlignmentMarkerPrepassTest {
     @TempDir
     lateinit var dir: File
@@ -148,11 +142,7 @@ class AlignmentMarkerPrepassTest {
         assertEquals((0L until TOTAL_FRAMES).filter { it % SELECT_EVERY == 0L }, kept)
     }
 
-    /**
-     * Without a `try/finally` a throwing worker flew past `executor.shutdown()` and
-     * `detectors.forEach(::close)`, leaving the pool's non-daemon threads and the native ArUco
-     * detectors standing. `ParallelVisualPrepass` has always done this right.
-     */
+    // A throwing worker used to skip `executor.shutdown()` and the detector close, leaving threads.
     @Test
     fun `a failing worker still takes the pool down with it`() {
         val video = twoSegmentRecording()

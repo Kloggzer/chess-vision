@@ -7,7 +7,7 @@ import java.util.zip.CRC32
 
 /**
  * Only inputs that can change cached observations or LiveAlign outputs — der Legalitaets-Prior
- * gehoert dazu, er wird VOR dem Ablegen gerechnet (`docs/visual-cache-2026-09-20.md`).
+ * gehoert dazu, er wird VOR dem Ablegen gerechnet (`docs/desktop-replay.md`).
  *
  * ONE config, the run's: the second `alignConfig` parameter read the settings repository, so a
  * cache built under a `config=` recording's alignment knobs signed itself as a defaults run.

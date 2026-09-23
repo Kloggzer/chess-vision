@@ -42,7 +42,7 @@ val NOT_A_SETTING: Map<String, String> =
         "taintIdentityThr" to
             "Keine Vorliebe, sondern eine Korrektur: ein Schlagzug auf ein besetztes Feld aendert die " +
             "BELEGUNG nicht und galt darum als Hand — gemessen 19,5 s Stillstand auf Rxc8 " +
-            "(`docs/same-square-capture-2026-09-19.md`). Die App setzt den Wert selbst; im Spiel gibt " +
+            "(`docs/tracker-flow.md`). Die App setzt den Wert selbst; im Spiel gibt " +
             "es daran nichts zu drehen.",
         "alarmDeferObs" to
             "Not a preference but headroom: the desync streak advances at observation rate so blitz stays " +
@@ -480,7 +480,7 @@ val KNOB_CATALOG: List<KnobUi> =
             0.05,
             "Min seconds between CNN observation starts. 0 = free-running and still the default: the " +
                 "observer then starts ~20 whole-board reads a second and the engine discards ~90 %. " +
-                "0.20 measured 247 mA cheaper on the phone and is unvalidated in play (docs/battery.md).",
+                "0.20 measured 247 mA cheaper on the phone and is unvalidated in play (docs/android-performance.md).",
         ),
         flag(
             "cnnVerify",

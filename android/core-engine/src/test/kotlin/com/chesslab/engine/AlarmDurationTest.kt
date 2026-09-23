@@ -5,11 +5,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * The latch measures a DURATION, and a burst of readings is not one.
- *
- * `desyncObsN` claimed "persistent over seconds" but only counted observations. Since the CNN
- * reads on settle they arrive every 0.07 s, so three of them are 0.21 s — measured on
- * `VID_20260824_154327`, where the latch then cost 107 of 117 plies (`docs/alarm-path.md`).
+ * `desyncObsN` only counted observations; reads on settle arrive every 0.07 s, so three are 0.21 s —
+ * on `VID_20260824_154327` the latch then cost 107 of 117 plies (`docs/tracker-flow.md`).
  */
 class AlarmDurationTest {
     private val obsGapS = 0.07
@@ -39,14 +36,12 @@ class AlarmDurationTest {
         assertNull(state.alarm, "0.21 s of disagreement is a misread, not a lost board")
     }
 
-    /** The same disagreement, held over seconds, is what the bound was always meant to mean. */
     @Test
     fun `a disagreement held for seconds does latch`() {
         val state = heldFor(seconds = BOUND_S + 1.0, minS = BOUND_S)
         assertTrue(state.alarm != null, "a disagreement that outlasts the bound must still be reported")
     }
 
-    /** The knob at zero is the old behaviour, and it stays reachable. */
     @Test
     fun `zero turns the duration bound off`() {
         val state = heldFor(seconds = 3 * obsGapS, minS = 0.0)

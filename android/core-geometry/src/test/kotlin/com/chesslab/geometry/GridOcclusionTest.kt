@@ -9,11 +9,8 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-/**
- * The sensor must separate a locally erased grid (a hand) from a clean one, and name the squares
- * in the ENGINE's convention — including the flipped board, where a wrong inverse of
- * `squareToColRow` would veto the mirror-image squares of the ones under the hand.
- */
+/** A locally erased grid (a hand) named in the ENGINE's convention — on the flipped board a wrong
+ *  inverse of `squareToColRow` would veto the mirror-image squares. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class GridOcclusionTest {
     private val geom = BoardGeometry(boardSize = SIDE)
@@ -40,11 +37,8 @@ class GridOcclusionTest {
         assertEquals(bits("b6", "a6", "b7", "a7"), gridOccludedSquares(erased(), flipped, PAD))
     }
 
-    /**
-     * The mask is read as a bitboard in `Squares.ALL` order (rank-major, a1=0, b1=1, .. h8), so it
-     * must be written in that order too. Spelled as raw indices because a helper that shares the
-     * production packing cannot catch a transposition: only the a1-h8 diagonal survives one.
-     */
+    /** Raw indices in `Squares.ALL` order (a1=0, b1=1, .. h8): a helper sharing the production
+     *  packing cannot catch a transposition, since only the a1-h8 diagonal survives one. */
     @Test
     fun `the mask is packed rank major`() {
         assertEquals((1L shl E4) or (1L shl E5), gridOccludedSquares(erasedFile(), geom, PAD))

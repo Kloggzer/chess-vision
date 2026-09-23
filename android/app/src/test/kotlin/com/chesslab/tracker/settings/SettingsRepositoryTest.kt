@@ -12,29 +12,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.IOException
 
-/** DataStore needs a Context and a real file; the repository's decisions do not. */
-private class MemoryStore(
-    text: String? = null,
-) : ConfigStore {
-    val slots = mutableMapOf<String, String>().apply { text?.let { put(SLOT_CONFIG, it) } }
-    var writes = 0
-
-    override suspend fun read(slot: String): String? = slots[slot]
-
-    override suspend fun write(
-        slot: String,
-        text: String,
-    ) {
-        slots[slot] = text
-        writes += 1
-    }
-}
-
-/**
- * Stands in for the frame pipeline: it records what `onConfigChanged` was handed. The real reset
- * of `prevRoi` and the CLAHE rebuild are 05b's, and tested there — what this phase owns is that
- * the changed config REACHES it, on the engine thread, exactly once.
- */
+/** Records what `onConfigChanged` was handed; the ROI reset and CLAHE rebuild are 05b's and tested there. */
 private class FakePipeline {
     val applied = mutableListOf<TrackerConfig>()
 }
@@ -96,8 +74,7 @@ class SettingsRepositoryTest {
     @Test
     fun aConfigWrittenByAnOlderBuildKeepsThePythonDefaultForMissingKeys() =
         runTest {
-            // A build that predates a knob simply has no key for it — the fallback must be the
-            // Python default, never a zero, and never a crash that costs the user every setting.
+            // The fallback is the Python default, never a zero, never a crash that costs every setting.
             val store = MemoryStore("""{"version":$CONFIG_SCHEMA_VERSION,"values":{"censusThr":55.0}}""")
             val repo = repository(store, FakePipeline())
             repo.load()
@@ -135,12 +112,7 @@ class SettingsRepositoryTest {
             advanceUntilIdle()
 
             val stored = ConfigCodec.decode(store.slots[SLOT_CONFIG]).config.censusThr
-            assertEquals(
-                42.0,
-                stored,
-                "the older write landed last: the store holds censusThr=$stored while the screen " +
-                    "and the engine hold 42.0, and the next process start reads the stale one back",
-            )
+            assertEquals(42.0, stored, "the older write landed last: the next process start reads $stored back")
         }
 
     @Test

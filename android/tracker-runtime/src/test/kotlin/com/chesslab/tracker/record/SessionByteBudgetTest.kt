@@ -1,5 +1,6 @@
 package com.chesslab.tracker.record
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -7,13 +8,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-private const val FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 private const val FRAME_BYTES = 4096
 
 /**
- * The size cap took `totalBytes()` once at service start and never again, so every session finished
- * in THIS process was invisible to it — three 3 GB games in a row still measured the disk as it was
- * when the service came up. This is the wiring `GameSessionWiring.buildController` uses.
+ * The size cap took `totalBytes()` once at service start, so every session finished in THIS process
+ * was invisible to it. This is the wiring `GameSessionWiring.buildController` uses.
  */
 class SessionByteBudgetTest {
     @TempDir
@@ -26,7 +25,7 @@ class SessionByteBudgetTest {
         budget: SessionByteBudget,
         capBytes: Long,
     ) = SessionCaptureController(
-        source = Source(),
+        source = StubCaptureSource(FRAME_BYTES),
         open = {
             opened++
             val id = "s$opened"
@@ -45,7 +44,7 @@ class SessionByteBudgetTest {
         val before = budget.spent()
 
         val first = controller(sessions, budget, capBytes = Long.MAX_VALUE)
-        first.queue(1, FEN, "e4", clean = true)
+        first.queue(1, FEN_AFTER_E4, "e4", clean = true)
         assertNotNull(first.recorder)
         first.stop()
 
@@ -60,27 +59,63 @@ class SessionByteBudgetTest {
         val budget = SessionByteBudget(sessions)
 
         val first = controller(sessions, budget, capBytes = FRAME_BYTES.toLong())
-        first.queue(1, FEN, "e4", clean = true)
+        first.queue(1, FEN_AFTER_E4, "e4", clean = true)
         first.stop()
 
         val second = controller(sessions, budget, capBytes = FRAME_BYTES.toLong())
-        second.queue(1, FEN, "e4", clean = true)
+        second.queue(1, FEN_AFTER_E4, "e4", clean = true)
 
         assertNull(second.recorder, "the cap was already spent by the game before it")
     }
 
-    private class Source : CaptureSource {
-        override fun grab() =
-            CaptureFrame(
-                1920,
-                1080,
-                FloatArray(8),
-                FrameWriter {
-                    it.writeBytes(ByteArray(FRAME_BYTES))
-                    FRAME_BYTES.toLong()
-                },
-            )
+    @Test
+    fun `deleting a session gives its bytes back to the budget`() {
+        oneSession()
+        val store = SessionStore(root)
+        val budget = SessionByteBudget(store)
+        val before = budget.spent()
 
-        override fun geometryNote(): String? = null
+        store.delete(SESSION)
+
+        assertEquals(store.totalBytes(), budget.spent(), "spent() still charges $before bytes that are no longer on disk")
+    }
+
+    /** `GamesViewModel` and `RecordingViewModel` each hold their OWN `SessionStore` on the same directory. */
+    @Test
+    fun `a deletion through the screens own store reaches the budget`() {
+        oneSession()
+        val budget = SessionByteBudget(SessionStore(root))
+        val before = budget.spent()
+
+        SessionStore(root).delete(SESSION)
+
+        assertEquals(0L, budget.spent(), "spent() still charges $before bytes the games screen deleted")
+    }
+
+    /** Deleting is the user's only remedy for "limit reached"; the latch used to hold until a process restart. */
+    @Test
+    fun `the size-cap latch does not survive the next game`() {
+        val capture =
+            SessionCaptureController(
+                source = NoFrameCaptureSource,
+                open = { error("no recorder in this test") },
+                gates = RecordingGates(),
+                prefs = { RecordingPrefs(enabled = true, capBytes = 1L) },
+                existingBytes = { 2L },
+            )
+        capture.queue(ply = 1, fen = FEN_AFTER_E4, san = "e4", clean = true)
+        assertNotNull(capture.stoppedReason, "Aufbau: die Kappe muss zuerst greifen")
+
+        capture.stop()
+
+        assertNull(capture.stoppedReason, "der Riegel rastete dauerhaft ein")
+    }
+
+    private fun oneSession() {
+        File(root, SESSION).apply { mkdirs() }.let { File(it, "video.mp4").writeText("x".repeat(4096)) }
+    }
+
+    private companion object {
+        const val SESSION = "20260916-101010"
     }
 }

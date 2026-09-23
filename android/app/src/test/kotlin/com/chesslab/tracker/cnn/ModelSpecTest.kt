@@ -15,22 +15,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.io.File
 
-/**
- * The asset is the source of truth for classes / input size / normalization (`ee7c83c`), and the
- * 14-class ORDER is the one thing that must fail loudly — a reordered list silently relabels
- * every piece.
- */
+/** The asset is the source of truth (`ee7c83c`); a reordered class list silently relabels every piece. */
 class ModelSpecTest {
     @Test
     fun parsesClassesInputSizeAndNormalizeFromTheRealAssetConfig() {
         val json = File(assetDir(), MODEL_CONFIG_FILE).readText()
         val spec = ModelSpec.parse(json)
-        // Against the FILE's own list, not against a constant that happens to match it: the
-        // bundled run is a 14-class model or the 2-class occupancy one (specs/18) depending on
-        // what was staged, and `requireExpectedClasses` is what pins the accepted orders.
         assertEquals(rawClasses(json), spec.classes)
-        // Read the key the real default actually declares. `real14-80` uses `out_size`; dedicated
-        // tests below exercise both that compatibility path and an explicit `infer_size`.
         val root = Json.parseToJsonElement(json).jsonObject
         val declared = rawInts(json, if ("infer_size" in root) "infer_size" else "out_size")
         assertEquals(declared, listOf(spec.outWidth, spec.outHeight))
@@ -46,29 +37,20 @@ class ModelSpecTest {
                 it[3] = "wN"
             }
         val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(classes = swapped)) }
-        // Every accepted order has to appear, not just the word "expected": the one the message
-        // omits is the one the failing model is closest to.
+        // The accepted order the message omits is the one the failing model is closest to.
         for (accepted in listOf(EXPECTED_CLASSES, PIECES13_CLASSES)) {
             assertTrue(error.message!!.contains(accepted.toString()), "$accepted missing from: ${error.message}")
         }
     }
 
-    /**
-     * A shortened list must still be refused — but NOT by dropping the last entry, which is
-     * `occluded` and therefore the canonical `pieces13` list the identity models ship with. Drop a
-     * middle class instead, so this tests "wrong count" rather than "any 13 classes".
-     */
+    /** Drops a MIDDLE class: dropping the last (`occluded`) gives the valid `pieces13` list. */
     @Test
     fun rejectsWrongClassCount() {
         val missingMiddle = EXPECTED_CLASSES.filterNot { it == "wB" }
         assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(classes = missingMiddle)) }
     }
 
-    /**
-     * `pieces13` — the 14-class list minus `occluded`, which never comes from a FEN and has zero
-     * rows in the real corpus, so an identity run trained on camera data has no column for it.
-     * Accepted because the prefix is identical: every index read by name lands in the same place.
-     */
+    /** Accepted because the prefix is identical: every index read by name lands in the same place. */
     @Test
     fun acceptsThePieces13IdentityList() {
         val spec = ModelSpec.parse(modelConfigJson(classes = PIECES13_CLASSES))
@@ -76,11 +58,7 @@ class ModelSpecTest {
         assertEquals(13, spec.classes.size, "pieces13 is the 14-class list minus `occluded`")
     }
 
-    /**
-     * `infer_size` is the size the exported graph takes, and it is NOT `out_size`: what a crop
-     * carries is `board_size / 8 * (1 + 2 * padSide)` px — 110 on the fixed rig, 240 on this app's
-     * default geometry — so the input size is a per-model, per-deployment value (specs/22).
-     */
+    /** `infer_size` is NOT `out_size`: the input size is per-model, per-deployment (specs/22). */
     @Test
     fun parsesInferSizeWhenPresent() {
         val spec = ModelSpec.parse(modelConfigJson(inferSize = listOf(96, 96)))
@@ -88,10 +66,7 @@ class ModelSpecTest {
         assertEquals(96, spec.outHeight)
     }
 
-    /**
-     * The compatibility case, and a LIVE one: every model shipped before specs/22 carries no key,
-     * and so does every freshly trained run — the exporter is the only writer.
-     */
+    /** A live case: only the exporter writes `infer_size`, freshly trained runs carry none. */
     @Test
     fun fallsBackToOutSizeWhenInferSizeIsAbsent() {
         val spec = ModelSpec.parse(modelConfigJson(outSize = listOf(128, 128)))
@@ -99,10 +74,6 @@ class ModelSpecTest {
         assertEquals(128, spec.outHeight)
     }
 
-    /**
-     * A parse error must not reach the network. The band is all the app can judge on its own —
-     * whether a size was TRAINED is checked by the exporter, which knows the run's `scales`.
-     */
     @Test
     fun rejectsAnImplausibleSize() {
         val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(inferSize = listOf(8, 8))) }
@@ -120,11 +91,7 @@ class ModelSpecTest {
         assertEquals(listOf(0.229f, 0.224f, 0.225f), fallback.std)
     }
 
-    /**
-     * `input_repr` decides the ONNX input's WIDTH, so a spec that quietly defaults it would feed
-     * the graph a 3-channel tensor where the stem wants 2 — reading it from the asset is the whole
-     * point of the field.
-     */
+    /** `input_repr` decides the ONNX input's WIDTH; a quiet default feeds 3 channels to a 2-channel stem. */
     @Test
     fun readsTheInputRepresentationAndItsChannelCount() {
         val gs = ModelSpec.parse(modelConfigJson(inputRepr = "gray+sobel"))
@@ -139,13 +106,8 @@ class ModelSpecTest {
         assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(inputRepr = "edges")) }
     }
 
-    /**
-     * specs/45 — `pad_side` is a model property, and the app must be able to tell a model that
-     * DECLARES 0.05 from one that says nothing and is served 0.05 by its calibration profile.
-     *
-     * `pad_up` was retired 2026-09-14. Archived configs still carry it, so the parse has to read
-     * it as any other unknown key: ignored, and never a reason to refuse a model.
-     */
+    /** specs/45 — a DECLARED 0.05 differs from a profile-served one. `pad_up` (retired 2026-09-14)
+     *  is an ignored unknown key, never a reason to refuse an archived model. */
     @Test
     fun readsTheDeclaredCropAndTreatsAnAbsentOneAsLegacy() {
         val declared = ModelSpec.parse(modelConfigJson(padSide = 0.05))
@@ -164,12 +126,7 @@ class ModelSpecTest {
         assertFalse(ModelSpec.parse(modelConfigJson(padUp = 0.0)).declaresCrop)
     }
 
-    /**
-     * Every model that SHIPS declares its crop. Not the value — that is a property of the corpus
-     * and may move — but that the shipped configs answer the question at all: a bundled model
-     * whose pads are unknown is served the device's calibration profile, which is the failure the
-     * pack is about and which nothing on the device would report as unusual.
-     */
+    /** A bundled model with unknown pads is silently served the device's calibration profile. */
     @Test
     fun everyBundledModelDeclaresItsCrop() {
         for (dir in bundledAssetDirs()) {
@@ -178,11 +135,7 @@ class ModelSpecTest {
         }
     }
 
-    /**
-     * A 13-class coverage model and the old 14-class one are BOTH 14 columns wide, so the width
-     * may only come from the declaration: an absent key has to keep meaning "every column is a
-     * class", or the shipped models would have their last class softmaxed as a coverage value.
-     */
+    /** A 13-class coverage model and the old 14-class one are BOTH 14 columns wide: only the key tells. */
     @Test
     fun readsTheCoverageOutputAndTreatsAnAbsentOneAsFalse() {
         val covering = ModelSpec.parse(modelConfigJson())
@@ -245,8 +198,7 @@ class ModelSpecTest {
 
     @Test
     fun `preprocessing this runtime cannot reproduce is refused, not ignored`() {
-        // Still zu ignorieren hiesse, dem Modell Pixel zu geben, die es nie gesehen hat: kein
-        // Absturz, keine Warnung, nur ein paar Punkte weniger, die niemand einem Schalter zuordnet.
+        // Still ignoriert saehe das Modell Pixel, die es nie gesehen hat — ohne jede Warnung.
         val e =
             assertThrows<IllegalArgumentException> {
                 ModelSpec.parse(modelConfigJson(claheClip = 2.0, extra = ", \"clahe_denoise\": \"pre\""))
@@ -275,11 +227,7 @@ private fun rawInts(
         .jsonArray
         .map { it.jsonPrimitive.content.toInt() }
 
-/**
- * Every bundled model directory, in [BUNDLED_MODELS] order — asserted to exist rather than
- * discovered, so a model that is listed in the code but missing from `assets/` fails here instead
- * of on the device.
- */
+/** Asserted to exist rather than discovered, so a listed but missing model fails here, not on the device. */
 internal fun bundledAssetDirs(): List<File> =
     BUNDLED_MODELS.map { model ->
         assetDirOf(model).also { check(File(it, MODEL_CONFIG_FILE).isFile) { "bundled model $model has no ${it.path}" } }

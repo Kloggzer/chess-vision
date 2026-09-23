@@ -6,11 +6,8 @@ import com.chesslab.geometry.BoardGeometry
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
-/**
- * Die Cache-Zeilen haengen an der RELATIVEN Sequenznummer. Der Ausschnitt fehlte in der Signatur,
- * also nahm ein Lauf ab Bild 5 den Cache eines Laufs ab Bild 0 an — und antwortete mit den
- * Beobachtungen fremder Bilder. Still, mitten in einer Messung.
- */
+/** Die Cache-Zeilen haengen an der RELATIVEN Sequenznummer: ohne den Ausschnitt in der Signatur
+ *  nahm ein Lauf ab Bild 5 still den Cache eines Laufs ab Bild 0. */
 class VisualCacheSignatureRangeTest {
     @Test
     fun `a different start frame is a different cache`() {

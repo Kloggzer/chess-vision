@@ -23,13 +23,8 @@ private class FakeLamp(
 }
 
 /**
- * The lamp is not the content — the BASELINE is.
- *
- * The reference the frame-diff compares against was taken under the old light, so the moment the
- * lamp changes every square reads as changed and the next frame is `too_many_changed`. Torch, then
- * baseline. There used to be an optics re-measure between the two; with the automatic freeze gone
- * (`OpticsLock`) there is nothing to re-converge, and a pinned EV must not be undone behind the
- * user's back.
+ * The lamp is not the content — the BASELINE is: under the old light every square reads as changed.
+ * No optics re-measure in between since `OpticsLock` went; a pinned EV must not be undone behind the user's back.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TorchSwitchTest {
@@ -69,10 +64,7 @@ class TorchSwitchTest {
             assertEquals(listOf("baseline"), log)
         }
 
-    /**
-     * A device with no flash unit must not lose its baseline to a tap that did nothing. Re-anchoring
-     * for a lamp that never came on is a free way to break a running game.
-     */
+    /** Re-anchoring for a lamp that never came on is a free way to break a running game. */
     @Test
     fun aLampThatCannotEngageChangesNothingElse() =
         runTest {
@@ -93,15 +85,7 @@ class TorchSwitchTest {
             assertEquals(false, torch.torchOn.value, "a lamp that never engaged must not read as on")
         }
 
-    /**
-     * The switch must not answer this from a copy — the UI hides the whole control on `false`.
-     *
-     * What is under test is [TorchSwitch.hasTorch]'s delegation, not the fake: this used to read
-     * `FakeLamp(engages = false).torchOn` and assert `false`, which is that flow's initial value
-     * and never touched `hasTorch` at all. Asserting on `FakeLamp.hasTorch` directly would be no
-     * better — the fake assigns it from its own constructor flag — so the assertion has to go
-     * through the production `get()`.
-     */
+    /** The UI hides the control on `false`; asserted through the production `get()`, never the fake's own flag. */
     @Test
     fun hasTorchIsReportedFromTheDevice() =
         runTest {

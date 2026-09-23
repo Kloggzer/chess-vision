@@ -16,23 +16,14 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The ONE test that drives [TrackerEngine] against the REAL [CnnRecovery] instead of a
- * hand-written evaluator.
- *
- * It exists because every other verify/recovery/alarm test in `:core-engine` fakes the seam, and
- * the fakes hid two defects that were fatal on the first live call: the evaluator took the
- * position as `Any` and got a `Game` from three of its four call sites (STATUS D04a-5 / D04b-3),
- * and `:core-cnn` computed `resync_check`'s move/agreement and threw them away, which made the
- * whole `cnn_overrule` rung dead code (D04a-1). `:core-cnn` is the only module that can see both
- * sides — `:core-engine` must never depend on it — so the coverage belongs here.
- */
+/** [TrackerEngine] against the REAL [CnnRecovery]: the fakes in `:core-engine` hid a `Game` passed
+ *  as `Any` (D04a-5 / D04b-3) and a discarded `resync_check` move that killed `cnn_overrule` (D04a-1).
+ *  Only `:core-cnn` sees both sides, so the coverage lives here. */
 class EngineSeamIntegrationTest {
     @Test
     fun overruleRungCommitsTheCnnsReplacementMove() {
-        // The diff read e2e4; the board actually shows d2d4. e4 is under a hand, so neither the
-        // ghost veto (rung 3) nor the endpoint signals can decide — only `resync_check`'s derived
-        // move can, and it reaches the ladder through `ResyncResult.move`/`agreement`.
+        // The diff read e2e4, the board shows d2d4 with e4 under a hand: only `resync_check`'s
+        // derived move can decide, via `ResyncResult.move`/`agreement`.
         val rig = Rig()
         rig.captureReference()
         rig.frame(listOf("e4"))
@@ -50,9 +41,8 @@ class EngineSeamIntegrationTest {
 
     @Test
     fun recoveryCommitsAMoveDerivedThroughTheSeam() {
-        // No pending candidate: `_cnn_tick` runs `boardMatchesIdentity` + `deriveMovesDeep` +
-        // `resyncCheck` against the believed position. All three used to be handed the engine's
-        // `Game`, which `:core-cnn` rejected — this call path threw on the first live frame.
+        // No pending candidate: `_cnn_tick` handed all three seam calls the engine's `Game`,
+        // which `:core-cnn` rejected — this path threw on the first live frame.
         val rig = Rig()
         rig.captureReference()
 
@@ -68,12 +58,10 @@ class EngineSeamIntegrationTest {
 
     @Test
     fun alarmRaisesOnARealOccupancyConflict() {
-        // A pawn that vanished is explained by no legal move, so the deep search stays silent and
-        // the desync streak runs. `hasOccupancyConflict` / `guessIllegalMove` are the seam calls.
+        // A vanished pawn is explained by no legal move, so the desync streak runs. One ply goes on
+        // the record first: `Alarm.alarmable` refuses a board that has never moved.
         val rig = Rig()
         rig.captureReference()
-        // One ply on the record first: the latch is refused before the first commit
-        // (`Alarm.alarmable`), because a board that has never moved is one being set up.
         val played = observationOf(fenAfter("e2e4"))
         rig.observe(played)
         rig.observe(played)
@@ -82,23 +70,16 @@ class EngineSeamIntegrationTest {
         val obs = observationOf(fenAfter("e2e4"), mapOf("d2" to ("empty" to 0.99)))
         assertNull(rig.alarmOf(rig.observe(obs)), "one glance is not a desync")
         assertNull(rig.alarmOf(rig.observe(obs)), "two glances are not a desync")
-        // Seit `5d3c0955` misst der Latch eine DAUER und nicht drei Bilder: er zaehlte vorher nur
-        // Beobachtungen, und seit die CNN beim Einrasten liest statt nach der Uhr, kamen die alle
-        // 0,07 s — aus "anhaltend ueber Sekunden" wurden 0,21 s. Bei 100 ms je Blick braucht
-        // `alarmMinS` = 1,5 s hier also mindestens 15 weitere Blicke.
+        // Seit `5d3c0955` misst der Latch eine DAUER (`alarmMinS`), nicht drei Bilder; Frames
+        // dazwischen, weil `nowS` NUR im `FrameLoop` laeuft.
         var alarm: TrackerEvent.Alarm? = null
         var glances = 0
         while (alarm == null && glances < MAX_GLANCES) {
-            // Frames dazwischen, weil `nowS` NUR im `FrameLoop` laeuft: eine Beobachtung allein
-            // laesst die Uhr stehen, und eine Dauer, die nie verstreicht, rastet nie ein.
             rig.frame(listOf("e4"))
             alarm = rig.alarmOf(rig.observe(obs))
             glances += 1
         }
         requireNotNull(alarm) { "ein stehender Widerspruch muss nach alarmMinS einrasten" }
-        // Der Punkt der Aenderung: die drei Blicke, mit denen dieser Test frueher fertig war,
-        // reichen nicht mehr. Auf eine Millisekundenzahl wird NICHT geprueft — `nowS` laeuft nur
-        // im `FrameLoop`, die Umrechnung von Blicken in Sekunden gehoert nicht in diesen Test.
         assertTrue(glances > 1) { "nach $glances Blicken — der Latch zaehlt wieder nur Bilder" }
 
         assertEquals("illegal_move", alarm.kind)
@@ -175,11 +156,8 @@ class EngineSeamIntegrationTest {
         /** `square_region`'s inset, so a blob lands inside the region the evidence channel reads. */
         const val INSET = 0.16
 
-        /**
-         * Detection at full resolution on a 400 px board, one frame per stage and no motion gate:
-         * the synthetic warps jump instantly, which is what the frame loop calls "moving". This
-         * test is about the CNN seam, not about the settle machinery.
-         */
+        /** No motion gate and one frame per stage: synthetic warps jump instantly, and this test is
+         *  about the CNN seam, not the settle machinery. */
         fun seamConfig(): TrackerConfig =
             RIG_CONFIG.copy(
                 overhang = 0.0,

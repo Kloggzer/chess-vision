@@ -11,12 +11,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
-/**
- * Named regression test for `a7dab73`: the app requested 1280x720, the Xiaomi delivered 4:3
- * 1280x960, the requested numbers were emitted as truth and corners were rescaled with
- * sy = 720/960 (x untouched — the log signature). The warp drifted ~2.3 ranks and the tracker
- * was permanently stuck, deterministically, on every auto-calibration.
- */
+/** Regression for `a7dab73`: 1280x720 requested, 4:3 1280x960 delivered, the request emitted as truth —
+ *  corners rescaled by 720/960, the warp drifted ~2.3 ranks and every auto-calibration stuck. */
 class DeliveredSizeTest {
     @Test
     fun deliveredSizeIsReadFromTheImageNeverFromTheRequest() {

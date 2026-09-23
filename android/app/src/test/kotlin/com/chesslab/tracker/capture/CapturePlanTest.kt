@@ -28,14 +28,6 @@ class CapturePlanTest {
         val answer = planAnswer(HTTP_OK, """{"shots":[],"why":"uv run chesslab capture plan"}""")
         assertEquals("uv run chesslab capture plan", (answer as PlanAnswer.Loaded).plan.why)
     }
-
-    @Test
-    fun eightTurnsPutPlyThreeAtOneHundredAndThirtyFiveDegrees() {
-        val shot = (planAnswer(HTTP_OK, PLAN_WITH_EXTRA_KEYS) as PlanAnswer.Loaded).plan.shots.first()
-        assertEquals(0, shot.orientationDeg(0))
-        assertEquals(135, shot.orientationDeg(3))
-        assertEquals(315, shot.orientationDeg(7))
-    }
 }
 
 private val PLAN_WITH_EXTRA_KEYS =

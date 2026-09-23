@@ -12,7 +12,7 @@ import com.chesslab.tracker.pipeline.ringDepth
 import org.opencv.core.Mat
 
 /** Die Pixelarbeit EINMAL fuer N Engines. Nur `roiMotion` haengt an der Konfiguration und wird
- *  je WERTEPAAR gehalten (`docs/multireplay-2026-09-20.md`). */
+ *  je WERTEPAAR gehalten (`docs/desktop-replay.md`). */
 internal class SharedFrameWork(
     build: (CropFrameStore) -> FrameStages<Mat>,
 ) : AutoCloseable {
@@ -99,7 +99,7 @@ internal class SharedFrameWork(
     }
 
     /** Der Warp haengt am FRAME, nicht an Engine oder `seq`: einmal gewarpt, jeder fragende Store
-     *  bekommt eine Kopie. Frueher bediente er nur den ersten Store (`docs/multireplay-2026-09-20.md`). */
+     *  bekommt eine Kopie. Frueher bediente er nur den ersten Store (`docs/desktop-replay.md`). */
     fun updateCropFrame(
         target: CropFrameStore,
         corners: FloatArray,

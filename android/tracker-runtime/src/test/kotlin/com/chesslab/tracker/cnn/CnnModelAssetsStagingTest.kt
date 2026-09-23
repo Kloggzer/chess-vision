@@ -8,10 +8,8 @@ import java.io.ByteArrayInputStream
 import java.io.File
 
 /**
- * Staging was size-guarded, so an edit of the SAME length never reached the staged copy.
- *
- * `coverage_gate` 0.25 and 0.35 are the same number of bytes. A/B-ing two thresholds would have
- * replayed the stale config both times and measured nothing (found 2026-09-14).
+ * Staging was size-guarded: `coverage_gate` 0.25 and 0.35 are the same number of bytes, so an A/B
+ * of the two replayed the stale config both times (found 2026-09-14).
  */
 class CnnModelAssetsStagingTest {
     private fun assets(

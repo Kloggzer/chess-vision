@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** `_DECIDER_REASON` (`tracker.py`) verbatim — the strings are contract, not prose. */
+/** `_DECIDER_REASON` (`tracker.py`) verbatim and in order — the debug screen and `track-feedback` read them. */
 private val PYTHON_DECIDER_REASON =
     mapOf(
         "diff" to "frame-diff — UNVERIFIED, no CNN was available",
@@ -58,11 +58,7 @@ class DecisionLogTest {
             cnnBestMove = null,
         )
 
-    /**
-     * `cnnAgree=0.000` alone is three different faults — disagreed everywhere, never asked, or
-     * asked too late. The line has to carry which, or a run that commits nothing sends the reader
-     * in three directions at once.
-     */
+    /** `cnnAgree=0.000` alone is three faults — disagreed, never asked, or asked too late. */
     @Test
     fun theLogLineSeparatesAModelThatDisagreedFromOneThatWasNeverAsked() {
         val neverAsked = record(0).toDebugDecision().copy(cnnAgreement = 0.0, cnnReadsTaken = 0L)
@@ -96,17 +92,7 @@ class DecisionLogTest {
 
     @Test
     fun decisionReasonMatchesPythonTable() {
-        assertEquals(PYTHON_DECIDER_REASON, DECIDER_REASON)
-    }
-
-    @Test
-    fun priorUsedAppendsTieBreakToReason() {
-        val state = detectState()
-        val move = state.legalMoveFor("e2e4")!!
-        state.commitMove(move, grayFrame(), null, DECIDER_DIFF, priorUsed = true)
-        val row = state.decisionLog.last()
-        assertEquals("frame-diff — UNVERIFIED, no CNN was available + prior tie-break", row.reason)
-        assertTrue(row.accepted)
+        assertEquals(PYTHON_DECIDER_REASON.toList(), DECIDER_REASON.toList())
     }
 
     @Test
@@ -130,14 +116,7 @@ class DecisionLogTest {
         assertEquals(1, state.decisionLog.size)
     }
 
-    /**
-     * The rejected rows are the ones worth logging, and they are the ones nobody was reading.
-     *
-     * On 2026-08-01 a live board sat in a mismatch cycle on a legitimate `Qxd4` and the question
-     * "did the deterministic path see d4 change at all?" was unanswerable — the app emitted three
-     * log tags, none of them the engine's, and these rows lived only in an in-memory ring behind a
-     * debug switch that was off. A commit-only log is the half that is never in doubt.
-     */
+    /** 2026-08-01, a mismatch cycle on a legitimate `Qxd4`: the rejected rows lived only behind a debug switch that was off. */
     @Test
     fun everyDecisionReachesTheSinkIncludingTheRejections() {
         val lines = mutableListOf<String>()
@@ -157,14 +136,7 @@ class DecisionLogTest {
         assertTrue(seen.single().contains("evidence too weak"), seen.single())
     }
 
-    /**
-     * The sink is the ONLY way a decision leaves the module, and it hands out the structure.
-     *
-     * `:app` has two consumers of it — the logcat line and the diagnostics file — and neither can
-     * recover a field the mapping to [DebugDecision] silently drops. The engine's row spells the
-     * move `move`; the seam spells it `uci`, which is exactly the kind of rename that turns into a
-     * permanently empty column nobody notices.
-     */
+    /** The sink is the ONLY way out; `move` -> `uci` is the rename that becomes a silently empty column in `:app`. */
     @Test
     fun theSinkReceivesTheDecisionAsStructure() {
         val seen = mutableListOf<DebugDecision>()
@@ -182,18 +154,12 @@ class DecisionLogTest {
     }
 
     /**
-     * The verify ladder's rejections must leave a row.
-     *
-     * This is where a legitimate move most plausibly dies: `windowEnd`'s whole-board contradiction
-     * test rejects on ANY conflicting square, anywhere, touched or not, while the recovery path
-     * that then takes the move over tolerates 1-2 wrong squares (`minAgreement 0.97`). One
-     * chronically misread square therefore blocks the diff channel and does not block recovery —
-     * and until this row existed, the rejection wrote only a `note` that the next frame overwrote.
+     * Where a legitimate move most plausibly dies: `windowEnd` rejects on ANY conflicting square, and
+     * until this row existed the rejection wrote only a `note` the next frame overwrote.
      */
     @Test
     fun theVerifyLadderRecordsWhyItDiscardedACandidate() {
-        // Window of 1, then one glance in which nothing is confident: the ladder's occlusion
-        // timeout, which is the cheapest of its rejection paths to drive.
+        // Window of 1 and a glance with nothing confident: the ladder's occlusion timeout.
         val state = pairState(ucis = listOf("e2e4"), verifyWindow = 1)
         val events = VerifySingle.tick(state, PairRecovery(), snapshotOf(state, FakeObs(emptyMap(), emptySet())))
 
@@ -206,13 +172,7 @@ class DecisionLogTest {
         assertTrue(line.startsWith("ply=0 REJECT e2e4"), line)
     }
 
-    /**
-     * A diff verification window and a whole-board recovery vote are independent evidence.
-     *
-     * The live Nf6 incident repeatedly spent eight observations rejecting a noisy diff candidate.
-     * Each rejection used to erase the clean recovery vote gathered between those windows, so the
-     * correct two-vote CNN recovery could never finish until the motion gate aged out after 20 s.
-     */
+    /** Live Nf6: each diff rejection erased the recovery vote, so the correct recovery waited 20 s for the motion gate. */
     @Test
     fun rejectingADiffCandidateKeepsTheIndependentRecoveryVote() {
         val state = pairState(ucis = listOf("e2e4"), verifyWindow = 1)
@@ -227,13 +187,8 @@ class DecisionLogTest {
     }
 
     /**
-     * An observation about an OLDER frame is an observer that answered, not one that died.
-     *
-     * `expireStalledVerify`'s own KDoc calls itself "a watchdog for an observer that STOPPED, not
-     * one that is merely slow", and delegates the slow case to `verifyExpired` inside the ladder.
-     * The ladder is only reached past the seq gate, so the two were swapped: on a warm phone, where
-     * an observation cycle can exceed the 1.5 s budget, every diff candidate was dropped as stalled
-     * and only CNN recovery — which has no deadline — could still move the game on.
+     * An observation about an OLDER frame is an observer that answered: on a warm phone, cycles past
+     * the 1.5 s budget dropped every diff candidate as stalled.
      */
     @Test
     fun aStaleObservationKeepsThePendingAliveWithoutVoting() {
@@ -249,16 +204,12 @@ class DecisionLogTest {
         assertEquals(pend.frames, after.frames, "a stale observation must not count as a vote")
         assertEquals(1.0, after.lastTickS, "…but it proves the observer is alive")
 
-        // And the watchdog would have killed it at the old value. 1.6, not 1.4: the watchdog is
-        // `nowS - lastTickS < verifyTimeoutS` with `verifyTimeoutS = 1.5`, so at 1.4 the pending
-        // survives on the OLD `lastTickS = 0.0` as well and the assertion below could not fail.
-        // Past 1.5 the two values separate and only the refreshed one keeps the candidate.
+        // 1.6, not 1.4: below `verifyTimeoutS = 1.5` the OLD `lastTickS` survives too and this could not fail.
         state.nowS = 1.6
         state.expireStalledVerify()
         assertNotNull(state.pending, "dropped a candidate whose observer had answered 0.6 s ago")
     }
 
-    /** The line has to carry the evidence, not just the verdict — that is the whole point of it. */
     @Test
     fun theLogLineCarriesTheChangedSquaresTheirZValuesAndTheVetoes() {
         val row =

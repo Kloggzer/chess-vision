@@ -91,6 +91,13 @@ fun assertConsumed(
     assertTrue(values.isNotEmpty(), "$what must not be empty — the fixture was never consumed")
 }
 
+fun assertConsumed(
+    count: Int,
+    what: String,
+) {
+    assertTrue(count > 0, "$what must not be empty — the fixture was never consumed")
+}
+
 // ---------------------------------------------------------------------------------------
 // Schema (see parity/README.md)
 // ---------------------------------------------------------------------------------------
@@ -437,6 +444,16 @@ class ParityClip internal constructor(
             BgrImage(meta.detSize, meta.detSize, bgrChain.plane(frame))
         }
 
+    /** Every gray plane decoded once — `curFrames`/`refFrames` look backwards, the chain walks forwards. */
+    fun grayPlanes(): Map<Int, ByteArray> = meta.frames.associateWith { grayChain.plane(it) }
+
+    fun bgrPlanes(): Map<Int, ByteArray> = meta.framesWithBgr.associateWith { bgrChain.plane(it) }
+
+    fun meanGray(frames: List<Int>): GrayImage = GrayImage(meta.detSize, meta.detSize, meanPlane(frames.map { grayChain.plane(it) }))
+
+    fun meanBgr(frames: List<Int>): BgrImage =
+        BgrImage(meta.detSize, meta.detSize, meanPlane(frames.map { requireNotNull(bgr(it)) { "frame $it has no BGR plane" }.data }))
+
     fun frame(index: Int): ParityFrame = frames.first { it.frame == index }
 
     /** Frames carrying a full Tier-A record (the tracker computed detection evidence there). */
@@ -448,6 +465,21 @@ class ParityClip internal constructor(
         const val PAD_WIDTH = 4
     }
 }
+
+/** Python `_RunningMean.mean_uint8`: `(sum / n).astype(uint8)` — truncation, not rounding. */
+fun meanPlane(planes: List<ByteArray>): ByteArray {
+    require(planes.isNotEmpty()) { "empty frame window" }
+    val sum = LongArray(planes[0].size)
+    for (plane in planes) {
+        for (i in sum.indices) sum[i] += (plane[i].toInt() and BYTE_MASK).toLong()
+    }
+    return ByteArray(sum.size) { (sum[it] / planes.size).toByte() }
+}
+
+/** [meanPlane] over the [frames] of a decoded plane map (`ParityClip.grayPlanes`/`bgrPlanes`). */
+fun Map<Int, ByteArray>.meanOf(frames: List<Int>): ByteArray = meanPlane(frames.map { getValue(it) })
+
+private const val BYTE_MASK = 0xFF
 
 private class PlaneChain(
     private val order: List<Int>,

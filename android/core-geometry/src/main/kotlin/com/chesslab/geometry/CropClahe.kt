@@ -8,7 +8,7 @@ import org.opencv.imgproc.Imgproc
 
 /**
  * Lokaler Kontrast auf dem L-Kanal eines fertigen Crops — die Kotlin-Seite von
- * `training/torch_data.py:_Clahe`, gemessen in `docs/clahe-band.md`.
+ * `training/torch_data.py:_Clahe`, gemessen in `docs/camera.md`.
  *
  * Kein [ImageNode]: der Graph memoisiert je FRAME, diese Stufe entscheidet je ZELLE.
  */

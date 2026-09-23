@@ -10,21 +10,15 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty
 
 /**
- * End-to-end timing of [com.chesslab.engine.api.TrackerEngine.onFrame] over every committed clip —
- * the same 969 frames `ClipReplayParityTest` asserts on, with the assertions removed.
- *
- * A per-stage microbenchmark can flatter an optimisation that was not on the frame path at all;
- * this cannot. **Asserts nothing.** Off by default; run with `-Pchesslab.profile=true`.
- *
- * These are desktop-JVM figures at the fixtures' `detSize` (320), not the phone's 800.
+ * Timing of `onFrame` over the 969 clip frames — a microbenchmark can flatter work that is not on the
+ * frame path. Asserts nothing; `-Pchesslab.profile=true`. Desktop JVM at `detSize` 320, not the phone's 800.
  */
 @EnabledIfSystemProperty(named = "chesslab.profile", matches = "true")
 class ClipReplayTimingTest {
     @Test
     fun timeEveryClipReplay() {
         val clips = ParityFixtures.clips().map { ParityFixtures.load(it) }
-        // Decode and warm the JIT first: the fixtures are gzipped delta chains, and timing the
-        // decoder would drown the engine entirely.
+        // Decode and warm the JIT first: timing the gzipped delta chains would drown the engine.
         repeat(WARMUP) { clips.forEach { replay(it) } }
         var frames = 0
         var best = Long.MAX_VALUE

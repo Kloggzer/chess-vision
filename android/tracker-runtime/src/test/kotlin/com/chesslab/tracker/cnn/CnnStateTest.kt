@@ -5,6 +5,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -68,5 +69,19 @@ class CnnStateTest {
         observer.attach { throw IllegalStateException() }
         scheduler.runCurrent()
         assertEquals(CnnState.Failed("IllegalStateException"), observer.state.value)
+    }
+
+    /** `TrackerStack` calls `setEnabled(config.cnnVerify)` and then `attach` unconditionally. */
+    @Test
+    fun anObserverDisabledBeforeTheAttachNeverReportsReady() {
+        val observer = observer()
+        observer.setEnabled(false)
+        observer.attach { Attached(FakeClassifier(), "CPU", MODEL_FP32_FILE) }
+        scheduler.runCurrent()
+
+        assertFalse(
+            observer.state.value is CnnState.Ready,
+            "cnnVerify=false, yet it published ${observer.state.value} — a safeguard wantsFrame() never grants",
+        )
     }
 }

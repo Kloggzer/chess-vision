@@ -3,10 +3,8 @@ package com.chesslab.cnn
 import org.junit.jupiter.api.Assertions.assertTrue
 import java.io.File
 
-// Loader for `parity/_cnn/` (phase 00b). D00b-1: there is ONE fixture tree and it lives in
-// `:core-engine`'s test resources, so `:core-cnn` reads it off the file system by walking up
-// from the module directory. The `:core-engine` ParityFixtures.kt loader is deliberately NOT
-// moved or duplicated here; this reads only the seven `_cnn` JSONL families.
+// D00b-1: there is ONE fixture tree, in `:core-engine`'s test resources, so `:core-cnn` walks up
+// from the module directory to `parity/_cnn/` and reads only its seven JSONL families.
 internal typealias FixtureRow = Map<String, Any?>
 
 internal object CnnFixtures {

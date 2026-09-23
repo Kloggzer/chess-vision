@@ -4,21 +4,12 @@ import com.chesslab.geometry.testutil.GeometryFixtures
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * [meshPoint] against `parity/_geometry/mesh_crop_parity.json` — the SAME fixture
- * `calibration.mesh_point` and `lib/warp.test.ts` are pinned on, so all three straighten a board
- * identically. It replaced the per-cell boxes and quads this file used to pin: those were a second
- * answer to the question the map already answers, and the store is now pulled straight once.
- */
+/** [meshPoint] against the SAME fixture `calibration.mesh_point` and `lib/warp.test.ts` are pinned
+ *  on, so all three straighten a board identically. */
 class MeshPointParityTest {
     private val fixture = GeometryFixtures.jsonl("_geometry/mesh_crop_parity.json").single()
 
-    private val axes =
-        GeometryFixtures.map(fixture["mesh"]).let { lines ->
-            listOf("x", "y", "tx", "ty", "cx", "cy").map { name ->
-                GeometryFixtures.list(lines[name]).map(GeometryFixtures::num).toDoubleArray()
-            }
-        }
+    private val axes = GeometryFixtures.meshAxes(fixture["mesh"])
 
     private val mesh = GridMesh(axes[0], axes[1], axes[2], axes[3])
 

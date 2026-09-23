@@ -13,37 +13,20 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// The occlusion taint latch (`_try_detect` step 2) and `_cnn_occlusion_filter`.
-//
-// entry.md invariant 2, this half: an occluded square's z is **ZEROED** — on the taint frame and on
-// every frame until the latch releases. The shadow veto (`Vetoes.kt`) does the opposite.
-// entry.md invariant 4: latched squares still COUNT toward `maxChanged`.
-//
-// Scenarios mirrored from `tests/test_move_tracker.py`:
-//   test_resting_hand_taints_and_blocks_reanchor (:865)      -> restingHandTaintsAndBlocksReanchor
-//   test_taint_persists_without_motion_while_evidence_hot (:878) -> taintPersistsWithoutMotion
-//   test_taint_releases_on_motion_or_baseline (:891)         -> taintReleasesOnMotionOrBaseline
-//   test_stale_snapshot_does_not_taint (:909)                -> staleSnapshotFallsBackToHeuristic
-//   test_occlusion_filter_ignores_old_snapshot (:2813)       -> oldSnapshotIgnored
-//   test_hand_over_pieces_keeps_base_truth (:814)            -> handOverPiecesKeepsBaseTruth
-//   test_textured_occluder_is_occluded (:2251)               -> texturedOccluderIsOccluded
-//   test_flat_hand_needs_chroma_to_be_occlusion (:2262)      -> flatHandNeedsChroma
+// The occlusion taint latch and `_cnn_occlusion_filter`. entry.md invariant 2: an occluded square's
+// z is ZEROED on every frame until the latch releases (`Vetoes.kt` does the opposite); invariant 4:
+// latched squares still COUNT toward `maxChanged`.
 
 private const val U8 = 0xFF
 
-private const val BOARD = 400
+private const val BOARD = TEST_BOARD_SIZE
 
 private const val BGR = 3
 
 private const val MS_PER_S = 1000.0
 
 class TaintTest {
-    /**
-     * **Named invariant test (entry.md 2).** A tainted square's z is 0.0 after `applyTaints` — on
-     * the taint frame AND on every subsequent frame, because the latch re-zeroes it every time.
-     * A still hand outlived the 0.4 s hold and surfaced as "change" when the zeroing happened only
-     * at taint time.
-     */
+    /** entry.md 2: zeroed on EVERY latched frame — zeroing only at taint time let a still hand outlive the 0.4 s hold. */
     @Test
     fun occlusionVetoZeroesZ() {
         val state = handState()
@@ -61,12 +44,7 @@ class TaintTest {
         state.assertZeroed("e3", "e4", "e5")
     }
 
-    /**
-     * **Named invariant test (entry.md 4).** Latched squares carry no evidence but still count:
-     * the hypothesis gate reads `blockedN = tainted.countOneBits()`. 3 changed + 4 latched against
-     * `maxChanged = 6` must reach the too-much-change gate, and the latched squares must NOT be in
-     * `changed`.
-     */
+    /** entry.md 4: the hypothesis gate reads `blockedN = tainted.countOneBits()`; 3 changed + 4 latched > 6. */
     @Test
     fun taintedSquaresCountTowardMaxChanged() {
         val state = handState(maxChanged = 6)
@@ -85,17 +63,12 @@ class TaintTest {
         assertTrue(changed.countOneBits() + blockedN > state.config.maxChanged, "the gate must trip: 3 + 4 > 6")
     }
 
-    /**
-     * **Named invariant test.** A square where the CNN is confident and DISAGREES with the FEN is a
-     * real move and must pass through untainted. Tainting it would zero the evidence of the very
-     * move being detected.
-     */
+    /** A confident CNN/FEN disagreement is a real move; tainting it would zero the move's own evidence. */
     @Test
     fun cnnDisagreementIsNotTainted() {
         val state = handState()
         state.cnnRun = true
-        // e2 is occupied in the start position; the CNN confidently reports it empty -> a move.
-        // a3 is empty and the CNN confidently agrees -> noise. b3 is unconfident -> occlusion.
+        // e2: confident disagreement (move); a3: confident agreement (noise); b3: unconfident (occlusion).
         state.cnnSnap =
             snapshot(
                 state,
@@ -111,10 +84,7 @@ class TaintTest {
         assertFalse(taint.has(Squares.index("e2")), "a confident CNN/FEN disagreement is a real move")
     }
 
-    /**
-     * **Named invariant test.** The latch never releases on the timer alone: expired hold + no
-     * motion + still-hot evidence keeps it latched with z zeroed; motion releases it.
-     */
+    /** The latch never releases on the timer alone; motion releases it. */
     @Test
     fun latchReleaseNeedsMotionOrBaselineReturn() {
         val state = handState()
@@ -138,7 +108,7 @@ class TaintTest {
     @Test
     fun restingHandTaintsAndBlocksReanchor() {
         val state = handState()
-        // The hand ARRIVED: motion is fresh, so the plausibility filter lets the head speak.
+        // Fresh motion lets the head through the plausibility filter.
         state.lastMotionTs = state.nowS
         state.cnnSnap = snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9, "e4" to 0.9)))
         state.setZ("e3", "e4")
@@ -150,13 +120,7 @@ class TaintTest {
         assertExactList(listOf("e3", "e4"), state.occludedVetoed.sortedSquareNames(), "latched squares are occluded")
     }
 
-    /**
-     * The model-head plausibility filter (2026-08-14): `real14-80` flags phantom `occluded`
-     * squares, and each raw flag used to latch a taint and read as a hand. A LONE flag is not
-     * hand-shaped, and a hand-shaped cluster on a board that has been QUIET longer than the
-     * observation is fresh cannot be an arriving hand — unless the groove read corroborates a
-     * resting one.
-     */
+    /** 2026-08-14: `real14-80` phantom `occluded` flags each latched a taint; a LONE flag is not hand-shaped. */
     @Test
     fun aLoneOccludedFlagIsAMisreadNotAHand() {
         val state = handState()
@@ -277,27 +241,20 @@ class TaintTest {
     }
 
     /**
-     * Turning the settle wait off must not turn the occlusion latch off with it.
-     *
-     * `motionHoldS` had four readers and only one was the wait it is named after; the other three
-     * were this latch — how long a taint holds, and the window in which motion counts as having
-     * happened since it. Setting the wait to zero to read moves sooner therefore expired every hand
-     * taint the instant it was set, disarming the veto that is supposed to carry the load. The two
-     * are separate knobs now, and this is the test that keeps them separate.
+     * `motionHoldS` had three readers in this latch; setting the settle wait to zero expired every hand
+     * taint the instant it was set. The two knobs are separate now, and this test keeps them so.
      */
     @Test
     fun theOcclusionLatchKeepsItsHoldWhenTheSettleWaitIsOff() {
         val state = EngineState(testConfig(boardSize = BOARD).copy(motionHoldS = 0.0), STARTPOS, whitePov = true)
         state.nowS = 100.0
-        // Three squares: without a CNN snapshot the filter falls back to the size heuristic.
         state.motionOccluded = ofSquares("e3", "e4", "e5")
         state.setZ("e3", "e4", "e5")
 
         state.applyTaints()
         assertEquals(ofSquares("e3", "e4", "e5"), state.tainted, "the hand latches")
 
-        // A frame later, with motion still fresh: under one shared knob the taint would already be
-        // expired (`nowS > nowS + 0.0`) and released on the motion arm.
+        // Under one shared knob the taint would already be expired and released on the motion arm.
         state.nowS += 0.1
         state.lastMotionTs = state.nowS
         state.motionOccluded = 0L
@@ -322,11 +279,7 @@ class TaintTest {
         assertEquals(0L, state.tainted, "a stale snapshot must not taint anything")
     }
 
-    /**
-     * `test_occlusion_filter_ignores_old_snapshot` — fresh: the CNN agrees with the FEN, so even a
-     * single square is tainted as noise. Stale: the `>2 = hand` heuristic, where one square passes
-     * and three do not.
-     */
+    /** `test_occlusion_filter_ignores_old_snapshot` — stale falls back to the `>2 = hand` heuristic. */
     @Test
     fun oldSnapshotIgnored() {
         val state = handState()
@@ -346,11 +299,7 @@ class TaintTest {
         )
     }
 
-    /**
-     * `test_hand_over_pieces_keeps_base_truth` — 10 changed squares with NO occlusion evidence stay
-     * plain candidates: the taint machinery must not invent a latch out of "much change". The
-     * too-much-change gate is 03c's, and it is what keeps the base truth intact.
-     */
+    /** `test_hand_over_pieces_keeps_base_truth` — no latch out of "much change"; that gate is 03c's. */
     @Test
     fun handOverPiecesKeepsBaseTruth() {
         val state = handState(maxChanged = 6)
@@ -365,10 +314,7 @@ class TaintTest {
         }
     }
 
-    /**
-     * `test_textured_occluder_is_occluded` — a structured occluder fires the census channel, so the
-     * baseline classifier calls it occluded and the taint zeroes its z.
-     */
+    /** `test_textured_occluder_is_occluded`. */
     @Test
     fun texturedOccluderIsOccluded() {
         val ref = smoothTexture(seed = 3L)
@@ -387,11 +333,7 @@ class TaintTest {
         assertTrue(state.tainted.has(c3), "and latched")
     }
 
-    /**
-     * `test_flat_hand_needs_chroma_to_be_occlusion` — a flat skin-toned occluder carries no
-     * structure and is darker, so without the colour gamut it is misread as a cast shadow. The
-     * chroma-outlier test against the reference gamut is what closes that blind spot.
-     */
+    /** `test_flat_hand_needs_chroma_to_be_occlusion` — flat and darker, a skin tone reads as a shadow without chroma. */
     @Test
     fun flatHandNeedsChroma() {
         val refBgr = BgrImage(BOARD, BOARD, ByteArray(BOARD * BOARD * BGR) { NEUTRAL_BOARD.toByte() })
@@ -427,11 +369,7 @@ class TaintTest {
         assertFalse(seen.shadow.has(f6), "and no longer a shadow")
     }
 
-    /**
-     * Parity: the clips replay with `cnn_run=None` and quiet detection frames, so Python's
-     * `_tainted` is empty on **every** emitted frame (969 of them) and `applyTaints` must leave z
-     * untouched there. A port that taints spuriously fails here immediately.
-     */
+    /** Parity: the clips run with `cnn_run=None`, so Python's `_tainted` is empty on all 969 frames. */
     @Test
     fun taintStaysEmptyOnEveryFixtureFrame() {
         var checked = 0
@@ -606,50 +544,6 @@ class TaintTest {
         }
     }
 
-    /** Python's `cv2.GaussianBlur(noise, (5, 5), 0)` — a realistically smooth board texture. */
-    private fun smoothTexture(seed: Long): GrayImage {
-        val rng = java.util.Random(seed)
-        val plane = ByteArray(BOARD * BOARD) { (LO_TEXTURE + rng.nextInt(HI_TEXTURE - LO_TEXTURE)).toByte() }
-        return GrayImage(BOARD, BOARD, gauss5(gauss5(plane, horizontal = true), horizontal = false))
-    }
-
-    /** One separable pass of the `[1,4,6,4,1]/16` kernel with BORDER_REFLECT_101. */
-    private fun gauss5(
-        plane: ByteArray,
-        horizontal: Boolean,
-    ): ByteArray {
-        val out = ByteArray(plane.size)
-        for (y in 0 until BOARD) {
-            for (x in 0 until BOARD) {
-                out[y * BOARD + x] = gaussPixel(plane, x, y, horizontal)
-            }
-        }
-        return out
-    }
-
-    private fun gaussPixel(
-        plane: ByteArray,
-        x: Int,
-        y: Int,
-        horizontal: Boolean,
-    ): Byte {
-        var sum = 0
-        for (k in -2..2) {
-            val p = (if (horizontal) x else y) + k
-            val q =
-                if (p < 0) {
-                    -p
-                } else if (p >= BOARD) {
-                    2 * BOARD - 2 - p
-                } else {
-                    p
-                }
-            val idx = if (horizontal) y * BOARD + q else q * BOARD + x
-            sum += GAUSS5[k + 2] * (plane[idx].toInt() and U8)
-        }
-        return ((sum + GAUSS5_HALF) / GAUSS5_SUM).toByte()
-    }
-
     private fun scrambleSquare(
         image: GrayImage,
         square: String,
@@ -673,12 +567,7 @@ class TaintTest {
         const val OCCL_CENSUS_THR = 24.0
         const val OCCLUSION_COLOR_THR = 1.5
         const val NEUTRAL_BOARD = 170
-        const val LO_TEXTURE = 60
-        const val HI_TEXTURE = 200
         const val HALO = 8
-        val GAUSS5 = intArrayOf(1, 4, 6, 4, 1)
-        const val GAUSS5_SUM = 16
-        const val GAUSS5_HALF = 8
         const val GRAY_B = 0.114
         const val GRAY_G = 0.587
         const val GRAY_R = 0.299

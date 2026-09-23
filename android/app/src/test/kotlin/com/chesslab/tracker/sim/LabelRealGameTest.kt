@@ -19,31 +19,9 @@ import org.opencv.core.Mat
 import java.io.File
 
 /**
- * **The real-game harness, invoked the way the clip harness already is: system properties.**
- *
- * `scripts/label_real_game.py` turned filmed footage into a reviewable move list by driving the
- * PYTHON tracker. The phone runs `:core-engine`, so the one artefact whose whole purpose is "what
- * does the tracker do on real footage" had never been produced by the tracker that ships. This
- * class is where that changed.
- *
- * ```
- * gradlew.bat :app:testDebugUnitTest --tests "*LabelRealGameTest*" \
- *   -Dchesslab.realgame.video=data/testclip-raw/VID_20260802_222741.mp4
- * ```
- *
- * Without `chesslab.realgame.video` the run is SKIPPED, not failed, so a normal
- * `:app:testDebugUnitTest` is unaffected. There is deliberately no `JavaExec` task: the Android
- * unit-test classpath is what carries the AARs, and a second invocation path is a second thing to
- * keep working.
- *
- * **The geometry is MEASURED, not typed** (specs/52 phase 01): the quad comes from the shipping
- * stack — `rawQuadOf` → `refinedQuad` per sampled frame, judged absolutely by `alignmentOf`, the
- * per-corner median over passing frames — and footage that cannot come under the limit is REFUSED
- * rather than labeled, because a label on crooked geometry is worse than none. `fps` is read from
- * the container, and the crop comes from the shipped model's own declaration (`withCropOf`'s
- * source), never from a default a harness invented — that is how the CNN desynced three seconds
- * into the 2026-08-02 game (specs/41). The corner/margin/boardSize/fps/pad properties phase 00
- * took as scaffolding are gone with it.
+ * The shipping tracker on filmed footage: `--tests "*LabelRealGameTest*" -Dchesslab.realgame.video=<mp4>`,
+ * skipped without it. Geometry is MEASURED (specs/52 phase 01) and refused rather than guessed; the
+ * crop is the shipped model's own declaration (specs/41).
  */
 class LabelRealGameTest {
     @Test
@@ -79,8 +57,7 @@ class LabelRealGameTest {
         assertEquals(listOf(1, 2, 3), plies.map { it.ply })
         assertEquals(listOf("e4", "e5", "Nf3"), plies.map { it.san })
         assertEquals(bridge, plies.map { it.uci })
-        // The batch's decider, frame and alarm belong to all of its plies: the engine wrote one
-        // decision row for the lot, and pretending otherwise would invent provenance.
+        // One decision row for the lot: decider, frame and alarm belong to all of its plies.
         assertTrue(plies.all { it.decider == "cnn_recovery" && it.alarm && it.frame == BRIDGE_FRAME })
         assertTrue(plies.all { it.t == (BRIDGE_FRAME + 1) / FPS })
 
@@ -105,10 +82,8 @@ class LabelRealGameTest {
         assertEquals(decoded.size, handed.size, "every decoded frame must be offered exactly once")
         assertEquals(result.frames, handed.size, "the run and the callback must agree on how many frames there were")
         assertEquals(handed.indices.toList(), handed.map { it.first }, "the index is the decode order")
-        // The invariant with teeth: not merely that the indices count up, but that frame i IS the
-        // picture index i decoded. The Python writer paired current frames with stale indices and
-        // wrote five duplicated review frames into the 2026-08-02 candidate; nothing about its
-        // index sequence looked wrong.
+        // Frame i IS the picture index i decoded: the Python writer paired stale indices and wrote five
+        // duplicated review frames into the 2026-08-02 candidate while its indices looked fine.
         assertEquals(decoded, handed.map { it.second }, "each frame must be the one its index decoded")
     }
 
@@ -162,18 +137,14 @@ private fun realGameSource(): RealGameSource {
     val spec = shippedModelSpec()
     return RealGameSource(
         video = video,
-        // The app's shipping defaults, which is what the phone runs. Whether a recorded
-        // `effective_config` should win instead is an open question of this pack's, not a decision
-        // to make silently here.
+        // The shipping defaults; whether a recorded `effective_config` should win is an open question.
         config = TrackerConfig(),
         startFen = property("startFen") ?: STARTPOS,
         corners = scan.corners,
         margin = scan.margin,
         boardSize = scan.boardSize,
         fps = scan.fps,
-        // The MODEL's declaration, the same source `withCropOf` serves the live tracker from —
-        // never a harness default (specs/41). A model that declares no crop cannot be labeled
-        // against filmed footage, because the pixels it would be served are pixels nobody chose.
+        // The MODEL's declaration, as `withCropOf` serves it — never a harness default (specs/41).
         cropParams =
             CropParams(
                 padSide = requireNotNull(spec.padSide) { "model '$DEFAULT_MODEL' declares no crop — label with one that does" },
@@ -199,8 +170,7 @@ private fun restingClip(): RealGameSource {
         margin = 0.0,
         boardSize = clip.geometry.boardSize,
         fps = clip.fps,
-        // No model is attached, so no crop is ever cut. Stated anyway, because the type refuses to
-        // let a caller leave it unsaid — which is the whole point of it having no default.
+        // No crop is ever cut without a model; the type refuses to leave it unsaid.
         cropParams = CropParams(padSide = clip.geometry.padSide),
     )
 }

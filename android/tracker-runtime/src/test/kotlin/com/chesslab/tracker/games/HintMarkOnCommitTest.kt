@@ -2,35 +2,16 @@ package com.chesslab.tracker.games
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerEvent
-import com.chesslab.tracker.record.CaptureFrame
-import com.chesslab.tracker.record.CaptureSource
-import com.chesslab.tracker.record.FrameWriter
-import com.chesslab.tracker.record.RecordingGates
-import com.chesslab.tracker.record.RecordingPrefs
-import com.chesslab.tracker.record.SessionCaptureController
-import com.chesslab.tracker.record.SessionMeta
-import com.chesslab.tracker.record.SessionRecorder
+import com.chesslab.tracker.record.FEN_AFTER_E4
+import com.chesslab.tracker.record.captureUnder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
-
 private const val AFTER_D4 = "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1"
 
-private val CORNERS = floatArrayOf(0f, 0f, 100f, 0f, 100f, 100f, 0f, 100f)
-
-private fun stub(dest: File): Long {
-    dest.writeBytes(ByteArray(16))
-    return 16L
-}
-
-/**
- * Der Weg vom Druck bis auf die Platte: nur ein Tipp, der zu DIESER Stellung ausgeliefert wurde,
- * landet am Ply — und eine Partie, die ohne Ledger lief, behauptet hinterher nichts.
- */
 class HintMarkOnCommitTest {
     @TempDir
     lateinit var dir: File
@@ -47,7 +28,7 @@ class HintMarkOnCommitTest {
     @Test
     fun aTipForAnotherPositionMarksNothing() {
         val ledger = HintLedger().apply { startGame("WHITE", quota = 3) }
-        val stored = playE4(ledger, tipFen = AFTER_E4)
+        val stored = playE4(ledger, tipFen = FEN_AFTER_E4)
         assertNull(stored.moves.first().hint)
         assertEquals(HintStatus.NONE, stored.reviewView().let { it.hintStatusOf(it.plies.first()) })
     }
@@ -84,7 +65,7 @@ class HintMarkOnCommitTest {
     private fun playE4(
         ledger: HintLedger?,
         tipFen: String = STARTPOS,
-    ) = play(ledger, "e2e4", "e4", AFTER_E4, tipFen)
+    ) = play(ledger, "e2e4", "e4", FEN_AFTER_E4, tipFen)
 
     private fun play(
         ledger: HintLedger?,
@@ -107,23 +88,9 @@ class HintMarkOnCommitTest {
         store: GameStore = GameStore(File(dir, "games").also(File::mkdirs)),
     ) = GameSessionController(
         store = store,
-        capture = capture(),
+        capture = captureUnder(dir, enabled = false),
         now = { 0L },
         idFor = { "g$it" },
         hints = ledger,
     )
-
-    private fun capture() =
-        SessionCaptureController(
-            source =
-                object : CaptureSource {
-                    override fun grab(): CaptureFrame = CaptureFrame(1920, 1080, CORNERS, FrameWriter(::stub))
-
-                    override fun geometryNote(): String? = null
-                },
-            open = { SessionRecorder(File(dir, "s").also(File::mkdirs), SessionMeta("s", "default", it.width, it.height)) },
-            gates = RecordingGates(),
-            prefs = { RecordingPrefs(enabled = false) },
-            existingBytes = { 0L },
-        )
 }

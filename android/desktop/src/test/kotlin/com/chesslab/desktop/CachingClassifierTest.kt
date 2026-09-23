@@ -9,7 +9,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 
 /** Eine Datei JE AUFNAHME statt je Eintrag: 655 588 Winzdateien kosteten unter Last bis zu 70 %
- *  eines Replays (`docs/obs-cache-architektur-2026-09-20.md`). */
+ *  eines Replays (`docs/desktop-replay.md`). */
 class CachingClassifierTest {
     @TempDir
     lateinit var temp: Path

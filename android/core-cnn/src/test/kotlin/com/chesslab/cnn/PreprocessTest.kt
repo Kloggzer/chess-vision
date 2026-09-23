@@ -16,12 +16,8 @@ private const val SIDE = 128
 /** JIT/measurement noise floor — the real difference is 12.6 MB, so this is not a close call. */
 private const val ALLOC_NOISE_B = 64L * 1024
 
-/**
- * Allocation of THIS thread across [body], in bytes (HotSpot's per-thread allocation counter).
- *
- * Reflective because this module compiles its unit tests against `android.jar`, which has no
- * `java.lang.management` — the tests themselves run on the host JDK, where the class is there.
- */
+/** HotSpot's per-thread allocation counter, reflective: this module compiles its unit tests
+ *  against `android.jar`, which has no `java.lang.management`. */
 private fun allocatedBytes(body: () -> Unit): Long {
     val bean = Class.forName("java.lang.management.ManagementFactory").getMethod("getThreadMXBean").invoke(null)
     val counter = Class.forName("com.sun.management.ThreadMXBean").getMethod("getCurrentThreadAllocatedBytes")
@@ -30,14 +26,8 @@ private fun allocatedBytes(body: () -> Unit): Long {
     return counter.invoke(bean) as Long - before
 }
 
-/**
- * The allocating call these tests want, which production does not.
- *
- * It used to be `preprocess` in `:core-cnn`, a three-line wrapper over [preprocessInto] that no
- * host called: the phone observes several times a second and always into a reused buffer. Keeping
- * a convenience overload in a shipped module so tests read more nicely is how an API grows a
- * surface nobody serves — the convenience belongs here, where it is used.
- */
+/** The allocating call these tests want and production does not: the phone always writes into a
+ *  reused buffer, so the convenience lives here, not in the shipped module. */
 private fun preprocess(
     crops: List<BgrImage>,
     outW: Int,
@@ -48,27 +38,25 @@ private fun preprocess(
     FloatArray(crops.size * repr.channels * outW * outH)
         .also { preprocessInto(crops, outW, outH, it, perCrop = perCrop, repr = repr) }
 
+private fun floats(text: String): FloatArray =
+    text
+        .trim()
+        .split(Regex("\\s+"))
+        .map { it.toFloat() }
+        .toFloatArray()
+
+private fun bytes(text: String): ByteArray =
+    text
+        .trim()
+        .split(Regex("\\s+"))
+        .map { it.toInt().toByte() }
+        .toByteArray()
+
 class PreprocessTest {
     @Test
     fun `a 2x2 BGR crop becomes the expected NCHW float sequence`() {
-        // Pixel order is BGR; the four pixels are (0,0,0) (255,255,255) (10,20,30) (200,100,50).
-        val bytes =
-            byteArrayOf(
-                0,
-                0,
-                0,
-                -1,
-                -1,
-                -1,
-                10,
-                20,
-                30,
-                -56,
-                100,
-                50,
-            )
         val out = FloatArray(12)
-        preprocessInto(listOf(BgrImage(2, 2, bytes)), 2, 2, out)
+        preprocessInto(listOf(BgrImage(2, 2, bytes("0 0 0  255 255 255  10 20 30  200 100 50"))), 2, 2, out)
         val blue = intArrayOf(0, 255, 10, 200)
         val green = intArrayOf(0, 255, 20, 100)
         val red = intArrayOf(0, 255, 30, 50)
@@ -79,15 +67,8 @@ class PreprocessTest {
         }
     }
 
-    /**
-     * The reason this variant exists: 64 x 3 x 128 x 128 floats is 12.6 MB, and the live path
-     * observes several times a second next to a 15 fps camera loop.
-     *
-     * This used to compare against an allocating twin, `preprocess`, which nothing on the phone
-     * called — so the twin was deleted and the assertion that mattered kept. It is also the
-     * stronger half: "writes the same values as the other implementation" only holds two things
-     * equal, while "allocates nothing" is the claim the design rests on.
-     */
+    /** 64 x 3 x 128 x 128 floats is 12.6 MB, observed several times a second next to a 15 fps
+     *  camera loop: "allocates nothing" is the claim the design rests on. */
     @Test
     fun `preprocessInto reuses its buffer and allocates nothing`() {
         val crops = List(BATCH) { BgrImage(SIDE, SIDE, ByteArray(SIDE * SIDE * 3) { (it % 251).toByte() }) }
@@ -165,36 +146,18 @@ class PreprocessTest {
         assertTrue(abs(expected - actual) <= 1e-6f, "$what: expected $expected, got $actual")
     }
 
-    /**
-     * Per-crop standardisation, against numbers produced by `torch_data._PerCropStandardize`.
-     *
-     * Training and serving must normalise identically or the model sees inputs it never saw; a
-     * golden vector from the Python side is the only way to state that as a fact. Note `std` is the
-     * UNBIASED estimate — `torch.Tensor.std()` defaults to `correction=1`, and using the biased one
-     * shifts every value by ~4% on a 12-element crop.
-     */
+    /** Golden vector from `torch_data._PerCropStandardize`. `std` is the UNBIASED estimate
+     *  (`torch.Tensor.std()` defaults to `correction=1`); the biased one shifts every value ~4 %. */
     @Test
     fun perCropStandardisationMatchesTheTorchTransform() {
-        val crop =
-            BgrImage(
-                width = 2,
-                height = 2,
-                data = byteArrayOf(10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120),
-            )
+        val crop = BgrImage(2, 2, bytes("10 20 30 40 50 60 70 80 90 100 110 120"))
         val expected =
-            floatArrayOf(
-                -0.970657f,
-                -0.138665f,
-                0.693326f,
-                1.525318f,
-                -1.247987f,
-                -0.415996f,
-                0.415996f,
-                1.247987f,
-                -1.525318f,
-                -0.693326f,
-                0.138665f,
-                0.970657f,
+            floats(
+                """
+                -0.970657 -0.138665 0.693326 1.525318
+                -1.247987 -0.415996 0.415996 1.247987
+                -1.525318 -0.693326 0.138665 0.970657
+                """,
             )
         val out = preprocess(listOf(crop), outW = 2, outH = 2, perCrop = true)
         assertEquals(expected.size, out.size)
@@ -203,16 +166,19 @@ class PreprocessTest {
         }
     }
 
-    /**
-     * The `--input-repr` channel stacks, against numbers produced by
-     * `torch_data.build_transform(..., input_repr=…)`.
-     *
-     * Golden numbers, not properties. The gradient channel is one specific kernel
-     * (`cv2.Sobel` ksize 3) with one specific border rule (`BORDER_REFLECT_101`) and one specific
-     * normalisation; a port that gets any of the three wrong still produces a plausible-looking
-     * edge map, and the model would silently see an input it never trained on. The 4x4 crop below
-     * is a bright/dark quadrant split, so every interior pixel has a real edge to disagree about.
-     */
+    @Test
+    fun `per-crop normalisation on a non-RGB stack is refused, not silently dropped`() {
+        val crops = List(2) { BgrImage(4, 4, DISTINCT_CROP) }
+        val out = FloatArray(crops.size * InputRepr.GRAY_SOBEL.channels * 4 * 4)
+
+        assertThrows<IllegalArgumentException> {
+            preprocessInto(crops, 4, 4, out, perCrop = true, repr = InputRepr.GRAY_SOBEL)
+        }
+    }
+
+    /** Golden numbers from `torch_data.build_transform(..., input_repr=…)`: a port that gets the
+     *  kernel (`cv2.Sobel` ksize 3), the border (`BORDER_REFLECT_101`) or the normalisation wrong
+     *  still yields a plausible edge map, and the model would silently see an unseen input. */
     @Test
     fun grayPlusSobelMatchesTheTorchTransform() {
         assertRepr(InputRepr.GRAY_SOBEL, GRAY_SOBEL_GOLDEN)
@@ -228,15 +194,8 @@ class PreprocessTest {
         assertRepr(InputRepr.SOBEL, SOBEL_GOLDEN)
     }
 
-    /**
-     * The same transform at the size the app actually runs, 128x128.
-     *
-     * The 4x4 goldens above cannot see an index bug that only appears at a real stride — the
-     * border arithmetic is written in terms of `w` and `h`, and a 4-wide crop is small enough that
-     * a wrong row offset can still land inside the crop. A sum over all 32768 floats plus nine
-     * probes (both plane starts, both plane ends, an interior point) pins the layout as well as
-     * the arithmetic without carrying 32768 literals.
-     */
+    /** At 128x128, because a 4-wide crop is small enough that a wrong row offset still lands inside
+     *  it. A sum over all 32768 floats plus nine probes pins layout and arithmetic. */
     @Test
     fun grayPlusSobelMatchesTheTorchTransformAtTheLiveCropSize() {
         val data = ByteArray(SIDE * SIDE * 3)
@@ -277,12 +236,8 @@ class PreprocessTest {
         }
     }
 
-    /**
-     * A non-rgb repr normalises RGB with the IMAGENET constants, never the run's own `normalize`:
-     * `build_transform` appends `InputRepresentation` INSTEAD of `Normalize(mean, std)` for every
-     * repr but `rgb`, and `forward` reads `config.NORMALIZE_MEAN/STD`. `ModelSpec` passes the run's
-     * pair anyway, so any run that carries another one feeds the graph a scale it never saw.
-     */
+    /** `build_transform` appends `InputRepresentation` INSTEAD of `Normalize(mean, std)` for every
+     *  repr but `rgb`, yet `ModelSpec` passes the run's pair anyway — it must not reach the graph. */
     @Test
     fun `a non-rgb repr ignores the run's own mean and std`() {
         val out = FloatArray(InputRepr.RGB_SOBEL.channels * 4 * 4)
@@ -317,158 +272,56 @@ class PreprocessTest {
     }
 }
 
-/**
- * 4x4 BGR, sixteen DISTINCT pixels — deliberately not a quadrant pattern.
- *
- * A crop with repeated rows/columns cannot tell `BORDER_REFLECT_101` apart from `BORDER_REPLICATE`
- * (mirroring row 0 onto row 1 and repeating row 0 give the same numbers when the two rows are
- * equal), and the first version of this fixture did exactly that: the border mutation ran green.
- */
+/** 4x4 BGR, sixteen DISTINCT pixels: with repeated rows `BORDER_REFLECT_101` and `BORDER_REPLICATE`
+ *  give the same numbers, and the first quadrant fixture let the border mutation run green. */
 private val DISTINCT_CROP =
-    byteArrayOf(
-        5,
-        15,
-        25,
-        60,
-        70,
-        80,
-        -56,
-        -46,
-        -36,
-        120,
-        10,
-        30,
-        -6,
-        -16,
-        -26,
-        10,
-        10,
-        10,
-        90,
-        -116,
-        -66,
-        33,
-        66,
-        99,
-        -16,
-        30,
-        15,
-        15,
-        -16,
-        30,
-        30,
-        15,
-        -16,
-        -128,
-        -128,
-        0,
-        0,
-        -128,
-        -1,
-        -1,
-        0,
-        -128,
-        -128,
-        -1,
-        0,
-        70,
-        70,
-        70,
+    bytes(
+        """
+        5 15 25     60 70 80     200 210 220  120 10 30
+        250 240 230 10 10 10     90 140 190   33 66 99
+        240 30 15   15 240 30    30 15 240    128 128 0
+        0 128 255   255 0 128    128 255 0    70 70 70
+        """,
     )
 
-/**
- * The four corners are exactly `(0 - SOBEL_MEAN) / SOBEL_STD`, and that is not a fixture accident:
- * under reflect-101 the left and right taps of `gx` land on the same mirrored column at x=0, so the
- * derivative across a mirrored boundary is identically zero.
- */
+/** The four corners are exactly `(0 - SOBEL_MEAN) / SOBEL_STD`: under reflect-101 both `gx` taps
+ *  land on the same mirrored column at x=0, so the derivative there is identically zero. */
 private val SOBEL_GOLDEN =
-    floatArrayOf(
-        -0.704316f,
-        0.878031f,
-        -0.424311f,
-        -0.704316f,
-        0.970721f,
-        0.159860f,
-        0.293860f,
-        0.289789f,
-        -0.265449f,
-        -0.332323f,
-        0.370905f,
-        -0.511601f,
-        -0.704316f,
-        0.002983f,
-        0.178190f,
-        -0.704316f,
+    floats(
+        """
+        -0.704316 0.878031 -0.424311 -0.704316
+        0.970721 0.159860 0.293860 0.289789
+        -0.265449 -0.332323 0.370905 -0.511601
+        -0.704316 0.002983 0.178190 -0.704316
+        """,
     )
 
 private val GRAY_SOBEL_GOLDEN =
-    floatArrayOf(
-        -1.694343f,
-        -0.739979f,
-        1.689311f,
-        -1.491845f,
-        2.145671f,
-        -1.813205f,
-        0.603071f,
-        -0.735554f,
-        -1.128579f,
-        0.643155f,
-        -0.529412f,
-        -0.429759f,
-        0.640049f,
-        -0.818202f,
-        0.863821f,
-        -0.772080f,
+    floats(
+        """
+        -1.694343 -0.739979 1.689311 -1.491845
+        2.145671 -1.813205 0.603071 -0.735554
+        -1.128579 0.643155 -0.529412 -0.429759
+        0.640049 -0.818202 0.863821 -0.772080
+        """,
     ) + SOBEL_GOLDEN
 
 private val RGB_SOBEL_GOLDEN =
-    floatArrayOf(
-        -1.689785f,
-        -0.747924f,
-        1.649542f,
-        -1.604161f,
-        1.820789f,
-        -1.946656f,
-        1.135799f,
-        -0.422553f,
-        -1.861033f,
-        -1.604161f,
-        1.992037f,
-        -2.117904f,
-        2.248908f,
-        0.074065f,
-        -2.117904f,
-        -0.919171f,
-        -1.773109f,
-        -0.810224f,
-        1.640756f,
-        -1.860644f,
-        2.165966f,
-        -1.860644f,
-        0.415266f,
-        -0.880252f,
-        -1.510504f,
-        2.165966f,
-        -1.773109f,
-        0.205182f,
-        0.205182f,
-        -2.035714f,
-        2.428571f,
-        -0.810224f,
-        -1.717299f,
-        -0.758693f,
-        1.681394f,
-        0.287059f,
-        2.552854f,
-        -1.630152f,
-        -0.235817f,
-        -1.229281f,
-        2.378562f,
-        -1.543007f,
-        -1.281569f,
-        0.426493f,
-        -1.804444f,
-        2.640000f,
-        0.426493f,
-        -0.584401f,
+    floats(
+        """
+        -1.689785 -0.747924 1.649542 -1.604161
+        1.820789 -1.946656 1.135799 -0.422553
+        -1.861033 -1.604161 1.992037 -2.117904
+        2.248908 0.074065 -2.117904 -0.919171
+
+        -1.773109 -0.810224 1.640756 -1.860644
+        2.165966 -1.860644 0.415266 -0.880252
+        -1.510504 2.165966 -1.773109 0.205182
+        0.205182 -2.035714 2.428571 -0.810224
+
+        -1.717299 -0.758693 1.681394 0.287059
+        2.552854 -1.630152 -0.235817 -1.229281
+        2.378562 -1.543007 -1.281569 0.426493
+        -1.804444 2.640000 0.426493 -0.584401
+        """,
     ) + SOBEL_GOLDEN

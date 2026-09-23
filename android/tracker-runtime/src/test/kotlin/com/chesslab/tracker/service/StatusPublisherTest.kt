@@ -2,11 +2,17 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.camera.CameraHealth
+import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.Stage
 import com.chesslab.tracker.pipeline.StageTimings
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertArrayEquals
@@ -24,7 +30,7 @@ class StatusPublisherTest {
     /** Mirrors `advanceTimeBy` so the publisher's build gate and the flow's sampler see one clock. */
     private var clockMs = 0L
 
-    private fun publisherOn(scope: kotlinx.coroutines.CoroutineScope) = StatusPublisher(scope, nowMs = { clockMs })
+    private fun publisherOn(scope: CoroutineScope) = StatusPublisher(scope, nowMs = { clockMs })
 
     @Test
     fun statusIsSampledAtAboutTenHertz() =
@@ -43,12 +49,7 @@ class StatusPublisherTest {
             assertTrue(seen.size in 8..14, "expected ~10 emissions in 1 s, got ${seen.size}")
         }
 
-    /**
-     * The one condition the screen most needs to show was the one condition that stopped the code
-     * that would show it: everything here ran from [StatusPublisher.publish], and publish runs only
-     * on a delivered frame. A conflated `StateFlow` then holds the last sample forever, so a dead
-     * feed kept reading `WAITING · 14.8 fps`.
-     */
+    /** Everything ran from [StatusPublisher.publish], which only a delivered frame calls: a dead feed read `14.8 fps`. */
     @Test
     fun aStalledFeedIsPublishedWithoutAnyFrameArriving() =
         runTest {
@@ -79,10 +80,7 @@ class StatusPublisherTest {
             assertEquals(null, publisher.status.value?.note, "2 Hz is slow, not stalled")
         }
 
-    /**
-     * The gate is on the BUILD, not just the emission: `TrackerStatus` costs a chesslib FEN and
-     * four 64-entry maps, and it used to be assembled on every analyzer frame for a 10 Hz flow.
-     */
+    /** The gate is on the BUILD: `TrackerStatus` costs a chesslib FEN and four 64-entry maps. */
     @Test
     fun theStatusIsBuiltAtTheSampleRate_notPerFrame() =
         runTest {
@@ -185,4 +183,67 @@ class StatusPublisherTest {
             publisher.publish({ error("must not build") }, "next-fen", emptyList(), null)
             assertEquals("next-fen", publisher.lastFen)
         }
+
+    /** The stall watchdog rewrote `note` past [resolveNote]'s ladder: over the latched alarm and the user's release. */
+    @Test
+    fun aStalledFeedMustNotOverwriteTheAlarmNote() =
+        runTest {
+            val publisher = publisherOn(backgroundScope)
+            val alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), "e2e4", "e4")
+            publisher.publish({ statusOf(alarm = alarm) }, "fen", emptyList(), null)
+            advanceTimeBy(STATUS_SAMPLE_MS * 2)
+            val before = publisher.status.value?.note
+            assertTrue(before?.startsWith("Position lost") == true, "precondition: the alarm owns the note")
+
+            clockMs += 5_000
+            advanceTimeBy(5_000)
+
+            val note = publisher.status.value?.note
+            assertTrue(note?.startsWith("Position lost") == true, "the alarm must survive a stalled feed, was: $note")
+        }
+
+    @Test
+    fun aReleasedCameraIsNotReportedAsAStalledFeed() =
+        runTest {
+            val publisher = publisherOn(backgroundScope)
+            publisher.cameraHealth = CameraHealth.Off
+            publisher.publish({ statusOf() }, "fen", emptyList(), null)
+            advanceTimeBy(STATUS_SAMPLE_MS * 2)
+
+            clockMs += 5_000
+            advanceTimeBy(5_000)
+
+            val note = publisher.status.value?.note
+            assertTrue(note == "tracking stopped — the camera is released", "a release is not a fault, was: $note")
+        }
+
+    /** `0.0 fps` beside a live camera said "dead feed" when the truth was "nothing is being analysed". */
+    @Test
+    fun aSkippedFrameCarriesTheCameraRateAndAZeroedDetectionRate() =
+        runTest {
+            var nowNs = 0L
+            val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
+            val publisher = StatusPublisher(scope, cameraRate = CameraRate(nowNs = { nowNs }), nowMs = { nowNs / MS })
+            repeat(50) {
+                nowNs += 33 * MS
+                publisher.onCameraFrame()
+            }
+
+            // The engine's EMA is FROZEN at its last tick, so a stale rate would stand over a discarding pipeline.
+            publisher.publish({ statusOf().copy(fps = 14.8) }, "", emptyList(), "waiting for markers…")
+            advanceTimeBy(STATUS_SAMPLE_MS * 2)
+            val skipped = publisher.status.value!!
+            assertEquals(0.0, skipped.fps, "a frame that produced no FrameInput analysed nothing")
+            assertEquals(1000.0 / 33.0, skipped.cameraFps, 1e-6, "…while the camera is plainly fine")
+
+            nowNs += STATUS_SAMPLE_MS * MS
+            publisher.publish({ statusOf().copy(fps = 14.8) }, "", emptyList(), null)
+            advanceTimeBy(STATUS_SAMPLE_MS * 2)
+            assertEquals(14.8, publisher.status.value!!.fps, "a detecting frame reports the engine's rate")
+            scope.cancel()
+        }
+
+    private companion object {
+        const val MS = 1_000_000L
+    }
 }

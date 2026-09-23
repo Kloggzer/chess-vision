@@ -6,11 +6,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * [withLiveKnobsOf]: the run's config wins, except for the twelve knobs that may change under it.
- *
- * The rule `TrackerStack` obeys, and a rule because the repository is not every host's run config:
- * a replay leaves it at [ConfigCodec.defaults], so a restart-only knob read off it is a default
- * served over the run's own — a recorded `alignEvery`, a `set:cnnVerify=false`.
+ * [withLiveKnobsOf]: the run's config wins except for the twelve live knobs. A replay leaves the
+ * repository at [ConfigCodec.defaults], so a restart-only knob read off it overrides the run's own.
  */
 class LiveKnobsTest {
     private val base =

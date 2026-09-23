@@ -3,6 +3,7 @@ package com.chesslab.geometry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import kotlin.math.abs
 
 /** Tier A — pure math, no OpenCV. Port checks for `calibration.py MarkerTracker`. */
 class MarkerTrackerTest {
@@ -33,6 +34,24 @@ class MarkerTrackerTest {
         live(t, 102.0, 101.0) // L1 = 3 <= moveThreshold 4
         assertEquals(listOf(100.0, 100.0), t.points().getValue(0).toList())
         assertEquals(MarkerStatus.LIVE, t.status(0))
+    }
+
+    /** "at or below this freezes": exactly on the threshold the corner still stands. */
+    @Test
+    fun `a move exactly on the threshold still freezes`() {
+        val t = MarkerTracker()
+        live(t, 100.0, 200.0)
+        live(t, 104.0, 200.0)
+        assertEquals(100.0, t.points().getValue(0)[0], 1e-9, "4,0 ist die Totzone, nicht ihr Ende")
+    }
+
+    /** L1, not euclidean: (2,5 | 2,5) is 5,0 in L1 but 3,54 euclidean — swapping freezes real motion. */
+    @Test
+    fun `the dead zone is measured in L1, not euclidean`() {
+        val t = MarkerTracker()
+        live(t, 100.0, 200.0)
+        live(t, 102.5, 202.5)
+        assertTrue(abs(t.points().getValue(0)[0] - 100.0) > 1e-9, "L1 5,0 liegt ausserhalb der Totzone")
     }
 
     @Test
@@ -76,6 +95,20 @@ class MarkerTrackerTest {
         assertEquals(listOf(100.0, 100.0), t.points().getValue(0).toList())
         live(t, 402.0, 100.0) // now confirmed
         assertTrue(t.points().getValue(0)[0] > 100.0)
+    }
+
+    /** `pending` is only cleared by `accept`, so a candidate from before an occlusion must not count
+     *  as the first of `jumpConfirmFrames` CONSECUTIVE frames. */
+    @Test
+    fun `a gap without any detection invalidates the pending jump candidate`() {
+        val t = MarkerTracker()
+        live(t, 100.0, 100.0)
+        live(t, 200.0, 100.0) // L1 = 100 > 60 -> held, pending
+        repeat(500) { t.update(emptyMap()) }
+        assertEquals(MarkerStatus.STALE, t.status(0), "500 frames without a detection is stale")
+
+        live(t, 205.0, 100.0)
+        assertEquals(listOf(100.0, 100.0), t.points().getValue(0).toList(), "a stale candidate confirmed the jump")
     }
 
     @Test

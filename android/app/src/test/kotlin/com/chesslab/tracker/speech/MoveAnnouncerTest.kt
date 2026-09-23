@@ -3,7 +3,7 @@ package com.chesslab.tracker.speech
 import com.chesslab.engine.api.AlarmReason
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.tracker.settings.AppSettings
-import com.chesslab.tracker.settings.ConfigStore
+import com.chesslab.tracker.settings.MemoryStore
 import com.chesslab.tracker.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,19 +53,6 @@ private class RecordingSpeaker : Speaker {
     fun next(ms: Long = 2000): Triple<String, Boolean, String>? = said.poll(ms, TimeUnit.MILLISECONDS)
 
     fun nothing() = assertNull(said.poll(300, TimeUnit.MILLISECONDS))
-}
-
-private class MemoryStore : ConfigStore {
-    private val slots = mutableMapOf<String, String>()
-
-    override suspend fun read(slot: String): String? = slots[slot]
-
-    override suspend fun write(
-        slot: String,
-        text: String,
-    ) {
-        slots[slot] = text
-    }
 }
 
 /**

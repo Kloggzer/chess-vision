@@ -5,10 +5,8 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/**
- * Die zwei Absagen des Rillenfinders, beide mit einem gemessenen Vorfall dahinter und beide
- * bis 2026-09-22 ungedeckt: zu FLACH (Rauschen) und zu BREIT (eine Figur, keine Rille).
- */
+/** Die zwei Absagen des Rillenfinders, bis 2026-09-22 ungedeckt: zu FLACH (Rauschen) und zu
+ *  BREIT (eine Figur, keine Rille). */
 class GrooveRefusalTest {
     @Test
     fun `a narrow notch is located at its centre of mass`() {
@@ -28,10 +26,8 @@ class GrooveRefusalTest {
         assertNull(notchCentre(profile(DEPTH_FLOOR - STEP), CSP))
     }
 
-    /**
-     * Frame 900 von VID_20260802_222741: die schwarze Grundreihe lehnte ueber die Linie dahinter,
-     * jedes Band meldete die Figur, die Linie kam 36 mrad schief und 16,3 px daneben heraus.
-     */
+    /** Frame 900 von VID_20260802_222741: die schwarze Grundreihe lehnte ueber die Linie dahinter,
+     *  jedes Band meldete die Figur, die Linie kam 36 mrad schief und 16,3 px daneben heraus. */
     @Test
     fun `a dark run still going at both ends is an object, not a groove`() {
         assertNull(notchCentre(wideObject(), CSP))

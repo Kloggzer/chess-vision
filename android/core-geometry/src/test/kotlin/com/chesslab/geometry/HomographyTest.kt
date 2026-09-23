@@ -2,7 +2,6 @@ package com.chesslab.geometry
 
 import com.chesslab.geometry.testutil.GeometryFixtures
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -12,10 +11,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 
-/**
- * Tier C — needs the OpenCV natives. Golden rows from `parity/_geometry/meta.json ->
- * homographies[]` and `parity/_geometry/resolve_corners.jsonl` (phase 00b).
- */
+/** Tier C — golden rows from `_geometry/meta.json -> homographies[]` and `resolve_corners.jsonl`. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class HomographyTest {
     @Test
@@ -84,19 +80,12 @@ class HomographyTest {
                 assertNull(result, "$name must not resolve")
                 nullRows++
             } else {
-                assertNotNull(result, "$name must resolve")
-                val (corners, nUsed) = requireNotNull(result)
+                val (corners, nUsed) = requireNotNull(result) { "$name must resolve" }
                 assertEquals(GeometryFixtures.num(row["nUsed"]).toInt(), nUsed, "$name nUsed")
                 assertCorners(name, GeometryFixtures.list(row["corners"]).map { GeometryFixtures.point(it) }, corners)
             }
         }
         assertTrue(nullRows >= 2, "fixture must cover the 1-marker and 0-marker null cases")
-    }
-
-    @Test
-    fun `fewer than two markers never resolve`() {
-        assertNull(resolveBoardCorners(emptyMap(), 800))
-        assertNull(resolveBoardCorners(mapOf(0 to doubleArrayOf(1.0, 2.0)), 800))
     }
 
     private fun assertCorners(

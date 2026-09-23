@@ -7,6 +7,7 @@ import com.chesslab.engine.api.DebugPayload
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.cnn.CnnState
+import com.chesslab.tracker.debugDecision
 import com.chesslab.tracker.service.CnnRuntimeInfo
 import com.chesslab.tracker.service.DebugPayloadAssembler
 import com.chesslab.tracker.ui.tracking.idleTrackerStatus
@@ -215,20 +216,14 @@ class DebugStateTest {
     fun cnnStateShowsActualEpNotRequested() {
         val fellBack = CnnRuntimeInfo("QNN-HTP(NPU)", "NNAPI", "real14-80", "model.onnx", "64x3x80x80", CROP, 9.0, 3)
         assertEquals("QNN-HTP(NPU) (requested) → NNAPI (actual)", epLine(fellBack))
-        // The tone itself is now a palette lookup (light/dark), so the testable part is the
-        // decision behind it: a fall-back must be flagged, a granted request must not.
+        // The tone is a palette lookup; the testable part is the decision behind it.
         assertTrue(epFellBack(fellBack))
         val asked = fellBack.copy(actualEp = "QNN-HTP(NPU)")
         assertEquals("QNN-HTP(NPU)", epLine(asked))
         assertFalse(epFellBack(asked))
     }
 
-    /**
-     * Two models ship side by side and the user switches between them mid-comparison, so the panel
-     * has to say which one produced what is on screen — and at which input size, since a model may
-     * change it. Both halves are MEASURED: the staged directory and the tensor built from that
-     * model's own config.
-     */
+    /** The user switches models mid-comparison; both halves are MEASURED (staged directory, built tensor). */
     @Test
     fun cnnStateNamesTheAttachedModelAndItsInputSize() {
         val live = CnnRuntimeInfo("CPU", "CPU", "real14-80", "model.onnx", "64x3x80x80", CROP, 9.0, 3)
@@ -236,8 +231,7 @@ class DebugStateTest {
         assertEquals("id35-80 @ 96x96 · crop $CROP", modelLine(live.copy(modelDir = "id35-80", inputShape = "64x3x96x96")))
         // Nothing attached yet: a dash, never a guess at what the settings asked for.
         assertEquals("-", modelLine(live.copy(modelDir = null, inputShape = null, crop = null)))
-        // A model that declared no crop is served the profile's pads, and the panel says so — the
-        // silent version of this is the whole of specs/45.
+        // A model that declared no crop is served the profile's pads, and says so (specs/45).
         assertTrue(modelLine(live.copy(crop = "side=0.100 (LEGACY: the model declares no crop)")).contains("LEGACY"))
     }
 
@@ -254,7 +248,7 @@ class DebugStateTest {
     fun decisionExportContainsConfigHeader() {
         val text =
             exportDecisionLog(
-                listOf(decision("e2e4", accepted = true), decision("d2d4", accepted = false)),
+                listOf(debugDecision(decider = "diff", accepted = true), debugDecision(uci = "d2d4")),
                 TrackerConfig(),
                 CnnRuntimeInfo("QNN-HTP(NPU)", "CPU", "real14-80", "model.onnx", "64x3x80x80", CROP, 8.0, 2),
                 "1.0-test",
@@ -262,8 +256,7 @@ class DebugStateTest {
         assertTrue(text.contains("# app: 1.0-test"))
         assertTrue(text.contains("#   zThr = 3.0"), "the full config block is part of the header")
         assertTrue(text.contains("ep: CPU (requested QNN-HTP(NPU))"))
-        // Which bundled model produced these decisions, and at what size — a log that says only
-        // "model.onnx" names every one of them.
+        // "model.onnx" alone names every bundled model.
         assertTrue(text.contains("# model: real14-80/model.onnx @ 64x3x80x80"), text.lines()[2])
         val rows = text.lines().filterNot { it.startsWith("#") }.filter { it.isNotBlank() }
         assertEquals(3, rows.size, "one column header plus one line per record")
@@ -271,34 +264,3 @@ class DebugStateTest {
         assertTrue(rows[2].endsWith("\tfalse"), "the rejected row exports accepted = false")
     }
 }
-
-private fun decision(
-    uci: String,
-    accepted: Boolean,
-) = DebugDecision(
-    tsS = 1.0,
-    ply = 2,
-    uci = uci,
-    san = "x",
-    fenBefore = null,
-    fenAfter = "f",
-    decider = if (accepted) "diff" else "rejected",
-    reason = "r",
-    priorUsed = false,
-    bestScore = 1.0,
-    secondScore = 0.0,
-    margin = 1.0,
-    changed = listOf("e2", "e4"),
-    changedVals = emptyList(),
-    shadowVetoed = emptyList(),
-    occludedVetoed = emptyList(),
-    gridCoverage = 1.0,
-    zThr = 3.0,
-    motion = 0.0,
-    cnnRun = false,
-    cnnAgreement = 0.0,
-    cnnBestMove = null,
-    stuckReason = null,
-    verifyOutcome = null,
-    accepted = accepted,
-)

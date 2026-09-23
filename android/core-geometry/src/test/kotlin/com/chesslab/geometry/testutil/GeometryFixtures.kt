@@ -7,16 +7,9 @@ import java.io.File
 import java.util.zip.GZIPInputStream
 import kotlin.math.abs
 
-// Minimal loader for the phase-00b `_geometry/` golden fixtures.
-//
-// The fixtures are committed under `core-engine/src/test/resources/parity/`, i.e. on ANOTHER
-// module's test classpath. `ParityFixtures.kt` (00b, `:core-engine` test sources) is NOT moved
-// or duplicated here - it is a classpath-resource reader and this module has no such resource.
-// Instead this reads the `_geometry/` files it consumes off the file system, resolved by
-// walking up from the working directory. Recorded as a discrepancy in `STATUS.md`.
-//
-// JSON is parsed with snakeyaml (already a declared test dependency of this module; JSON is a
-// YAML subset and none of these files uses exponent notation).
+// The `_geometry/` fixtures live on `:core-engine`'s test classpath, so they are read off the file
+// system by walking up from the working directory. JSON goes through snakeyaml: a YAML subset, and
+// none of these files uses exponent notation.
 
 object GeometryFixtures {
     /** Same tolerance contract as `ParityFixtures.kt`: 1e-4 relative with a 1e-4 floor. */
@@ -77,6 +70,14 @@ object GeometryFixtures {
     fun num(value: Any?): Double = (value as Number).toDouble()
 
     fun ints(value: Any?): List<Int> = list(value).map { num(it).toInt() }
+
+    fun doubles(value: Any?): DoubleArray = list(value).map { num(it) }.toDoubleArray()
+
+    /** A fixture `mesh` object as `[x, y, tx, ty, cx, cy]`. */
+    fun meshAxes(value: Any?): List<DoubleArray> {
+        val lines = map(value)
+        return listOf("x", "y", "tx", "ty", "cx", "cy").map { doubles(lines[it]) }
+    }
 
     fun point(value: Any?): DoubleArray {
         val xy = list(value)

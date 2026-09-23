@@ -14,7 +14,7 @@ const val NOISE_UNMEASURED = -1.0
  * consecutive frames, measured here because the app runs `CLASSIC` and never computes one.
  *
  * A cell mean over ~120x120 source pixels damps uncorrelated noise by sqrt(N), so what a gain
- * change does to the raw image says nothing about what it does here — `docs/board-exposure.md`.
+ * change does to the raw image says nothing about what it does here — `docs/camera.md`.
  */
 class NoiseFloor(
     /** Two frames of work per interval; the perf line prints once a second and cannot use more. */

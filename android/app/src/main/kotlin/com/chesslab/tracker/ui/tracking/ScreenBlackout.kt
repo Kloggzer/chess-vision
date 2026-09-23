@@ -30,7 +30,7 @@ private const val BLACKOUT_AFTER_MS = 60_000L
  *
  * Only the PICTURE goes: camera, engine, recorder and the spoken moves live in `TrackerService`,
  * which owns the camera on its own lifecycle and never sees this. The display measured 25-71 mA of
- * ~740 mA, so this is for not having a lit phone beside the board (`docs/battery.md`).
+ * ~740 mA, so this is for not having a lit phone beside the board (`docs/android-performance.md`).
  */
 @Composable
 fun ScreenBlackout(content: @Composable () -> Unit) {

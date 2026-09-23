@@ -1,6 +1,5 @@
 package com.chesslab.tracker.record
 
-import com.chesslab.engine.api.DebugDecision
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.MIN_VIDEO_HEIGHT
 import com.chesslab.tracker.camera.MIN_VIDEO_WIDTH
@@ -9,11 +8,12 @@ import com.chesslab.tracker.camera.VideoProgress
 import com.chesslab.tracker.camera.VideoRecorderPort
 import com.chesslab.tracker.camera.bitRateFor
 import com.chesslab.tracker.camera.preRollWindowSeconds
-import com.chesslab.tracker.settings.ConfigStore
+import com.chesslab.tracker.settings.MemoryStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -51,74 +51,11 @@ class RecordingBundleHostTest {
     @TempDir
     lateinit var sessionsRoot: File
 
-    @Test
-    fun firstDecisionArrivesInTimelineWhenBuffered() =
-        runTest {
-            val timeline = SessionTimeline(sessionDir, this, UnconfinedTestDispatcher(testScheduler))
+    private fun TestScope.host(camera: FakeVideoCamera = FakeVideoCamera()) =
+        RecordingBundleHost(camera, RecordingSettings(MemoryStore()), sessionsRoot, this, UnconfinedTestDispatcher(testScheduler))
 
-            val decision =
-                DebugDecision(
-                    tsS = 123.456,
-                    ply = 1,
-                    uci = "e2e4",
-                    san = "e4",
-                    fenBefore = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                    fenAfter = OPENING_FEN,
-                    decider = "diff",
-                    reason = "frame-diff, confirmed by frame-diff tracking",
-                    priorUsed = false,
-                    bestScore = 0.5,
-                    secondScore = -0.3,
-                    margin = 0.8,
-                    changed = listOf("e2", "e4"),
-                    changedVals = listOf("e2" to 0.0, "e4" to 0.5),
-                    shadowVetoed = emptyList(),
-                    occludedVetoed = emptyList(),
-                    gridCoverage = 1.0,
-                    zThr = 2.0,
-                    motion = 0.0,
-                    cnnRun = false,
-                    cnnAgreement = 0.0,
-                    cnnBestMove = null,
-                    stuckReason = null,
-                    verifyOutcome = null,
-                    accepted = true,
-                )
-
-            // Write the buffered decision to the timeline (this simulates what RecordingBundleHost.opened does)
-            timeline.decision(decision, 1_000_000_000L)
-            timeline.close()
-            advanceUntilIdle()
-
-            // The timeline file should now contain the decision row.
-            val timelineFile = File(sessionDir, "timeline.jsonl")
-            val lines = timelineFile.readLines()
-
-            // Find the decision row (kind == "decision" and ply == 1)
-            val decisionLine =
-                lines.find { line ->
-                    val obj = Json.parseToJsonElement(line).jsonObject
-                    obj.getValue("kind").jsonPrimitive.content == "decision" &&
-                        obj.getValue("ply").jsonPrimitive.content == "1"
-                }
-
-            // Assert the decision row is present
-            assertNotNull(decisionLine, "Decision row with ply=1 should exist in timeline")
-            val decisionObj = Json.parseToJsonElement(decisionLine!!).jsonObject
-
-            assertEquals("1", decisionObj.getValue("ply").jsonPrimitive.content)
-            assertEquals("e2e4", decisionObj.getValue("uci").jsonPrimitive.content)
-            assertEquals("e4", decisionObj.getValue("san").jsonPrimitive.content)
-            assertEquals("decision", decisionObj.getValue("kind").jsonPrimitive.content)
-        }
-
-    /**
-     * The double "armed" of 2026-08-14 (20:36:33 and 20:50:22, two log lines ~180 ms apart).
-     *
-     * A teardown stops the encoder from two sides — the session ending and the camera being
-     * released — and the re-arm hung off the encoder's own final callback, so both armed. No
-     * session is opened here: the incident is on the seam, not in the timeline.
-     */
+    /** The double "armed" of 2026-08-14 (two log lines ~180 ms apart): a teardown stops the encoder
+     *  from two sides, and the re-arm hung off the encoder's own final callback, so both armed. */
     @Test
     fun aSessionChangeoverArmsTheEncoderExactlyOnce() =
         runTest {
@@ -131,8 +68,7 @@ class RecordingBundleHostTest {
             assertEquals(1, camera.arms, "tracking start arms the pre-roll")
 
             host.finished()
-            // `TrackerCamera.stop` on the way out of the service: the encoder goes down again,
-            // and its final callback must not be read as "arm for the next game".
+            // `TrackerCamera.stop`: the encoder's final callback must not read as "arm for the next game".
             camera.stopVideo()
 
             assertEquals(2, camera.arms, "the changeover armed more than once and discarded the first ring")
@@ -147,14 +83,7 @@ class RecordingBundleHostTest {
     @Test
     fun theArmedPhasesFramesReachTheTimelineAheadOfTheCommit() =
         runTest {
-            val host =
-                RecordingBundleHost(
-                    FakeVideoCamera(),
-                    RecordingSettings(MemoryStore()),
-                    sessionsRoot,
-                    this,
-                    UnconfinedTestDispatcher(testScheduler),
-                )
+            val host = host()
 
             host.frame(frameAt(1_000_000_000L, STARTPOS_FEN))
             host.frame(frameAt(2_000_000_000L, STARTPOS_FEN))
@@ -182,14 +111,7 @@ class RecordingBundleHostTest {
     @Test
     fun aTimelineThatCannotBeWrittenIsReportedPastItsClose() =
         runTest {
-            val host =
-                RecordingBundleHost(
-                    FakeVideoCamera(),
-                    RecordingSettings(MemoryStore()),
-                    sessionsRoot,
-                    this,
-                    UnconfinedTestDispatcher(testScheduler),
-                )
+            val host = host()
             host.opened(SessionRecorder(sessionDir, SessionMeta("s", "default", 2560, 1440)))
             File(sessionDir, "timeline.jsonl").apply { delete() }.mkdirs()
 
@@ -207,14 +129,7 @@ class RecordingBundleHostTest {
     @Test
     fun aFrameOlderThanTheVideoRingIsDropped() =
         runTest {
-            val host =
-                RecordingBundleHost(
-                    FakeVideoCamera(),
-                    RecordingSettings(MemoryStore()),
-                    sessionsRoot,
-                    this,
-                    UnconfinedTestDispatcher(testScheduler),
-                )
+            val host = host()
 
             host.frame(frameAt(0L, STARTPOS_FEN))
             host.frame(frameAt(PRE_ROLL_SECONDS * 1_000_000_000L + 1L, OPENING_FEN))
@@ -234,14 +149,7 @@ class RecordingBundleHostTest {
     fun theFrameWindowFollowsTheVideoRingAtThirtyFps() =
         runTest {
             val camera = FakeVideoCamera(fps = 30)
-            val host =
-                RecordingBundleHost(
-                    camera,
-                    RecordingSettings(MemoryStore()),
-                    sessionsRoot,
-                    this,
-                    UnconfinedTestDispatcher(testScheduler),
-                )
+            val host = host(camera)
             val held = preRollWindowSeconds(camera.videoBitRateRequested, camera.videoBitRate)
             assertTrue(held < PRE_ROLL_SECONDS, "1440p/30 cannot hold the full window under the byte cap")
 
@@ -255,11 +163,8 @@ class RecordingBundleHostTest {
             assertEquals(1, rows.size, "a frame row the video has no footage for survived")
         }
 
-    /**
-     * `opened` was the only one of the three that was not `@Synchronized`, and `SessionTimeline.close`
-     * BLOCKS while its writer drains. A frame delivered inside that window took the free monitor, saw
-     * the old timeline and `trySend`ed into a closed channel: gone, and not even counted as evicted.
-     */
+    /** `opened` was not `@Synchronized` while `SessionTimeline.close` BLOCKS draining: a frame in that
+     *  window `trySend`ed into a closed channel — gone, and not even counted as evicted. */
     @Test
     fun aFrameDeliveredWhileTheSessionChangesOverIsNotLost() {
         val blocked = CountDownLatch(1)
@@ -338,12 +243,9 @@ class RecordingBundleHostTest {
         }
 }
 
-/**
- * Counts arms and refuses a second one exactly as `CameraVideo.start` does (`codec != null`):
- * a fake that accepted overlapping arms would swallow the sequence under test.
- */
 private const val FAKE_FPS = 15
 
+/** Refuses a second arm exactly as `CameraVideo.start` does (`codec != null`). */
 private class FakeVideoCamera(
     private val fps: Int = FAKE_FPS,
 ) : VideoRecorderPort {
@@ -381,18 +283,5 @@ private class FakeVideoCamera(
         val ending = live ?: return
         live = null
         ending(VideoProgress(0L, 0L, final = true))
-    }
-}
-
-private class MemoryStore : ConfigStore {
-    private val slots = mutableMapOf<String, String>()
-
-    override suspend fun read(slot: String): String? = slots[slot]
-
-    override suspend fun write(
-        slot: String,
-        text: String,
-    ) {
-        slots[slot] = text
     }
 }

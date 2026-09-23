@@ -7,12 +7,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 /**
- * Where the committed model assets are, found from the source tree rather than from an APK.
- *
- * A test fixture because two modules need it: the CNN tests moved with `ModelSpec`, while the
- * tests that assert what the APK ships stayed with the APK. Both read the same directories, and
- * they must agree on which ones — an accidental second definition would let one module assert
- * against a model the other never ships.
+ * The committed model assets, found from the source tree. A fixture because two modules read them,
+ * and a second definition would let one assert against a model the other never ships.
  */
 fun androidRoot(): File {
     var dir = File(System.getProperty("user.dir")!!).absoluteFile

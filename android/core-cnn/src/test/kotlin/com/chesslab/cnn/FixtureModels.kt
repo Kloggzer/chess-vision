@@ -11,7 +11,7 @@ internal const val PARITY_REL_TOL = 1e-4
 
 internal fun FixtureRow.classes(): List<String> = strings("classes")
 
-internal fun FixtureRow.board(): Board = Board().also { it.loadFromFen(str("fen")) }
+internal fun FixtureRow.board(): Board = boardOf(str("fen"))
 
 internal fun FixtureRow.observation(): OccupancyObservation {
     val probs = (this["probs"] as Map<*, *>).entries.associate { (k, v) -> k as String to doubles(v) }
@@ -37,13 +37,9 @@ internal fun assertClose(
     assertTrue(abs(expected - actual) <= tolerance, "$what: expected $expected, got $actual")
 }
 
-/**
- * Move sequences are compared EXACTLY where they are unique. `deriveMovesDeep` keys its
- * hypotheses by the placement-only FEN, so two orders of the same plies are ONE hypothesis —
- * and the tie between them is broken by the legal-move enumeration order, which differs
- * between chesslib and python-chess. When the sequences differ they must therefore be the
- * same length AND reach the same placement; anything else is a port bug.
- */
+/** Two orders of the same plies are ONE `deriveMovesDeep` hypothesis, tie-broken by move-enumeration
+ *  order, which differs between chesslib and python-chess: differing sequences must match in length
+ *  AND resulting placement. */
 internal fun assertSequenceEquivalent(
     expected: List<String>,
     actual: List<String>,

@@ -20,16 +20,14 @@ class EffectiveFrameRateTest {
 
     @Test
     fun `small jitter under the setting does not move the threshold`() {
-        // Die gelieferte Rate ist ein EMA. Wer ihr auf die Nachkommastelle folgt, laesst
-        // `motionThr` zwischen zwei Aufrufen wandern und macht Laeufe unvergleichbar.
+        // Die gelieferte Rate ist ein EMA: ihr zu folgen liesse `motionThr` wandern.
         assertEquals(15.0, effectiveFrameRate(FrameRateMode.FPS15, 14.3), 0.0)
         assertEquals(15.0, effectiveFrameRate(FrameRateMode.FPS15, 15.4), 0.0)
     }
 
     @Test
     fun `a sensor running FASTER than asked keeps the setting`() {
-        // Die Obergrenze ist gewollt (`pinFrameRate` kappt bewusst); schneller zu rechnen waere
-        // eine Rezeptaenderung, die niemand gemessen hat.
+        // `pinFrameRate` kappt bewusst; schneller zu rechnen waere eine ungemessene Rezeptaenderung.
         assertEquals(15.0, effectiveFrameRate(FrameRateMode.FPS15, 28.0), 0.0)
     }
 
@@ -60,3 +58,36 @@ class RetuneDueTest {
         assertEquals(false, retuneDue(60, FrameRateMode.FPS15, 14.4))
     }
 }
+
+/** `CameraRate` faellt beim Anhalten auf 0, ein Neustart baut mit einer anderen Rate. Ohne
+ *  Neubewaffnung lief der Abgleich genau einmal im Prozessleben. */
+class RateRetuneTest {
+    @Test
+    fun `it fires once per run, at the warm-up frame`() {
+        val retune = RateRetune()
+        val fired = (1..WARM_PLUS).count { retune.onFrame(FrameRateMode.FPS15, 7.5) }
+
+        assertEquals(1, fired)
+    }
+
+    @Test
+    fun `a resumed camera re-arms the correction`() {
+        val retune = RateRetune()
+        repeat(WARM_PLUS) { retune.onFrame(FrameRateMode.FPS15, 7.5) }
+
+        retune.rearm()
+        val fired = (1..WARM_PLUS).count { retune.onFrame(FrameRateMode.FPS15, 7.5) }
+
+        assertEquals("sonst bleibt die Schwelle auf einer Rate, die der Sensor nicht liefert", 1, fired)
+    }
+
+    @Test
+    fun `a sensor that holds the rate is left alone`() {
+        val retune = RateRetune()
+
+        assertEquals(0, (1..WARM_PLUS).count { retune.onFrame(FrameRateMode.FPS15, 15.0) })
+    }
+}
+
+/** Ein paar Bilder ueber die Aufwaermzeit hinaus. */
+private const val WARM_PLUS = 90

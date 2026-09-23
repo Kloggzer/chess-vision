@@ -10,12 +10,8 @@ import org.junit.jupiter.api.condition.EnabledIf
 import org.opencv.core.Core
 import org.opencv.core.Mat
 
-/**
- * Die Knotenschicht: gleicher Praefix heisst eine Rechnung, und der Pool waechst nicht.
- *
- * Die zwei Zusagen, an denen alles Weitere haengt — ohne sie ist ein Cache entweder falsch oder
- * teurer als das, was er spart.
- */
+/** Gleicher Praefix heisst eine Rechnung, und der Pool waechst nicht — sonst ist ein Cache falsch
+ *  oder teurer als das, was er spart. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class ImageGraphTest {
     private val geom = BoardGeometry(boardSize = 640, padSide = 0.10)

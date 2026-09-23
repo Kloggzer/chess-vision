@@ -2,7 +2,6 @@ package com.chesslab.geometry
 
 import com.chesslab.geometry.testutil.SyntheticMarkers
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
@@ -15,12 +14,8 @@ class BoardCornersForFrameTest {
     @Test
     fun `detect scale one half stays within two pixels of the full resolution result`() {
         val frame = SyntheticMarkers.frame()
-        val full = boardCornersForFrame(frame, geom, MarkerTracker(), detectScale = 1.0)
-        val half = boardCornersForFrame(frame, geom, MarkerTracker(), detectScale = 0.5)
-        assertNotNull(full)
-        assertNotNull(half)
-        val a = requireNotNull(full)
-        val b = requireNotNull(half)
+        val a = requireNotNull(boardCornersForFrame(frame, geom, MarkerTracker(), detectScale = 1.0))
+        val b = requireNotNull(boardCornersForFrame(frame, geom, MarkerTracker(), detectScale = 0.5))
         for (i in a.indices) {
             assertEquals(a[i][0], b[i][0], 2.0, "corner $i x")
             assertEquals(a[i][1], b[i][1], 2.0, "corner $i y")

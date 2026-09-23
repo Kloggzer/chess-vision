@@ -1,6 +1,6 @@
 package com.chesslab.cnn
 
-import com.github.bhlangonijr.chesslib.Board
+import com.chesslab.engine.api.STARTPOS
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -56,16 +56,9 @@ class DeepSearchTest {
         assertEquals(listOf("e2e4", "e7e5"), derived.moves.map { uciOf(it) })
     }
 
-    /**
-     * The knob exists because length used to be FREE: ranking was hits-first with length as a mere
-     * tiebreak, so a fabrication needed exactly one more explained square than the truth to win —
-     * and the identity head's B<->R confusion supplies one. Measured on rec-20260807-135238 under
-     * dense evaluation: 12 phantoms at cost 0, 1 at cost 1, 0 at cost 2 (where recovery commits
-     * nothing at all, which is why 2 is not automatically the answer).
-     *
-     * A price that also kills GENUINE deep recoveries would be no defence, so both directions are
-     * pinned: the four-ply desync explains eight squares and must still pay for itself at 1.
-     */
+    /** Free length let B<->R confusion fabricate with one extra square: rec-20260807-135238 gave
+     *  12 phantoms at cost 0, 1 at cost 1, 0 at cost 2 (where recovery commits nothing). A genuine
+     *  four-ply desync explains eight squares and must still pay for itself at 1. */
     @Test
     fun `a genuine four-ply recovery still pays for its length at cost 1`() {
         val row = deepRow("deep_four_ply")
@@ -85,11 +78,8 @@ class DeepSearchTest {
         assertTrue(overpriced.moves.isEmpty(), "4 plies explaining 8 squares must not survive a 12-square bill")
     }
 
-    /**
-     * Default 1 since 2026-08-09: free length let the served config fabricate a 3-ply bridge in
-     * 003957's reference confirm (ply 39, `g4/Bxg4/Kg3` against the played `Kxf3`) and lose the
-     * remaining 29 plies. Not 2 — at 2 recovery commits nothing at all (specs/53 table).
-     */
+    /** Default 1 since 2026-08-09: at 0 003957 fabricated a 3-ply bridge at ply 39 (`g4/Bxg4/Kg3`
+     *  against `Kxf3`) and lost 29 plies; at 2 recovery commits nothing (specs/53 table). */
     @Test
     fun `the default prices length at one square per half-move`() {
         assertEquals(1, CnnConfig().plyCostSquares, "0 fabricates bridges, 2 kills recovery — see specs/53")
@@ -123,8 +113,8 @@ class DeepSearchTest {
     /** The `minConfidentRecovery` guard, inherited from the deleted identity search. */
     @Test
     fun `too few confident squares short-circuits the search`() {
-        val blind = FakeSquareClassifier(START_FEN, overrides = ALL_SQUARES.associateWith { "occluded" to 0.99 })
-        val derived = CnnRecovery().deriveMovesDeepFull(startBoard(), blind.observe(), maxPlies = 2, beam = 8)
+        val blind = FakeSquareClassifier(STARTPOS, overrides = ALL_SQUARES.associateWith { "occluded" to 0.99 })
+        val derived = CnnRecovery().deriveMovesDeepFull(boardOf(STARTPOS), blind.observe(), maxPlies = 2, beam = 8)
         assertTrue(derived.moves.isEmpty(), "a covered board offers no channel to search")
         assertEquals(0.0, derived.best)
     }
@@ -136,15 +126,9 @@ class DeepSearchTest {
         assertSequenceEquivalent(listOf("g1f3", "b8c6", "e2e4", "e7e5"), result.moves, row.board(), "seam")
         assertClose(1.0, result.agreement, "agreement")
         assertTrue(!result.inconclusive)
-        val empty = recoveryFor(row).deriveMovesDeep(START_FEN, row.observation().occupancyOnly(), 0)
+        val empty = recoveryFor(row).deriveMovesDeep(STARTPOS, row.observation().occupancyOnly(), 0)
         assertTrue(empty.inconclusive, "no sequence == inconclusive")
     }
 
     private fun deepRow(name: String): FixtureRow = CnnFixtures.rows(CnnFixtures.DERIVE).first { it.str("name") == name }
-
-    private companion object {
-        const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-
-        fun startBoard(): Board = Board().also { it.loadFromFen(START_FEN) }
-    }
 }

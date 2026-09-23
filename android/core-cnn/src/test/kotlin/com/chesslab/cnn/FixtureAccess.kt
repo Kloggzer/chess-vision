@@ -1,7 +1,5 @@
 package com.chesslab.cnn
 
-// Typed accessors for a parsed fixture row.
-
 internal fun FixtureRow.str(key: String): String = this[key] as String
 
 internal fun FixtureRow.strOrNull(key: String): String? = this[key] as String?

@@ -12,12 +12,8 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
 
-/**
- * `mdatPayloadStart` accepts both box forms, but the patch in `repair` assumes the 64-bit one.
- * With a plain 8-byte header the seek lands on the box START, so the `writeLong` overwrites size
- * AND the `mdat` fourcc with a value eight bytes too large — a file no demuxer knows any more, and
- * these recordings are the only copies.
- */
+/** With a plain 8-byte `mdat` header the patch seeked to the box START and overwrote size AND
+ *  fourcc — on recordings that are the only copies. */
 class RepairMdatHeaderTest {
     @TempDir
     lateinit var dir: File

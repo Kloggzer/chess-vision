@@ -6,10 +6,8 @@ import org.junit.jupiter.api.assertThrows
 import java.io.File
 
 /**
- * Hard rules 1 and 2 from the Android rewrite (`docs/specs-index.md` maps the retired spec):
- *
- *  1. `:core-engine`'s runtime classpath is chesslib + kotlin-stdlib and nothing else.
- *  2. `:core-engine` is a single-threaded state machine - no concurrency primitives.
+ * Hard rules 1 and 2 of the Android rewrite (`docs/specs-index.md`): chesslib + kotlin-stdlib only,
+ * and a single-threaded state machine.
  */
 class ClasspathPurityTest {
     @Test

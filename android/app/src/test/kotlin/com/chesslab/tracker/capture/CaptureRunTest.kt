@@ -4,6 +4,8 @@ import com.chesslab.tracker.camera.CaptureObserved
 import com.chesslab.tracker.camera.CaptureProfile
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.bitRateFor
+import com.chesslab.tracker.io.defaultSideFiles
+import com.chesslab.tracker.io.sideFiles
 import com.chesslab.tracker.record.CaptureFrame
 import com.chesslab.tracker.record.CaptureSource
 import com.chesslab.tracker.record.FrameWriter
@@ -21,10 +23,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * Against the REAL `SessionRecorder`, not a double: what the import reads is the bundle on disk,
- * and a fake recorder would prove nothing about `log.jsonl` or `session.yaml`.
- */
+/** Against the REAL `SessionRecorder`: what the import reads is the bundle on disk. */
 class CaptureRunTest {
     @TempDir
     lateinit var dir: File
@@ -119,11 +118,24 @@ class CaptureRunTest {
 
         assertThrows(Exception::class.java) { run.finish() }
 
-        assertTrue(
-            finished,
-            "the write threw and took the close with it: the session is never finalised and the " +
-                "encoder is never released, so the next shot records into an open bundle",
-        )
+        assertTrue(finished, "the write threw and took the close with it: the next shot records into an open bundle")
+    }
+
+    /** `capture.json` wird am PC gegen `docs/capture-session.schema.json` gelesen: halb geschrieben ist kaputt. */
+    @Test
+    fun `capture json is written through a side file`() {
+        val session = CaptureSession(shotId = "s1", height = "normal")
+        writeCaptureSession(dir, session)
+        val file = File(dir, CAPTURE_FILE)
+        val before = file.readText()
+        File(dir, "$CAPTURE_FILE.tmp").mkdirs()
+        sideFiles = { File(dir, "$CAPTURE_FILE.tmp") }
+        try {
+            runCatching { writeCaptureSession(dir, session.copy(note = "zweiter Lauf")) }
+        } finally {
+            sideFiles = defaultSideFiles
+        }
+        assertEquals(before, file.readText())
     }
 
     /** The step's START — the turning the human does between two taps. */

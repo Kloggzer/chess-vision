@@ -6,14 +6,8 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-/**
- * A synthetic source frame for the Tier-C geometry tests: a mid-gray background with an
- * axis-aligned 8x8 board drawn into a known quad. Every cell carries a DISTINCT gray value, so
- * a warp can be verified by sampling cell centres.
- *
- * Background is deliberately NOT black — the bordered crop warp must be shown to pick up real
- * content outside the playing field.
- */
+/** An 8x8 board in a known quad, every cell a DISTINCT gray. The background is NOT black: the
+ *  bordered crop warp must be shown to pick up real content outside the playing field. */
 object SyntheticBoard {
     const val FRAME_SIDE: Int = 640
     const val QUAD_MIN: Double = 100.0

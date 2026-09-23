@@ -6,8 +6,10 @@ import com.chesslab.geometry.BoardGeometry
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import java.lang.reflect.Modifier
 
 /** The depth-1 hand-off drops by OVERWRITE — since 2026-08-08 it also counts what it dropped. */
 class CropFrameStoreTest {
@@ -22,6 +24,13 @@ class CropFrameStoreTest {
         requireNotNull(taken.cropWarp).release()
         assertEquals(1L, store.overwritten, "a take is a hand-off, never a drop")
         store.close()
+    }
+
+    /** Analyzer (`update`) und Observer (`take`) schreiben unter der Sperre; `wantsFrame()`/`idle` lesen OHNE sie. */
+    @Test
+    fun pendingIsPublishedToTheThreadThatOnlyReadsIt() {
+        val field = CropFrameStore::class.java.getDeclaredField("pending")
+        assertTrue(Modifier.isVolatile(field.modifiers), "ohne volatile wird der Crop-Warp womoeglich nie wieder gebaut")
     }
 
     private fun pending(seq: Long) =

@@ -7,9 +7,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 /**
- * `raiseAlarmIfDue` latcht die AKTUELLE Konfliktliste statt des Kerns, den
- * `advanceDesyncStreak` mitfuehrt: die Erholung muss dann ein Feld erklaeren, das nur
- * einmal auffiel (Bug-Audit E10, `docs/bug-audit-2026-09-13.md`).
+ * `raiseAlarmIfDue` latchte die AKTUELLE Konfliktliste statt des Kerns aus `advanceDesyncStreak`
+ * (Bug-Audit E10, `docs/bug-audit-2026-09-13.md`).
  */
 class AlarmTransientExtrasBugTest {
     @Test

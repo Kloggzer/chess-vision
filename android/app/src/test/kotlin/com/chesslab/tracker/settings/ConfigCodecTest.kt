@@ -78,8 +78,7 @@ class ConfigCodecTest {
                 "diffClaheClip",
                 "commitLlFloor",
             )
-        // The set is app.py's twelve; the declaration keeps app.py's ORDER, while the knob table
-        // keeps TrackerConfig's field order, so only one of the two can be compared as a list.
+        // The declaration keeps app.py's ORDER, the knob table TrackerConfig's: only one is a list.
         assertEquals(expected, LIVE_TUNABLE_KEYS.toList())
         assertEquals(expected.toSet(), KNOBS.filter { it.live }.map { it.key }.toSet())
         // Every live key must exist as a knob — a typo would silently make a knob non-live.

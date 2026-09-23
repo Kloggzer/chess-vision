@@ -6,12 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/**
- * What the player reads while a game is running.
- *
- * The reason has to come FIRST and short: the line used to lead with the squares and hide the
- * reason in brackets behind them, and by the time the eye got there it had left (User, 2026-08-26).
- */
+/** The reason comes FIRST and short: behind the squares in brackets, the eye had left by then (User, 2026-08-26). */
 class AlarmReasonTest {
     /** Black to move and in check; White's suggested move is the one that cannot be. */
     @Test

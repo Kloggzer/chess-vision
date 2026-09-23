@@ -5,12 +5,8 @@ import org.junit.jupiter.api.Test
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
- * `LensEvidence.axes` gates the whole lens fit (`budget` is `BUDGET_NONE` below two), and how the
- * board lies in the FRAME is evidence about nothing: `gridSamples` reports raw frame pixels, so the
- * camera may hold it at any angle. Four lines keep the budget at `BUDGET_NONE` either way, so
- * `fitLens` returns before it undistorts anything and no native OpenCV is needed.
- */
+/** `LensEvidence.axes` gates the whole lens fit (`BUDGET_NONE` below two). Both cases keep the
+ *  budget at `BUDGET_NONE`, so `fitLens` returns before it undistorts and needs no OpenCV. */
 class LensOrientationEvidenceTest {
     private val angle = Math.toRadians(-60.0)
 
@@ -34,19 +30,27 @@ class LensOrientationEvidenceTest {
         return out
     }
 
+    /** `gridSamples` reports raw frame pixels, so the board may lie at any angle; `orientationsIn`
+     *  compared SIGNED differences where the question is about magnitudes. */
     @Test
     fun `a board lying sideways in the frame still shows two line families`() {
         val evidence = fitLens(rotatedBoardSamples(), WIDTH, HEIGHT).evidence
-        assertEquals(
-            2,
-            evidence.axes,
-            "the samples carry both grid families (${evidence.lines} usable lines), but `orientationsIn` " +
-                "compares SIGNED differences (`first.x - last.x < first.y - last.y`) where the question is " +
-                "about MAGNITUDES. At -60 degrees both families answer that predicate alike, so the count " +
-                "comes out 0 or all and the fit reports ONE axis - which makes `LensEvidence.budget` " +
-                "BUDGET_NONE and refuses the lens outright. Every board rotated past 45 degrees in the " +
-                "frame loses its calibration this way, silently.",
-        )
+        assertEquals(2, evidence.axes, "a board rotated past 45 degrees must not lose its calibration")
+    }
+
+    /** `axes` counts USABLE lines; the empty case fell back to `all.isEmpty()` and reported one family. */
+    @Test
+    fun `no usable line means no measurable axis`() {
+        // Drei Punkte je Linie liegen unter `MIN_BOW_POINTS`, also ist `bow` fuer jede null.
+        val samples =
+            (0..5).flatMap { line ->
+                (0..2).map { step -> GridSample(axis = line % 2, line = line, x = 100.0 + step * STEP, y = 100.0 + line * STEP) }
+            }
+
+        val evidence = fitLens(samples, WIDTH, HEIGHT).evidence
+
+        assertEquals(0, evidence.lines, "keine Linie ist messbar")
+        assertEquals(0, evidence.axes, "null messbare Linien koennen keine messbare Achsenfamilie ergeben")
     }
 
     private companion object {

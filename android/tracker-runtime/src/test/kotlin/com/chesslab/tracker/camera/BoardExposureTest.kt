@@ -139,6 +139,18 @@ class BoardExposureTest {
         assertEquals(4.0, limits.endInclusive, 1e-6)
     }
 
+    /** Entschieden wurde an `darkTarget` (0,05 = 4 Felder), gemessen am 0,12-Perzentil (Feld 7): dazwischen blendete sie ab. */
+    @Test
+    fun `four to eight dark cells are brightened, never dimmed`() {
+        val lifted = ExposureState(ev = 1.0)
+        for (dark in 4..8) {
+            // 8 liegt unter `ExposurePolicy.floor` (34) — genau das, was `darkFraction` zaehlt.
+            val means = FloatArray(ExposureReading.CELLS) { if (it < dark) 8f else 120f }
+            val next = nextExposure(lifted, ExposureReading(means, 180f, 0f), limits)
+            assertTrue(next == null || next.ev >= lifted.ev) { "$dark dunkle Felder, die Regelung ging aber auf ${next?.ev} EV" }
+        }
+    }
+
     private companion object {
         const val TICKS = 40
     }

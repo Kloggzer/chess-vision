@@ -4,11 +4,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/**
- * `com.chesslab.cnn.allSquares()` has no caller anywhere. Every `allSquares()` in the repo resolves
- * to `com.chesslab.geometry.allSquares` (`Crops.kt:25`), which builds the same rank-major list a
- * second time — two same-named functions for one crop-order invariant is a drift hazard, not an API.
- */
+/** Every `allSquares()` resolves to `com.chesslab.geometry.allSquares`; a second same-named copy
+ *  in `:core-cnn` for one crop-order invariant is a drift hazard, not an API. */
 class DeadCnnCodeTest {
     @Test
     fun theCnnCopyOfAllSquaresIsGone() {

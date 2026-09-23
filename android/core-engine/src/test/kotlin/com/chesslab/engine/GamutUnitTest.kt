@@ -8,9 +8,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Hand-written edge cases for the colour gamut and the Cucchiara shadow test — the branches the
- * clip fixtures never reach (degenerate boards, a null gamut, a non-positive threshold, and the
- * extended-box arm of the occlusion veto, which today's Python always calls with `extend_up = 0`).
+ * Colour gamut and Cucchiara shadow branches the clip fixtures never reach, including the
+ * extended-box arm, which Python always calls with `extend_up = 0`.
  */
 class GamutUnitTest {
     @Test

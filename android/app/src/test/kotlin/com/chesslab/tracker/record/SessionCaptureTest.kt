@@ -55,12 +55,8 @@ class SessionCaptureTest {
         assertEquals(1, controller.recorder?.count)
     }
 
-    /**
-     * The pre-roll rule (2026-08-14): until a ply commits, nothing exists on disk. This test used
-     * to assert the OPPOSITE ("session can start before the first committed move") — that eager
-     * open is what produced nine moveless recordings out of eleven transferred, 4.7 GB of board
-     * setup, marker taping and calibration deleted by hand.
-     */
+    /** The pre-roll rule (2026-08-14): the eager open made nine moveless recordings out of eleven,
+     *  4.7 GB of board setup deleted by hand. */
     @Test
     fun noSessionDirectoryBeforeTheFirstCommittedMove() {
         val controller = controller()
@@ -182,13 +178,8 @@ class SessionCaptureTest {
         assertTrue(controller.stoppedReason.orEmpty().contains("limit reached"))
     }
 
-    /**
-     * The cap has to see the WHOLE recording, not its first minute.
-     *
-     * `video.mp4` is segment 0; a long run rotates into `video-001.mp4` and up. Counting only the
-     * first file made a 761 MB session read as 76,7 MB (`2026-09-11-20-00-52`), so the 1 GB cap
-     * never fired and recordings really ran to ~10 GB. Each file here is under the cap on its own.
-     */
+    /** Counting only `video.mp4` made a 761 MB session read as 76,7 MB (`2026-09-11-20-00-52`), so the
+     *  1 GB cap never fired and recordings ran to ~10 GB. Each file here is under the cap on its own. */
     @Test
     fun everySegmentCountsAgainstTheSessionCap() {
         prefs = RecordingPrefs(enabled = true, capBytes = 2000L)
@@ -216,13 +207,8 @@ class SessionCaptureTest {
         assertNotNull(controller.recorder)
     }
 
-    /**
-     * D3. `startRecorder` ran `SessionRecorder.<init>` — which writes `frames/`, an empty
-     * `log.jsonl` and a `session.yaml` — BEFORE the cap was evaluated, so a start that the cap
-     * refuses left an empty session directory on disk that then counted against the next
-     * `totalBytes()`. It is also the only path in the app that produces a session with a
-     * zero-byte log.
-     */
+    /** D3. `SessionRecorder.<init>` wrote its directory BEFORE the cap was evaluated, leaving an empty
+     *  session that counted against the next `totalBytes()`. */
     @Test
     fun aCapBlockedStartCreatesNoSessionDirectory() {
         existing = 2000L
@@ -235,11 +221,8 @@ class SessionCaptureTest {
         assertFalse(File(dir, "s1").exists(), "no empty session directory may be left behind")
     }
 
-    /**
-     * D4. A frame that cannot be encoded or written was swallowed whole
-     * (`SessionRecorder.kt:90`, `runCatching{}.getOrDefault(0L)`): no counter, no reason, no log,
-     * while Python warns (`tracker.py`). The UI went on showing a healthy session.
-     */
+    /** D4. A frame that could not be written was swallowed whole (`runCatching{}.getOrDefault(0L)`):
+     *  no counter, no reason, no log, and the UI showed a healthy session. */
     @Test
     fun aFailedFrameWriteIsReported() {
         source.frameBytes = 0
@@ -292,29 +275,22 @@ class SessionCaptureTest {
         assertNull(controller.stop())
     }
 
-    /**
-     * D6. A move photo is lost when the board never goes quiet between two commits (2026-08-14:
-     * ply Nc6 of session 20260814-204855 and ply Nf3 of session 20260814-210104 committed but
-     * had no log.jsonl row). The loss was silent; this test verifies the supersededFrames counter
-     * surfaces it and is reset after the session ends.
-     */
+    /** D6. A move photo is lost when the board never goes quiet between two commits (2026-08-14:
+     *  Nc6 of 20260814-204855, Nf3 of 20260814-210104 had no log row); the loss was silent. */
     @Test
     fun supersededPendingFrameIsReported() {
         val controller = controller()
         controller.queue(1, FEN, "e4", clean = false)
-        // ply 1 is now pending but not yet flushed.
         assertEquals(0, controller.supersededFrames)
         controller.queue(2, FEN, "e5", clean = false)
-        // ply 1's pending frame is superseded by ply 2's.
         assertEquals(1, controller.supersededFrames)
         assertTrue(controller.reason.orEmpty().contains("move photo(s) lost"), controller.reason)
         assertTrue(controller.reason.orEmpty().contains("board never went quiet"), controller.reason)
-        // Flush ply 2 and stop.
         controller.flush()
         assertEquals(1, controller.recorder?.count)
         val result = controller.stop()
         assertEquals(1, result?.frames)
-        // Counter is reset after the session ends.
+        // Reset after the session ends.
         controller.queue(3, FEN, "Nf3", clean = false)
         assertEquals(0, controller.supersededFrames)
     }

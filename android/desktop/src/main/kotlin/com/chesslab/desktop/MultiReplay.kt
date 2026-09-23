@@ -19,7 +19,7 @@ import org.opencv.core.Mat
 import java.awt.image.BufferedImage
 
 /** N Konfigurationen im SELBEN Bilddurchgang, gemessen 1,8x. Der Hauptstack bleibt unangetastet;
- *  die Zusatz-Engines teilen sich eine zweite Bahn (`docs/multireplay-2026-09-20.md`). */
+ *  die Zusatz-Engines teilen sich eine zweite Bahn (`docs/desktop-replay.md`). */
 internal class ExtraEngines private constructor(
     val stacks: List<TrackerStack<Mat>>,
     private val shared: SharedFrameWork,

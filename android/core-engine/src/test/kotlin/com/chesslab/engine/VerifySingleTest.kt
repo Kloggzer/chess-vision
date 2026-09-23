@@ -168,7 +168,7 @@ class VerifySingleTest {
 
     /**
      * `applyVerdict` raeumte `pending` weg, BEVOR die Zeile geschrieben wurde, also trug ausgerechnet
-     * die Zeile der Leiter `verify=` leer — und leer hiess beides (`docs/verifier-stall.md`).
+     * die Zeile der Leiter `verify=` leer — und leer hiess beides (`docs/tracker-flow.md`).
      */
     @Test
     fun theCommittedRowNamesTheRungThatCommittedIt() {

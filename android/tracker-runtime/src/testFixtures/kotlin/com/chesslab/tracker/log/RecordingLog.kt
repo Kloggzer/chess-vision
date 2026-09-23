@@ -1,11 +1,8 @@
 package com.chesslab.tracker.log
 
 /**
- * A [TrackerLog] that remembers instead of printing.
- *
- * A test fixture rather than a copy in each module's test sources: both `:tracker-runtime` and
- * `:app` assert on what was logged, and two fakes that drift apart would make the same test mean
- * two different things.
+ * A [TrackerLog] that remembers instead of printing. One fixture for `:tracker-runtime` and `:app`:
+ * two drifting fakes would make the same test mean two different things.
  */
 class RecordingLog : TrackerLog {
     val debugs = mutableListOf<String>()

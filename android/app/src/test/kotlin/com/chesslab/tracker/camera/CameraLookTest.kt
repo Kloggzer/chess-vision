@@ -6,14 +6,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The pure half of the camera look, plus the part of [CameraLookControl] that needs no device.
- *
- * The arithmetic is small on purpose. Its predecessor computed per-channel white-balance gains from
- * a colour temperature and had five passing tests — none of which could see that the numbers were in
- * the wrong colour space entirely, because the only thing that knows is the sensor. What is left
- * here is the part a JVM can actually decide.
- */
+/** Only what a JVM can decide: the predecessor's white-balance gains had five green tests and sat in
+ *  the wrong colour space entirely, which only the sensor knows. */
 class CameraLookTest {
     private val phone =
         CameraAbilities(
@@ -41,11 +35,7 @@ class CameraLookTest {
         assertEquals(0.0f, phone.exposure!!.ev(0), 1e-4f)
     }
 
-    /**
-     * A stored value can outlive the camera it was chosen on — a different lens, a settings file
-     * restored from a backup, a phone whose zoom stops at 4x. Clamping is what keeps it from being
-     * sent as-is.
-     */
+    /** A stored value can outlive the camera it was chosen on (other lens, restored backup). */
     @Test
     fun aStoredValueIsClampedToWhateverThisCameraOffers() {
         val wild = CameraLook(evIndex = 400, zoomRatio = 99f, focus = 5f, whiteBalance = WhiteBalance.SHADE)
@@ -74,15 +64,7 @@ class CameraLookTest {
         assertEquals(400, CameraLook(evIndex = 400).clampedTo(null).evIndex)
     }
 
-    /**
-     * `AUTO` leaves the key UNSET rather than writing `CONTROL_AWB_MODE_AUTO` — "automatic" has to
-     * mean the device's own default, not a second opinion about what automatic is.
-     */
-    @Test
-    fun autoWritesNoWhiteBalanceKeyAtAll() {
-        assertNull(CameraLookControl(reissue = {}).awbMode())
-    }
-
+    /** `AUTO` leaves the key UNSET rather than writing `CONTROL_AWB_MODE_AUTO`: the device's own default. */
     @Test
     fun eachPresetMapsToItsOwnIlluminant() {
         assertEquals(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT, CameraLookControl.awbModeFor(WhiteBalance.DAYLIGHT))
@@ -121,19 +103,12 @@ class CameraLookTest {
         val control = CameraLookControl(reissue = {})
         assertNull(control.focusDiopters())
         control.setLook(CameraLook(focus = 0.5f))
-        // Nothing is bound, so the lens minimum is unknown and the fraction scales onto 0 diopters
-        // — infinity, which is the safe end for a board across a table.
+        // Nothing bound: the fraction scales onto 0 diopters, infinity, the safe end for a board.
         assertEquals(0f, control.focusDiopters())
     }
 
-    /**
-     * Before a camera answers there is no range to clamp against, so the value is kept VERBATIM.
-     *
-     * This is the bug the nullable abilities exist for: `TrackerService` pushes the saved look
-     * before the first bind, and clamping it against an EMPTY ability set reset every axis to
-     * automatic — persistence that looked wired up and restored nothing. The unit test found it;
-     * the device would have shown it as "Save does nothing".
-     */
+    /** `TrackerService` pushes the saved look before the first bind; clamping it against an EMPTY
+     *  ability set reset every axis to automatic — "Save does nothing" on the device. */
     @Test
     fun aLookSetBeforeTheCameraBindsSurvivesIntact() {
         val control = CameraLookControl(reissue = {})

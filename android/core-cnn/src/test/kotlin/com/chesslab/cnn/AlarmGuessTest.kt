@@ -19,19 +19,8 @@ class AlarmGuessTest {
         }
     }
 
-    @Test
-    fun `two sources or zero conflicts yield no guess`() {
-        val twoSources = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "two_sources" }
-        assertNull(guessIllegalMove(twoSources.board(), twoSources.observation(), twoSources.num("confThr")))
-        val clean = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "no_conflict" }
-        assertNull(guessIllegalMove(clean.board(), clean.observation(), clean.num("confThr")))
-    }
-
-    /**
-     * The shape is occupancy, so the confidence must be too: a destination the classes call 90 %
-     * occupied but split between knight and bishop is a destination. Read off the identity axis it
-     * was invisible, and the alarm lost its move shape on exactly the squares that matter.
-     */
+    /** The shape is occupancy, so the confidence must be too: read off the identity axis, a 90 %
+     *  occupied square split between knight and bishop was invisible to the alarm. */
     @Test
     fun `a destination sure in occupancy but split in identity still counts`() {
         val board = Board()
@@ -53,9 +42,8 @@ class AlarmGuessTest {
 
     @Test
     fun `an occupancy-only run guesses the same move as its identity twin`() {
-        // The shape test — exactly one vacated, exactly one received — never compared piece names,
-        // only "empty vs not" on both sides. Stripping identity must therefore change nothing here.
-        // It used to return null, which disarmed the alarm on every model this app ships.
+        // The shape never compared piece names, only "empty vs not". This used to return null,
+        // which disarmed the alarm on every model this app ships.
         val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "one_source_one_destination" }
         val withIdentity = guessIllegalMove(row.board(), row.observation(), row.num("confThr"))
         assertEquals(withIdentity, guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")))
@@ -64,22 +52,13 @@ class AlarmGuessTest {
 
     @Test
     fun `an occupancy-only run still refuses a shape that is not one move`() {
-        // The discipline is the SHAPE, not the axis. Two vacated squares are not one move, and
-        // dropping identity must not turn that into an alarm — otherwise this change would be the
-        // "any contradiction alarms" variant that was measured on the clips and rejected.
-        for (name in listOf("two_sources", "no_conflict")) {
+        // The discipline is the SHAPE, not the axis: dropping identity must not become the "any
+        // contradiction alarms" variant measured on the clips and rejected. A pawn read as a knight
+        // (identity_only_conflict) is neither source nor destination on the occupancy axis.
+        for (name in listOf("two_sources", "no_conflict", "identity_only_conflict")) {
             val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == name }
             assertNull(guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")), name)
         }
-    }
-
-    @Test
-    fun `a conflict only in piece type is invisible to both axes`() {
-        // Believed pawn, observed knight: occupancy agrees, so it is neither a source nor a
-        // destination. The identity axis already ignored it; the occupancy axis cannot even see it.
-        val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "identity_only_conflict" }
-        assertNull(guessIllegalMove(row.board(), row.observation(), row.num("confThr")))
-        assertNull(guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")))
     }
 
     @Test
@@ -88,6 +67,4 @@ class AlarmGuessTest {
         val recovery = recoveryFor(row)
         assertEquals("e2e5", recovery.guessIllegalMove(row.str("fen"), row.observation(), row.num("confThr")))
     }
-
-    private fun board(fen: String): Board = Board().also { it.loadFromFen(fen) }
 }

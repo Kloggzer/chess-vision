@@ -30,9 +30,8 @@ internal class FakeClassifier(
 internal fun cnnFrame(seq: Long) = CnnFrame(List(ALL_SQUARES.size) { BgrImage(1, 1, ByteArray(3)) }, seq, seq, null, null)
 
 /**
- * `_observer_due` / `_cnn_worker` on a virtual clock and a queued dispatcher: an observation is
- * only ever started synchronously in [CnnObserver.onFrameAvailable], so the scheduler decides
- * exactly when it runs.
+ * `_observer_due` / `_cnn_worker` on a virtual clock: an observation only ever starts synchronously in
+ * [CnnObserver.onFrameAvailable], so the queued dispatcher decides exactly when it runs.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CnnObserverScheduleTest {
@@ -44,7 +43,10 @@ class CnnObserverScheduleTest {
     private var seq = 1L
     private val log = RecordingLog()
 
-    private fun observer(classifier: SquareClassifier = FakeClassifier()): CnnObserver {
+    private fun observer(
+        classifier: SquareClassifier = FakeClassifier(),
+        priorLambda: Double = 0.0,
+    ): CnnObserver {
         val observer =
             CnnObserver(
                 source = {
@@ -53,6 +55,7 @@ class CnnObserverScheduleTest {
                 },
                 fen = { fen },
                 onSnapshot = { snapshots += it },
+                priorLambda = priorLambda,
                 log = log,
                 nowMs = { now },
                 dispatcher = StandardTestDispatcher(scheduler),
@@ -164,5 +167,53 @@ class CnnObserverScheduleTest {
         val snap = snapshots.single()
         assertEquals(42L, snap.seq)
         assertEquals("start", snap.fen)
+    }
+
+    /** `gateUnwanted` wurde gezaehlt, aber von niemandem gedruckt — `observations = 0` blieb ununterscheidbar. */
+    @Test
+    fun anEngineRefusalIsReportedLikeEveryOtherGate() {
+        val observer = observer()
+        observer.demandFrom { false }
+
+        observer.onFrameAvailable()
+        scheduler.runCurrent()
+
+        assertEquals(1L, observer.gateUnwanted, "the refusal was attributed to the engine's own demand")
+        assertTrue(
+            observer.counters.contains("gateUnwanted=1"),
+            "the engine refused the frame, but the counter line does not carry it: \"${observer.counters}\"",
+        )
+    }
+
+    /** `wantsFrame` asks the interval BEFORE `demand()`; the attribution once asked the other way round. */
+    @Test
+    fun aThrottledFrameIsAttributedToTheThrottle() {
+        val observer = observer()
+        observer.setIntervalS(10.0)
+        observer.demandFrom { false }
+
+        observer.onFrameAvailable()
+        scheduler.runCurrent()
+
+        assertEquals(1L, observer.gateInterval, "counters were ${observer.counters}")
+        assertEquals(0L, observer.gateUnwanted, "the engine was never asked")
+    }
+
+    /** `possibleLabels` wirft auf eine kaputte FEN; der Snapshot danach sah wie "kein Prior gewollt" aus. */
+    @Test
+    fun aPriorThatCouldNotBeBuiltIsCountedAndLogged() {
+        fen = "definitely not a fen"
+        val observer = observer(priorLambda = 4.0)
+
+        observer.onFrameAvailable()
+        scheduler.runCurrent()
+        observer.close()
+
+        assertEquals(1, snapshots.size, "die Inferenz laeuft weiter — nur eben ohne Prior")
+        assertTrue(observer.counters.contains("priorFailed=1"), "\"${observer.counters}\"")
+        assertTrue(
+            log.warnings.any { it.contains("prior", ignoreCase = true) },
+            "kein Wort ueber den verschluckten Fehler: ${log.warnings}",
+        )
     }
 }

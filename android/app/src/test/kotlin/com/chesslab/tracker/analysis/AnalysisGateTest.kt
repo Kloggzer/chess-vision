@@ -56,4 +56,11 @@ class AnalysisGateTest {
         listOf(90.0, 95.0, 99.0).forEach { median.add(it) }
         assertEquals(GateBlock.FRAME_BUDGET, gateBlock(SETTLED.copy(medianFrameMs = median.median), ON))
     }
+
+    /** `getIntProperty` answers `Integer.MIN_VALUE` for an unsupported property, a primitive no `?:` sees. */
+    @Test
+    fun `an unreadable battery does not gate analysis off`() {
+        val inputs = GateInputs(batteryPercent = Int.MIN_VALUE, charging = false, trackingStableMs = 10_000L)
+        assertNull(gateBlock(inputs, ON), "the KDoc on BATTERY_UNKNOWN promises exactly this")
+    }
 }

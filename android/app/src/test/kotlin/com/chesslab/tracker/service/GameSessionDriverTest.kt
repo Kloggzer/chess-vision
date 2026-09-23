@@ -11,6 +11,7 @@ import com.chesslab.tracker.record.FrameWriter
 import com.chesslab.tracker.record.RecordingGates
 import com.chesslab.tracker.record.RecordingPrefs
 import com.chesslab.tracker.record.SessionCaptureController
+import com.chesslab.tracker.record.SessionRecorder
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.tracking.idleTrackerStatus
 import kotlinx.coroutines.CoroutineScope
@@ -39,14 +40,8 @@ private class NoFrames : CaptureSource {
     override fun geometryNote(): String? = null
 }
 
-/**
- * D08a-4: the game session is driven by the SERVICE, not by a composable.
- *
- * The service is a foreground service so tracking survives the screen going off; a recorder driven
- * from composition would then stop exactly when the user put the phone down, leaving holes in a
- * session that claims to be a whole game. These tests pin the two lifetimes that follow from that:
- * the driver ignores UI teardown and a tracker restart, and ends with the service.
- */
+/** D08a-4: the SERVICE drives the game session — a composable would stop recording exactly when the
+ *  user put the phone down. The driver ignores UI teardown and a restart, and ends with the service. */
 class GameSessionDriverTest {
     @TempDir
     lateinit var dir: File
@@ -54,14 +49,17 @@ class GameSessionDriverTest {
     private val events = MutableSharedFlow<TrackerEvent>(extraBufferCapacity = 8)
     private val status = MutableStateFlow<TrackerStatus?>(null)
 
-    private fun controller(): GameSessionController {
+    /** Defaults to the shipped recording OFF: driving the session must not start writing. */
+    private fun controller(
+        prefs: RecordingPrefs = RecordingPrefs(),
+        open: (CaptureFrame) -> SessionRecorder? = { null },
+    ): GameSessionController {
         val capture =
             SessionCaptureController(
                 source = NoFrames(),
-                open = { null },
+                open = open,
                 gates = RecordingGates(),
-                // The shipped default: recording OFF. Driving the session must not start writing.
-                prefs = { RecordingPrefs() },
+                prefs = { prefs },
                 existingBytes = { 0L },
             )
         return GameSessionController(GameStore(File(dir, "games")), capture, { 1_700_000_000_000L }, { "game-$it" })
@@ -129,15 +127,7 @@ class GameSessionDriverTest {
     fun aRecorderThatCannotOpenIsReportedAndTheGameGoesOn() =
         runTest {
             val service = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
-            val capture =
-                SessionCaptureController(
-                    source = NoFrames(),
-                    open = { throw IOException("No space left on device") },
-                    gates = RecordingGates(),
-                    prefs = { RecordingPrefs(enabled = true) },
-                    existingBytes = { 0L },
-                )
-            val session = GameSessionController(GameStore(File(dir, "games")), capture, { 1_700_000_000_000L }, { "game-$it" })
+            val session = controller(RecordingPrefs(enabled = true)) { throw IOException("No space left on device") }
             attachGameSession(service, session, events, status) { "board-a" }
             status.value = idleTrackerStatus(STARTPOS)
 

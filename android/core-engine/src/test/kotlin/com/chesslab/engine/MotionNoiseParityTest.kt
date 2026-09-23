@@ -12,15 +12,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// Parity of phase 01d's three primitives against the phase-00b golden fixtures.
-//
-// `TrackerConfig` is always built from `meta.effectiveConfig` (README "BUILD YOUR TrackerConfig
-// FROM THIS"): `occlusionColorThr` is 1.5 in the fixtures, `detSize` is 320 and several clips run
-// with `overhang = 0.0`. Kotlin defaults would diverge for a reason that looks like a port bug.
+// Parity of phase 01d's three primitives. Configs come from `meta.effectiveConfig`: Kotlin defaults
+// diverge (`occlusionColorThr` 1.5, `detSize` 320, `overhang` 0.0) in a way that looks like a port bug.
 
-private const val U8 = 0xFF
-
-/** How the reference of a non-detection frame is recovered — see the class KDoc of the test. */
 private class BaselineInputs(
     val refGray: GrayImage,
     val gamutFrames: List<Int>,
@@ -34,13 +28,7 @@ private class BaselineCounts {
 }
 
 class MotionNoiseParityTest {
-    /**
-     * `motion_score` (`tracker.py`) over EVERY emitted frame of all 18 clips.
-     *
-     * `tierB.motionScore` is `max(motion_score(prevGray, curGray), motionRoi)` (`tracker.py`),
-     * and the fixture stream *is* the input stream, so `prevGray` is the previously emitted frame's
-     * gray plane (the first frame diffs against itself -> 0.0).
-     */
+    /** `tierB.motionScore` is `max(motion_score(prev, cur), motionRoi)`; the first frame diffs against itself. */
     @Test
     fun motionScoreMatchesPython() {
         var checked = 0
@@ -71,16 +59,8 @@ class MotionNoiseParityTest {
     }
 
     /**
-     * Replays both `SquareNoise` lanes over the recorded diff sequence of every clip.
-     *
-     * Python never resets either model, so this is a full replay from the constructor state:
-     * `noiseZ` / `censusNoiseZ` are `z()` **before** that frame's update, `noiseMean` / `noiseStd`
-     * (and the census pair) are the model **after** it. A port that mis-orders learning vs. scoring
-     * diverges on the very next frame.
-     *
-     * `censusNoiseZ == null` marks the frames where `_compute_evidence`'s channel-local guard
-     * dropped the census channel and learned the disturbance with FULL alpha and no exclusion
-     * (`tracker.py`) — 3 frames over the 18 clips.
+     * `noiseZ` is `z()` BEFORE the frame's update, `noiseMean`/`noiseStd` the model AFTER it. On the 3
+     * frames with `censusNoiseZ == null` the guard learned the census at FULL alpha, no exclusion.
      */
     @Test
     fun squareNoiseTraceMatchesPython() {
@@ -94,14 +74,14 @@ class MotionNoiseParityTest {
             for (frame in clip.frames) {
                 val tierA = frame.tierA ?: continue
                 val where = "$name/${frame.frame}"
-                val diffs = toArray(tierA.normalizedDiffs)
-                val cens = toArray(tierA.censusNormalized)
+                val diffs = tierA.normalizedDiffs.toZArray()
+                val cens = tierA.censusNormalized.toZArray()
                 val exclude = ofSquares(tierA.noiseExclude)
 
-                assertCloseMap(tierA.noiseZ, toMap(gray.z(diffs, scratch)), "$where noiseZ")
+                assertCloseMap(tierA.noiseZ, gray.z(diffs, scratch).asSquareMap(), "$where noiseZ")
                 val censusZ = tierA.censusNoiseZ
                 if (censusZ != null) {
-                    assertCloseMap(censusZ, toMap(census.z(cens, scratch)), "$where censusNoiseZ")
+                    assertCloseMap(censusZ, census.z(cens, scratch).asSquareMap(), "$where censusNoiseZ")
                 }
 
                 gray.update(diffs, exclude)
@@ -112,10 +92,10 @@ class MotionNoiseParityTest {
                     fullLearnFrames++
                 }
 
-                assertCloseMap(tierA.noiseMean, toMap(gray.mean), "$where noiseMean")
-                assertCloseMap(tierA.noiseStd, toMap(gray.std), "$where noiseStd")
-                assertCloseMap(tierA.censusNoiseMean, toMap(census.mean), "$where censusNoiseMean")
-                assertCloseMap(tierA.censusNoiseStd, toMap(census.std), "$where censusNoiseStd")
+                assertCloseMap(tierA.noiseMean, gray.mean.asSquareMap(), "$where noiseMean")
+                assertCloseMap(tierA.noiseStd, gray.std.asSquareMap(), "$where noiseStd")
+                assertCloseMap(tierA.censusNoiseMean, census.mean.asSquareMap(), "$where censusNoiseMean")
+                assertCloseMap(tierA.censusNoiseStd, census.std.asSquareMap(), "$where censusNoiseStd")
                 checked++
             }
         }
@@ -124,16 +104,8 @@ class MotionNoiseParityTest {
     }
 
     /**
-     * `_baseline_occlusion_and_shadow` (`tracker.py`) on every frame that carries a
-     * `baselineOcclusion` block — the hand-over-the-board frames, which is where the classifier and
-     * the chroma-outlier branch actually fire.
-     *
-     * The block is computed on the RAW current frame against `self.ref_gray` (`tracker.py`),
-     * so the reference has to be recovered: `_set_ref` only ever runs inside `_try_detect` (a
-     * tier-A frame) or at the very first baseline capture, which precedes every block. Therefore
-     * the reference in force at a block frame is exactly `tierA.refFrames` of the **next** tier-A
-     * frame, and the active gamut is that frame's `activeGamutFrames`. Verified against the Python
-     * implementation over all 173 recoverable blocks before this test was written.
+     * `_set_ref` only runs inside `_try_detect`, so the reference at a block frame is `refFrames` of the
+     * NEXT tier-A frame, its gamut that frame's `activeGamutFrames` (verified in Python on all 173 blocks).
      */
     @Test
     fun baselineOcclusionMatchesPython() {
@@ -219,7 +191,7 @@ class MotionNoiseParityTest {
         val next: ParityFrame? = clip.frames.drop(index + 1).firstOrNull { it.tierA != null }
         val tierA = next?.tierA
         val refFrames = tierA?.refFrames
-        return if (refFrames == null) null else BaselineInputs(meanGray(clip, refFrames), tierA.activeGamutFrames)
+        return if (refFrames == null) null else BaselineInputs(clip.meanGray(refFrames), tierA.activeGamutFrames)
     }
 
     private fun buildGamut(
@@ -227,7 +199,7 @@ class MotionNoiseParityTest {
         frames: List<Int>,
     ): ColorGamut? {
         val det = clip.meta.detSize
-        val mean = meanBgr(clip, frames)
+        val mean = clip.meanBgr(frames).data
         val geom = PlaneGeometry(det, det, det, clip.meta.whitePov)
         return boardColorGamut(ColorPlanes(toLab(mean, det), toHsv(mean, det)), geom)
     }
@@ -241,46 +213,6 @@ class MotionNoiseParityTest {
         bgr: ByteArray,
         det: Int,
     ): ByteArray = bgrToHsv(bgr, det, det, ByteArray(det * det * BGR_CHANNELS))
-
-    /** Python `_RunningMean.mean_uint8`: `(sum / n)` TRUNCATED, not rounded. */
-    private fun meanGray(
-        clip: ParityClip,
-        frames: List<Int>,
-    ): GrayImage {
-        val det = clip.meta.detSize
-        return GrayImage(det, det, meanPlane(frames.map { clip.gray(it).data }, det * det))
-    }
-
-    private fun meanBgr(
-        clip: ParityClip,
-        frames: List<Int>,
-    ): ByteArray {
-        val det = clip.meta.detSize
-        val planes = frames.map { requireNotNull(clip.bgr(it)) { "frame $it has no BGR plane" }.data }
-        return meanPlane(planes, det * det * BGR_CHANNELS)
-    }
-
-    private fun meanPlane(
-        planes: List<ByteArray>,
-        size: Int,
-    ): ByteArray {
-        require(planes.isNotEmpty()) { "no planes to average" }
-        val acc = LongArray(size)
-        for (plane in planes) {
-            for (i in 0 until size) {
-                acc[i] += (plane[i].toInt() and U8).toLong()
-            }
-        }
-        val out = ByteArray(size)
-        for (i in 0 until size) {
-            out[i] = (acc[i] / planes.size).toByte()
-        }
-        return out
-    }
-
-    private fun toArray(values: Map<String, Double>): DoubleArray = DoubleArray(Squares.COUNT) { values.getValue(Squares.ALL[it]) }
-
-    private fun toMap(values: DoubleArray): Map<String, Double> = Squares.ALL.withIndex().associate { (i, s) -> s to values[i] }
 
     private companion object {
         const val BGR_CHANNELS = 3

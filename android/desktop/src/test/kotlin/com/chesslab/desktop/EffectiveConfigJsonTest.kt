@@ -11,12 +11,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The candidate's `effective_config` covers the WHOLE knob catalog. The hand-kept list this
- * replaced was five keys short, and one of them (`handTolerantCells`) was the experiment knob a
- * real investigation needed on record — a dump that drifts from the catalog is provenance that
- * lies by omission.
- */
+/** The hand-kept key list this replaced was five short, `handTolerantCells` among them —
+ *  a dump that drifts from the knob catalog is provenance that lies by omission. */
 class EffectiveConfigJsonTest {
     @Test
     fun `the dump carries every knob plus the resolved and derived keys`() {

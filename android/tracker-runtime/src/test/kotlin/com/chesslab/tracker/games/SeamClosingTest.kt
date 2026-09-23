@@ -19,12 +19,7 @@ private fun placementAndSide(fen: String): String {
     return "${fields.first()} ${fields.getOrNull(1).orEmpty()}"
 }
 
-/**
- * A seam is what the record has when the engine's board committed from a position the record cannot
- * reach. Almost always the tracker simply missed a ply behind a hand, and then the gap has exactly
- * one explanation — see [seamBridge] for why that is not a guess, and `SeamRow` for what it costs
- * the reader when it is left open.
- */
+/** A seam: the engine committed from a position the record cannot reach — usually a ply missed behind a hand. */
 class SeamClosingTest {
     @Test
     fun theOneLegalSequenceThatExplainsAGapIsTheBridge() {
@@ -39,10 +34,8 @@ class SeamClosingTest {
     }
 
     /**
-     * Ra1-a3-c3 and Ra1-c1-c3 reach the same position with the same reply in between. The search
-     * takes the first one and stops — *"wenn ein Pfad gefunden wurde bitte den markieren, ich brauch
-     * nicht alle Pfade"* — so what it must never do is return something that does not replay to the
-     * position the engine actually reached.
+     * Ra1-a3-c3 and Ra1-c1-c3 both explain the gap; the search takes the first (user: "ich brauch nicht
+     * alle Pfade") but must never return one that does not replay to the engine's position.
      */
     @Test
     fun aGapWithTwoExplanationsTakesTheFirstAndStops() {
@@ -55,11 +48,7 @@ class SeamClosingTest {
         assertEquals(placementAndSide(after), placementAndSide(played.last().fenAfter))
     }
 
-    /**
-     * The search that finds nothing is the one that walks the whole tree, and its answer never
-     * changes — so it is written down. Without this, every open of a game with an unexplainable gap
-     * pays for the same failed search again, which is exactly what made loading slow on the device.
-     */
+    /** The failed search walks the whole tree and never changes its answer; re-running it made loading slow. */
     @Test
     fun aGapThatCannotBeExplainedIsMarkedSoTheSearchNeverRunsAgain() {
         val marked = gameWithSeam(startFen = IMPOSSIBLE_JUMP).closeSeams()

@@ -6,11 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.random.Random
 
-/**
- * Hand-written guards for the properties the census channel exists for. These do not need a
- * fixture: they encode invariants (replicate padding, `eps == 0`, the 255/8 scaling) that a
- * refactor must never break.
- */
+/** Census invariants no fixture pins: replicate padding, `eps == 0`, the 255/8 scaling. */
 class CensusUnitTest {
     @Test
     fun popcountTable() {
@@ -57,8 +53,7 @@ class CensusUnitTest {
 
     @Test
     fun paddingIsReplicateNotRoll() {
-        // A bright top half over a dark bottom half: with wrap/roll padding the first row would be
-        // compared against the last row and the whole top rank would light up.
+        // With wrap/roll padding row 0 would be compared against the last row and rank 8 would light up.
         val data = ByteArray(SIZE * SIZE)
         for (y in 0 until SIZE) {
             val v = if (y < SIZE / 2) BRIGHT else DARK
@@ -112,11 +107,7 @@ class CensusUnitTest {
         assertTrue(out.all { it == 0.0 }, "an inverted band must read 0.0")
     }
 
-    /**
-     * The load-bearing claim of the box-scoped transform: inside a square box the codes are
-     * bit-identical to the full-plane transform's, so nothing that reads a reference-code plane
-     * can tell the two apart.
-     */
+    /** The load-bearing claim of the box-scoped transform. */
     @Test
     fun boxCodesEqualTheFullTransformInsideTheBoxes() {
         val gray = texture()
@@ -148,8 +139,7 @@ class CensusUnitTest {
                 )
             }
         }
-        // ...and the band's first row is the transform of a plane that STARTS there, i.e. its top
-        // neighbours are its own row. That is why the halo guard exists.
+        // ...and its first row replicates itself upwards, which is why the halo guard exists.
         val standalone =
             censusTransform(
                 GrayImage(SIZE, bandRows, gray.data.copyOfRange(HALF * SIZE, (HALF + bandRows) * SIZE)),

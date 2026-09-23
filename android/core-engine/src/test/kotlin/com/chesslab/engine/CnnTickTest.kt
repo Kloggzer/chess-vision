@@ -13,10 +13,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The free-running observer schedule and `_cnn_tick` — evaluation gates, the occupancy fallback,
- * the recovery confirmer, and the anchoring rule that made this phase necessary.
- */
+/** `_cnn_tick` — evaluation gates, the occupancy fallback, the recovery confirmer and the anchoring rule. */
 class CnnTickTest {
     @Test
     fun obsoletePositionDoesNotEvaluateOrDelayTheNextFreshReading() {
@@ -103,11 +100,8 @@ class CnnTickTest {
     }
 
     /**
-     * The stuck arm of `evaluationDue` is what routes a stuck board to recovery, and its
-     * `stuckCount >= settleFrames` half had no coverage anywhere: every fixture in this file
-     * overrides `settleFrames` to 1, which the single `markStuck` in `armed()` already satisfies,
-     * so deleting the clause outright left all 365 `:core-engine` tests green. It is the only
-     * thing that distinguishes "one awkward frame" from "this tracker is stuck".
+     * `stuckCount >= settleFrames` had no coverage: every fixture here sets `settleFrames` to 1, so
+     * deleting the clause left all 365 `:core-engine` tests green.
      */
     @Test
     fun theStuckGateNeedsSettleFramesOfTheSameReason() {
@@ -189,10 +183,8 @@ class CnnTickTest {
     }
 
     /**
-     * The mirror image, and the dangerous direction: `boardMatchesIdentity` builds its conflict set
-     * from LABEL-confident squares only, so an extra piece on a square that is occupancy-confident
-     * but label-unconfident (wN 0.50 / wB 0.45 -> pOcc 0.95, no label at 0.85) is never checked.
-     * `match = true` then had `onMatchOk` clear the latch and pull the reference over that piece.
+     * The dangerous direction: identity conflicts come from LABEL-confident squares only, so an extra
+     * piece read wN 0.50 / wB 0.45 was never checked and `onMatchOk` pulled the reference over it.
      */
     @Test
     fun anIdentityMatchThatOccupancyContradictsIsNotAMatch() {
@@ -223,10 +215,8 @@ class CnnTickTest {
     }
 
     /**
-     * The phantom starvation of 2026-08-08-00-39-57. The diff channel re-proposed `a2a4` on every
-     * cycle — a shadow on the a-file — and each dispatch cleared the streak, so the CNN's correct
-     * `c3e4` never got past 1/2 and 17 plies were lost while the read was right the whole time.
-     * A candidate merely ENTERING verification is not evidence against what the CNN sees.
+     * 2026-08-08-00-39-57: a shadow re-proposed `a2a4` every cycle and each dispatch cleared the
+     * streak, so the correct `c3e4` never got past 1/2 — 17 plies lost.
      */
     @Test
     fun aCandidateEnteringVerifyDoesNotResetTheRecoveryVote() {
@@ -244,11 +234,7 @@ class CnnTickTest {
         assertEquals(listOf("e4"), state.history, "a rejected candidate may not cost the vote")
     }
 
-    /**
-     * Dieselbe Aussage eine Stufe weiter: `VerifySingle.reject` laesst den Recovery-Vote absichtlich
-     * stehen (live Nf6), `rejectPair` loeschte ihn. Ein abgewiesener Diff-Kandidat sagt nichts
-     * darueber, was das Modell auf dem GANZEN Brett liest.
-     */
+    /** `VerifySingle.reject` laesst den Recovery-Vote absichtlich stehen (live Nf6), `rejectPair` loeschte ihn. */
     @Test
     fun aRejectedPairDoesNotResetTheRecoveryVote() {
         val state = recoveryState(confirmFrames = 2)
@@ -267,10 +253,8 @@ class CnnTickTest {
     }
 
     /**
-     * The vote asks for two looks at the SAME board; a cooldown between them asks for two looks at
-     * a board that had seconds to change. On 2026-08-08-11-59-12 the bridge `f2f4 e5c4` stood at
-     * agreement 1.000 and vote 1/2, the next glance came 98 frames later, and by then two more
-     * plies had been played — the key never repeated and the session never recovered.
+     * 2026-08-08-11-59-12: bridge `f2f4 e5c4` at vote 1/2, the next glance 98 frames later after two
+     * more plies — the key never repeated and the session never recovered.
      */
     @Test
     fun anOpenRecoveryVoteIsDueDespiteTheCooldown() {
@@ -304,11 +288,7 @@ class CnnTickTest {
         assertTrue(state.note!!.contains("CNN recovery"), state.note!!)
     }
 
-    /**
-     * A bridge rewrites history, and the only thing keeping a mid-move glance out of it is the
-     * occluded check of `recoveryVoteConfirmed` — whose model arm is blind on 13-class models.
-     * The grid-groove arm (`CnnSnapshot.gridOccluded`) must refuse the vote on its own.
-     */
+    /** The model arm of `recoveryVoteConfirmed` is blind on 13-class models; the grid arm must refuse alone. */
     @Test
     fun aGridOccludedGlanceRefusesTheRecoveryVote() {
         val state = recoveryState()
@@ -319,15 +299,12 @@ class CnnTickTest {
         assertEquals(emptyList<String>(), state.history)
         assertTrue(state.note!!.contains("occluded"), state.note!!)
 
-        // The same evaluator with clean glances commits — the grid arm alone held the vote.
         state.recoveryGlances(cnn, obs, gray = grayFrame())
         assertEquals(listOf("e4"), state.history)
     }
 
     @Test
     fun recoveryCommitGrantsOneMotionWindow() {
-        // Recovery means we WERE behind: a reply played during the recovery window is already
-        // visible against this old reference, so the recency gate must not hold it hostage.
         val state = recoveryState()
         state.motionSinceRef = false
         state.lastMotionTs = 0.0
@@ -344,17 +321,12 @@ class CnnTickTest {
         val events = state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
         assertEquals(listOf("e4", "e5"), state.history)
         assertEquals("e7e5", state.lastMove)
-        // COMMIT rows, not every row: `markStuck` now writes its own provenance line on the
-        // transition, and the state this test starts from is a stuck one.
+        // COMMIT rows only: `markStuck` writes its own provenance line, and this state starts stuck.
         assertEquals(2, state.decisionLog.count { it.accepted }, "one row per move — a bridge is not one decision")
         assertTrue(events.any { it is TrackerEvent.SequenceCommitted })
     }
 
-    /**
-     * The incident of 2026-08-02: a four-move bridge left ONE line in the log and a four-ply gap in
-     * the ply numbers, so three of its four moves existed nowhere. Reading it took a full log dump
-     * and a read of `commitRecovery`; the log alone could only show that something had happened.
-     */
+    /** 2026-08-02: a four-move bridge left ONE log line and a four-ply gap in the ply numbers. */
     @Test
     fun everyMoveOfARecoveryGetsItsOwnRow() {
         val state = recoveryState()
@@ -365,8 +337,6 @@ class CnnTickTest {
         assertEquals(listOf("e4", "e5", "Nf3"), rows.map { it.san })
         assertEquals(listOf("e2e4", "e7e5", "g1f3"), rows.map { it.move })
         assertEquals(listOf(1, 2, 3), rows.map { it.ply }, "the plies are contiguous, not a gap")
-        // Each row's "before" is the position that move was actually played from — the single row
-        // used to carry a `fenBefore` as many plies stale as the bridge was long.
         assertEquals(STARTPOS, rows.first().fenBefore)
         assertEquals(rows[0].fenAfter, rows[1].fenBefore)
         assertEquals(rows[1].fenAfter, rows[2].fenBefore)
@@ -387,11 +357,7 @@ class CnnTickTest {
         assertEquals(DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY), row.reason)
     }
 
-    /**
-     * Four rows that each say "position was LOST — rebuilt by the CNN" are indistinguishable from
-     * four separate one-move recoveries, which is a different and far less alarming event. The
-     * stamp is what tells them apart, and it groups the bridge back together for a reader.
-     */
+    /** Without the stamp, one four-move bridge reads like four separate one-move recoveries. */
     @Test
     fun theRowsOfOneBridgeCarryTheirPositionInItAndItsKey() {
         val state = recoveryState()
@@ -404,8 +370,7 @@ class CnnTickTest {
             listOf("[move 1/3 of recovery $key]", "[move 2/3 of recovery $key]", "[move 3/3 of recovery $key]"),
             rows.map { it.reason.substringAfter(DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY)).trim() },
         )
-        // And the whole stamp reaches the log line, which is the only form anyone reads live.
-        // Via `toDebugDecision` since the sink carries structure rather than a sentence (specs/34).
+        // The log line is the only form anyone reads live (`toDebugDecision`, specs/34).
         val line = rows.last().toDebugDecision().toLogLine()
         assertTrue(line.contains("[move 3/3 of recovery $key]"), line)
     }
@@ -418,26 +383,26 @@ class CnnTickTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
+    /** No anchor: (image, FEN) drop whole, and BOTH averaging buffers — else `refBgr` averages the old position. */
     @Test
     fun recoveryWithoutAnyAnchorDropsBaseTruth() {
-        // No observed warp and no live buffer: the pair (image, FEN) must be dropped whole rather
-        // than left pointing at the pre-move reference.
         val state = recoveryState()
         state.refGray = grayFrame()
         state.refFen = state.board.fen()
+        repeat(3) {
+            state.grayBuf.append(grayFrame())
+            state.bgrBuf.append(bgrFrame())
+        }
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
         state.recoveryGlances(cnn, obsForBoard(state.board))
         assertEquals(listOf("e4"), state.history)
         assertNull(state.refGray)
         assertNull(state.refFen)
         assertEquals(0, state.grayBuf.size)
+        assertEquals(0, state.bgrBuf.size, "der Farbpuffer traegt noch Frames der alten Stellung")
     }
 
-    /**
-     * specs/39 phase 02, the case the two-vote floor actually defends: a beam search whose answer
-     * CHANGES between two glances used to commit whichever answer arrived first. Alternating
-     * derivations must never reach the board — the confirmer's streak restarts on every new key.
-     */
+    /** specs/39 phase 02: a derivation that CHANGES between glances used to commit whichever came first. */
     @Test
     fun aBridgeThatChangesBetweenGlancesNeverCommits() {
         val state = recoveryState()
@@ -453,11 +418,7 @@ class CnnTickTest {
         assertEquals(emptyList<String>(), state.history, "an unstable derivation must never commit")
     }
 
-    /**
-     * The observer is not motion-gated and the stuck arm needs no stable board, so the ONLY thing
-     * keeping a mid-move glance out of a bridge is the clean-board gate: a snapshot with a hand in
-     * it may not vote, and it resets the streak — two CLEAN agreeing looks or nothing.
-     */
+    /** Neither motion nor stability gates the observer; the clean-board gate alone keeps a mid-move glance out. */
     @Test
     fun aGlanceWithAHandInItBlocksTheVoteAndResetsTheStreak() {
         val state = recoveryState()
@@ -483,10 +444,8 @@ class CnnTickTest {
     }
 
     /**
-     * The starvation of session 20260814-142947: `real14-80` flags phantom `occluded` squares on a
-     * quiet board, and with `RECOVERY_OCCLUDED_LIMIT = 0` every raw flag refused every vote —
-     * recovery never ran for the rest of the session. A lone flag is not hand-shaped, so the
-     * plausibility filter (`modelHandSquares`) lets the vote proceed.
+     * 20260814-142947: `real14-80` phantom `occluded` flags refused every vote under
+     * `RECOVERY_OCCLUDED_LIMIT = 0`; a lone flag is not hand-shaped (`modelHandSquares`).
      */
     @Test
     fun aPhantomOccludedFlagCannotStarveRecovery() {
@@ -515,16 +474,12 @@ class CnnTickTest {
 
     @Test
     fun aBlindGlanceCannotReportTheBoardUnchanged() {
-        // `resyncCheckFull` builds its conflict set from CONFIDENT squares only, so zero confident
-        // squares yields an empty set, `match = true` and agreement 1.0 — vacuously. Without the
-        // guard a hand over the board clears the alarm and pulls the reference onto the covered
-        // frame. The verify ladder has guarded exactly this since it was written; the periodic
-        // check never did, and neither does Python.
+        // Zero confident squares give an empty conflict set, i.e. a vacuous match; the verify ladder
+        // always guarded this, the periodic check (and Python) never did.
         val state = recoveryState(NF3_NO_CASTLING)
         state.markStuck(STUCK_NO_LEGAL_MOVE)
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e1"), null, null)
         val cnn = RecoveryEvaluator(match = true).apply { minConfidentBoard = 32 }
-        // Confidence below the threshold on every square: the glance saw nothing.
         val blind = RecoveryObs(Squares.ALL.associateWith { state.board.labelAt(it) }, confidence = 0.10)
 
         state.cnnTick(cnn, recoverySnap(state, blind, seq = 1))

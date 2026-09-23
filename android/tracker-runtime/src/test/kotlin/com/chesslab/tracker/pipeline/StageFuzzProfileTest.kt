@@ -17,12 +17,7 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.random.Random
 
-/**
- * Was die Knotenschicht wirklich kostet, unter zufaellig wechselndem Bedarf.
- *
- * Fuzz statt fester Reihenfolge, weil genau das der Punkt der Umstellung ist: wer nichts
- * zieht, bezahlt nichts. Der Bericht zaehlt Aufrufe, Treffer und Fehlschlaege je Operation.
- */
+/** Was die Knotenschicht unter zufaellig wechselndem Bedarf kostet — Fuzz, weil gilt: wer nichts zieht, bezahlt nichts. */
 class StageFuzzProfileTest {
     private val geom = BoardGeometry(boardSize = BOARD_SIZE)
     private val config = TrackerConfig(boardSize = BOARD_SIZE)
@@ -114,13 +109,7 @@ class StageFuzzProfileTest {
         assertTrue(board.cacheHits > 0, "der Fuzz muss Mehrfachzuege erzeugt haben")
     }
 
-    /**
-     * Was Stillness/Changeset heute fuer nichts bezahlen.
-     *
-     * `FramePipeline.emit` ruft `grayDet()` und `bgrDet()` UNBEDINGT, obwohl diese Engines nur
-     * `board(160)` lesen und `FrameReads(gridCoverage = false, roiMotion = false)` erklaeren.
-     * Der Test misst den Posten, statt ihn zu schaetzen.
-     */
+    /** `FramePipeline.emit` ruft `grayDet()`/`bgrDet()` UNBEDINGT, obwohl Stillness/Changeset nur `board(160)` lesen. */
     @Test
     fun `what stillness pays for nothing`() {
         fun run(emitLikeToday: Boolean): Long {

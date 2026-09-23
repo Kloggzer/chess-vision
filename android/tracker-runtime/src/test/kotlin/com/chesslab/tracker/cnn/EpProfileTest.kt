@@ -7,9 +7,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * A real ORT trace, trimmed: the session preamble, a fence event (no provider), and kernels split
- * between two providers. `Conv` on QNN outweighs everything the CPU kept, which is exactly the
- * partial-assignment shape a working NPU session has.
+ * A real ORT trace, trimmed: preamble, a provider-less fence event, and kernels split between QNN
+ * and CPU — the partial-assignment shape a working NPU session has.
  */
 private val MIXED_TRACE =
     """
@@ -109,12 +108,7 @@ class EpProfileTest {
         assertEquals("CoreMLExecutionProvider", verdict.label)
     }
 
-    /**
-     * XNNPACK is a kernel library on the same cores, not another device: it implements none of the
-     * 46 InstanceNormalization blocks in this graph and hands them back to the CPU EP. A
-     * CPU-dominant profile is that partition, and dropping the session over it would throw away the
-     * fast kernels for the ones it did take.
-     */
+    /** XNNPACK runs on the same cores and hands the graph's 46 InstanceNormalization blocks back to the CPU EP. */
     @Test
     fun xnnpackHandingOperatorsBackToTheCpuIsNotAContradiction() {
         val verdict = EpVerdict(Ep.XNNPACK, dominantProvider(ALL_CPU_TRACE))

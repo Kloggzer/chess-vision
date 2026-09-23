@@ -7,8 +7,7 @@ import org.junit.jupiter.api.Test
 
 /**
  * The provisional mark outlived every path that clears `refGray`/`refFen`, so the first quiet frame
- * after a user correction overwrote the reference that correction had just asked for — and it did
- * so through `setRef(fromCommit = true)`, without `markGamutStale` (invariant 6).
+ * after a user correction overwrote that reference via `setRef(fromCommit = true)`, without `markGamutStale` (invariant 6).
  */
 class RefProvisionalResetTest {
     private fun flagged(): EngineState =
@@ -39,5 +38,16 @@ class RefProvisionalResetTest {
         state.adoptPosition(STARTPOS)
 
         assertEquals(0.0, state.refProvisionalUntil)
+    }
+
+    @Test
+    fun clearRefDropsIt() {
+        val state = detectState()
+        state.nowS = 10.0
+        state.refProvisionalUntil = 10.2
+
+        state.clearRef()
+
+        assertEquals(0.0, state.refProvisionalUntil, "der Merker beschreibt die Epoche, die gerade fiel")
     }
 }

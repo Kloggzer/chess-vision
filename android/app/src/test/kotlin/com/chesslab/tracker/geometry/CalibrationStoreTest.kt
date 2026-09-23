@@ -1,13 +1,16 @@
 package com.chesslab.tracker.geometry
 
 import com.chesslab.geometry.margins4
+import com.chesslab.tracker.settings.BoardOrientation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /** In-memory stand-in for the DataStore backing (see D06a-3). */
@@ -46,12 +49,7 @@ class CalibrationStoreTest {
     private val measured =
         MeasuredGeometry(floatArrayOf(9f, 9f, 90f, 9f, 90f, 90f, 9f, 90f), sourceWidth = 1920, sourceHeight = 1080)
 
-    /**
-     * `boardSize` is deliberately NOT in the carried-over set any more: it is a measurement of the
-     * board in the frame, and a recalibration is exactly the moment that measurement changed.
-     * Carrying it meant the phone rectified a 630 px board to 1600 and did every per-pixel stage on
-     * detail it had invented.
-     */
+    /** `boardSize` is a measurement: carrying it over rectified a 630 px board to 1600 on the phone. */
     @Test
     fun recalibrationCarriesOverWhitePovMarginAndCrop_butMeasuresTheBoardSize() =
         runTest {
@@ -99,16 +97,11 @@ class CalibrationStoreTest {
         runTest {
             val backing = FakeProfileBacking("{not json")
             assertNull((CalibrationStore(backing).load() as? ProfileLoad.Ok)?.profile)
-            // No existing profile survives the discard, so the recalibration falls back to defaults
-            // for everything except the size, which is measured either way.
+            // Defaults for everything except the size, which is measured either way.
             assertEquals(measuredBoardSize(measured.corners), CalibrationStore(backing).saveRecalibrated(measured).boardSize)
         }
 
-    /**
-     * A 2K frame with the board filling about a third of it — the real geometry this was built for.
-     * The result must be a multiple of 16 so that halving it for the detection warp, and eighthing
-     * THAT into squares, both stay whole.
-     */
+    /** A multiple of 16, so halving it for the detection warp and eighthing THAT both stay whole. */
     @Test
     fun theMeasuredSizeTracksTheBoardAndStaysDivisible() {
         val square = { side: Float -> floatArrayOf(0f, 0f, side, 0f, side, side, 0f, side) }
@@ -120,13 +113,7 @@ class CalibrationStoreTest {
         assertEquals(0, measuredBoardSize(square(840f)) % 16)
     }
 
-    /**
-     * A per-corner outset the user tuned must SURVIVE the recalibration that follows it.
-     *
-     * The codes are re-glued and then re-detected, so "adjust, then recalibrate" is the normal
-     * order — if the override were dropped on save, the setting would be write-only and the user
-     * would re-enter it forever.
-     */
+    /** "Adjust, then recalibrate" is the normal order: a dropped override would be write-only. */
     @Test
     fun aTunedPerCornerMarginIsPersistedAndCarriedOver() =
         runTest {
@@ -138,5 +125,55 @@ class CalibrationStoreTest {
             // A later recalibration that does NOT touch the margins must keep them.
             val next = store.saveRecalibrated(measured)
             assertEquals(tuned, next.margin, "an untouched recalibration carries them over")
+        }
+
+    // 07a's `AppSettings.orientation` (STATUS D07a-11) lives IN the profile: only the profile
+    // survives a recalibration, and a wrong a8 silently transposes every label of the session.
+    private val stored =
+        CalibrationProfile(
+            name = "default",
+            whitePov = true,
+            sourceWidth = 1920,
+            sourceHeight = 1080,
+            corners = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f),
+        )
+
+    @Test
+    fun theOrientationSettingLandsInTheGeometryTheWarpUses() =
+        runTest {
+            val store = CalibrationStore(FakeProfileBacking(encodeProfile(stored)))
+            assertFalse(store.applyOrientation(BoardOrientation.BLACK_BOTTOM.whitePov).whitePov)
+            assertTrue(store.applyOrientation(BoardOrientation.WHITE_BOTTOM.whitePov).whitePov)
+        }
+
+    @Test
+    fun aRecalibrationAfterTheOrientationSettingCarriesItOver() =
+        runTest {
+            val store = CalibrationStore(FakeProfileBacking(encodeProfile(stored)))
+            store.applyOrientation(whitePov = false)
+
+            val next = store.saveRecalibrated(measured)
+
+            assertFalse(next.whitePov, "a recalibration must not silently reset a chosen orientation")
+            assertEquals(1920, next.sourceWidth)
+        }
+
+    @Test
+    fun anUnchangedOrientationDoesNotRewriteTheProfile() =
+        runTest {
+            val backing = FakeProfileBacking(encodeProfile(stored))
+            CalibrationStore(backing).applyOrientation(whitePov = true)
+            assertEquals(0, backing.writes, "a no-op restart must not touch the safety-critical profile")
+        }
+
+    @Test
+    fun withNoStoredProfileTheOrientationStillReachesTheGeometry() =
+        runTest {
+            val backing = FakeProfileBacking()
+            val store = CalibrationStore(backing)
+            assertFalse(store.applyOrientation(whitePov = false).whitePov)
+            // Nothing invented on disk: D06a's "a bad profile is discarded, not repaired" stays intact.
+            assertEquals(0, backing.writes)
+            assertFalse(store.saveRecalibrated(measured, whitePovOverride = false).whitePov)
         }
 }

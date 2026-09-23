@@ -5,12 +5,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * `retract: true` ist ein Grabstein, kein Urteil — `labeling.load_corrections` `pop`t den Schluessel
- * und die Web-Seite zeigt die Zelle danach wieder unkorrigiert. Der Pack-Bauer las dieselbe Datei
- * und nahm nur `square -> label`: ein vom Menschen ZURUECKGEZOGENES Label wurde weiter ins
- * Trainingsmaterial gepackt, und der Mensch hatte keine Stelle, an der er das sehen konnte.
- */
+/** `retract: true` ist ein Grabstein (`labeling.load_corrections` `pop`t den Schluessel); der
+ *  Pack-Bauer packte ein vom Menschen ZURUECKGEZOGENES Label weiter ins Training. */
 class CorrectionRetractTest {
     @TempDir
     lateinit var dir: File

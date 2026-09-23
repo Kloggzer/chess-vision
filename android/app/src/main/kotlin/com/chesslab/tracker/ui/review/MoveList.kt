@@ -393,7 +393,7 @@ private fun MoveCell(
 
 /** Der Herkunftsvermerk an der Zugzeile — und NUR der Vermerk. Ob ein vorgesagter Zug anders
  *  benotet oder aus der Statistik genommen wird, ist eine Produktentscheidung
- *  (`docs/tipps-auf-zuruf-entwurf.md`); die Benotung bleibt bis dahin, wie sie ist. */
+ *  (`docs/game-review.md`); die Benotung bleibt bis dahin, wie sie ist. */
 @Composable
 private fun HintSign(status: HintStatus) {
     val sign = HintMark.sign(status)

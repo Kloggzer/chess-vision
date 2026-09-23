@@ -8,13 +8,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import kotlin.math.abs
 
-/**
- * The straightness fit, against a grid distorted by a KNOWN k1.
- *
- * Synthetic on purpose: the rig can only ever say "the bow got smaller", which is what the fit
- * optimises and therefore cannot be its own proof. Here the answer is known, so the test can say
- * whether the number is right rather than merely better.
- */
+/** A grid distorted by a KNOWN k1: the rig can only say "the bow got smaller", which is what the
+ *  fit optimises and therefore cannot be its own proof. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class LensFitTest {
     @Test
@@ -69,12 +64,8 @@ class LensFitTest {
         assertNotNull(fitLens(vertical, WIDTH, HEIGHT).rejected)
     }
 
-    /**
-     * A [lines] x [lines] grid pushed through the Brown model with [k1], as a camera would see it.
-     *
-     * The forward direction on purpose: the fit inverts it, so generating with the inverse would
-     * test the generator against itself.
-     */
+    /** Forward through the Brown model on purpose: the fit inverts it, so the inverse here would
+     *  test the generator against itself. */
     private fun distortedGrid(
         k1: Double,
         lines: Int,

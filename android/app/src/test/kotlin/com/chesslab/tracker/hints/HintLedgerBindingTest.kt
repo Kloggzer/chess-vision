@@ -1,7 +1,5 @@
 package com.chesslab.tracker.hints
 
-import com.chesslab.tracker.analysis.AnalysisLine
-import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.analysis.GateBlock
 import com.chesslab.tracker.games.HintLedger
 import com.chesslab.tracker.games.MoveHint
@@ -9,10 +7,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
-
-private const val FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
-
-private const val OTHER_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2"
 
 /** Nur was ZUGESTELLT wurde, ist vorgesagt. Jede Absage — verfallene Stellung, gesperrtes Gate,
  *  leeres Kontingent — ist auch eine Absage an den Record, sonst traegt die Partie hinterher eine
@@ -88,22 +82,3 @@ class HintLedgerBindingTest {
         assertEquals("BLACK", ledger.log().side)
     }
 }
-
-private fun result(
-    fen: String,
-    mate: Int? = null,
-) = AnalysisResult(
-    fen = fen,
-    gameOver = false,
-    cp = if (mate == null) 20 else null,
-    mate = mate,
-    winWhite = 52.0,
-    lines = listOf(AnalysisLine(uci = "e7e5", san = "e5", cp = 20, mate = mate)),
-    depth = 12,
-)
-
-private fun moment(
-    fen: String = FEN,
-    blocked: GateBlock? = null,
-    result: AnalysisResult? = result(fen),
-) = HintMoment(fen = fen, steadyMs = HINT_SETTLE_MS, blocked = blocked, result = result)

@@ -518,7 +518,7 @@ private class AndroidOptimizationBenchmark(
 
     /** Dauerlast fuer die Strommessung: `cmd battery get -f current_now` braucht Sekunden, der
      * Zeitvergleich braucht Millisekunden. Deshalb hier EINE Groesse, so lange am Stueck, dass
-     * der Zaehler den Unterschied traegt — siehe `docs/battery.md`. */
+     * der Zaehler den Unterschied traegt — siehe `docs/android-performance.md`. */
     fun cnnSoak(
         size: Int,
         seconds: Int,

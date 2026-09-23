@@ -1,17 +1,18 @@
 package com.chesslab.cnn
 
+import com.chesslab.engine.api.STARTPOS
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-
-private const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 class PriorTest {
     @Test
     fun `startposition rank 3 admits pawn knight and empty`() {
-        val possible = possibleLabels(START_FEN)
+        val possible = possibleLabels(STARTPOS)
         assertEquals(setOf("empty", "wP", "wN"), possible.getValue("a3"))
         assertEquals(setOf("empty", "wP"), possible.getValue("b3"))
         assertEquals(setOf("empty", "wP", "wN"), possible.getValue("h3"))
@@ -19,7 +20,7 @@ class PriorTest {
 
     @Test
     fun `ranks black cannot reach in one white half-move stay empty`() {
-        val possible = possibleLabels(START_FEN)
+        val possible = possibleLabels(STARTPOS)
         for (square in ALL_SQUARES.filter { it[1] == '5' || it[1] == '6' }) {
             assertEquals(setOf("empty"), possible.getValue(square), square)
         }
@@ -27,7 +28,7 @@ class PriorTest {
 
     @Test
     fun `black back rank is pinned to one label each`() {
-        val possible = possibleLabels(START_FEN)
+        val possible = possibleLabels(STARTPOS)
         assertEquals(setOf("bR"), possible.getValue("a8"))
         assertEquals(setOf("bK"), possible.getValue("e8"))
         assertEquals(setOf("bP"), possible.getValue("a7"))
@@ -35,8 +36,8 @@ class PriorTest {
 
     @Test
     fun `the resting placement is always in the set`() {
-        val possible = possibleLabels(START_FEN)
-        for ((square, label) in expectedLabels(boardOf(START_FEN))) {
+        val possible = possibleLabels(STARTPOS)
+        for ((square, label) in expectedLabels(boardOf(STARTPOS))) {
             assertTrue(label in possible.getValue(square), "$square lost its resting label $label")
         }
     }
@@ -52,6 +53,26 @@ class PriorTest {
     fun `a null prior leaves every probability untouched`() {
         val probs = doubleArrayOf(0.6, 0.35, 0.05)
         assertTrue(probs.contentEquals(applyPrior(probs, CLASSES, null, 4.0)))
+    }
+
+    @Test
+    fun `applyPrior never hands back the caller's row`() {
+        val probs = DoubleArray(PIECES13_CLASSES.size) { 1.0 / PIECES13_CLASSES.size }
+
+        val untouched = applyPrior(probs, PIECES13_CLASSES, allowed = null, lambda = 1.0)
+
+        assertNotSame(probs, untouched, "a caller that mutates the result would rewrite the input row")
+        assertArrayEquals(probs, untouched, 0.0)
+    }
+
+    /** Ohne Nenner kommt lauter `NaN` zurueck, und `NaN` faellt durch JEDEN Vergleich. */
+    @Test
+    fun `a penalty that erases the row returns the row it was given`() {
+        val probs = doubleArrayOf(0.0, 0.4, 0.6)
+        val out = applyPrior(probs, listOf("empty", "wP", "wN"), setOf("empty"), lambda = 800.0)
+
+        assertTrue(out.none { it.isNaN() }, "keine NaN-Zeile: ${out.toList()}")
+        assertEquals(probs.toList(), out.toList())
     }
 
     @Test
@@ -94,7 +115,7 @@ class PriorTest {
     fun `observationFromProbs defaults to the pixels alone`() {
         val rows = Array(ALL_SQUARES.size) { floatArrayOf(0.05f, 0.60f, 0.35f) }
         val plain = observationFromProbs(rows, CLASSES)
-        val zeroed = observationFromProbs(rows, CLASSES, possibleLabels(START_FEN), 0.0)
+        val zeroed = observationFromProbs(rows, CLASSES, possibleLabels(STARTPOS), 0.0)
         assertEquals(plain.label, zeroed.label)
         assertEquals(plain.conf, zeroed.conf)
     }
@@ -102,7 +123,7 @@ class PriorTest {
     @Test
     fun `the prior reaches the label through observationFromProbs`() {
         val rows = Array(ALL_SQUARES.size) { floatArrayOf(0.05f, 0.60f, 0.35f) }
-        val obs = observationFromProbs(rows, CLASSES, possibleLabels(START_FEN), 4.0)
+        val obs = observationFromProbs(rows, CLASSES, possibleLabels(STARTPOS), 4.0)
         // a5 can only be empty after one white half-move, so the 5 % class wins there.
         assertEquals("empty", obs.label("a5"))
         assertEquals("bR", obs.label("a8"))

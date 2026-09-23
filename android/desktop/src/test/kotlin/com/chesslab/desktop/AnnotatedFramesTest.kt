@@ -12,13 +12,8 @@ import org.opencv.core.Scalar
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 
-/**
- * The review boards a run leaves behind.
- *
- * The format is the point: 2 360 of these cost 3.1 GB as PNG, for a picture a human looks at once
- * while confirming a game. This asserts the file is actually there AND decodes — a codec the
- * runtime cannot encode returns false from `imwrite` and leaves nothing, which no compile catches.
- */
+/** 2 360 review boards cost 3.1 GB as PNG. A codec the runtime cannot encode makes `imwrite`
+ *  return false and leave nothing, which no compile catches — so the file must exist AND decode. */
 class AnnotatedFramesTest {
     @TempDir
     lateinit var dir: File

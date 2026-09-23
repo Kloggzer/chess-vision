@@ -476,7 +476,7 @@ internal data class PendingVerify(
     var lastTickS: Double = 0.0,
     /** Eingefroren beim HEBEN: waehrend `pending` steht, bricht `tryDetect` vor `applyVetoes` ab,
      *  der Baseline-Arm schreibt aber weiter. Die Entscheidungszeile mischte so zwei Frames und hat
-     *  damit drei Erklaerungsketten gekippt (`docs/verify-leiter-2026-09-22.md`). */
+     *  damit drei Erklaerungsketten gekippt (`docs/tracker-flow.md`). */
     val shadowVetoedAtLift: Long = 0L,
     val occludedVetoedAtLift: Long = 0L,
 )

@@ -92,7 +92,7 @@ data class ModelSpec(
      * `clahe_*` — lokaler Kontrast je Crop, VOR der Normalisierung, wie im Training.
      *
      * Wer das ignoriert, fuettert ein Modell mit rohen Crops, das auf behandelten trainiert
-     * wurde. Das Fenster ist ein BAND und kein Schwellwert (`docs/clahe-band.md`); 0 heisst aus.
+     * wurde. Das Fenster ist ein BAND und kein Schwellwert (`docs/camera.md`); 0 heisst aus.
      */
     val claheClip: Double = 0.0,
     val claheTile: Int = DEFAULT_CLAHE_TILE,

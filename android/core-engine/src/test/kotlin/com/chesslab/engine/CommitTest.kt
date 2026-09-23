@@ -18,8 +18,7 @@ import org.junit.jupiter.api.Test
 class CommitTest {
     @Test
     fun commitAdvancesBaseTruthPair() {
-        // `test_valid_move_advances_base_truth_with_fen`: base truth becomes the AFTER image and
-        // the FEN moves with it — the pair is never split.
+        // `test_valid_move_advances_base_truth_with_fen`: the (image, FEN) pair is never split.
         val state = detectState(ref = grayFrame(listOf("e2")))
         val cur = grayFrame(listOf("e4"))
         state.tryDetect(cur, null, seq = 1)
@@ -29,6 +28,13 @@ class CommitTest {
         assertEquals(state.board.fen(), state.refFen)
         assertEquals(STATE_MOVE, state.state)
         assertEquals(VERIFY_STATE_CONFIRMED, state.verifyState)
+        val record = state.decisionLog.single()
+        assertEquals(DECIDER_DIFF, record.decider)
+        assertEquals("e2e4", record.move)
+        assertEquals("e4", record.san)
+        assertEquals("frame-diff — UNVERIFIED, no CNN was available", record.reason)
+        assertEquals(1, record.ply)
+        assertEquals(state.board.fen(), record.fenAfter)
     }
 
     /** A commit inside the motion hold flags its reference for re-capture at the hold's end. */
@@ -110,13 +116,8 @@ class CommitTest {
         assertEquals(DECIDER_DIFF_PAIR, state.decisionLog.last().decider)
         assertTrue(event is TrackerEvent.SequenceCommitted)
 
-        // This used to assert ONE row, "on the last move". That was wrong for the same reason it
-        // was wrong for the recovery bridge, repaired there on 2026-08-02 and left standing here:
-        // a pair's FIRST move then existed nowhere in the log. Found in the wild by the user on
-        // 2026-08-09 — VID_20260802_222741 read `Nxf3+` at ply 25 with Black not to move, because
-        // the white half of the pair had never been written. Three of its 25 rows were pairs, the
-        // move list did not replay past ply 1, and the LCS against the reference counted three
-        // moves as missed that the tracker had actually seen.
+        // One row per pair left the FIRST move nowhere in the log: VID_20260802_222741 read `Nxf3+` at
+        // ply 25 with Black not to move and did not replay past ply 1 (user, 2026-08-09).
         assertEquals(2, state.decisionLog.size, "a pair is TWO moves and therefore two rows")
         val (a, b) = state.decisionLog.takeLast(2)
         assertEquals(listOf("e4", "e5"), listOf(a.san, b.san))
@@ -126,43 +127,11 @@ class CommitTest {
     }
 
     @Test
-    fun decisionRecordedOnCommit() {
-        val state = detectState(ref = grayFrame(listOf("e2")))
-        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
-        assertEquals(1, state.decisionLog.size)
-        val record = state.decisionLog.last()
-        assertEquals(DECIDER_DIFF, record.decider)
-        assertEquals("e2e4", record.move)
-        assertEquals("e4", record.san)
-        assertEquals("frame-diff — UNVERIFIED, no CNN was available", record.reason)
-        assertEquals(1, record.ply)
-        assertEquals(state.board.fen(), record.fenAfter)
-    }
-
-    @Test
-    fun deciderVocabularyIsPortedVerbatim() {
-        // Phase 07's debug screen and the `track-feedback` ingest read these strings.
-        assertEquals(
-            listOf(
-                "diff",
-                "diff_pair",
-                "cnn_pair",
-                "cnn_occupancy",
-                "cnn_overrule",
-                "diff_after_verify",
-                "cnn_recovery",
-                "cnn_resync",
-            ),
-            DECIDER_REASON.keys.toList(),
-        )
-        assertEquals("position was LOST — rebuilt by the CNN, not detected", DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY))
-    }
-
-    @Test
     fun priorTieBreakIsAppendedToTheReason() {
         val state = detectState()
         state.commitMove(moveOf(state, "e2e4"), grayFrame(), null, priorUsed = true)
         assertEquals("frame-diff — UNVERIFIED, no CNN was available + prior tie-break", state.decisionLog.last().reason)
+        assertTrue(state.decisionLog.last().accepted)
         assertTrue(state.priorLast)
         assertTrue(state.note.orEmpty().contains("decided by prior"))
     }
@@ -193,10 +162,7 @@ class CommitTest {
         assertTrue(!state.motionSinceRef, "a fresh reference requires a new hand before the next commit")
     }
 
-    /**
-     * Every commit path states its size, because `undo` takes back a COMMIT and a commit is not
-     * always one ply. The CNN recovery of 2026-08-02 pushed four and `undo` popped one.
-     */
+    /** `undo` takes back a COMMIT: the recovery of 2026-08-02 pushed four plies and `undo` popped one. */
     @Test
     fun everyCommitPathRecordsHowManyPliesItPushed() {
         val single = detectState()
@@ -234,11 +200,7 @@ class CommitTest {
         assertEquals(0, state.decisionLog.size, "the undone move's provenance row is dropped")
     }
 
-    /**
-     * The incident of 2026-08-02. A recovery bridged four plies in one commit, `undo` popped one,
-     * and nothing anywhere said how many presses were left — *"ich habe keine Chance wieder zum
-     * Spielstate zurückzukommen"*. One press now unwinds the commit.
-     */
+    /** 2026-08-02: *"ich habe keine Chance wieder zum Spielstate zurückzukommen"* — one press unwinds the commit. */
     @Test
     fun undoUnwindsAMultiMoveRecoveryAsAUnit() {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
@@ -258,10 +220,6 @@ class CommitTest {
         assertTrue(state.note!!.contains("4 moves undone"), state.note!!)
     }
 
-    /**
-     * The single commit is the common path and the regression risk — pin it. One press must still
-     * mean one ply, with the same note it has always had.
-     */
     @Test
     fun undoOfAnOrdinaryCommitIsUnchanged() {
         val engine = TrackerEngine(detectConfig())
@@ -275,10 +233,7 @@ class CommitTest {
         assertEquals("last move undone (logged as bad example)", state.note)
     }
 
-    /**
-     * The record is of the LAST commit only. After it is spent the next press is an ordinary
-     * single-ply undo — anything older is a normal move, not a bridge.
-     */
+    /** The record is of the LAST commit only; the next press is an ordinary single-ply undo. */
     @Test
     fun asecondUndoAfterASequenceTakesBackOneOrdinaryMove() {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
@@ -297,13 +252,8 @@ class CommitTest {
     }
 
     /**
-     * The post-undo cleanup is not part of the pop — the obvious wrong shape here is to loop the
-     * whole body N times, which clears the latch, re-notes and re-trims once per popped ply.
-     *
-     * The note is the counter that can actually fail: a looped body would end on "last move undone"
-     * for a four-ply take-back, because each iteration writes its own. `clearAlarm` is idempotent by
-     * design and releases at most one latch however often it is called, so the event count pins the
-     * release without being able to distinguish the two shapes on its own.
+     * The wrong shape loops the whole undo body per popped ply. The note is what can fail (a loop ends
+     * on "last move undone"); `clearAlarm` is idempotent, so the event count alone cannot tell.
      */
     @Test
     fun theCleanupRunsOncePerUndoNotOncePerPoppedMove() {
@@ -356,11 +306,8 @@ class CommitTest {
 
     @Test
     fun choosePromotionCommitsChosenPiece() {
-        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val engine = promotionEngine(withCnn = false)
         val state = engine.state
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         val pending = requireNotNull(state.promoPending) { "a promotion must wait for the user" }
         assertEquals("a7", pending.from)
         assertEquals("a8", pending.to)
@@ -371,17 +318,11 @@ class CommitTest {
         assertNull(state.promoPending)
     }
 
-    /**
-     * Invariante 9 — der Alarm sperrt ALLES: `choosePromotion` committete am `dispatch`-Gate vorbei
-     * direkt, obwohl die Stellung, gegen die die Promotion entschieden wurde, desynchron ist.
-     */
+    /** Invariante 9: `choosePromotion` committete am `dispatch`-Gate vorbei in eine desynchrone Stellung. */
     @Test
     fun anAlarmBlocksTheChosenPromotion() {
-        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val engine = promotionEngine(withCnn = false)
         val state = engine.state
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         assertNotNull(state.promoPending)
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1", "d4"), null, null)
 
@@ -393,11 +334,7 @@ class CommitTest {
         assertTrue(events.none { it is TrackerEvent.MoveCommitted }, "events were $events")
     }
 
-    /**
-     * Invariante 9 gilt schon fuer die FRAGE: `raisePromotionPrompt` sitzt in `generateHypothesis`,
-     * also vor dem Alarm-Gate in `dispatch`, und ein offener Prompt leitet jeden Snapshot am
-     * Wiederanlauf vorbei — der Latch verhungert an seiner eigenen Erholung.
-     */
+    /** Invariante 9 gilt schon fuer die FRAGE: ein offener Prompt leitet jeden Snapshot am Wiederanlauf vorbei. */
     @Test
     fun anAlarmBlocksTheRaisedPromotionPrompt() {
         val state = detectState(fen = PROMOTION_FEN, ref = grayFrame(listOf("a7")))
@@ -414,12 +351,8 @@ class CommitTest {
     /** Derselbe Riegel fuer die CNN-getriebene Antwort — sie geht durch dieselbe Tuer. */
     @Test
     fun anAlarmBlocksTheCnnConfirmedPromotion() {
-        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val engine = promotionEngine()
         val state = engine.state
-        engine.attachCnn(RecoveryEvaluator())
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         val knight = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "wN" else LABEL_EMPTY })
         engine.onCnnSnapshot(recoverySnap(state, knight, seq = 2))
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1", "d4"), null, null)
@@ -432,12 +365,8 @@ class CommitTest {
 
     @Test
     fun cnnConfirmsUnderpromotionAfterTwoDecisiveIdentityReads() {
-        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val engine = promotionEngine()
         val state = engine.state
-        engine.attachCnn(RecoveryEvaluator())
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         assertNotNull(state.promoPending)
         val knight = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "wN" else LABEL_EMPTY })
 
@@ -452,19 +381,11 @@ class CommitTest {
         assertNull(state.promoPending)
     }
 
-    /**
-     * The phantom prompt of 2026-08-08-00-39-57 @6436: residue on the 8th rank next to a pawn on the
-     * 7th read as a promotion tie, and with nobody to answer the replay lost 22 plies. Two glances
-     * that read the target confidently EMPTY withdraw the question.
-     */
+    /** The phantom prompt of 2026-08-08-00-39-57 @6436: with nobody to answer, the replay lost 22 plies. */
     @Test
     fun cnnWithdrawsAPromotionPromptWhoseTargetReadsEmpty() {
-        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val engine = promotionEngine()
         val state = engine.state
-        engine.attachCnn(RecoveryEvaluator())
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         assertNotNull(state.promoPending)
         val stillAPawn = RecoveryObs(Squares.ALL.associateWith { if (it == "a7") "wP" else LABEL_EMPTY })
 
@@ -477,19 +398,11 @@ class CommitTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
-    /**
-     * Zwei Stimmen heissen zwei HINTEREINANDER: ein sicher leeres Ziel dazwischen ist Gegenbeweis,
-     * nicht Pause. Sonst committen `wQ` — leer — `wQ` eine Dame auf zwei Lesungen, die nie
-     * gleichzeitig galten.
-     */
+    /** Zwei Stimmen heissen zwei HINTEREINANDER: ein sicher leeres Ziel dazwischen ist Gegenbeweis, nicht Pause. */
     @Test
     fun anEmptyReadRestartsThePromotionVote() {
-        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val engine = promotionEngine()
         val state = engine.state
-        engine.attachCnn(RecoveryEvaluator())
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         assertNotNull(state.promoPending)
         val queen = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "wQ" else LABEL_EMPTY })
         val stillAPawn = RecoveryObs(Squares.ALL.associateWith { if (it == "a7") "wP" else LABEL_EMPTY })
@@ -509,12 +422,8 @@ class CommitTest {
     /** A covered or unreadable target says nothing either way — the prompt stays open. */
     @Test
     fun cnnKeepsThePromptWhileTheTargetIsUnreadable() {
-        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val engine = promotionEngine()
         val state = engine.state
-        engine.attachCnn(RecoveryEvaluator())
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         val blind = RecoveryObs(Squares.ALL.associateWith { LABEL_EMPTY }, confidence = 0.10)
 
         engine.onCnnSnapshot(recoverySnap(state, blind, seq = 2))
@@ -525,12 +434,8 @@ class CommitTest {
 
     @Test
     fun cnnLeavesPromotionPromptOpenForWrongColour() {
-        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val engine = promotionEngine()
         val state = engine.state
-        engine.attachCnn(RecoveryEvaluator())
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         val blackRook = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "bR" else LABEL_EMPTY })
 
         engine.onCnnSnapshot(recoverySnap(state, blackRook, seq = 2))
@@ -542,12 +447,8 @@ class CommitTest {
 
     @Test
     fun cnnLeavesPromotionPromptOpenWithoutClearClassMargin() {
-        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val engine = promotionEngine()
         val state = engine.state
-        engine.attachCnn(RecoveryEvaluator())
-        state.refGray = grayFrame(listOf("a7"))
-        state.refFen = state.board.fen()
-        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
         val labels = Squares.ALL.associateWith { if (it == "a8") "wR" else LABEL_EMPTY }
         val uncertainRook = RecoveryObs(labels, confidence = 0.95, runnerUpConfidence = 0.80)
 
@@ -606,6 +507,16 @@ class CommitTest {
 
         assertNull(engine.state.refGray)
         assertEquals(STATE_WAITING, engine.state.state)
+    }
+
+    /** An engine on [PROMOTION_FEN] whose a7-a8 push waits on the promotion prompt. */
+    private fun promotionEngine(withCnn: Boolean = true): TrackerEngine {
+        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        if (withCnn) engine.attachCnn(RecoveryEvaluator())
+        engine.state.refGray = grayFrame(listOf("a7"))
+        engine.state.refFen = engine.state.board.fen()
+        engine.state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        return engine
     }
 
     private companion object {

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /** Die Schwelle darf nur abschalten, wo das Modell eine ANDERE Figur liest als das Brett fuehrt —
- *  bei derselben bleibt das Feld ein Verdecker (`docs/same-square-capture-2026-09-19.md`). */
+ *  bei derselben bleibt das Feld ein Verdecker (`docs/tracker-flow.md`). */
 class TaintIdentityTest {
     private fun stateWith(thr: Double): EngineState {
         val state = EngineState(recoveryConfig().copy(taintIdentityThr = thr), STARTPOS, whitePov = true).armed()

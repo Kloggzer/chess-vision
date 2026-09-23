@@ -27,8 +27,7 @@ class TrackerCameraCloseTest {
         val finished = AtomicBoolean(false)
         camera.runOnAnalyzer {
             started.countDown()
-            // Busy, not sleeping: an interrupt must not be able to end this, exactly as it cannot
-            // end a `warpPerspective` half-way through.
+            // Busy, not sleeping: an interrupt cannot end a `warpPerspective` half-way either.
             val until = System.nanoTime() + WORK_MS * NANOS_PER_MS
             while (System.nanoTime() < until) Thread.onSpinWait()
             finished.set(true)

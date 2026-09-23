@@ -10,12 +10,9 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 
-/**
- * The point of the tilt and curvature stages: a board whose line family fans AND bows like a
- * barrel residual is drawn synthetically. After [straightenBoard] every edge stands vertical in
- * its plain crop and the edge STITCHED down a whole column is straight — while the linear stage
- * provably still shows the bow the coordinator measured on real frame 004251.
- */
+/** Lines that fan AND bow like a barrel residual: after [straightenBoard] every crop edge stands
+ *  vertical and the STITCHED column is straight, while the linear stage still shows the bow of
+ *  real frame 004251. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class MeshStraightnessTest {
     private val geom = BoardGeometry(boardSize = BS, padSide = 0.05, outW = OUT, outH = OUT)

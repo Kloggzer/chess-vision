@@ -1,26 +1,18 @@
 package com.chesslab.engine
 
 import com.chesslab.engine.api.GrayImage
-import com.chesslab.engine.parity.ParityClip
 import com.chesslab.engine.parity.ParityFixtures
 import com.chesslab.engine.parity.assertClose
 import com.chesslab.engine.parity.assertCloseMap
 import com.chesslab.engine.parity.assertConsumed
+import com.chesslab.engine.parity.meanOf
 import com.chesslab.engine.parity.toTrackerConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Parity of the square geometry and the gray evidence channel against the phase-00b golden
- * fixtures (`parity/README.md` is the normative schema).
- *
- * The `TrackerConfig` is always built from `meta.effectiveConfig`, never from Kotlin defaults —
- * the fixtures come from `MoveTracker.__init__` plus the clip-manifest overrides and disagree
- * with `TRACK_DEFAULTS` (STATUS D00b-3).
- */
+/** Square geometry and gray-channel parity; configs from `meta.effectiveConfig`, never `TRACK_DEFAULTS` (STATUS D00b-3). */
 class SquareDiffParityTest {
     @Serializable
     private data class GeoRegionSet(
@@ -88,7 +80,7 @@ class SquareDiffParityTest {
                 checked++
             }
         }
-        assertConsumedCount(checked, "squareCenter comparisons")
+        assertConsumed(checked, "squareCenter comparisons")
     }
 
     @Test
@@ -109,7 +101,7 @@ class SquareDiffParityTest {
                 }
             }
         }
-        assertConsumedCount(checked, "tierA.squareRegion comparisons")
+        assertConsumed(checked, "tierA.squareRegion comparisons")
     }
 
     @Test
@@ -121,25 +113,25 @@ class SquareDiffParityTest {
             val size = clip.meta.detSize
             assertEquals(cfg.detSize, size, "$name: meta.detSize vs effectiveConfig")
             val boxes = squareBoxes(size, clip.meta.whitePov, cfg.overhang)
-            val planes = grayPlanes(clip)
+            val planes = clip.grayPlanes()
             val out = DoubleArray(SQUARES)
             // `refFrames` is null where `_maybe_patch_anomaly` mutated `ref_gray` in place —
             // those frames cannot be reconstructed from the planes.
             for (frame in clip.tierAFrames().filter { it.tierA?.refFrames != null }) {
                 val tierA = requireNotNull(frame.tierA)
                 val refFrames = requireNotNull(tierA.refFrames)
-                val cur = averaged(planes, tierA.curFrames, size)
-                val ref = averaged(planes, refFrames, size)
+                val cur = GrayImage(size, size, planes.meanOf(tierA.curFrames))
+                val ref = GrayImage(size, size, planes.meanOf(refFrames))
                 perSquareDiff(ref, cur, boxes, out)
                 assertCloseMap(
                     tierA.perSquareDiff,
-                    asMap(out),
+                    out.asSquareMap(),
                     "$name/${frame.frame}: perSquareDiff",
                 )
                 checked++
             }
         }
-        assertConsumedCount(checked, "perSquareDiff frames")
+        assertConsumed(checked, "perSquareDiff frames")
     }
 
     @Test
@@ -167,58 +159,15 @@ class SquareDiffParityTest {
                 checked++
             }
         }
-        assertConsumedCount(checked, "normalizeDiffs frames")
+        assertConsumed(checked, "normalizeDiffs frames")
     }
 
     // -----------------------------------------------------------------------------------
 
     private fun geometry(): GeoMeta = json.decodeFromString(ParityFixtures.geometryMeta())
 
-    private fun asMap(values: DoubleArray): Map<String, Double> =
-        buildMap(SQUARES) {
-            for (i in 0 until SQUARES) {
-                put(Squares.ALL[i], values[i])
-            }
-        }
-
-    /** Decodes the whole delta-coded gray chain once — `curFrames`/`refFrames` look backwards. */
-    private fun grayPlanes(clip: ParityClip): Map<Int, ByteArray> =
-        buildMap {
-            for (index in clip.meta.frames) {
-                put(index, clip.gray(index).data)
-            }
-        }
-
-    /** Python `_RunningMean.mean_uint8`: `(sum / n).astype(uint8)` — truncation, not rounding. */
-    private fun averaged(
-        planes: Map<Int, ByteArray>,
-        frames: List<Int>,
-        size: Int,
-    ): GrayImage {
-        require(frames.isNotEmpty()) { "empty frame window" }
-        val n = size * size
-        val sum = LongArray(n)
-        for (index in frames) {
-            val plane = planes.getValue(index)
-            for (i in 0 until n) {
-                sum[i] += (plane[i].toInt() and BYTE_MASK).toLong()
-            }
-        }
-        val data = ByteArray(n)
-        for (i in 0 until n) {
-            data[i] = (sum[i] / frames.size).toInt().toByte()
-        }
-        return GrayImage(size, size, data)
-    }
-
-    private fun assertConsumedCount(
-        count: Int,
-        what: String,
-    ) = assertTrue(count > 0, "$what must not be empty — the fixture was never consumed")
-
     private companion object {
         const val SQUARES = 64
-        const val BYTE_MASK = 0xFF
         val json = Json { ignoreUnknownKeys = true }
     }
 }

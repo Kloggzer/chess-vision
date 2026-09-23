@@ -5,12 +5,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import kotlin.math.abs
 
-/**
- * Derselbe Fall wie `tests/test_axis_fit_parity.py`, aus `parity/_geometry/axis_fit.json`.
- *
- * `fitAxis` und `alignment._fit_axis` sind Zwillinge und wurden bis 2026-09-15 von einem Kommentar
- * gehalten — jede Seite gegen ihre eigene synthetische Wahrheit.
- */
+/** Derselbe Fall wie `tests/test_axis_fit_parity.py`: `fitAxis` und `alignment._fit_axis` hielt
+ *  bis 2026-09-15 nur ein Kommentar zusammen, jede Seite gegen ihre eigene synthetische Wahrheit. */
 class AxisFitParityTest {
     @Test
     fun `every shared case fits the same lines as Python`() {

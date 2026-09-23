@@ -39,5 +39,3 @@ class HintPhraseTest {
 }
 
 private val FREE = listOf(HintRefusal.GATE, HintRefusal.UNSETTLED, HintRefusal.EXPIRED, HintRefusal.OVER)
-
-private const val FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"

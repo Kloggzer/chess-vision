@@ -82,12 +82,12 @@ internal fun EngineState.cnnTick(
  */
 private fun EngineState.evaluationDue(): Boolean {
     // An open desync fills its threshold at observation rate: waiting buys no independence
-    // (`docs/emission-correlation.md`); `alarmDeferred` guards against the hand instead.
+    // (`docs/tracker-flow.md`); `alarmDeferred` guards against the hand instead.
     if (recoveryConfirmer.count > 0 || desyncObs in 1 until config.desyncObsN) return true
     val cooled = (nowS - lastCnnTs) >= config.cnnCooldownS
     val stable = grayBuf.size >= avgFrames && (state == STATE_WAITING || state == STATE_MOVE)
     val stuck = stuckReason != null && stuckCount >= settleFrames && cooled
-    // Repeated refusal used to keep the CNN OUT — 70x `Kf1` without one read (`docs/refused-streak.md`).
+    // Repeated refusal used to keep the CNN OUT — 70x `Kf1` without one read (`docs/tracker-flow.md`).
     val refused = config.refusedStreakForEval > 0 && refusedStreak >= config.refusedStreakForEval && cooled
     // Motion since the last evaluation makes this read new whatever the clock says.
     val settled = config.cnnEvalOnSettle && motionEpoch != lastEvalEpoch

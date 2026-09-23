@@ -7,20 +7,12 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import java.nio.ByteBuffer
 
-/**
- * The NV21 packing and the layout probe that decides whether it is needed at all —
- * the parts of the YUV path this module owns. `cvtColor(COLOR_YUV2BGR_NV21)` and
- * `cvtColorTwoPlane` are OpenCV's and cannot run here: `:app`'s unit-test classpath has the
- * OpenCV **AAR**, whose natives are Android-only (STATUS D05b-2).
- *
- * Fixture: `pipeline/yuv420_64x48.bin` = the three strided plane buffers back to back
- * (Y `rowStride 80`, U/V `rowStride 64` at `pixelStride 2`, i.e. the semi-planar layout CameraX
- * delivers on most devices), `pipeline/yuv420_64x48_expected_nv21.bin` = the expected packing.
- * Both were generated with numpy from `(i * 37) % 256` / `(i * 91 + 17) % 256` /
- * `(i * 53 + 201) % 256` — deterministic and independent of this implementation.
- */
 private const val FLAT_CHROMA: Byte = -128
 
+/**
+ * `cvtColor` is OpenCV's and Android-only here (STATUS D05b-2). Fixture: the strided Y/U/V planes
+ * (Y stride 80, U/V stride 64 at pixelStride 2) and their expected NV21 packing, both from numpy.
+ */
 class YuvToBgrTest {
     private val width = 64
     private val height = 48
@@ -31,19 +23,6 @@ class YuvToBgrTest {
     fun `packs the fixture into the expected nv21 buffer`() {
         val actual = YuvToBgr().pack(fixturePlanes(), width, height)
         assertArrayEquals(resource("pipeline/yuv420_64x48_expected_nv21.bin"), actual)
-    }
-
-    @Test
-    fun `handles a row stride greater than the width`() {
-        // The fixture's luma stride is 80 for a 64 px row: the 16 padding bytes must be dropped.
-        val planes = fixturePlanes()
-        val packed = YuvToBgr().pack(planes, width, height)
-        val raw = resource("pipeline/yuv420_64x48.bin")
-        for (row in 0 until height) {
-            for (x in 0 until width) {
-                assertEquals(raw[row * yStride + x], packed[row * width + x], "luma at ($x, $row)")
-            }
-        }
     }
 
     @Test
@@ -77,8 +56,7 @@ class YuvToBgrTest {
 
     @Test
     fun `a shared chroma buffer is recognised in both interleavings`() {
-        // Both directions are pinned because getting the order backwards swaps U and V and tints
-        // the whole board — the one failure mode this probe exists to prevent.
+        // Backwards swaps U and V and tints the whole board.
         assertEquals(ChromaOrder.NV21, chromaOrder(semiPlanar(vFirst = true)))
         assertEquals(ChromaOrder.NV12, chromaOrder(semiPlanar(vFirst = false)))
     }
@@ -92,10 +70,7 @@ class YuvToBgrTest {
         assertNull(chromaOrder(fixturePlanes()), "the wrapped fixture is not a direct buffer")
     }
 
-    /**
-     * One semi-planar chroma buffer seen as two overlapping plane views, the way Android hands it
-     * out: identical capacities, `pixelStride 2`, one starting a byte after the other.
-     */
+    /** One semi-planar chroma buffer as two overlapping views, one a byte after the other, as Android hands it out. */
     private fun semiPlanar(
         vFirst: Boolean,
         pixelStride: Int = 2,

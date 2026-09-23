@@ -1,23 +1,17 @@
 package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.BgrImage
-import com.chesslab.engine.api.CnnSnapshot
-import com.chesslab.engine.api.EngineAction
-import com.chesslab.engine.api.EngineOps
-import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
-import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.BoardExposureGovernor
 import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraHealth
-import com.chesslab.tracker.camera.CameraLook
-import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.ExposureGovernor
 import com.chesslab.tracker.camera.ExposureRange
+import com.chesslab.tracker.camera.FakeLookPort
 import com.chesslab.tracker.camera.FocusGovernor
 import com.chesslab.tracker.camera.FocusRegion
 import com.chesslab.tracker.cnn.CnnObserver
@@ -31,8 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -51,11 +43,7 @@ private const val DET_SIDE = 464
 private val CONFIG = TrackerConfig(liveAlign = false)
 
 class CoordinatorOpticsTest {
-    /**
-     * The device autofocus is metered in normalised FRAME coordinates
-     * (`SurfaceOrientedMeteringPointFactory(1f, 1f)` in `CameraLookControl.focusOn`), but the
-     * coordinator divides the source-pixel quad by the DETECTION WARP's side.
-     */
+    /** The autofocus meters in normalised FRAME coordinates (`CameraLookControl.focusOn`), not the warp's. */
     @Test
     fun theFocusRegionIsNormalisedAgainstTheDeliveredFrame() {
         Harness().use { harness ->
@@ -68,14 +56,10 @@ class CoordinatorOpticsTest {
         }
     }
 
-    /**
-     * `!sweeping && exposure.onBoard(...)` short-circuits, so a busy frame during a sweep never
-     * reaches the governor and never arms its hold — the regulation then fires on the very next
-     * quiet frame, throwing away the pixel reference the decision path had just rebuilt.
-     */
+    /** `!sweeping && exposure.onBoard(...)` short-circuited: a busy frame mid-sweep never armed the hold. */
     @Test
     fun aBusyFrameDuringAFocusSweepStillHoldsTheExposureOff() {
-        val port = FakePort()
+        val port = FakeLookPort(CameraAbilities(exposure = ExposureRange(-24..24, 1f / 6f)))
         Harness(exposure = BoardExposureGovernor(port, everyFrames = 1, holdFrames = HOLD_FRAMES)).use { harness ->
             harness.focus.sweepingNow = true
             harness.ops.events = listOf(TrackerEvent.Note("much change"))
@@ -123,7 +107,7 @@ private class Harness(
     private val geometry = BoardGeometry(boardSize = 1000, outW = 80, padSide = 0.05)
     private val pipeline = FramePipeline(CONFIG, FakeStages(), CropFrameStore(), FrameSizeGuard(), timings)
 
-    val ops = FakeOps()
+    val ops = RecordingOps()
 
     private val coordinator =
         TrackerCoordinator(
@@ -148,20 +132,6 @@ private class Harness(
 }
 
 private object FakeImage
-
-private class FakeOps : EngineOps {
-    var events: List<TrackerEvent> = emptyList()
-
-    override fun onFrame(input: FrameInput): List<TrackerEvent> = events
-
-    override fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> = emptyList()
-
-    override fun apply(action: EngineAction): List<TrackerEvent> = emptyList()
-
-    override fun status(): TrackerStatus = statusOf()
-
-    override fun fen(): String = "startpos"
-}
 
 private class FakeFocus : FocusGovernor {
     var sweepingNow = false
@@ -219,18 +189,4 @@ private class FakeStages : FrameStages<FakeImage> {
     override fun onGeometryChanged(geometry: BoardGeometry) = Unit
 
     override fun close() = Unit
-}
-
-private class FakePort : CameraLookPort {
-    private val want = MutableStateFlow(CameraLook())
-    private val offers = MutableStateFlow<CameraAbilities?>(CameraAbilities(exposure = ExposureRange(-24..24, 1f / 6f)))
-    var sets = 0
-
-    override val look: StateFlow<CameraLook> = want.asStateFlow()
-    override val abilities: StateFlow<CameraAbilities?> = offers.asStateFlow()
-
-    override fun setLook(next: CameraLook) {
-        want.value = next
-        sets++
-    }
 }

@@ -26,8 +26,7 @@ class AeRangeChoiceTest {
 
     @Test
     fun `a faster floor is better than none`() {
-        // `[30,30]` kostet Rechenzeit, haelt aber die Zusage. Ein Brett, das nie ruhig wird,
-        // kostet mehr.
+        // `[30,30]` kostet Rechenzeit, haelt aber die Zusage.
         assertEquals(30 to 30, chooseAeRange(listOf(7 to 15, 30 to 30), 15))
     }
 
