@@ -1,7 +1,6 @@
 # Comment blocks of >= 5 lines, per file. Enforced by CommentBudgetTest.
 # Regenerate with: uv run python android/scripts/comment_budget.py
 # This list may only ever shrink. Unlisted files must have none.
-app/src/androidTest/kotlin/com/chesslab/tracker/analysis/ReviewBudgetBenchmark.kt 1
 app/src/debug/kotlin/com/chesslab/tracker/benchmark/AndroidOptimizationBenchmarkActivity.kt 3
 app/src/main/kotlin/com/chesslab/tracker/analysis/Accuracy.kt 4
 app/src/main/kotlin/com/chesslab/tracker/analysis/AnalysisGate.kt 1

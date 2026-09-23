@@ -102,6 +102,17 @@ class GameReviewerTest {
         assertEquals(0, emissions)
     }
 
+    /** A mate or stalemate is scored by the rules, not searched: the missing binary is no reason to fail here. */
+    @Test
+    fun onlyTerminalPositionsOpenNeedNoEngine() {
+        val game = reviewGameOf("1. f3 e5 2. g4 Qh4#")
+        val seed = List<Score?>(game.plies.size + 1) { if (it < game.plies.size) Score(0, 20, listOf("e2e4")) else null }
+        var last: List<Score?> = emptyList()
+        val started = runBlocking { GameReviewer(EngineService { null }).review(game, seed) { last = it } }
+        assertTrue(started)
+        assertEquals(0, last.last()?.mate, "the mated position is scored as mate, not left open")
+    }
+
     @Test
     fun anEngineCrashIsNotTurnedIntoAndPersistedAsAnEqualPosition() {
         val process = ScriptedEngineProcess(engineScript(INFO)).apply { dieOn = "go movetime 3000 nodes 1500000" }

@@ -1,0 +1,24 @@
+package com.chesslab.tracker.ui
+
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import java.io.IOException
+import kotlin.coroutines.CoroutineContext
+
+/** Background file work whose failure reaches the screen WITH its reason instead of the crash handler. */
+internal fun CoroutineScope.launchStorageWork(
+    context: CoroutineContext,
+    onFailure: (String) -> Unit,
+    block: suspend () -> Unit,
+): Job =
+    launch(context) {
+        try {
+            block()
+        } catch (e: IOException) {
+            onFailure("Storage error: ${e.message}")
+        }
+    }
+
+/** A setting that reached memory but not the disk: in effect now, gone after a restart. */
+internal fun notSaved(e: IOException): String = "Not saved (${e.message}) — lost on restart"

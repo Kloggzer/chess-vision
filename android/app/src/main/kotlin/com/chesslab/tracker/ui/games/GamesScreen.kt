@@ -92,6 +92,9 @@ private fun GamesScreen(
         ) {
             // The empty state REPLACES the grid — four tiles of zeroes are the thing it exists to
             // prevent — and it is the whole screen, so nothing else renders behind it.
+            ui.error?.let { error ->
+                item(key = "error") { Text(error, style = MaterialTheme.typography.bodySmall, color = Danger) }
+            }
             if (ui.loaded && ui.games.isEmpty()) {
                 item(key = "empty") {
                     EmptyState("No games yet", "Track a game and it appears here with its review.")

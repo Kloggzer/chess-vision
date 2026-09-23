@@ -468,7 +468,7 @@ private fun MateLineExplorer(
                     style = MaterialTheme.typography.bodySmall,
                     color = OnSurfaceMuted,
                 )
-                MateResolutionStatus(resolving, resolved.complete)
+                MateResolutionStatus(resolving, resolved)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TextAction("Previous", { step = (step - 1).coerceAtLeast(0) }, enabled = !resolving && step > 0)
                     TextAction(
@@ -497,19 +497,24 @@ private fun MateMoveCaption(
 @Composable
 private fun MateResolutionStatus(
     resolving: Boolean,
-    complete: Boolean,
+    resolved: ResolvedMateLine,
 ) {
     if (resolving) {
         Text("Completing the sequence…", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent)
-    } else if (!complete) {
-        Text(
-            "The engine could not complete the mate at the current analysis budget.",
-            style = MaterialTheme.typography.labelSmall,
-            color = OnSurfaceMuted,
-        )
+        return
+    }
+    mateResolutionNote(resolved)?.let {
+        Text(it, style = MaterialTheme.typography.labelSmall, color = if (resolved.failure != null) Danger else OnSurfaceMuted)
     }
 }
+
+internal fun mateResolutionNote(resolved: ResolvedMateLine): String? =
+    when {
+        resolved.complete -> null
+        resolved.failure != null -> "Engine unavailable: ${resolved.failure}"
+        else -> "The engine could not complete the mate at the current analysis budget."
+    }
 
 private fun LazyListScope.movesSection(
     game: GameView,

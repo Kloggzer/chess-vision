@@ -35,6 +35,7 @@ class MateLineResolverTest {
             assertEquals("h5f7", result.uciLine.last())
             assertTrue(result.sanLine.last().endsWith("#"))
             assertEquals(7, result.uciLine.size)
+            assertEquals(null, result.failure)
         }
 
     @Test
@@ -47,5 +48,6 @@ class MateLineResolverTest {
 
             assertEquals(listOf("e2e4"), result.uciLine)
             assertEquals(false, result.complete)
+            assertEquals("UCI engine terminated", result.failure)
         }
 }

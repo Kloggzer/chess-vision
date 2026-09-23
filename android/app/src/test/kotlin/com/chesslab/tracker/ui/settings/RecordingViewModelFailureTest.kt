@@ -25,6 +25,15 @@ private class UnwritableStore : ConfigStore {
     ): Unit = throw IOException("disk full")
 }
 
+private class UnreadableStore : ConfigStore {
+    override suspend fun read(slot: String): String? = throw IOException("slot gone")
+
+    override suspend fun write(
+        slot: String,
+        text: String,
+    ) = Unit
+}
+
 /** The recording page's three actions, each failing the way the device fails: the page has to say so. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingViewModelFailureTest {
@@ -42,6 +51,18 @@ class RecordingViewModelFailureTest {
 
             assertNotNull(model.ui.value.error)
             assertEquals(settings.prefs.value, model.ui.value.prefs, "the switch must show what the capture path reads")
+        }
+
+    @Test
+    fun aRefreshThatCannotReadTheSettingsSaysWhy() =
+        runTest {
+            val settings = RecordingSettings(UnreadableStore())
+            val model = RecordingViewModel(SessionStore(root), settings, this, StandardTestDispatcher(testScheduler))
+
+            model.refresh()
+            advanceUntilIdle()
+
+            assertEquals("Storage error: slot gone", model.ui.value.error)
         }
 
     @Test

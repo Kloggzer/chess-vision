@@ -21,6 +21,7 @@ import com.chesslab.tracker.record.formatBytes
 import com.chesslab.tracker.sync.SyncHost
 import com.chesslab.tracker.sync.SyncPrefs
 import com.chesslab.tracker.sync.SyncReport
+import com.chesslab.tracker.sync.SyncSettings
 import com.chesslab.tracker.sync.emptyRecordings
 import com.chesslab.tracker.sync.isEmptyRecording
 import com.chesslab.tracker.sync.readMark
@@ -28,6 +29,7 @@ import com.chesslab.tracker.sync.syncNow
 import com.chesslab.tracker.sync.unsentSessions
 import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.games.sessionsDir
+import com.chesslab.tracker.ui.notSaved
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
@@ -35,6 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 /**
  * The recordings' way to the PC, in the two facts a user can act on: is it paired, and what is
@@ -57,7 +60,8 @@ fun TransferSection() {
     val store = remember(context) { SessionStore(sessionsDir(context)) }
     var stored by remember { mutableStateOf("counting…") }
     LaunchedEffect(store, report) { stored = waiting(store, sessionsDir(context)) }
-    val save: (SyncPrefs) -> Unit = { next -> scope.launch { settings.save(next) } }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    val save: (SyncPrefs) -> Unit = { next -> scope.launch { saveError = saveSyncPrefs(settings, next) } }
 
     Column {
         SwitchPreference(
@@ -66,6 +70,7 @@ fun TransferSection() {
             checked = prefs.enabled,
             onCheckedChange = { save(prefs.copy(enabled = it)) },
         )
+        saveError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
         TokenField(prefs.token) { save(prefs.copy(token = it)) }
         HostField(prefs.host) { save(prefs.copy(host = it)) }
         RetentionField(prefs.retentionDays) { save(prefs.copy(retentionDays = it)) }
@@ -143,6 +148,17 @@ private fun RetentionField(
         modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
     )
 }
+
+internal suspend fun saveSyncPrefs(
+    settings: SyncSettings,
+    next: SyncPrefs,
+): String? =
+    try {
+        settings.save(next)
+        null
+    } catch (e: IOException) {
+        notSaved(e)
+    }
 
 /** The Settings landing summary — one place decides how the transfer state is written. */
 internal fun transferSummary(

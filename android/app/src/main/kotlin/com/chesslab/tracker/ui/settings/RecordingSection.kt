@@ -33,6 +33,8 @@ import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import com.chesslab.tracker.ui.games.sessionsDir
+import com.chesslab.tracker.ui.launchStorageWork
+import com.chesslab.tracker.ui.notSaved
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
@@ -92,7 +94,7 @@ class RecordingViewModel(
                 settings.save(prefs)
                 mutable.value = mutable.value.copy(prefs = prefs, error = null)
             } catch (e: IOException) {
-                mutable.value = mutable.value.copy(prefs = settings.prefs.value, error = "Not saved (${e.message}) — lost on restart")
+                mutable.value = mutable.value.copy(prefs = settings.prefs.value, error = notSaved(e))
             }
         }
 
@@ -111,13 +113,7 @@ class RecordingViewModel(
     }
 
     private fun io(block: suspend () -> Unit) {
-        scope.launch(context) {
-            try {
-                block()
-            } catch (e: IOException) {
-                mutable.value = mutable.value.copy(error = "Storage error: ${e.message}")
-            }
-        }
+        scope.launchStorageWork(context, { mutable.value = mutable.value.copy(error = it) }, block)
     }
 }
 

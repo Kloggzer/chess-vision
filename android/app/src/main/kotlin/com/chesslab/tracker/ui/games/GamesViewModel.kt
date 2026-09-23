@@ -6,18 +6,21 @@ import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
+import com.chesslab.tracker.ui.launchStorageWork
 import com.chesslab.tracker.ui.review.ReviewHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
 
 data class GamesUi(
     /** False until the first read of the store returns — an empty state must not flash. */
     val loaded: Boolean = false,
     val games: List<GameSummary> = emptyList(),
     val stats: LibraryStats = LibraryStats(0, 0, 0, null, 0, 0),
+    /** The last load, edit or delete that did not happen. */
+    val error: String? = null,
 )
 
 /**
@@ -38,6 +41,7 @@ class GamesViewModel(
     private val sessions: SessionStore,
     private val scope: CoroutineScope,
     private val budget: ReviewBudget = ReviewBudget(),
+    private val context: CoroutineContext = Dispatchers.IO,
 ) {
     private val mutable = MutableStateFlow(GamesUi())
 
@@ -78,6 +82,6 @@ class GamesViewModel(
     }
 
     private fun io(block: suspend () -> Unit) {
-        scope.launch(Dispatchers.IO) { block() }
+        scope.launchStorageWork(context, { mutable.value = mutable.value.copy(error = it) }, block)
     }
 }
