@@ -1,8 +1,8 @@
 # TODO — offen, kurz, nach Wert
 
-> Nur Offenes. Ein Punkt = ein bis drei Zeilen: was, warum, wie messen. Erledigtes wandert unten in
-> „Erledigt" als EINE Zeile mit dem Messergebnis, Erzählung nach `docs/` oder Git. Die Langfassung
-> aller Punkte bis 2026-09-05 liegt in `docs/todo-archive-2026-09-05.md`.
+> Nur Offenes. Ein Punkt = ein bis drei Zeilen: was, warum, wie messen. Erledigtes fliegt raus
+> (Git ist das Archiv), Messergebnisse, die weiter gelten, gehoeren nach `docs/`. Richtungsfragen
+> mit Messung dahinter stehen in `docs/offene-entscheidungen.md`.
 
 ## Aufnahmen — was der Regressionssatz nicht hat (2026-09-05)
 
@@ -102,14 +102,6 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 
 ## Daten / Training / Labeling
 
-- **SAM einmal laden, nicht je Aufnahme — ERLEDIGT 2026-09-15.** Der Drain startete je
-  Aufnahme einen Prozess, jeder lud SAM neu: gemessen 7-9 min Laden gegen 54 s Arbeit, also
-  ~2 h Laden fuer ~12 min Arbeit bei 186 Frames ueber 14 Aufnahmen. Jetzt nimmt
-  `alpha-worker` eine Namensliste, `alpha_worker_all` loest `--reported`/`--wanted`/
-  `--temporal` je Aufnahme auf, und der Drain buendelt den Matte-Schritt (`drain.ts`,
-  `BATCHED`) — aber nur Aufnahmen im selben Modus, weil `--reported` und `--limit` einmal
-  je Prozess gewaehlt werden. Jeder andere Schritt bleibt einzeln: kuerzerer Heavy-Slot,
-  und Stopp trifft genau eine Aufnahme.
 - **Export-Marge gegen die Commit-Verzögerung (gemessen 2026-09-06):** der physische Zug liegt im
   Median 65 Frames (2,2 s), p90 167 Frames vor dem Commit, die Ruhe-Marge deckt 30 Frames. 79 von
   ~500 Plies tragen so „saubere" Frames mit alter Stellung; die Zellprüfung (`settle_left`,
@@ -130,24 +122,15 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   ungemessene Grenzen; `val_conf_auroc` ist als Entscheider unbrauchbar.
 - **Stored-Sessions v2:** 6 Packs mit Grid-Fit-Quad neu gepackt, 637 Hard-Empties geparkt. Offen:
   Dataset `real14-all-80-v2` bauen (Resolver muss die `-80-v2`-Verzeichnisse ziehen) und Retrain.
-- **`load_packed` liest keine Pack-Datensätze.** Seit 2026-09-20 heisst sein Rückgabewert
-  `PackedIndex` (NamedTuple, weiter positional auspackbar), aber MEHRERE Packs passen weiterhin
-  nicht hinein — es weist sie beim Namen ab und verweist auf `resolve_dataset_packs`. Offen ist,
-  ob die Analyse-Skripte über `torch_data._pack_index` mehrpack-fähig werden sollen.
-- **`open_packed_rows` ist nicht mehrpack-fähig** (2026-09-20: die zehn wörtlichen Kopien in
-  `scripts/` sind zu einer Stelle geworden). `load_packed` weist Pack-Datensätze beim Namen ab,
-  die Skripte sehen also einen klaren Fehler statt falscher Indizes — lesen können sie sie
-  weiterhin nicht. Weg wäre `resolve_dataset_packs` plus `torch_data._pack_index`.
+- **`load_packed` / `open_packed_rows` sind nicht mehrpack-fähig.** Sie weisen Pack-Datensätze beim
+  Namen ab; wer mehrere Packs lesen will, geht über `resolve_dataset_packs` (wie `oof_review.py`,
+  `lr_range_test.py`). Offen, ob die beiden selbst mehrpack-fähig werden oder wegfallen.
 - **Die Kotlin-Schreiber bauen `mm://` weiterhin selbst** (`Crops.kt`, `LabeledVideoPack.kt`,
   vier Stellen `"mm://$id/$stem/$square"`). Python hat seit 2026-09-20 EINEN Bauer
   (`packs.mm_path`), und `tests/test_mm_path_contract.py` haelt alle drei Formen samt der
   Kotlin-Literale fest — der Vertrag ist nur das erste Segment. Ein Kotlin-Bauer waere der Rest.
-- **`crop_fingerprint` fehlt in Session-Packs, `synth_build` schreibt dort `{}`.** FEHLEND heißt
-  im Leser „Altpack, nimm die Mtime", ein leeres dict heißt „gerechnet, nichts zu vergleichen".
-  Bei reinen `mm://`-Zeilen liefern beide Zweige heute dasselbe (beide `stat()` werfen), also
-  folgenlos — aber es ist der falsche Fall. Entscheiden, ob `write_meta` auf `{}` geht;
-  `tests/test_packs.py` pinnt die fünf Schlüssel. Schreiber sind seit 2026-09-20 EINER
-  (`pack.write_packed_meta`).
+- **`crop_fingerprint` in Session-Packs** und **`labeled-session-pack` aus `row["board"]`**: Punkte 33/34
+  in `docs/offene-entscheidungen.md`.
 - **Composite:** Pool 128 → 80 ist ein Resampling zu viel (1,54× Laplace direkt); Überblendung
   variieren (hart/Gauss/Poisson, ICCV 2017); Median-Mesh dreht mit dem Brett (r 0,87 zum Winkel).
   Alles Bildmessungen — Val-Wert gegen `comp13-occ-bn-lr1e2-bs512` ist der Gegentest.
@@ -161,11 +144,6 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 - **Sampler:** Hände/Ply-Wechsel als eigene Strata (Sprung 17,97 gegen Median 0,72).
 - **Krümmung fehlt auf `2026-08-13-19-34-23` und `2026-08-14-20-48-55`** (5,4–5,5 px Bogen); der
   gerade Store kostet eine Interpolation (−22 % Laplace kubisch) — Mesh in den Warp komponieren.
-- **`labeled-session-pack` kann keine exportierte Aufnahme packen.** Es liest `row["frame"]`,
-  und `frames/` gibt es dort nicht mehr (`boards/` ist der Vorrat); seit 2026-09-20 lehnt es das
-  mit Hinweis auf `chesslab session pack` ab, statt am ersten Bild zu sterben. Offen bleibt, ob es
-  aus `row["board"]` schneiden SOLL — das Brett ist schon entzerrt und ggf. geradegezogen, der
-  Warp müsste also entfallen; der Python-Weg tut das bereits.
 - **`board_size` folgt nicht dem Quad** (96–125 px/Feld, 14 von 20 nicht 1:1); Labeling-UI skaliert
   1,5× hoch. Pro Aufnahme aus dem Quad ableiten, `233432`/`233929` neu exportieren.
 - **43 Aufnahmen in 22 Verzeichnisformen** — Zielform festlegen, migrieren, Ausweichpfade löschen.
@@ -196,16 +174,10 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   `CaptureSetupContent(...)` mit reinen Parametern.
 - **Schema 5** (2026-09-04) setzt die Tracker-Knöpfe auf dem Handy einmal zurück; `boardSize` misst
   sich neu. Beim nächsten Start prüfen.
-- **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21). Entwurf liegt: `docs/tipps-auf-zuruf-entwurf.md`.
-  Kurz: Stockfish liegt als natives Binary im APK und rechnet besten Zug, SAN und Mattdistanz
-  bereits; `MateLineResolver` spielt die Mattlinie aus; Text-to-Speech ist **fertig** (Queue,
-  Audio-Fokus mit Ducking, de/en). Speech-to-Text gibt es **nirgends** — kein `RECORD_AUDIO`, kein
-  Ton ausser TTS. Drei Stufen: (1) Tipp auf Knopfdruck, gesprochen UND geschrieben — kostet fast
-  nichts, weil jede Rechnung schon laeuft; (2) Zuhoeren per Druck-zum-Sprechen, was Strom, Thermik
-  und Sich-selbst-Hoeren umgeht; (3) Warnhinweise („pass auf deinen Turm auf") als eigenes Feature,
-  denn Bedrohungserkennung existiert nicht. **Drei Entscheidungen beim Nutzer:** wie viel ein Tipp
-  verraet, ob das Kontingent pro Partie oder pro Phase gilt, und ob ein Tipp die Engine hochfahren
-  darf, wenn `gateBlock` sie wegen Hitze oder Akku gerade geopfert hat.
+- **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21): `docs/tipps-auf-zuruf-entwurf.md`. Stufe 1 (Tipp auf
+  Knopfdruck, gesprochen und geschrieben) kostet fast nichts; Speech-to-Text gibt es nirgends. Drei
+  Entscheidungen beim Nutzer: wie viel ein Tipp verraet, Kontingent pro Partie oder Phase, und ob ein
+  Tipp die Engine hochfahren darf, wenn `gateBlock` sie gerade geopfert hat.
 
 ## Offene Fragen
 
@@ -224,156 +196,21 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 - Jede Verhaltensänderung am Motor läuft über `scripts/replay-regression.ps1` vorher/nachher;
   Phantome disqualifizieren, Verpasstes ist verhandelbar, `beyond`/`reordered` sind keine Fehler.
 
-## Erledigt — das Ergebnis in einer Zeile
+## Recorder: nur aufnehmen, was interessiert (Nutzer, 2026-09-13)
 
-- Die zwei Experiment-Engines (`:engine-stillness`, `:engine-changeset`) sind raus, samt
-  `EngineKind`, Regler, `engine=`-Replayoption und 13 Budget-Zeilen; Bestandsgeraete fallen ueber
-  `ignoreUnknownKeys` still auf die Diff-Engine zurueck (2026-09-14).
-- Commit-Latenz 333 → 200 ms median bei 15 fps (p90 400 → 267) ohne Score-Aenderung auf 15
-  Aufnahmen: Sofort-Beobachtung (kadenzneutral) + Same-Frame-Drain (2026-09-12/13).
-- Ankunftsregel fuer Schlagzuege und Sichtbarkeits-Serie gelten nur im Motion-Hold (`commitHoldS`);
-  bei Standardwerten kosteten sie 467 ms je Schlagzug und einen Ply — jetzt bytegleich (2026-09-13).
-- `refProvisional` laeuft vom Commit bis in den Export (`ref_provisional`), damit der Labeler die
-  Frames vor der nachgezogenen Referenz kennt (2026-09-13).
+Entschieden: sparsam ist die Vorgabe, voll bleibt waehlbar. Gemessen rueckwirkend ueber 13 Aufnahmen
+(148,5 min, 401 Plies, Export nutzt 3,07 % der Frames) — kein Ausloeser spart viel UND deckt alles:
 
-- **Matt-Zug wieder da (2026-09-07):** die Segmentnaht-Uhr ließ den letzten Zug von 21-12-56 und
-  20-57-45 „hinter dem Video" landen; nach dem Nahtfix neu eingelesen, 54 bzw. 55 Halbzüge.
-- **Sichtprüfung zeigt saubere Bilder (2026-09-07):** `frame_review` je Ply — der am wenigsten
-  verdeckte Frame der Haltezeit statt des Eintrittsframes, auf dem die Hand noch liegt; dazu
-  „stimmt nicht" je Karte und ein Editor für `reference.pgn` im Confirm.
-- **Commit-Latenz (2026-09-07):** die halbe Sekunde am PC ist Hand-Nachlauf plus 0,2 s Hold; weniger
-  Hold macht Phantome bei 30 fps, weniger Settle-Frames ändern nichts. Das Handy liegt auf der
-  Video-Uhr 0,06–0,3 s hinter dem PC, nicht 2–3× (Decoder-Nahtfehler, `docs/commit-latency.md`).
-- **Verify-Schleifen (2026-09-07):** ein abgelehnter Kandidat geht sofort an die Recovery statt im
-  nächsten Bild wiederzukommen; Regressionssatz 0 Phantome, Commit-Latenz max 35,2 → 4,7 s bei
-  Median 0,47 → 0,53 s (`docs/verifier-stall.md` §4).
-- **Audit 0824 + Blockregel (2026-09-06):** beide Partien exportiert und gelesen (Identität 15,6/19,2 %
-  wie sonst); Rochade mit Hand war ein Sechser-Block und galt als Schatten — Zugfelder überleben die
-  Blockregel jetzt, 153751 Ply 12 sperrt e1/f1/g1 ab Frame 1334.
-- **Einpflege-Ansicht `/strom/einpflegen` (2026-09-06):** alle Aufnahmen nach Kettenschritt gruppiert,
-  Filter in der URL (`?nur=confirm,export`, `?gescheitert=1`), derselbe Knopf wie auf der Karte, Nav-Zähler.
-- **Züge vom Handy übernehmen statt am PC neu erkennen (2026-09-06):** `:desktop phone-candidate`
-  schreibt `candidate.json` aus Record + `timeline.jsonl`, Median-Abweichung 0 Frames gegen den
-  Replay (max 4 von 66 Plies, 20-41-33), 440 s statt 1 325 s — Minuten statt einer knappen halben
-  Stunde, nicht Sekunden: der Geometrie-Scan dekodiert das Video weiterhin einmal ganz.
-- **137 GB Memmaps gelöscht (2026-09-05):** 14 gemessene Experiment-Datensätze (`real13-mix-v4-128/-96/-pad0/-ff/-ffbase`
-  85 GB, `real13-straight-80-v1/-v2`, `real13-c8d1-r96`, `abA/abB/ab-files-80`, `comp13-v3/-v4-80`,
-  `sp-parity-pool`); Rezepte (`manifest.jsonl`, `split.json`, `dataset.yaml`) bleiben, Neubau per
-  `dataset build --like <name> --from-packs`. Liste in `scripts/drop_measured_memmaps.py`.
-- **Sessions direkt in eine Memmap (2026-09-05):** `session pack` / `pack import` /
-  `dataset build --from-packs`; auf 11-59-12 zeilengleich (50 310/50 310, Differenz 0), 1,684/255
-  mittlere Pixelabweichung — der Pool-Datensatz 944 MB, der Pack-Datensatz 18 MB.
-- **`pOcc` ohne Coverage im Nenner, Alarm-Gate auf der Belegungsachse (2026-09-05):** beide
-  zeilengleich zur Basis (pocc-cold, Replay-Cache v6, damit die Messung nicht den alten `pOcc` liest).
-- **Desync-Kern und Window-End (2026-09-05):** die Serie trägt den Schnitt aller Blicke; das
-  Window-End verlangt beide Endfelder (Paare: volle Maske, Knob `windowEndBothEnds`, an). Beide
-  zeilengleich zur Basis — `diff_after_verify` feuert im Satz nie, der Knob braucht die Dunkel-Aufnahme.
-- **Billiges vom 2026-09-05:** Mattstellung per CNN adoptierbar (`reachable` prüft nur noch den
-  Gegner im Schach); ein Modell-Snapshot je Neustart statt zweier Lesungen; `SessionTimeline.close()`
-  wartet den Writer bis 2 s ab und schreibt verdrängte Zeilen als Zahl in die letzte Zeile;
-  `occluders` nennt `connectivity`.
-- **Engine-Review 2026-09-03/04:** 34 Fix-Commits (Livelock im Dunkeln, Desync-Serie über Commit,
-  Recovery-State, 3-Ply-Verify, Promotion-Prompt ohne Ausgang, Alarm-Bypass, Warps/Sessions-Leaks,
-  monotone Uhr, LiveAlign-Generation, Teardown-Reihenfolge …), core-engine 9 743 → 7 724 Zeilen,
-  Regressionssatz vorher/nachher zeilengleich, danach mit korrigierten Labels 9/10 fehlerfrei.
-- **Rillen-Sensor blind seit dem nativen Crop-Warp (2026-09-04):** 576-px-Warp flaggte 13 Felder
-  auf ruhigem Rig-Brett, vier Aufnahmen 0 Plies; eigener Warp in Kalibriergröße, AN = AUS.
-- **Referenzen (2026-09-04):** `233432` `1.e4 e5 2.Nf3 Nf6` statt `Nf3 e5 e4 Nf6`; `222741` `Nxf3+`
-  nie gespielt; `11-59-12` beide Knoten nach dem Tracker (Label hatte a3/a4 vertauscht) → 73/0/0.
-  `222741`-Schwanz `c6 Qxe5 cxd5 Qd6+ Bd7 Qxd7#` am 2026-09-05 aus der Montage bestätigt → 33/0/0/0.
-- **Belegungs-Fallback bei `inconclusive` (2026-09-04):** zeilengleich, nicht eingebaut.
-- **CLAHE im Replay (2026-09-04):** nie gebaut, jetzt wie das Handy; zeilengleich zu ohne.
-- **Scorer (2026-09-04):** `beyond` (164 von 171 „Phantomen" auf 11-59-12 lagen hinter dem Label)
-  und `reordered` (gleiche Endstellung, Lookahead 12).
-- **Replay folgt der Handy-Messung (2026-08-30):** Ecken, Frames, Startstellung aus der Aufnahme.
-- **Verifier hängt (2026-08-30):** `verifyOutcome` leer hieß „nie gefragt"; Drift kostet die Pixel-Referenz.
-- **Flat-field auf Brettebene (2026-08-30):** 57 % mehr Val-Fehler — Verstärkung hebt das Rauschen mit.
-- **Abtausch auf einem Feld ist EIN Kandidat (2026-08-30);** frei gesuchte Dreier erfanden `Rg1`.
-- **Rauschmaß in der Perf-Zeile (2026-08-30)** — `NoiseFloor`, zwei Frames je Sekunde.
-- **Coverage-Gate im Replay (2026-08-25):** Diff-Engine unberührt, Stillness 7 → 67 Plies.
-- **Pull statt Push (2026-08-25):** Lesungen 972 → 210, 6 238 → 891; nicht die Ursache von 003957.
-- **Alarm auf Identität (2026-08-25):** Latch zu Recht — die Kette Identität kippt → Suche findet
-  nichts → Brett läuft weg → Belegung widerspricht. `cnnColorAxis` ×5 auf 153751, aber 5 Phantome auf 154327.
-- **`alarmMinS` 1,5 s (2026-08-26):** 153751 9/26/0 → 35/0/0.
-- **Linse gegen Mesh (2026-08-21):** Mesh allein 0,9–1,1 px, Linse nicht den Fit wert; `calib.npz` weg.
-- **SAM 3 unter autocast (2026-08-23):** 5,72×, 0 von 9 600 Zellen kippen. SAM 3.1 kein Upgrade.
-- **per-position 8 → 2 kostet (2026-08-25):** 3/3 Seeds negativ auf jeder Metrik.
-- **Vorlauf 1,4 s statt 20 s (2026-08-30):** der Encoder armt mit dem Kamera-Bind — so lang, wie die
-  Kamera vor dem ersten Zug lief.
-- **Hintergrund-Randomisierung, `export_static` (2026-08-21):** entfernt, nie benutzt bzw. gemessen.
-- **Videostand (2026-08-21):** 25 von 43 lokal, 6 nur auf dem Handy — gesichert unter `data/footage/phone-backups/`.
-- **Pre-roll-Offset (2026-08-19):** Ursache behoben; alte Einzeldatei-Sessions 1 Frame daneben, bewusst so.
-- **Nur aufnehmen, was interessiert (2026-09-13, Nutzeridee):** das Video laeuft heute durch, auch
-  wenn zehn Minuten lang dieselbe Stellung steht. Fuer Training ist das redundant —
-  `corpus-is-threefold-redundant` misst, dass 3,9 % der Crops gleich gut sind. Der Encoder KANN
-  schon puffern statt schreiben (`PreRollRing`, armiert bis zum ersten Commit), also ist die
-  Maschinerie da. Offene Fragen vor einem Bau: was ist „interessant" (Bewegung? Hand? Commit plus
-  Fenster?), und was kostet es an Occlusion-Material, das gerade aus den Hand-Frames kommt. Bei
-  67 Mbit/s waere der Gewinn gross: 500 MB/min laufen sonst auch durch die Wartezeit.
+| Ausloeser | Bytes gespart | Deckung | Verdeckung | Plies mit ≥ 8 |
+|---|---:|---:|---:|---:|
+| Commit ±2 s | 73 % | 69 % | 85 % | 74 % |
+| Commit ±2 s ODER Bewegung | 55 % | 83 % | 96 % | 84 % |
+| Commit ±4 s ODER Bew. ±1 s | 33 % | 94 % | 99,6 % | 91 % |
 
-  **Gemessen 2026-09-13 ueber 151 min Video aus 13 Aufnahmen:** der Export nutzt **3,0 %** aller
-  Frames (5 324 von 176 813), also rund 13–15 je Ply oder eine Sekunde Video je Zug. Ein Fenster
-  von ±2 s um jeden Zug behielte **18 %** — das Sechsfache dessen, was das Rezept heute anfasst,
-  also reichlich Reserve fuer ein spaeter breiteres Schneiden — und spart 82 %. ±4 s behalten 33 %.
-  Die Ersparnis ist sehr ungleich: `2026-08-24-22-43-46` sind 24 min Video fuer 17 Zuege (±2 s
-  behaelt 5 %), `2026-09-11-20-00-52` hat 117 Zuege in 12 min (behaelt 63 %). Es trifft also genau
-  die Aufnahmen, in denen das Warten den Platz frisst.
-
-  **Der Ausloeser darf nicht der Zug allein sein.** Gemessen 2026-08-16 trugen **424 von 2 228
-  Frames** eine Hand OHNE Zug — jemand rueckt eine Figur oder greift ueber das Brett. Genau daraus
-  entstehen die Verdeckungslabels. Der Tracker rechnet ohnehin je Frame eine `motion`-Zahl (sie
-  steht in jeder `frame`-Zeile der Timeline), also: **Zug ODER Bewegung**, und nur der wirklich
-  stille Teil faellt weg.
-
-  **Entschieden 2026-09-13 (Nutzer): sparsam ist die VORGABE, voll bleibt waehlbar.** Drei Dinge
-  haengen daran, und der Schalter allein reicht nicht:
-
-  1. **Die Aufnahme muss sagen, in welchem Modus sie lief.** Sonst weiss ein spaeter gebauter
-     Datensatz nicht, ob eine Luecke im Video eine stille Phase war oder ein Ausfall. Gehoert
-     neben `recording.bit_rate` in `session.yaml` — derselbe Grund, aus dem die Bitrate dort
-     gelandet ist: die 2,4-fache Spreizung der vorhandenen Aufnahmen blieb nur unbemerkt, weil
-     nichts sie aufschrieb.
-  2. **Ein stiller Ausfall des Ausloesers ist der teure Fall.** Bei der Vorgabe „sparsam" verliert
-     eine fehlgehende Bewegungserkennung Material, ohne dass es auffaellt. Die Aufnahme sollte
-     deshalb mitzaehlen, welcher Anteil behalten wurde; faellt er weit unter das Erwartete
-     (gemessen 18 % bei +-2 s), ist das ein Befund und kein Erfolg.
-  **GEMESSEN 2026-09-13 — kein Ausloeser schafft beides.** Rueckwirkend ueber 13 Aufnahmen
-  (148,5 min, 174 875 Frames, 401 Plies, 5 374 exportiert = 3,07 %):
-
-  | Ausloeser | Bytes gespart | Deckung | Verdeckung | Plies mit ≥ 8 |
-  |---|---:|---:|---:|---:|
-  | Commit ±2 s | 73 % | **69 %** | 85 % | 74 % |
-  | Commit ±2 s ODER Bewegung | 55 % | 83 % | 96 % | 84 % |
-  | **Commit ±4 s ODER Bew. ±1 s** | **33 %** | **94 %** | **99,6 %** | **91 %** |
-
-  **Meine Schaetzung von „18 % behalten bei ±2 s" war falsch** — gemessen sind es 28 %, und vor
-  allem fielen dabei **31 % der tatsaechlich exportierten Frames** weg. Ich hatte nur Fenster
-  aufaddiert und nie geprueft, ob das Rezept wirklich nur um den Zug herum schneidet. Tut es nicht.
-
-  **Drei Gruende, warum die Idee weniger bringt als gedacht:**
-  - Das Video ist nicht ueberwiegend still: stille Strecken Median **0,54 s**, p90 5,5 s, und nur
-    **drei** Strecken in 148 min sind laenger als 60 s. Das Bild „zehn Minuten dieselbe Stellung"
-    traegt in diesem Korpus nicht.
-  - Das stille Brett kostet fast so viel wie eine Hand: `waiting` 17,5 Mbit/s gegen `moving`
-    20,1. Der Encoder spart auf Stillstand kaum — ein I-Frame **jede Sekunde**.
-  - **Das Verdeckungsmaterial liegt VOR dem Commit**: 76 % der 2 248 verdeckten Frames, Median
-    −0,8 s, p99 −10,9 s. Ein Ausloeser, der beim Commit einschaltet, ist per Konstruktion zu spaet
-    fuer genau das Material, um das es geht — er muss rueckwirkend behalten.
-
-  **Zwei billigere Hebel, vor jedem Umbau am Recorder:**
-  1. **`VIDEO_I_FRAME_SECONDS = 1`** (`CameraVideo.kt:58`) — bei 15 fps ist jeder 15. Frame ein
-     I-Frame. Ein groesseres Intervall spart Bytes, **ohne einen einzigen Frame zu verlieren**.
-     Kosten: groebere Segmentnaht und teurerer Seek.
-  2. **`PRE_ROLL_MAX_BYTES` = 80 MB ist die echte Grenze, nicht `PRE_ROLL_SECONDS = 45`.**
-     Gerechnet: 35,6 s bei den heutigen ~18 Mbit/s, **21,4 s** bei den neuen 29,9, und nur
-     **9,5 s** bei 67,2 im Erfassungspfad. Der Vorlauf schrumpft also still mit jeder
-     Bitratenerhoehung — und 9,5 s liegen unter dem p99 der Verdeckung.
-
-  **Und der Ring ist ein Einmal-Ding:** `goLive()` setzt ihn auf `null` (`CameraVideo.kt:499`), es
-  gibt keinen Weg zurueck ins Armierte. Ein getakteter Recorder ist NEUE Maschinerie, kein Schalter.
-
-  3. **Wofuer „voll" da ist:** ein neuer Aufbau, bei dem man dem Ausloeser noch nicht traut, und
-     Aufnahmen, die spaeter Frame fuer Frame durchgesehen werden sollen. Bei Turntable-Aufnahmen
-     ist die Unterscheidung ohnehin fast gegenstandslos — dort wird durchgehend gedreht, es gibt
-     keine Wartezeit zu sparen.
-
+Gruende: stille Strecken sind kurz (Median 0,54 s), ein stilles Brett kostet fast so viel wie eine
+Hand (17,5 gegen 20,1 Mbit/s, I-Frame jede Sekunde), und 76 % der Verdeckung liegt VOR dem Commit
+(Median −0,8 s, p99 −10,9 s) — ein Ausloeser muss rueckwirkend behalten. Der `PreRollRing` ist ein
+Einmal-Ding (`goLive()` setzt ihn auf `null`), ein getakteter Recorder ist neue Maschinerie.
+Vorher die zwei billigen Hebel: `VIDEO_I_FRAME_SECONDS = 1` vergroessern (spart ohne Frameverlust),
+und `PRE_ROLL_MAX_BYTES` = 80 MB ist die echte Grenze — bei 67,2 Mbit/s nur 9,5 s Vorlauf, unter dem
+p99 der Verdeckung. Die Aufnahme muss ihren Modus und den behaltenen Anteil in `session.yaml` tragen.

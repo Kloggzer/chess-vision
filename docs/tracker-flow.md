@@ -184,7 +184,7 @@ end-to-end replay A/B therefore scored confirmed SAN sequences rather than frame
 fully swept videos (111 reference plies), lambda 4 with raw/invalid safety found 73, missed 38 and
 invented 4, versus 71/40/6 at lambda 0. Lambda 1 and 2 each regressed to 68/43/5. Lambda 4 was equal
 on three sessions and better on one, never worse, and is consequently the runtime default. The
-reproducible runner is `scripts/replay-prior-ab.ps1`; the partial-corpus report is
+runner was deleted on 2026-09-23 (git history); the partial-corpus report is
 `data/reports/prior-video-sequence-partial.json`.
 
 The first frame-level audit of the weak 67-ply session then exposed an integration bug rather than

@@ -19,7 +19,7 @@ Die Kurve steigt **bis zur letzten Epoche** — zwischen 43 und 58 noch um 0,020
 je zehn Epochen. Mit `--epochs 60 --sched cosine` endet der Lauf, wo er noch faellt, nicht wo er
 flach ist.
 
-**Folge:** jeder Armvergleich in `docs/per-position-mix.md` und `docs/occlusion-gate.md` wurde auf
+**Folge:** jeder Armvergleich der Ausduenn-Studie vom 2026-08-25 und in `docs/occlusion-gate.md` wurde auf
 unkonvergierten Modellen gefahren.
 
 **Laenger trainieren hilft trotzdem nicht — im Gegenteil (nachgetragen 2026-08-26).** 120 Epochen
@@ -66,7 +66,7 @@ nicht.**
 - **Nur Eingriffe testen, von denen ein grosser Effekt zu erwarten ist.** Wer 0,005 sucht,
   braucht ein anderes Messgeraet, nicht mehr Seeds.
 - **Gepaart bleibt der Hebel.** Bei identischem Seed und identischer Datenreihenfolge faellt die
-  Streuung von 0,027 auf 0,003 (`docs/per-position-mix.md`, Korrektur). Das gilt aber nur, solange
+  Streuung von 0,027 auf 0,003 (Korrektur der Ausduenn-Studie, 2026-08-26). Das gilt aber nur, solange
   wirklich alles ausser der Achse gleich ist: ein anderer Pack aendert die Reihenfolge der Batches
   und nimmt einen Teil des Gewinns mit.
 - **Vor jedem Rezeptvergleich die Laenge klaeren.** Zwei Arme bei 60 Epochen zu vergleichen misst,

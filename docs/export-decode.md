@@ -12,7 +12,7 @@ Alle Zahlen sind Wanduhrzeit eines echten `export-session`, keine Schätzungen.
 | Bretter schneiden | ~87 s | 23 s | 23 s | **7,1 s** |
 | **gesamt** | **~223 s** | **114 s** | **57 s** | **27,8 s** |
 
-Die letzte Spalte ist die Geometrie-Arbeit aus `docs/export-geometry-performance.md`: die
+Die letzte Spalte ist die Geometrie-Arbeit (Abschnitt unten): die
 zwischengespeicherte Mesh-Koordinatenkarte, das analytische `_notch_centre` statt `polyfit`, die
 Settle-Zuschnitte nur noch auf den gebrauchten Feldern — und der größte Einzelposten, das
 **Zusammenfassen zweier sich aufhebender Drehungen** (OpenCV dreht nach Metadaten automatisch, der
@@ -132,3 +132,76 @@ Profil der Settle-Phase, bevor sie auf Prozesse ging:
 
 **Die Farbkonvertierung zu batchen lohnt nicht mehr.** Nach dem `grab`-Fix kostet sie 1,5 s von
 4,7 s je Durchlauf, und eine GPU-Variante müsste die YUV-Ebenen erst hochladen.
+
+## Export geometry optimization, 2026-09-08
+
+The board exporter already composes mesh, homography and optional lens distortion into
+one cubic remap. It does **not** run a perspective warp followed by mesh straightening.
+The expensive repeated work was constructing the dense mesh coordinates in NumPy.
+
+`calibration._crop_mesh_coordinates` now caches the normalized float64 coordinates by
+board size, border and all mesh values. The homography and lens are still applied for
+each frame, so changing corners remain effective. Arrays are read-only; two cache
+entries retain about 30 MB at 952 x 952 per process. The operation order, interpolation
+and WebP quality are unchanged. There is no persistent cache to invalidate on disk.
+
+`alignment._notch_centre` solves the shoulder baseline analytically using symmetric,
+centered coordinates instead of a general `polyfit` solver. This preserves the linear
+least-squares model; floating-point rounding can differ. Other robust fits retain their
+existing solvers because their weights and design matrices vary.
+
+### Measurements
+
+Session `2026-08-30-16-20-19`, 262 frozen log rows, unchanged pooled mesh and rotation.
+The comparison uses copies of the same input rows and writes only to temporary outputs.
+
+| Measurement | Previous code | Optimized |
+| --- | ---: | ---: |
+| Full board phase, one process / four writer threads | 40.035 s | 10.774 s |
+| Full board phase, four processes | not measured in this comparison | 9.105 s |
+| 12 real-frame line scans | 0.227 s | 0.179 s |
+| 12 complete grid fits, identical input geometry | 2.108 s | 1.905 s |
+
+All 262 encoded boards, row fields and statistics matched exactly in both optimized
+board paths. The twelve complete fit results also matched exactly. Intermediate line
+positions differed by at most 1.14e-13 pixels. Randomized regression tests compare
+3,000 noisy/sloped/occluded profiles against the original polyfit detector, and warp
+tests compare pixels while changing corners, border, mesh values and lens distortion.
+
+A first board-phase pair measured 34.479 s versus 9.940 s while tests were also running;
+the table uses the repeat without concurrent tests. These are phase measurements, not
+a new end-to-end export benchmark; previous cold/warm export totals are not comparable.
+
+OpenCL was available and enabled. A warmed cubic remap of a real frame, with resident
+maps and upload/download on every invocation, averaged 10.647 ms versus 2.138 ms on CPU
+over 30 iterations. GPU timing included synchronization. Pixels matched, but this path
+was slower, so no OpenCL dependency or global backend change was introduced.
+
+### Reproduce the board comparison
+
+Run from the repository using the existing environment:
+
+```powershell
+$env:PYTHONPATH = 'src'
+.venv/Scripts/python.exe scripts/benchmark_export_warp.py 2026-08-30-16-20-19
+```
+
+The script compares cached and uncached construction with one process and the normal
+writer pool, and verifies encoded hashes, rows and statistics. `--limit 12` is a quick
+smoke check. Session files are read only; temporary encoded boards are cleaned up.
+
+## Aus CLAUDE.md verschoben (2026-09-23)
+
+- `cap.read()` ist `grab()` + `retrieve()`: `read` 10,4 ms je Frame gegen `grab` 1,96 ms, am echten
+  Zeilensatz 25,5 s -> 4,7 s je Durchlauf, bitgleich. `imwrite` war 73 % der Schneide-Phase
+  (50 ms je 928-px-Brett bei Qualitaet 95); vier Schreiber brachten 66,3 s -> 22,8 s.
+- Die Drehwinkel ADDIEREN (`_combined_rotation`), gemessen 2026-09-08 auf drei Aufnahmen:
+  `ROTATE_90_CLOCKWISE` aufs rohe Bild ergibt das auto-gedrehte, das `META` 90 nennt. Unsere
+  Aufnahmen heben sich alle auf (90 + 270), und eine Aufhebung beweist die Konvention nicht.
+- Seek: 2 von 7 Sonden lieferten andere Pixel, waehrend `POS_FRAMES` den gefragten Index meldete.
+- GPU: OpenCL kostet mit Transfer 10,6 statt 2,1 ms je Remap; Hardware-Dekodierung ist auf diesem
+  Rechner zu (kein D3D11 im pip-Wheel, `rocDecode` ist Linux/Instinct, unter Windows nur AMF ohne
+  Python-Bindung).
+- Die Mesh-Koordinatenkarte (23 -> 7 s) wurde gemessen, als `benchmark_export_warp.py` `uncached`
+  immer zuerst fuhr; seit 2026-09-23 wechselt das Skript die Reihenfolge ab. Bis zu einer neuen
+  Messung ist die Zahl eine obere Schranke.

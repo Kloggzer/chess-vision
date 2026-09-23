@@ -193,3 +193,16 @@ CPU und skalieren nicht mit. Eine Session von 1 373 Frames faellt damit von ~1,1
 Nicht gemessen: ob die Abweichung im Rauschen der Maske selbst liegt. SAM 3 gibt bereits
 binaere Masken zurueck (`mask_threshold=0.5`), es gibt also kein weiches Band zum Vergleichen —
 der ehrliche Proxy waere die Randbewegung zwischen benachbarten Frames.
+
+## SAMs Absage ist kein sauberes Brett (aus CLAUDE.md verschoben, 2026-09-23)
+
+Eine `matte.jsonl`-Zeile mit `skipped` (`zone too big`: Alpha ueber 60 % des Bretts) traegt WEDER
+`concepts` NOCH `coverage`. Zweimal wurde das als "nichts gefunden" gelesen: `hand_gate.gate_label`
+lehrte dem Schueler die verdecktesten Bretter des Korpus als handfrei, und
+`temporal_matte.adopt_proposals` zaehlte sie als "schon gemattet", so dass genau die Frames ohne
+Alpha ungefuellt blieben und mit `coverage = 0.0` ins Training gingen. `matte.matte_status` filtert
+richtig; wer `matte.jsonl` liest, prueft `coverage` auf `None`.
+
+Die gespeicherte `coverage` ist ein Schnappschuss vom Matten und driftet gegen ihre Crops, sobald
+ein Re-Export die Ecken verschiebt (gemessen 2026-09-16: 13 von 24 Aufnahmen, 0,10 % der Zellen
+kippen ueber `PIECE_VISIBLE_MAX`, fast alle auf der Grundreihe) — `docs/coverage-weight-2026-09-16.md`.

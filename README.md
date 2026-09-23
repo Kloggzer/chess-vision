@@ -24,11 +24,10 @@ Two things live here and they feed each other:
 | train or export a model | [Train, evaluate, export](#train-evaluate-export) below, then [`docs/setup/`](docs/setup/README.md) |
 | render synthetic training data | [`docs/synth-pipeline.md`](docs/synth-pipeline.md), [`synth/README.md`](synth/README.md) |
 | read what the phone decided and why | [`docs/diagnostics.md`](docs/diagnostics.md) |
-| see the component map | [`docs/architecture-review/`](docs/architecture-review/) |
 | change code without repeating a known mistake | [`CLAUDE.md`](CLAUDE.md) — the pitfalls list, kept current |
 
-`specs/` holds numbered spec packs. They are the record of intent, not of state: several of
-the highest numbers are `todo` with no code in the tree. Each pack's `STATUS.md` says which.
+`specs/` is gone (commit `aacffaf7`); `docs/specs-index.md` maps the old `specs/NN` numbers that
+code comments still cite. Open direction questions live in `docs/offene-entscheidungen.md`.
 
 ## Install
 

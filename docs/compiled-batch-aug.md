@@ -55,13 +55,13 @@ Dynamo meldet beim Kompilieren, es ignoriere den `functools.lru_cache` auf
 Konstante je (device, dtype), die als Konstante in den Graphen faellt, und ein
 dtype-Wechsel loest ohnehin ein Recompile aus.
 
-Die Mehrseed-Qualitaetsvalidierung laeuft ueber `scripts/aug_compile_seeds.ps1`:
+Die Mehrseed-Qualitaetsvalidierung lief ueber ein Seed-Skript (geloescht 2026-09-23):
 drei Arme (eager, nur Augmentierung, beide) gegen Seeds 42/43/44 auf demselben
 `split-pin.json`, je 60 Epochen auf frischen Verzeichnissen.
 
 ## Drei Seeds, drei Arme — kein messbarer Qualitaetsunterschied (2026-09-10)
 
-Risiko 6 der Uebergabe, beantwortet. `scripts/aug_compile_seeds.ps1`, neun Laeufe a 60 Epochen,
+Risiko 6 der Uebergabe, beantwortet. Neun Laeufe a 60 Epochen,
 `split-pin.json`, `val_visible_piece_acc` gemittelt ueber die letzten zehn Epochen (`best` ist als
 Vergleichsmass unbrauchbar, siehe unten):
 

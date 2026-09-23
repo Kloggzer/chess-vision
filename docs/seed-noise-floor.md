@@ -14,7 +14,7 @@ Der Fix, den das TODO dafür vorsah, wäre reine Rechenzeit gewesen.
 `random` — und die Augmentierung zieht von dort. Bei 8 Workern beisst das nicht, weil PyTorch in
 jedem Worker `random` und `torch` selbst deterministisch seedet. Bei `--num-workers 0` schon:
 gleiche Batch-Reihenfolge, andere Pixel. Das war ausgerechnet der Pfad, auf dem man
-Nichtdeterminismus untersucht. Messwerkzeug: `scripts/loader_determinism.py`.
+Nichtdeterminismus untersucht. Das Messwerkzeug dazu ist 2026-09-23 geloescht (Git-Historie).
 
 ## 2. Wie weit streut der Seed?
 
@@ -84,4 +84,4 @@ Ein A/B braucht **drei Seeds je Arm und den Median**. Ein Effekt unter der Spann
 Effekt. Für Fragen mit erwartetem NULL-Effekt — `--per-position` 8 → 2, der Datensatz-Kreuztest —
 gilt das erst recht: dort ist die Rauschgrenze die ganze Antwort.
 
-    uv run python scripts/seed_noise_floor.py     # liest data/models/_noise/*
+    # das Auswerteskript ist 2026-09-23 geloescht (Git-Historie); data/models/_noise/ fehlt

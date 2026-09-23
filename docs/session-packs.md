@@ -35,7 +35,7 @@ Migrationsskript nimmt die Pools, die die `dataset.yaml` des Spender-Datensatzes
 
 **Was der Pack einfriert.** Die 128-px-Pooldatei trägt schon, was der Slice skaliert hat: die
 Kompositen mit `board_size` 656/672 haben eine Crop-Box von 90–92 px und sind bei 128 px **1,4×
-hochinterpoliert** — 105 152 Zeilen, 12,5 % des Datensatzes (`docs/plan-98/01-aufloesung.md` §1.4).
+hochinterpoliert** — 105 152 Zeilen, 12,5 % des Datensatzes (`docs/plan-98/00-plan.md` §1.4).
 Der Pack schreibt das fest. Das ist **keine neue** Verschlechterung (der Monolith trug exakt
 dieselben Bytes), aber wer diese Zeilen je aus der Quelle neu schneiden will
 (`pack.pack_from_source`, seit dem Brett-Umbau ohne Aufrufer), muss die betroffenen Packs neu
@@ -226,3 +226,11 @@ Regeln daraus:
   Für einen einmaligen Lauf in Ordnung, für eine Schleife nicht.
 - **`pack_from_source` hat weiter keinen Aufrufer.** Wer die 1,4×-Zeilen aus der Quelle schneiden
   will, muss das VOR dem Packen tun — danach steht es im Pack fest.
+
+## Nachtrag aus CLAUDE.md (2026-09-23)
+
+Nachgezaehlt 2026-09-22 ueber `data/crops/*/<klasse>/`: 104 von 160 Aufnahmen liegen in mehr als
+einem Pool, 36 davon in genau zweien. Die v6-Verzeichnisse messen 916/915 MB statt 617/616, weil
+`manifest.jsonl.mono` und `.before-prune` daneben liegen; `-80-clahe` bleibt Monolith
+(`manifest.jsonl` zeigt auf `data/crops/default/`). Ein Pack vom 2026-09-05 trug 3 333 Zeilen zu
+viel und Pixel bis 68 Graustufen daneben.

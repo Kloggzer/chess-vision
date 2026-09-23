@@ -92,7 +92,7 @@ Zwei Gruende, beide hart:
    eine `parity/<name>/meta.json` mit der `effectiveConfig`, die der PYTHON-Tracker wirklich fuhr
    — Kotlins eigene Vorgaben weichen davon ab (`occlusionColorThr` 3,0 gegen 1,5), Vorgaben zu
    nehmen wuerde einen Portierungsfehler vortaeuschen. Diese Fixtures erzeugt
-   `scripts/emit_parity_fixtures.py` (**geloescht in `62583092`** mit dem Python-Tracker,
+   der Python-Fixture-Erzeuger (**geloescht in `62583092`** mit dem Python-Tracker,
    nachgesehen 2026-09-22 — der Schritt braucht einen neuen Erzeuger); ohne sie einen Namen in den
    Index zu schreiben, faehrt
    `ClipReplayParityTest` gegen nicht vorhandene Daten.
@@ -295,7 +295,7 @@ zeigen.
 - Beide Messungen sind zu wiederholen. Sie brauchen einen neuen `:desktop:installDist`, der nicht
   laufen darf, waehrend ein Batch dieselbe Binary benutzt.
 
-**Nicht betroffen:** die Analyse der Doppelcommits (`docs/doppelcommits-2026-09-19.md`) ruht auf
+**Nicht betroffen:** die Analyse der Doppelcommits (2026-09-19, Git-Historie) ruht auf
 den Logs des REFERENZlaufs mit `taintIdentityThr = 0`; dort springt die Funktion in der ersten
 Zeile heraus. Der Vergleich ref-gegen-fix darin trug allerdings dieselbe kaputte Fassung — der
 dort gemeldete zweite Fund (`Raxd4`+`Rb1+`, 4,4 s frueher) steht unter demselben Vorbehalt.

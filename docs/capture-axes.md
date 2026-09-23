@@ -11,13 +11,13 @@ von oben. Der Korpus hat **eine Kamerapose und ein Höhenband**; `coverage_gaps.
 heute mit (`axes.foreshorten`, `axes.edge_px`) statt es zu behaupten.
 
 Damit ist die gemessene Fehlermechanik — der Springer, der sich als Turm liest, 68 % der
-Restfehler aus 12 von 280 Verweil-Episoden (`plan-98/02-fehleranalyse.md:11`) — **nicht** ein
+Restfehler aus 12 von 280 Verweil-Episoden (`plan-98/00-plan.md`) — **nicht** ein
 Kamerawinkel-Problem. Die Kamera bewegt sich nie. Es ist die **Eigendrehung der Figur auf dem
 Feld**. Genau deshalb hat `--rot90` so stark gewirkt: das Drehen des Crops war bisher die einzige
 Art, wie das Modell eine Figur je von einer anderen Seite gesehen hat (+0,0245 gepaart über sieben
 Seeds, Vorzeichentest 7/7, p = 0,0078 — `plan-98/00-plan.md`).
 
-**Nicht verwechseln** mit `model-improvement-results-2026-08-27.md:66`, wo `rot90` mit −0,046
+**Nicht verwechseln** mit `model-improvement-2026-08-26.md` (Ergebnisteil), wo `rot90` mit −0,046
 steht: das war 80 px, ohne Flip, ohne Brettkopf, auf einem anderen Datensatz. Beide Zahlen stimmen.
 
 **Ein Turntable im Sinne einer Kamerafahrt holt daher nichts Neues.** Was fehlt, sind diese vier:

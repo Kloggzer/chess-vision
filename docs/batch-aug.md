@@ -98,3 +98,18 @@ Das kauft aber keine Wanduhrzeit mehr: der Feed liegt bereits weit unter dem GPU
 nur noch Worker, und ab einem sind keine mehr zu sparen. Der nächste echte Engpass ist die
 **I/O-Latenz bei kaltem Cache** — dagegen hilft kein Batchen, sondern dass der 11,7-GB-Pack in den
 34 GB RAM warm bleibt (also: nicht zwei Packs gleichzeitig, und kein `retime` daneben).
+
+## Nachtraege aus CLAUDE.md (2026-09-23)
+
+- **Eine Op mit Staerke 0 ist nicht weg.** `T.ColorJitter(0,0,0)` zieht weiter Zufallszahlen und
+  wendet die Identitaet an; `--aug-scale 0` holte deshalb nur 25 % statt 73 %. `build_transform`
+  laesst sie seitdem weg.
+- **Seit den Session-Packs ist der Boden die Platte (2026-09-12).** Auf `real13-mix-v7-128`
+  (48,1 GB Packs bei 13 GB freiem Cache) wartet der Schritt zu 68–77 % auf Daten, bei 80 px zu
+  55 %. 2 gegen 4 Worker: warm 10,7 gegen 10,6 s je Epoche, dieselbe Wartezeit. Die Worker-Zahl ist
+  kein freier Schalter — der Trainingsverlust war nicht bitgleich (0,733245 gegen 0,741672).
+  `scripts/worker_probe.py` faehrt die Probe auf ruhigem Rechner.
+- **66x billiger als je Crop in PIL** (aus CLAUDE.md): ColorJitter, Gamma, Blur, Rauschen und
+  Cutout sind overhead- und nicht rechengebunden — der 3x3-Blur kostet je Crop 846 µs, ToTensor fuer
+  denselben vollen Durchgang 37. Seit 2026-09-08 nimmt `BatchGeometry` Affine und Flips mit aufs
+  Geraet, hinter die Photometrie, bitgleich zu `torchvision`s NEAREST-Affine.

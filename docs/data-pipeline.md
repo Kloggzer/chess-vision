@@ -793,7 +793,6 @@ they are reproducible outputs, not inputs.
 
 - `docs/synth-pipeline.md` — Blender renders → `chesslab dataset build-synth` (fused memmap).
   Its `mm://` manifest rows have no files; consumers must read the packed memmap.
-- `docs/architecture-review/architecture-overview.md` — component map.
 - `README.md` — every CLI command, per stage.
 - `src/chesslab/dataset.py:177` — the split assigner's docstring, which is its specification.
 - **§13** — the alignment graveyard: every approach measured and rejected, so nobody re-tries the
@@ -1285,3 +1284,17 @@ That is a candidate for a **profile-level** fix, it is not what the per-frame fi
 giving `improve_quad` the FEN, so grooves under a piece can be **excluded** instead of down-weighted
 — the residual 5.1 px to the human is bias, not noise (the fit converges to within 0.28 px), so a
 better estimator is proven not to close it.
+
+## Moved from CLAUDE.md (2026-09-23)
+
+- **Mesh pooling.** A hand over the grooves makes a frame's own mesh worse than none (15.6 px
+  against 16.1 raw), so `meshes_for_boards` pools ONE per-line median mesh over every frame with
+  `grid_lines` and without `hand_seen` (the camera does not move). There is no five-neighbour
+  borrowing; that wording described a design that was never built.
+- **Lens.** Measured 2026-08-21 over three rig recordings, hold-out: raw 15.2–16.6 px bow, grid
+  mesh alone 0.9–1.1, fitted lens alone 3.0–4.4, both 0.4–0.7. On a 116 px cell the mesh's 1 px is
+  under a percent, so a per-recording lens fit is not worth it. Python's `lens.py` and the
+  `calib.npz` path went the same day: they solved from many board poses, which a fixed mount
+  cannot give.
+- **Lens wiring** exists (`alignment.warp_for_grid`, `realgames.grid_line_fracs`, `sessions.py`
+  reads a `lens.json` via `LensModel.from_receipt`); what is missing is the file itself.

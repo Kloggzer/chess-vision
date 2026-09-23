@@ -1,12 +1,12 @@
 # Plan: von 98,6 % auf 99 %+, ohne Glücksgriff
 
-> Zusammenführung von `docs/accuracy-98-plan.md` (Protokoll), `docs/claude-handoff-architecture-methods.md`
-> (Architektur-Kandidaten) und `docs/plan-98/01..04` (vier Messberichte vom 2026-09-11).
+> Zusammenführung eines Protokoll-Entwurfs, einer Architektur-Kandidatenliste und vier Messberichten
+> vom 2026-09-11 (Aufloesung, Fehleranalyse, Autotuning, Daten; Volltext in der Git-Historie).
 > Dies ordnet, was gemessen ist, gegen das, was vorgeschlagen wird — und streicht, was nicht passt.
 
 ## Der Befund, der die Reihenfolge bestimmt
 
-Die Restfehler sind **kein allgemeines Genauigkeitsproblem**. Gemessen (`02-fehleranalyse.md`):
+Die Restfehler sind **kein allgemeines Genauigkeitsproblem**. Gemessen (Fehleranalyse vom 2026-09-11):
 
 - **68 % aller Fehler stammen aus 12 von 280 Verweil-Episoden**; 223 Episoden sind fehlerfrei.
   Zwei Episoden tragen die Hälfte.
@@ -15,7 +15,7 @@ Die Restfehler sind **kein allgemeines Genauigkeitsproblem**. Gemessen (`02-fehl
 - Nicht Helligkeit (das hellste Band ist das beste: 0,941 gegen 0,552), nicht Feldfarbe
   (`b1`, `f3`, `e6`, `b5` liegen bei 0,98–1,00, nur `e2`/`d5` kippen).
 - **Label-Rauschen ist NICHT der Deckel**: 0,36 % im Pool, 0,105 % im Val → Messgrenze ~99,7 %
-  (`04-daten.md`, visuell gegengeprüft in `02`).
+  (Datenbericht, visuell gegengeprüft in der Fehleranalyse).
 
 Daraus folgt die wichtigste Streichung: **die Aufmerksamkeits-Kandidaten des
 Architektur-Handoffs zielen nicht auf diesen Fehler.** Gated SDPA (R1) und Differential
@@ -40,7 +40,7 @@ an der gemessenen Fehlermechanik ansetzt.
 | 128 px ist die Sensorgrenze | 20 von 22 Aufnahmen: 97–126 echte Quellpixel | `01` |
 | Gerätepreis 128 px | 7,5–8,0 ms/Brett gegen 4,3–4,9 heute (1,7×) | gemessen |
 
-### Was `accuracy-98-plan.md` an Methodik beisteuert (und korrigiert)
+### Was der Protokoll-Entwurf an Methodik beisteuert (und korrigiert)
 
 Diese Punkte stammen aus dem externen Protokoll-Dokument. Drei davon korrigieren Fehler, die ich
 selbst gemacht habe, und sie gelten für JEDE Phase unten:

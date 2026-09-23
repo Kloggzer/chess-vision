@@ -125,3 +125,10 @@ Spalte rechnen unverändert weiter (jede Zelle gilt als hell). Der ausgelieferte
 `p4a-80-clahe` sitzt auf dem **alten** Stand — und zusätzlich auf einem Satz, dessen Dunkelmaske
 zu 44,8 % wirkungslos war. Wer ihn gegen einen neuen Lauf stellt, vergleicht zwei Rezepte, nicht
 zwei Modelle.
+
+## Nachtrag aus CLAUDE.md (2026-09-23)
+
+Verdeckung trifft Weiss 11–15 %, Schwarz 2–6 % (`occlusion-asymmetry`, gespielt wird von Weiss);
+Gewichte aus allen Zeilen statt aus den sichtbaren lagen deshalb bis zu 8 % daneben. Sechs
+Auswerter unter `scripts/` zaehlen seit `f7e3d85d` ueber `classification_eligible`;
+`mine_hard_coverage.py` bleibt bewusst auf `coverage`.

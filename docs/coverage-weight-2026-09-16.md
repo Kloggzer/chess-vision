@@ -144,7 +144,7 @@ Zwei Bedingungen, beide zwingend:
 **Die Metrik wandert NICHT mit.** `classification_eligible`, `val_visible_piece_acc` und
 `CHECKPOINT_WEIGHTS` bleiben auf der harten 0,15. Sonst würde jeder Arm auf seiner eigenen
 Zellmenge benotet — genau der Fehler, der am 2026-08-26 schon einmal einen Sieger erfunden hat
-(`docs/per-position-mix.md`). Der Verlust ändert sich, das Maß nicht.
+(Ausduenn-Studie). Der Verlust ändert sich, das Maß nicht.
 
 **Dunkelheit bleibt ein HARTER Ausschluss.** Gewichtet wird nur die Verdeckung. Eine zu dunkle
 Zelle trägt kein Signal, egal wie frei sie ist — das ist eine andere Frage.

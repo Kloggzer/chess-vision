@@ -1046,7 +1046,7 @@ auf der Platte"** and nothing else.
 > **Strongest alternative:** compute it in the browser from boards `/corpus` already fetches. **Why
 > not:** `/corpus` is a corpus view — it would decode 3 976 boards to draw one bar, and
 > `lib/crops.ts:21` caps its raster cache at 24 frames for good reason. A second alternative, a
-> standalone `scripts/survey_luma.py` writing `data/_perf/luma.json`, is worse only in that the number
+> standalone luma-survey script writing `data/_perf/luma.json`, is worse only in that the number
 > does not travel with the session; if re-exporting ten sessions is unacceptable, it is an honest
 > fallback and this concept does not object.
 

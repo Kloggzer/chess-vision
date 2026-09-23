@@ -122,3 +122,10 @@ Bild). Gemessen halten 95 Konfigurationen zu einem Zeitpunkt nur **fuenf verschi
 **Nicht gemessen:** wie sich die 0,85 ms Engine-Zeit in Millisekunden auf diese Teile verteilt.
 Die Aufteilung ist am Code abgelesen, nicht gestoppt. Und die fuenf Referenzen stammen aus dem
 Screening, wo je EIN Knopf variiert; ein Optimierer verstellt sechs und divergiert staerker.
+
+## Schluessel des Replay-Caches: Graph UND `config.json` (aus CLAUDE.md verschoben, 2026-09-23)
+
+Der Cache haelt WAHRSCHEINLICHKEITEN, und die haengen an `temperature`, `normalize`, `clahe_*` und
+`input_repr` aus der Config. Ein Temperatur-A/B las 2026-09-16 deshalb 41 168 Antworten des Laufs
+davor und meldete "kein Unterschied"; das einzige Zeichen war die halbierte Laufzeit. Der
+Engine-Knopf gehoert nicht in den Schluessel — er wirkt hinter der Softmax.

@@ -322,3 +322,9 @@ a device with a storage cap, and that it did.
 The lab round trip before it (12 MB in two chunks over `127.0.0.1`) covers what the live run does
 not: `cmp`-identical bytes, a re-declare returning full size, a short file refusing to complete, and
 a duplicate landing as `held` with the original untouched.
+
+## Backup before touching the install (moved from CLAUDE.md, 2026-09-23)
+
+On 2026-08-20 six source videos (2.4 GB) existed only on the device, five with no backup at all.
+Measured the same day: `adb install -r` with the SAME signing key kept all 39 sessions; what wipes
+`files/` is a signature mismatch (Android uninstalls first) or an instrumented test run.

@@ -97,3 +97,11 @@ kommt oder geht, unter `SETTLE_LIMIT`, und die Zelle geht mit ihrem alten Label 
 keine neue Schwäche — `SETTLE_LIMIT` und `framescan.CHANGE_THR` haben sie beide — aber
 `interval-check.jsonl` misst sie jetzt pro Ply, statt sie zu verschweigen. Wer sie schließen will,
 muss die Abweichung am Eigenkontrast der Zelle normieren, nicht die Schwelle senken.
+
+## Die Schwelle 45 (aus CLAUDE.md verschoben, 2026-09-23)
+
+Seit 2026-09-09 steht die Schwelle auf 45 statt 15. 15 war gegen den Rillen-Sensor geeicht, nicht
+gegen das Bild: sie verwarf 2 999 Zellen, die die Coverage nicht ohnehin maskiert, vier Fuenftel
+davon unter 35 und gewoehnliches Material. Ueber 45 waren 24 von 24 Stichproben Haende auf
+Feldern, die der FEN als Figur fuehrt. Der Lichtverlauf des Bretts (h3 bei 156, a7 bei 20 auf
+20-41-33) bewegt den Wert einer schwarzen Figur auf fast schwarzem Feld um ~1,5.

@@ -86,6 +86,8 @@ otherwise decide is the same one the labels are meant to train.
 | `20260813-134818/video.mp4` | game | fixed | yes | QHD Android training recording, mapped by `2026-08-13_1351.json`. Contains deliberate/accidental move-forward-and-back regions. The original pack admitted visible hands in frames 2736 and 4584 as `clean`; its denser experiment also admitted 2970. The fail-closed pack added 2026-08-13 exposes fresh CNN occlusion/conflict state and writes only warning-free boards to `accepted/`: the full-rate `every=6 stable=2` verification produced 142 accepted boards (9,088 crops), 30 quarantined boards and 1,179 unreviewed grid-hand proposals. None of 2736/2970/4584 entered `accepted/`. Review packs use the invalid class `unreviewed`, so they cannot silently enter training. |
 | `20260813-193423/video.mp4` | game | fixed | yes | QHD Android training recording, mapped by `2026-08-13_1941.json` (8 saved plies). Imported 2026-08-13: 11,532 frames at 27.97 fps; the default full-rate `every=8 stable=3` pack produced 35 nominally clean boards (2,240 crops) and 444 `occluded` crops. It excluded 901 sampled frames as `not_in_game`, so keep this pack outside the aggregate dataset until the clean-board review is complete. |
 | `VID_20260812_112853.mp4` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | turntable | no | Position from the preceding tracked game: `1. d4 d5 2. Nc3 Nf6 3. e4`. 1080p, 199 s. Kotlin `rectify` sampled 20/20 frames (every 300), none missed; mean worst square offset 1.75 px. Lens fit was rejected, so use the raw per-frame geometry path. |
+| `2026-09-19-15-50-28` | game | fixed | yes | 87 plies, phone recording, `test-v2`. No outside notation: `confirmed` rests on the user's statement that he set and validated every move at the board (`note` in `candidate.json`, via `ask`, not `--yes`); `retime` with a model that never saw it agrees 1,00. 1 156 rows, 642 `occluded` frames over both games. Reference numbers: `docs/regression-reference.md`. |
+| `2026-09-19-16-26-22` | game | fixed | yes | 59 plies, sibling of the above, same provenance. The far h8 marker flickers (38/100 detections), which made `LiveAlign` jump a corner and veto the back rank — 0/59 until the anchor fix `9cc951a3`, 55/4/0 since. |
 
 ## Gelöscht
 
@@ -245,7 +247,7 @@ quiet run (003957: 42 vs 67 — worse; 115912: 72 vs 61 — better). The label i
 
 ## `start_frame` DROPS leading frames, it does not seek
 
-Recorded from `scripts/replay_clip_cnn.py` before that file was deleted with the Python tracker
+Recorded from the Python clip replay before it was deleted with the Python tracker
 (`specs/52`). The clock never sees the dropped frames, so the replay is exactly the replay of a
 trimmed clip. It exists because `VID_20260802_222741` changes illumination **locally** over its
 first ~1 s — the a-file corner gains 32–38 % of its luma between frames 20 and 30 while h8 loses
