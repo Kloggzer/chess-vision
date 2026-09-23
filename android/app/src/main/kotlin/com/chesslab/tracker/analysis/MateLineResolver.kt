@@ -19,7 +19,8 @@ data class ResolvedMateLine(
 
 /** Extends the short PV stored by the review cache until it reaches an actual checkmate. */
 class MateLineResolver(
-    private val engineFactory: () -> UciEngine?,
+    private val engines: EngineService,
+    private val lane: EngineLane,
     private val budget: ReviewBudget = ReviewBudget(),
 ) {
     suspend fun resolve(
@@ -45,23 +46,17 @@ class MateLineResolver(
         board: Board,
         moves: MutableList<String>,
     ) {
-        val engine = engineFactory() ?: return
         val context = currentCoroutineContext()
-        try {
-            engine.start(budget.threads, budget.hashMb)
+        engines.lease(lane, budget.profile).use { lease ->
             repeat(MAX_EXTENSION_SEARCHES) {
-                currentCoroutineContext().ensureActive()
-                val best =
-                    runCatching { engine.analyse(board.fen, budget.capMs, budget.multiPv, budget.nodes) { !context.isActive } }
+                context.ensureActive()
+                val search =
+                    runCatching { lease.search(board.fen, budget.capMs, budget.multiPv, budget.nodes) { !context.isActive } }
                         .getOrNull()
-                        ?.firstOrNull()
-                        ?.takeIf { it.mate != null }
-                        ?: return
+                val best = (search as? EngineSearch.Found)?.lines?.firstOrNull()?.takeIf { it.mate != null } ?: return
                 val added = appendLegal(board, best.pv, moves)
                 if (board.isTerminal || added == 0 || moves.size >= MAX_LINE_PLIES) return
             }
-        } finally {
-            engine.close()
         }
     }
 }

@@ -17,7 +17,7 @@ private fun game() = reviewGameOf(SANS)
 /** specs/44: how many SEARCHES the reader waits through — the multiplier on the device's ~2.2 s
  *  per position (measured 2026-08-03), the only part that is not a property of today's phone. */
 class GameReviewerTest {
-    private fun reviewer() = GameReviewer({ UciEngine("fake") { ScriptedEngineProcess(engineScript(INFO)) } })
+    private fun reviewer() = GameReviewer(EngineService { UciEngine("fake") { ScriptedEngineProcess(engineScript(INFO)) } })
 
     /** The pass it replaced showed nothing until all eleven searches (84 on the real game) were done. */
     @Test
@@ -59,7 +59,7 @@ class GameReviewerTest {
         val started =
             runBlocking {
                 // A null factory: if this touches the engine at all, it returns false.
-                GameReviewer({ null }).review(game, seed = complete) { emissions++ }
+                GameReviewer(EngineService { null }).review(game, seed = complete) { emissions++ }
             }
         assertTrue(started)
         assertEquals(1, emissions, "one paint, straight from the store")
@@ -87,7 +87,7 @@ class GameReviewerTest {
         val mateInfo = listOf("info depth 30 multipv 1 score mate 3 pv e2e4")
         var startScore: Score? = null
         runBlocking {
-            GameReviewer({ UciEngine("fake") { ScriptedEngineProcess(engineScript(mateInfo)) } })
+            GameReviewer(EngineService { UciEngine("fake") { ScriptedEngineProcess(engineScript(mateInfo)) } })
                 .review(game(), focus = { 0 }) { scores -> startScore = scores.firstOrNull() ?: startScore }
         }
         assertEquals(3, startScore?.mate)
@@ -97,7 +97,7 @@ class GameReviewerTest {
     @Test
     fun aMissingEngineIsReportedRatherThanThrown() {
         var emissions = 0
-        val started = runBlocking { GameReviewer({ null }).review(game()) { emissions++ } }
+        val started = runBlocking { GameReviewer(EngineService { null }).review(game()) { emissions++ } }
         assertFalse(started)
         assertEquals(0, emissions)
     }
@@ -109,7 +109,7 @@ class GameReviewerTest {
 
         assertThrows(IOException::class.java) {
             runBlocking {
-                GameReviewer({ UciEngine("fake") { process } }).review(game()) { emissions++ }
+                GameReviewer(EngineService { UciEngine("fake") { process } }).review(game()) { emissions++ }
             }
         }
         assertEquals(0, emissions)

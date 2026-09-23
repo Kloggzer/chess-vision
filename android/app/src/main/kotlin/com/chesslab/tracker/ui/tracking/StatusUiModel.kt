@@ -2,6 +2,8 @@ package com.chesslab.tracker.ui.tracking
 
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.games.fenFullmove
+import com.chesslab.tracker.games.fenWhiteToMove
 
 /**
  * `TrackerStatus` -> what the screen shows, as a PURE function.
@@ -189,7 +191,7 @@ fun trackingUiState(
         state = label(feed, alarm, status),
         tone = tone(feed, alarm, status),
         turn = turnOf(status.fen),
-        moveNumber = moveNumberOf(status.fen),
+        moveNumber = fenFullmove(status.fen),
         infoLine =
             when (feed) {
                 Feed.LIVE -> infoLine(status)
@@ -280,22 +282,11 @@ private fun stateTone(state: String): StateTone =
 /** Already ranked by `StatusPublisher.resolveNote`; a second ranking here once hid the alarm. */
 private fun infoLine(status: TrackerStatus): String? = status.note
 
-/**
- * The two FEN fields a player reads: side to move and the move number.
- *
- * Split rather than parsed with a board — the FEN is the app's own output, two fields cost nothing
- * and cannot throw. Anything shorter than a real FEN's six fields yields nulls, and the screen then
- * shows neither half rather than a wrong one.
- */
+/** Split, not parsed with a board: two fields cost nothing and cannot throw. A short FEN yields
+ *  nulls, and the screen then shows neither half rather than a wrong one. */
 private fun turnOf(fen: String): Turn? =
-    when (fen.split(' ').getOrNull(FEN_SIDE)) {
-        "w" -> Turn.WHITE
-        "b" -> Turn.BLACK
-        else -> null
+    when (fenWhiteToMove(fen)) {
+        true -> Turn.WHITE
+        false -> Turn.BLACK
+        null -> null
     }
-
-private fun moveNumberOf(fen: String): Int? = fen.split(' ').getOrNull(FEN_FULLMOVE)?.toIntOrNull()
-
-private const val FEN_SIDE = 1
-
-private const val FEN_FULLMOVE = 5

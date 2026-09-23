@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.system.Os
 import android.util.Log
+import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.service.NOTIFICATION_CHANNEL_ID
 import com.chesslab.tracker.sync.scheduleSync
 import com.chesslab.tracker.sync.sweepEmptyRecordings
@@ -59,7 +60,7 @@ class ChesslabApp : Application() {
      */
     private fun sweepEmptySessions() {
         Thread {
-            val swept = sweepEmptyRecordings(File(filesDir, "sessions"), System.currentTimeMillis())
+            val swept = sweepEmptyRecordings(AppPaths(filesDir).sessions, System.currentTimeMillis())
             if (swept.isNotEmpty()) Log.i(TAG, "removed ${swept.size} moveless session(s): ${swept.joinToString()}")
         }.apply { name = "chesslabJanitor" }.start()
     }

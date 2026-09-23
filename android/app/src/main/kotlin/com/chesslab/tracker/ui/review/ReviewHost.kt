@@ -4,7 +4,7 @@ import android.content.Context
 import com.chesslab.tracker.analysis.OpeningBook
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameStore
-import com.chesslab.tracker.ui.analysis.stockfishEngineFactory
+import com.chesslab.tracker.ui.analysis.EngineServiceHost
 import com.chesslab.tracker.ui.games.gamesDir
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +60,7 @@ object ReviewHost {
         return ReviewViewModel(
             GameStore(dir),
             ReviewStore(dir),
-            stockfishEngineFactory(context),
+            EngineServiceHost.of(context),
             scope,
             openingBook = { openingBook.value },
         )

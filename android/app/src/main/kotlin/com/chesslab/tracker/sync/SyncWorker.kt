@@ -12,6 +12,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.chesslab.tracker.ui.games.gamesDir
+import com.chesslab.tracker.ui.games.sessionsDir
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
@@ -61,8 +63,8 @@ class SyncWorker(
         val prefs = settings.load()
         val run =
             SyncRun(
-                sessionsDir = sessionsDirOf(applicationContext),
-                gamesDir = gamesDirOf(applicationContext),
+                sessionsDir = sessionsDir(applicationContext),
+                gamesDir = gamesDir(applicationContext),
                 device = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                 clientFor = { token -> HttpIngestClient(token) },
                 ownAddress = { lanAddressOf(applicationContext) },
@@ -75,7 +77,7 @@ class SyncWorker(
         report.base?.let { settings.rememberHost(it) }
         // After the send, not at app start: the mark's own clock decides, and a run that just
         // sealed a recording is the moment the phone provably holds nothing the PC lacks.
-        val gone = sweepSentRecordings(sessionsDirOf(applicationContext), System.currentTimeMillis(), prefs.retentionDays * DAY_MS)
+        val gone = sweepSentRecordings(sessionsDir(applicationContext), System.currentTimeMillis(), prefs.retentionDays * DAY_MS)
         if (gone.isNotEmpty()) Log.i(TAG, "removed ${gone.size} sent recording(s) after ${prefs.retentionDays} d: ${gone.joinToString()}")
         // A failure RETRIES rather than disappearing: the usual cause is the Wi-Fi going away
         // mid-transfer, and the resume costs only what is still missing.

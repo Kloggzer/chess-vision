@@ -3,6 +3,7 @@ package com.chesslab.tracker.ui.games
 import android.content.Context
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.record.RecordingSettings
+import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +38,6 @@ object RecordingSettingsHost {
         instance ?: RecordingSettings(DataStoreConfigStore(context.applicationContext)).also { instance = it }
 }
 
-fun gamesDir(context: Context): File = File(context.filesDir, "games")
+fun gamesDir(context: Context): File = AppPaths(context.filesDir).games
 
-fun sessionsDir(context: Context): File = File(context.filesDir, "sessions")
+fun sessionsDir(context: Context): File = AppPaths(context.filesDir).sessions

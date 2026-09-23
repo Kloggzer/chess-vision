@@ -23,8 +23,8 @@ private const val NS_PER_MS = 1_000_000L
  * A Stockfish process speaking UCI over stdin/stdout.
  *
  * Pure JVM (`java.lang.Process`), Android-free and fakeable through [processFactory] — the one
- * part of the legacy engine that was the right shape. Every call blocks: the analyzer runs it on
- * its own lowest-priority thread and nothing else may share this object.
+ * part of the legacy engine that was the right shape. Every call blocks, and only [EngineService]
+ * holds one: it serialises every consumer under its lane lock.
  */
 class UciEngine(
     private val enginePath: String,

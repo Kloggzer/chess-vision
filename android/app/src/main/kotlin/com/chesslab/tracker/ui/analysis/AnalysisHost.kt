@@ -15,6 +15,7 @@ import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.analysis.AnalysisSettings
 import com.chesslab.tracker.analysis.AnalysisSettingsHost
 import com.chesslab.tracker.analysis.AnalysisState
+import com.chesslab.tracker.analysis.EngineService
 import com.chesslab.tracker.analysis.GateBlock
 import com.chesslab.tracker.analysis.GateInputs
 import com.chesslab.tracker.analysis.RollingMedian
@@ -56,6 +57,7 @@ interface PowerProbe {
  */
 class AnalysisHost(
     private val analyzer: StockfishAnalyzer,
+    val engines: EngineService,
     private val probe: PowerProbe,
     private val scope: CoroutineScope,
     private val now: () -> Long = System::currentTimeMillis,
@@ -118,6 +120,7 @@ class AnalysisHost(
         val wanted = AnalysisSettingsHost.settings.value.let { if (demand()) it.copy(enabled = true) else it }
         val blocked = gateBlock(inputs, wanted)
         blockFlow.value = blocked
+        engines.updateGate(blocked)
         if (blocked == null) analyzer.start(scope) else analyzer.stop()
     }
 }
@@ -150,16 +153,18 @@ class AndroidPowerProbe(
     private fun batteryIntent(): Intent? = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
 }
 
-/**
- * A fresh engine process, or null when no binary shipped for this ABI.
- *
- * The one place the binary is located. Both consumers — the live eval bar and the review pass —
- * must self-disable on the same condition, and a second `File(nativeLibraryDir, …)` elsewhere is a
- * second answer to "is analysis available here".
- */
-fun stockfishEngineFactory(context: Context): () -> UciEngine? {
-    val path = File(context.applicationInfo.nativeLibraryDir, ENGINE_BINARY)
-    return { if (path.canExecute()) UciEngine(path.absolutePath) else null }
+/** The one place the binary is located, and the one [EngineService] of the process: the eval bar,
+ *  the hint and the review must self-disable on the same answer and never race two processes. */
+object EngineServiceHost {
+    private var instance: EngineService? = null
+
+    @Synchronized
+    fun of(context: Context): EngineService = instance ?: build(context.applicationContext).also { instance = it }
+
+    private fun build(context: Context): EngineService {
+        val path = File(context.applicationInfo.nativeLibraryDir, ENGINE_BINARY)
+        return EngineService { if (path.canExecute()) UciEngine(path.absolutePath) else null }
+    }
 }
 
 /**
@@ -170,6 +175,7 @@ fun stockfishEngineFactory(context: Context): () -> UciEngine? {
 fun rememberAnalysisHost(demand: () -> Boolean = { false }): AnalysisHost {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
+    val engines = remember(context) { EngineServiceHost.of(context) }
     // Ueber `rememberUpdatedState`: `remember` haelt die ERSTE Lambda-Instanz fest, und die
     // naechste Zusammensetzung reicht eine neue herein, die der Host sonst nie sieht.
     val wanted by rememberUpdatedState(demand)
@@ -183,9 +189,10 @@ fun rememberAnalysisHost(demand: () -> Boolean = { false }): AnalysisHost {
                             ?.value
                             ?.fen
                     },
-                    engineFactory = stockfishEngineFactory(context),
+                    engines = engines,
                     options = { AnalysisSettingsHost.settings.value.options },
                 ),
+            engines = engines,
             probe = AndroidPowerProbe(context),
             scope = scope,
             demand = { wanted() },

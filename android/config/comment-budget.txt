@@ -60,7 +60,7 @@ app/src/main/kotlin/com/chesslab/tracker/speech/UtteranceQueue.kt 1
 app/src/main/kotlin/com/chesslab/tracker/sync/SyncHost.kt 1
 app/src/main/kotlin/com/chesslab/tracker/sync/SyncWorker.kt 2
 app/src/main/kotlin/com/chesslab/tracker/ui/analysis/AnalysisControls.kt 1
-app/src/main/kotlin/com/chesslab/tracker/ui/analysis/AnalysisHost.kt 2
+app/src/main/kotlin/com/chesslab/tracker/ui/analysis/AnalysisHost.kt 1
 app/src/main/kotlin/com/chesslab/tracker/ui/analysis/AnalysisPanel.kt 1
 app/src/main/kotlin/com/chesslab/tracker/ui/analysis/EvalBar.kt 4
 app/src/main/kotlin/com/chesslab/tracker/ui/calibration/CalibrationHost.kt 4
@@ -120,7 +120,7 @@ app/src/main/kotlin/com/chesslab/tracker/ui/tracking/BoardCanvas.kt 2
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/BoardPreview.kt 4
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/LastMoves.kt 1
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/ScreenBlackout.kt 1
-app/src/main/kotlin/com/chesslab/tracker/ui/tracking/StatusUiModel.kt 11
+app/src/main/kotlin/com/chesslab/tracker/ui/tracking/StatusUiModel.kt 10
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackerSession.kt 6
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackingScreen.kt 13
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackingSwitch.kt 1

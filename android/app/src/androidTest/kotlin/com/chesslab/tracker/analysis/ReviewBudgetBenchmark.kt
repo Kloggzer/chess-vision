@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.reviewView
-import com.chesslab.tracker.ui.analysis.stockfishEngineFactory
+import com.chesslab.tracker.ui.analysis.EngineServiceHost
 import com.chesslab.tracker.ui.games.gamesDir
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
@@ -43,7 +43,7 @@ class ReviewBudgetBenchmark {
         var searches = 0
         var final: GameGrade? = null
         runBlocking {
-            GameReviewer(stockfishEngineFactory(context), budget).review(game, focus = { focus }) { scores ->
+            GameReviewer(EngineServiceHost.of(context), budget).review(game, focus = { focus }) { scores ->
                 searches++
                 val graded = grade(game, scores, budget)
                 if (firstGrade == 0L && graded.byPly.isNotEmpty()) {

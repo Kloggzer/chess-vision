@@ -42,7 +42,9 @@ data class ReviewBudget(
      * Settable only so `ReviewDepthMeasurement` can reproduce the live bar exactly.
      */
     val multiPv: Int = 1,
-)
+) {
+    val profile: EngineProfile get() = EngineProfile(threads, hashMb)
+}
 
 /**
  * One graded ply, in the unit the screen speaks: win expectancy for the side that moved. There is no
@@ -158,7 +160,7 @@ data class GameGrade(
  * measured 25 of 84 positions in 55 s and showed nothing until done (`docs/game-review.md`).
  */
 class GameReviewer(
-    private val engineFactory: () -> UciEngine?,
+    private val engines: EngineService,
     private val budget: ReviewBudget = ReviewBudget(),
 ) {
     /**
@@ -179,28 +181,18 @@ class GameReviewer(
             onScored(scores)
             return true
         }
-        val engine = engineFactory() ?: return false
-        try {
-            engine.start(budget.threads, budget.hashMb)
+        engines.lease(EngineLane.REVIEW, budget.profile).use { lease ->
             while (true) {
                 val context = currentCoroutineContext()
                 context.ensureActive()
                 val next = nextIndex(scores, focus()) ?: break
-                scores[next] = scoreOf(engine, positions[next]) { !context.isActive }
+                scores[next] = analyseReviewPosition(lease, positions[next], budget) { !context.isActive } ?: return false
                 context.ensureActive()
                 onScored(scores.toList())
             }
-        } finally {
-            engine.close()
         }
         return true
     }
-
-    private fun scoreOf(
-        engine: UciEngine,
-        fen: String,
-        cancelled: () -> Boolean,
-    ): Score = analyseReviewPosition(engine, fen, budget, cancelled)
 }
 
 /**

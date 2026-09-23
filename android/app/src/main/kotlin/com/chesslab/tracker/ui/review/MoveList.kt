@@ -317,6 +317,10 @@ private fun HorizontalPositionBackground(winWhite: Double?) {
     }
 }
 
+/** "4." for White's 7th ply, "4…" for Black's 8th — the score sheet's numbering, once. PGN keeps its
+ *  own ASCII "..." (`PgnBuilder`), and so does [openingTheoryLabel]. */
+internal fun moveNumberLabel(ply: Int): String = "${(ply + 1) / 2}${if (ply % 2 == 1) "." else "…"}"
+
 /**
  * The position after the row's last ply, as WHITE's win expectancy — the same quantity the bar
  * behind it draws and the same one the `−10%` beside the SAN is a delta of.

@@ -1,5 +1,6 @@
 package com.chesslab.tracker.ui.review
 
+import com.chesslab.tracker.analysis.EngineService
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.analysis.ScriptedEngineProcess
@@ -50,7 +51,7 @@ class ReviewViewModelTest {
                     script(command)
                 }
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            val model = ReviewViewModel(gameStore, reviews, { UciEngine("fake") { process } }, scope)
+            val model = ReviewViewModel(gameStore, reviews, EngineService { UciEngine("fake") { process } }, scope)
 
             model.load("a")
             await {

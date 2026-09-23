@@ -43,6 +43,10 @@ class ReviewUiModelTest {
             "4… Nf6",
             openingMoveLabel(OpeningSummary("C60", "Ruy Lopez", 5, false, listOf("a6", "Ba4", "Nf6")), 2),
         )
+        assertEquals(
+            "4. Ba4",
+            openingMoveLabel(OpeningSummary("C60", "Ruy Lopez", 5, false, listOf("a6", "Ba4", "Nf6")), 1),
+        )
     }
 
     @Test

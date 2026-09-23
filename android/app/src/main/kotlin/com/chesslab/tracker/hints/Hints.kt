@@ -2,6 +2,7 @@ package com.chesslab.tracker.hints
 
 import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.analysis.GateBlock
+import com.chesslab.tracker.games.fenWhiteToMove
 import kotlin.math.abs
 
 /** Wie viele Tipps eine Partie hergibt. Das Kontingent gilt pro PARTIE und nicht pro Phase
@@ -82,10 +83,10 @@ data class HintUiState(
 
 /** Die Seite am Zug, aus dem FEN. `null`, wenn er nicht lesbar ist. */
 fun sideToMove(fen: String): HintSide? =
-    when (fen.split(' ').getOrNull(1)) {
-        "w" -> HintSide.WHITE
-        "b" -> HintSide.BLACK
-        else -> null
+    when (fenWhiteToMove(fen)) {
+        true -> HintSide.WHITE
+        false -> HintSide.BLACK
+        null -> null
     }
 
 /** Die Mattdistanz aus Sicht von [side], sonst `null`. `AnalysisLine.mate` liegt aus WEISSSICHT

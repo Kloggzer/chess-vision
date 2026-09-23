@@ -1,8 +1,7 @@
 package com.chesslab.tracker.record
 
 import com.chesslab.tracker.settings.ConfigStore
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import com.chesslab.tracker.settings.JsonPrefs
 import kotlinx.serialization.json.Json
 
 /** Its own slot in 06c's store — recording is not a tracker knob and must never reach the engine. */
@@ -18,21 +17,5 @@ private val JSON = Json { ignoreUnknownKeys = true }
  * storage with unlabeled frames.
  */
 class RecordingSettings(
-    private val store: ConfigStore,
-) {
-    private val cache = MutableStateFlow(RecordingPrefs())
-
-    /** Read synchronously by the capture path; the toggle in the UI writes through [save]. */
-    val prefs: StateFlow<RecordingPrefs> = cache
-
-    suspend fun load(): RecordingPrefs {
-        val text = store.read(SLOT_RECORDING)
-        val loaded = text?.let { runCatching { JSON.decodeFromString(RecordingPrefs.serializer(), it) }.getOrNull() }
-        return (loaded ?: RecordingPrefs()).also { cache.value = it }
-    }
-
-    suspend fun save(prefs: RecordingPrefs) {
-        cache.value = prefs
-        store.write(SLOT_RECORDING, JSON.encodeToString(RecordingPrefs.serializer(), prefs))
-    }
-}
+    store: ConfigStore,
+) : JsonPrefs<RecordingPrefs>(store, SLOT_RECORDING, RecordingPrefs.serializer(), RecordingPrefs(), JSON)

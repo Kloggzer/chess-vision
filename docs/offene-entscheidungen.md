@@ -344,8 +344,8 @@ werden nicht durchgereicht.
 
 ## 46. Ein Gate fuer drei Stockfish-Besitzer? — Live ja, Review bewusst nicht (2026-09-23)
 
-Tipp-Pfad gebaut: `gatedLineResolver` bricht die Mattlinie ab, sobald `analysis.block` zuschlaegt
-(`HintLineGateTest`). Das Review laeuft laut `docs/game-review.md` bewusst neben dem Tracker.
+Seit 2026-09-23 gibt es EINEN `EngineService` mit zwei Spuren (LIVE: Leiste + Tipp, REVIEW); das
+Gate sitzt im Service und sperrt die LIVE-Spur (`EngineServiceTest`, `HintLineGateTest`). Das Review laeuft laut `docs/game-review.md` bewusst neben dem Tracker.
 **Offen:** soll es pausieren, wenn der Tracker unter 15 fps faellt oder das Geraet drosselt? Dann
 ein Lease, das `ReviewHost` und `AnalysisHost` teilen.
 

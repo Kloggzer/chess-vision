@@ -142,6 +142,4 @@ fun moveRows(
 }
 
 /** The full-move number a position starts on — FEN field 5, the same one `PgnBuilder` reads. */
-fun startNumber(fen: String): Int = fen.split(" ").getOrNull(FEN_FULLMOVE)?.toIntOrNull() ?: 1
-
-private const val FEN_FULLMOVE = 5
+fun startNumber(fen: String): Int = fenFullmove(fen) ?: 1

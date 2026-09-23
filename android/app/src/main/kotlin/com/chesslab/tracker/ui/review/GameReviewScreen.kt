@@ -1199,8 +1199,8 @@ internal fun reviewPositionLabel(
 ): String =
     when {
         selected == 0 -> "Start"
-        selected % 2 == 1 -> "${(selected + 1) / 2}. White · $selected/$plies"
-        else -> "${selected / 2}… Black · $selected/$plies"
+        selected % 2 == 1 -> "${moveNumberLabel(selected)} White · $selected/$plies"
+        else -> "${moveNumberLabel(selected)} Black · $selected/$plies"
     }
 
 /**

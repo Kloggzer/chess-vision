@@ -79,7 +79,7 @@ sealed interface AnalysisState {
  */
 class StockfishAnalyzer(
     private val fenProvider: () -> String?,
-    private val engineFactory: () -> UciEngine?,
+    private val engines: EngineService,
     private val options: () -> AnalysisOptions = { AnalysisOptions() },
     private val dispatcher: CoroutineDispatcher = analysisDispatcher(),
     private val lowerPriority: () -> Unit = { Process.setThreadPriority(Process.THREAD_PRIORITY_LOWEST) },
@@ -92,7 +92,6 @@ class StockfishAnalyzer(
     val result: StateFlow<AnalysisResult?> = resultFlow.asStateFlow()
 
     private var job: Job? = null
-    private var engine: UciEngine? = null
 
     fun start(scope: CoroutineScope) {
         if (job != null || stateFlow.value == AnalysisState.Unavailable) return
@@ -100,7 +99,7 @@ class StockfishAnalyzer(
         job = scope.launch(dispatcher) { loop() }
     }
 
-    /** Cancels the loop; the engine process is closed by the loop's own `finally`, on its thread. */
+    /** Cancels the loop; its lease is returned by the loop's own `use`, on its thread. */
     fun stop() {
         job?.cancel()
         job = null
@@ -110,40 +109,52 @@ class StockfishAnalyzer(
     private suspend fun loop() {
         lowerPriority()
         var lastFen: String? = null
-        try {
+        val profile = options().let { EngineProfile(it.threads, it.hashMb) }
+        engines.lease(EngineLane.LIVE, profile).use { lease ->
             while (currentCoroutineContext().isActive) {
                 val fen = runCatching { fenProvider() }.getOrNull()
                 if (fen.isNullOrBlank() || fen == lastFen) {
                     delay(POLL_MS)
                     continue
                 }
-                val analysed = runCatching { analyse(fen) }
+                val analysed = runCatching { analyse(lease, fen) }
                 analysed.getOrNull()?.let {
                     resultFlow.value = it
                     lastFen = fen
                 }
                 analysed.exceptionOrNull()?.let { recover(it) }
                 if (stateFlow.value == AnalysisState.Unavailable) return
+                if (analysed.isSuccess && analysed.getOrNull() == null) delay(POLL_MS)
             }
-        } finally {
-            closeEngine()
         }
     }
 
-    /** One bad analysis must not kill the loop; a wedged engine is dropped so the next tick relaunches. */
+    /** One bad analysis must not kill the loop; the service already dropped the wedged process. */
     private suspend fun recover(cause: Throwable) {
         warn("stockfish analysis failed: $cause")
-        closeEngine()
         delay(RETRY_MS)
     }
 
-    private fun analyse(fen: String): AnalysisResult {
+    /** `null` when the gate refused the search or no binary shipped — never a fake score. */
+    private fun analyse(
+        lease: EngineLease,
+        fen: String,
+    ): AnalysisResult? {
         // A fresh board per FEN — never a shared mutable one (`analysis.py`: "no shared mutation").
         val board = Board().apply { loadFromFen(fen) }
         val whiteToMove = board.sideToMove == Side.WHITE
         if (board.isMated || board.isStaleMate || board.isDraw) return gameOverResult(fen)
         val settings = options()
-        val raw = ensureEngine().analyse(fen, settings.movetimeMs, settings.multiPv)
+        val raw =
+            when (val search = lease.search(fen, settings.movetimeMs, settings.multiPv)) {
+                is EngineSearch.Found -> search.lines
+                EngineSearch.Blocked -> return null
+                EngineSearch.Unavailable -> {
+                    stateFlow.value = AnalysisState.Unavailable
+                    warn("stockfish unavailable: no binary for this ABI")
+                    return null
+                }
+            }
         val lines =
             raw
                 .map { it.toWhitePov(whiteToMove) }
@@ -158,31 +169,6 @@ class StockfishAnalyzer(
             lines = lines,
             depth = raw.firstOrNull()?.depth ?: 0,
         )
-    }
-
-    private fun ensureEngine(): UciEngine {
-        engine?.let { return it }
-        val fresh = engineFactory()
-        if (fresh == null) {
-            stateFlow.value = AnalysisState.Unavailable
-            error("no stockfish binary")
-        }
-        val settings = options()
-        // Der Prozess laeuft ab `start`, die Zuweisung kommt danach: warf der Handshake, hielt ihn
-        // niemand mehr und `closeEngine` fand nichts — `recover` startete alle 500 ms den naechsten.
-        runCatching { fresh.start(settings.threads, settings.hashMb) }
-            .onFailure { failure ->
-                runCatching { fresh.close() }
-                throw failure
-            }
-        engine = fresh
-        return fresh
-    }
-
-    private fun closeEngine() {
-        val open = engine ?: return
-        engine = null
-        runCatching { open.close() }
     }
 }
 

@@ -1,8 +1,7 @@
 package com.chesslab.tracker.sync
 
 import com.chesslab.tracker.settings.ConfigStore
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import com.chesslab.tracker.settings.JsonPrefs
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -41,29 +40,14 @@ data class SyncPrefs(
 }
 
 class SyncSettings(
-    private val store: ConfigStore,
-) {
-    private val cache = MutableStateFlow(SyncPrefs())
-
-    val prefs: StateFlow<SyncPrefs> = cache
-
-    suspend fun load(): SyncPrefs {
-        val text = store.read(SLOT_SYNC)
-        val loaded = text?.let { runCatching { JSON.decodeFromString(SyncPrefs.serializer(), it) }.getOrNull() }
-        return (loaded ?: SyncPrefs()).also { cache.value = it }
-    }
-
-    suspend fun save(prefs: SyncPrefs) {
-        cache.value = prefs
-        store.write(SLOT_SYNC, JSON.encodeToString(SyncPrefs.serializer(), prefs))
-    }
-
+    store: ConfigStore,
+) : JsonPrefs<SyncPrefs>(store, SLOT_SYNC, SyncPrefs.serializer(), SyncPrefs(), JSON) {
     /**
      * Remember the address that answered. Written by the worker after a successful transfer, so the
      * next run skips the scan — a DHCP lease that moved simply costs one scan again.
      */
     suspend fun rememberHost(base: String) {
-        val current = cache.value
+        val current = prefs.value
         if (current.lastHost != base) save(current.copy(lastHost = base))
     }
 }

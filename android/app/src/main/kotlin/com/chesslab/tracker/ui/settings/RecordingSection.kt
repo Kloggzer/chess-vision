@@ -83,17 +83,7 @@ class RecordingViewModel(
     private val mutable = MutableStateFlow(RecordingUi())
     val ui: StateFlow<RecordingUi> = mutable
 
-    fun refresh() =
-        io {
-            val list = sessions.list()
-            mutable.value =
-                RecordingUi(
-                    settings.load(),
-                    list,
-                    sessions.totalBytes(),
-                    list.filter { readMark(sessions.dir(it.id)) != null }.map { it.id }.toSet(),
-                )
-        }
+    fun refresh() = io { mutable.value = onDisk(RecordingUi(settings.load())) }
 
     /** `save` hands the value to the capture path before it writes, so the switch follows that. */
     fun setPrefs(prefs: RecordingPrefs) =
@@ -109,17 +99,16 @@ class RecordingViewModel(
     fun deleteSession(id: String) =
         io {
             val deleted = sessions.delete(id)
-            val list = sessions.list()
-            mutable.value =
-                mutable.value.copy(
-                    sessions = list,
-                    sessionBytes = sessions.totalBytes(),
-                    transferred = list.filter { readMark(sessions.dir(it.id)) != null }.map { it.id }.toSet(),
-                    error = if (deleted) null else "$id could not be deleted completely",
-                )
+            mutable.value = onDisk(mutable.value).copy(error = if (deleted) null else "$id could not be deleted completely")
         }
 
     fun sessionDir(id: String): File = sessions.dir(id)
+
+    private fun onDisk(base: RecordingUi): RecordingUi {
+        val list = sessions.list()
+        val transferred = list.filter { readMark(sessions.dir(it.id)) != null }.map { it.id }.toSet()
+        return base.copy(sessions = list, sessionBytes = sessions.totalBytes(), transferred = transferred)
+    }
 
     private fun io(block: suspend () -> Unit) {
         scope.launch(context) {

@@ -20,7 +20,8 @@ class MateLineResolverTest {
                 )
             val resolver =
                 MateLineResolver(
-                    engineFactory = { UciEngine("fake") { process } },
+                    engines = EngineService { UciEngine("fake") { process } },
+                    lane = EngineLane.REVIEW,
                     budget = ReviewBudget(nodes = 1, capMs = 50, threads = 1, hashMb = 1),
                 )
 
@@ -34,5 +35,17 @@ class MateLineResolverTest {
             assertEquals("h5f7", result.uciLine.last())
             assertTrue(result.sanLine.last().endsWith("#"))
             assertEquals(7, result.uciLine.size)
+        }
+
+    @Test
+    fun aHandshakeThatFailsKeepsTheSeedInsteadOfThrowing() =
+        runTest {
+            val mute = ScriptedEngineProcess(engineScript(emptyList())).apply { dieOn = "uci" }
+            val resolver = MateLineResolver(EngineService { UciEngine("fake") { mute } }, EngineLane.LIVE)
+
+            val result = resolver.resolve(START_FEN, listOf("e2e4"))
+
+            assertEquals(listOf("e2e4"), result.uciLine)
+            assertEquals(false, result.complete)
         }
 }

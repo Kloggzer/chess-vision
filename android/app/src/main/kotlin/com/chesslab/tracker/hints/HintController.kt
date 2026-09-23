@@ -109,7 +109,7 @@ class HintController(
         }
 
     /** Die Rangordnung von `gateBlock` bleibt, wie sie ist: ein Tipp kehrt sie nicht um, er bekommt
-     *  eine Absage, und die laufende Mattlinie bricht ab (`gatedLineResolver`). */
+     *  eine Absage, und die laufende Mattlinie bricht ab (`EngineService`, Spur LIVE). */
     private fun fault(
         moment: HintMoment,
         side: HintSide,

@@ -1,5 +1,7 @@
 package com.chesslab.tracker.ui.review
 
+import com.chesslab.tracker.analysis.EngineLane
+import com.chesslab.tracker.analysis.EngineService
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.GameReviewer
 import com.chesslab.tracker.analysis.MateLineResolver
@@ -9,7 +11,6 @@ import com.chesslab.tracker.analysis.PositionLibraryWarmer
 import com.chesslab.tracker.analysis.ResolvedMateLine
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.ReviewStore
-import com.chesslab.tracker.analysis.UciEngine
 import com.chesslab.tracker.analysis.grade
 import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameStore
@@ -54,7 +55,7 @@ data class ReviewUi(
 class ReviewViewModel(
     private val store: GameStore,
     private val reviews: ReviewStore,
-    private val engineFactory: () -> UciEngine?,
+    private val engines: EngineService,
     private val scope: CoroutineScope,
     private val budget: ReviewBudget = ReviewBudget(),
     private val openingBook: () -> OpeningBook = { OpeningBook.EMPTY },
@@ -152,7 +153,7 @@ class ReviewViewModel(
     ): ResolvedMateLine =
         withContext(Dispatchers.IO) {
             reviews.loadMateLine(startFen, budget)?.let { return@withContext it }
-            MateLineResolver(engineFactory, budget).resolve(startFen, seed).also { resolved ->
+            MateLineResolver(engines, EngineLane.REVIEW, budget).resolve(startFen, seed).also { resolved ->
                 reviews.saveMateLine(startFen, budget, resolved)
             }
         }
@@ -180,7 +181,7 @@ class ReviewViewModel(
                     val seed = if (fresh) emptyList() else reviews.loadCached(game.id, budget, positions).orEmpty()
                     val persisted = BooleanArray(positions.size) { seed.getOrNull(it) != null }
                     val started =
-                        GameReviewer(engineFactory, budget).review(game, seed, { focus }) onScored@{ scores ->
+                        GameReviewer(engines, budget).review(game, seed, { focus }) onScored@{ scores ->
                             if (!owns(token, game.id)) return@onScored
                             scores.forEachIndexed { index, score ->
                                 if (score != null && !persisted[index]) {
@@ -272,7 +273,7 @@ class ReviewViewModel(
                 libraryTotal = missing.size,
             )
         try {
-            PositionLibraryWarmer(engineFactory, reviews, budget).warm(missing) { done, total ->
+            PositionLibraryWarmer(engines, reviews, budget).warm(missing) { done, total ->
                 if (owns(token, game.id)) {
                     mutable.value = mutable.value.copy(libraryCached = done, libraryTotal = total)
                 }

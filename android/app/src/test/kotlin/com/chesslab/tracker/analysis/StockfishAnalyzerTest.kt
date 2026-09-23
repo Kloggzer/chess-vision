@@ -35,7 +35,7 @@ class StockfishAnalyzerTest {
         engines: () -> UciEngine?,
     ) = StockfishAnalyzer(
         fenProvider = fens,
-        engineFactory = engines,
+        engines = EngineService(engines),
         dispatcher = StandardTestDispatcher(scheduler),
         lowerPriority = {},
         warn = { warnings += it },
@@ -233,7 +233,7 @@ class StockfishAnalyzerTest {
         val subject =
             StockfishAnalyzer(
                 fenProvider = { null },
-                engineFactory = { null },
+                engines = EngineService { null },
                 lowerPriority = {
                     seen[0] = Thread.currentThread().name
                     latch.countDown()

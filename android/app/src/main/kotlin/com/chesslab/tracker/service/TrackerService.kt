@@ -87,7 +87,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.io.File
 
 private const val PREVIEW_MAX_SIDE = 640
 private const val TAG = "chesslabTracker"
@@ -483,7 +482,7 @@ class TrackerService :
         cnnProbe.crop = { cropLine(modelSpec, geometry) }
         // 08a's recorder, in the SESSION half: it must outlive both the UI and a tracker restart.
         recordingSettings = RecordingSettingsHost.get(this)
-        recording = RecordingBundleHost(camera, recordingSettings, File(filesDir, "sessions"), lifecycleScope)
+        recording = RecordingBundleHost(camera, recordingSettings, AppPaths(filesDir).sessions, lifecycleScope)
         // `settings.json` beside the recording: the config and model the session ACTUALLY ran.
         // 2026-08-13-19-34-23 could not answer "was handTolerantCells on?" — the phone wrote
         // neither its TrackerConfig nor its model choice anywhere (TODO 2026-08-14).
@@ -533,7 +532,7 @@ class TrackerService :
         CaptureRecorderHost.publish(
             LiveCaptureRecorder(
                 LiveCaptureSource(frames::latestCalibrationFrame, { publisher.status.value?.corners }, { null }),
-                SessionStore(File(filesDir, "sessions")),
+                SessionStore(AppPaths(filesDir).sessions),
                 captureProfile::value,
                 recording,
                 camera,

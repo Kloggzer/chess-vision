@@ -42,7 +42,7 @@ class ReviewDepthMeasurementTest {
     ): GameGrade =
         runBlocking {
             var last: List<Score?> = emptyList()
-            val started = GameReviewer({ UciEngine(enginePath) }, budget).review(game) { last = it }
+            val started = GameReviewer(EngineService { UciEngine(enginePath) }, budget).review(game) { last = it }
             if (!started) error("the engine produced no grade")
             grade(game, last, budget)
         }

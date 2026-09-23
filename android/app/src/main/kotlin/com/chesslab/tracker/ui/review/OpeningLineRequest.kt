@@ -110,12 +110,7 @@ internal fun openingContinuationLabel(opening: OpeningSummary): String? {
     return opening.continuation
         .mapIndexed { index, san ->
             val ply = opening.theoryPlies + index + 1
-            val move = (ply + 1) / 2
-            when {
-                ply % 2 == 1 -> "$move. $san"
-                index == 0 -> "$move… $san"
-                else -> san
-            }
+            if (ply % 2 == 1 || index == 0) "${moveNumberLabel(ply)} $san" else san
         }.joinToString(" ")
 }
 
@@ -125,9 +120,7 @@ internal fun openingMoveLabel(
     continuationIndex: Int,
 ): String {
     val ply = opening.theoryPlies + continuationIndex + 1
-    val move = (ply + 1) / 2
-    val suffix = if (ply % 2 == 1) "." else "…"
-    return "$move$suffix ${opening.continuation[continuationIndex]}"
+    return "${moveNumberLabel(ply)} ${opening.continuation[continuationIndex]}"
 }
 
 private fun openingStepCaption(

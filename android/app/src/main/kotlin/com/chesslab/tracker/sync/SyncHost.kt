@@ -7,7 +7,6 @@ import android.net.NetworkCapabilities
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.io.File
 import java.net.Inet4Address
 
 /**
@@ -38,10 +37,6 @@ object SyncHost {
         busy.value = text
     }
 }
-
-fun sessionsDirOf(context: Context): File = File(context.filesDir, "sessions")
-
-fun gamesDirOf(context: Context): File = File(context.filesDir, "games")
 
 /**
  * The phone's own address on the Wi-Fi, and how wide that network is.

@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import com.chesslab.tracker.games.fenWhiteToMove
 import com.chesslab.tracker.ui.theme.BoardDark
 import com.chesslab.tracker.ui.theme.PieceBlack
 import com.chesslab.tracker.ui.theme.PieceWhite
@@ -27,7 +28,7 @@ private val PROMOTION_CHOICES = listOf('q', 'r', 'b', 'n')
 private val PIECE_BUTTON = 76.dp
 
 /** `w` in the FEN's side-to-move field — the promoting side, so the buttons show its colour. */
-internal fun whiteToMove(fen: String): Boolean = fen.split(' ').getOrNull(1) != "b"
+internal fun whiteToMove(fen: String): Boolean = fenWhiteToMove(fen) != false
 
 /** Filled glyphs throughout — the button's content colour carries the side, not the glyph outline. */
 private fun glyphOf(piece: Char): String =
