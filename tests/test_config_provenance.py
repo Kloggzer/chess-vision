@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-SRC = Path("src/chesslab/training/train.py").read_text(encoding="utf-8")
+SRC = Path("src/chesslab/training/train_recipe.py").read_text(encoding="utf-8")
 
 #: Jeder Regler, der das Ergebnis aendert, gehoert in die config. Waechst mit jedem neuen Flag.
 REQUIRED = (

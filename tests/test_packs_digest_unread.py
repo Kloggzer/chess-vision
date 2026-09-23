@@ -6,6 +6,7 @@ import json
 import pytest
 
 from chesslab import config
+from chesslab.training import pack_session
 from chesslab.training import packs as packs_mod
 from conftest import write_jsonl
 
@@ -18,7 +19,7 @@ def _pack(paths: config.Paths, name: str, n: int):
     rows = [{"path": f"mm://{name}/f{i:03d}/e4.png", "label": "empty",
              "out_size": [CROP, CROP], "session_id": name} for i in range(n)]
     write_jsonl(d / "manifest.jsonl", rows)
-    packs_mod.write_meta(d, rows, CROP, CROP)
+    pack_session.write_meta(d, rows, CROP, CROP)
     with open(d / "packed_images.u8", "wb") as fh:
         fh.truncate(n * CROP * CROP * 3)
     return d, rows

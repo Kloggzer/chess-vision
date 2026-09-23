@@ -13,7 +13,7 @@ from PIL import Image  # noqa: E402
 from torchvision.transforms.functional import to_pil_image, to_tensor  # noqa: E402
 
 from chesslab.training import gradcam  # noqa: E402
-from chesslab.training.pack import load_packed  # noqa: E402
+from chesslab.training.packs import load_packed  # noqa: E402
 from chesslab.training.torch_data import _Clahe, eval_transform_for  # noqa: E402
 from conftest import write_jsonl  # noqa: E402
 
@@ -24,7 +24,7 @@ PARAMS = {"clip": 2.0, "tile": 8, "min_mean": 0.0, "max_mean": 255.0, "denoise":
 
 def _baked_pair(paths):
     """`src` mit gueltigem Digest, daraus der gebackene Zwilling `dst`."""
-    from chesslab.training import pack as pack_mod
+    from chesslab.training import packs as pack_mod
     from chesslab.training.pack_bake import bake_pack
     from test_pack_bake import _crop
 
@@ -69,8 +69,8 @@ def test_reliance_on_a_baked_pack_does_not_compute_clahe_a_second_time(paths, mo
     cfg = _run_cfg(params, "dst")
     model = _Seen()
     monkeypatch.setattr("chesslab.training.evaluate.load_run", lambda _d: (model, dict(cfg)))
-    monkeypatch.setattr("chesslab.training.data.load_manifest", lambda _p: rows)
-    monkeypatch.setattr("chesslab.training.data.load_split", lambda _p: {"splits": {"test": ["s"]}})
+    monkeypatch.setattr("chesslab.dataset.load_manifest", lambda _p: rows)
+    monkeypatch.setattr("chesslab.dataset.load_split", lambda _p: {"splits": {"test": ["s"]}})
     monkeypatch.setattr("chesslab.training.data.filter_rows_by_split", lambda m, _s, _w: m)
 
     baked = np.array(np.memmap(dd / "packed_images.u8", dtype=np.uint8, mode="r",
@@ -100,7 +100,7 @@ def test_the_crop_reader_says_which_pack_it_reads(paths, monkeypatch):
 
 
 def test_cfg_for_pack_drops_clahe_only_on_a_baked_pack(paths, monkeypatch):
-    from chesslab.training.pack_bake import cfg_for_pack
+    from chesslab.training.packs import cfg_for_pack
 
     params = _baked_pair(paths)
     cfg = _run_cfg(params, "dst")

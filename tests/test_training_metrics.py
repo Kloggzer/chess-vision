@@ -1,5 +1,6 @@
 """Checkpoint ranking must follow the trained visible identities."""
-from chesslab.training.train import _checkpoint_rank, _compact_metrics
+from chesslab.training.checkpoint import _checkpoint_rank
+from chesslab.training.epoch_metrics import _compact_metrics
 
 
 def test_visible_identity_wins_over_hidden_identity_and_confidence():

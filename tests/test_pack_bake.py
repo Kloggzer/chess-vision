@@ -7,7 +7,8 @@ import pytest
 import torch
 from PIL import Image
 
-from chesslab.training.pack_bake import bake_pack, baked_of, clahe_params, skip_baked
+from chesslab.training.pack_bake import bake_pack
+from chesslab.training.packs import baked_of, clahe_params, skip_baked
 from chesslab.training.torch_data import _Clahe, build_transform
 
 PARAMS = {"clip": 2.0, "tile": 8, "min_mean": 25.0, "max_mean": 40.0, "denoise": "off"}

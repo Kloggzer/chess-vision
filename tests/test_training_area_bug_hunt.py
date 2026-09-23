@@ -84,7 +84,7 @@ def test_board_dataset_has_no_dead_with_coverage_switch():
 def test_fit_temperature_drops_only_the_coverage_column():
     """Die Breite kommt aus den LABELS: fehlt die letzte Klasse im Val, faellt ihre Spalte
     mit der Coverage-Spalte weg und die Temperatur wird auf 12 statt 13 Klassen angepasst."""
-    from chesslab.training.data import fit_temperature
+    from chesslab.training.temperature import fit_temperature
 
     generator = torch.Generator().manual_seed(7)
     base = torch.randn(400, 13, generator=generator) * 2.0

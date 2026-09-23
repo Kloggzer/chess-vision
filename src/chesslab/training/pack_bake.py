@@ -15,7 +15,7 @@ from PIL import Image
 
 from .. import config
 from ..ioutil import write_json
-from .pack import _packed_paths
+from .packs import _packed_paths
 
 #: Wie viele Crops auf einmal durch den Speicher gehen. 4096 * 80 * 80 * 3 = 79 MB je Puffer.
 CHUNK = 4096
@@ -25,24 +25,6 @@ CHUNK = 4096
 #: `split-pin.json` gehoert dazu, weil der Riegel in `train`/`run_eval` an der EXISTENZ der Datei
 #: haengt: fehlt sie beim Zwilling, schweigt er und der Lauf misst still den ersetzten Val.
 COPIED = ("manifest.jsonl", "dataset.yaml", "split.json", "split-pin.json")
-
-
-def baked_of(name: str, paths: config.Paths = config.DATA) -> dict | None:
-    """Die eingebackene Transformation eines Datensatzes, oder `None` fuer einen rohen Pack."""
-    from ..dataset_build import dataset_dir
-
-    _, meta_path = _packed_paths(dataset_dir(name, paths))
-    if not meta_path.exists():
-        return None
-    return json.loads(meta_path.read_text(encoding="utf-8")).get("baked")
-
-
-def clahe_params(cfg: dict) -> dict:
-    """Die CLAHE-Einstellung eines Laufs, so wie `build_transform` sie liest."""
-    return {"clip": float(cfg.get("clahe_clip", 0.0)), "tile": int(cfg.get("clahe_tile", 8)),
-            "min_mean": float(cfg.get("clahe_min_mean", 0.0)),
-            "max_mean": float(cfg.get("clahe_max_mean", 255.0)),
-            "denoise": str(cfg.get("clahe_denoise", "off"))}
 
 
 def bake_pack(src: str, dst: str, params: dict, paths: config.Paths = config.DATA,
@@ -116,37 +98,3 @@ def bake_pack(src: str, dst: str, params: dict, paths: config.Paths = config.DAT
           f"{touched} von CLAHE veraendert, {len(folds)} Folds mitkopiert)")
     return {"n": n, "h": h, "w": w, "gb": round(gb, 1), "changed": touched,
             "folds": len(folds), "path": str(dst_img)}
-
-
-def cfg_for_pack(cfg: dict, ds_name: str | None, packed, out_size=None) -> dict:
-    """`cfg` fuer Pixel aus `packed`, wie `run_eval` ihn baut: CLAHE raus, wenn er schon drin ist."""
-    from .packs import packed_shape
-
-    baked = baked_of(ds_name, config.DATA) if ds_name and packed is not None else None
-    if not skip_baked(baked, clahe_params(cfg), out_size or cfg["out_size"],
-                      packed_shape(packed)[1:] if baked else None):
-        return cfg
-    print(f"[bake] CLAHE steckt im Pack ({baked['from']}) — hier wird er nicht noch einmal gerechnet")
-    return {**cfg, "clahe_clip": 0.0}
-
-
-def skip_baked(baked: dict | None, params: dict, out_size, pack_hw) -> bool:
-    """Darf der Loader CLAHE auslassen? Sonst FLIEGT es: still doppelt oder still gar nicht
-    gerechnet sind beide ein anderer Operator als der, den `config.json` behauptet."""
-    if not baked:
-        return False
-    if baked.get("op") != "clahe":
-        raise ValueError(f"Pack traegt eine unbekannte eingebackene Transformation: {baked!r}")
-    want = {k: params[k] for k in ("clip", "tile", "min_mean", "max_mean", "denoise")}
-    have = {k: baked.get(k) for k in want}
-    if want["clip"] <= 0:
-        raise ValueError(f"Der Pack ist mit CLAHE gebacken ({have}), der Lauf trainiert ohne — "
-                         "nimm den rohen Datensatz oder setze --clahe-clip.")
-    if have != want:
-        raise ValueError(f"CLAHE des Packs {have} != CLAHE des Laufs {want} — der gebackene Pack "
-                         "gehoert zu einem anderen Rezept.")
-    if tuple(out_size) != (int(pack_hw[1]), int(pack_hw[0])):
-        raise ValueError(f"--input-size {tuple(out_size)} passt nicht zum gebackenen Pack "
-                         f"{(int(pack_hw[1]), int(pack_hw[0]))}: CLAHE wurde auf der Packgroesse "
-                         "gerechnet, ein Resize davor macht daraus einen anderen Operator.")
-    return True

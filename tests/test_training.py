@@ -225,7 +225,7 @@ class TestTrainLock:
         import json as _json
 
         from chesslab import locks
-        from chesslab.training import train as tr
+        from chesslab.training import train_lock as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         assert tr._acquire_train_lock("smallcnn bs=512") is True
         assert tr._train_lock_path().exists()
@@ -242,7 +242,7 @@ class TestTrainLock:
     def test_release_only_own_lock(self, monkeypatch, tmp_path):
         import json as _json
 
-        from chesslab.training import train as tr
+        from chesslab.training import train_lock as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         tr._train_lock_path().parent.mkdir(parents=True, exist_ok=True)
         tr._train_lock_path().write_text(_json.dumps({"pid": 424242, "ts": "now"}))
@@ -269,7 +269,7 @@ class TestTrainLock:
     def test_two_slots_allowed(self, monkeypatch, tmp_path):
         """Zwei parallele Laeufe sind der dokumentierte Fall (+7 % Laufzeit, doppelter Durchsatz)."""
         from chesslab import locks
-        from chesslab.training import train as tr
+        from chesslab.training import train_lock as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         pids = self._foreign_slots(tmp_path, "C")
         monkeypatch.setattr(locks, "pid_alive", lambda pid: pid in pids)
@@ -284,7 +284,7 @@ class TestTrainLock:
         gleichzeitig und trieben den Datensatz-Pack aus dem Seitencache.
         """
         from chesslab import locks
-        from chesslab.training import train as tr
+        from chesslab.training import train_lock as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         pids = self._foreign_slots(tmp_path, "C", "D")
         monkeypatch.setattr(locks, "pid_alive", lambda pid: pid in pids)
@@ -297,7 +297,7 @@ class TestTrainLock:
         import json as _json
 
         from chesslab import locks
-        from chesslab.training import train as tr
+        from chesslab.training import train_lock as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         pids = self._foreign_slots(tmp_path, "C")
         config.DATA.heavy_lock.write_text(_json.dumps(
@@ -310,7 +310,7 @@ class TestTrainLock:
     def test_stale_slot_lock_does_not_count(self, monkeypatch, tmp_path):
         """Ein Slot-Lock mit totem PID hat nie Speicher belegt und darf niemanden aussperren."""
         from chesslab import locks
-        from chesslab.training import train as tr
+        from chesslab.training import train_lock as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         pids = self._foreign_slots(tmp_path, "C", "D")
         monkeypatch.setattr(locks, "pid_alive", lambda pid: pid == pids[0])   # D ist verwaist
@@ -320,7 +320,7 @@ class TestTrainLock:
     def test_cap_can_be_raised_deliberately(self, monkeypatch, tmp_path):
         """`CHESSLAB_MAX_TRAININGS` ist der bewusste Ausweg auf einer groesseren Maschine."""
         from chesslab import locks
-        from chesslab.training import train as tr
+        from chesslab.training import train_lock as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         pids = self._foreign_slots(tmp_path, "C", "D")
         monkeypatch.setattr(locks, "pid_alive", lambda pid: pid in pids)
@@ -535,7 +535,7 @@ def test_pread_reader_matches_the_memmap(tmp_path, monkeypatch):
     """Beide Leser muessen dieselben Bytes liefern — der eine haelt sie nur nicht fest."""
     import numpy as np
 
-    from chesslab.training.pack import open_packed_memmap
+    from chesslab.training.packs import open_packed_memmap
 
     n, side = 9, 16
     data = np.random.RandomState(1).randint(0, 255, (n, side, side, 3), dtype=np.uint8)

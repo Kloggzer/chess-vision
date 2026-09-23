@@ -6,13 +6,14 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from chesslab.cell_rule import brightness_of, coverage_of  # noqa: E402
 from chesslab.training.occlusion import (  # noqa: E402
     PIECE_VISIBLE_MAX,
     classification_eligible,
     coverage_weight,
 )
-from chesslab.training.torch_data import _target, coverage_of  # noqa: E402
-from chesslab.training.train import _occlusion_provenance, brightness_of  # noqa: E402
+from chesslab.training.torch_data import _target  # noqa: E402
+from chesslab.training.train_recipe import _occlusion_provenance  # noqa: E402
 
 # --- Fund 1: die Provenienz nannte den Verlust nicht ---------------------------------------
 

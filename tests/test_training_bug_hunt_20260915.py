@@ -10,7 +10,8 @@ import pytest
 from PIL import Image
 
 from chesslab import config
-from chesslab.training import pack as pack_mod
+from chesslab.training import pack_dataset as pack_mod
+from chesslab.training import packs as packs_mod
 from conftest import write_jsonl
 
 CROP = 8
@@ -61,7 +62,7 @@ def test_the_board_cut_pack_still_notices_a_re_slice_of_its_file_rows(paths, mon
                         lambda task: sum(len(v) for v in task[4].values()))
     pack_mod.pack_dataset("mix", paths=paths, workers=1)
 
-    img, meta_path = pack_mod._packed_paths(dd)
+    img, meta_path = packs_mod._packed_paths(dd)
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     watched = set(meta["crop_fingerprint"])
     for r in rows[2:]:
@@ -71,7 +72,7 @@ def test_the_board_cut_pack_still_notices_a_re_slice_of_its_file_rows(paths, mon
     p = dd / "squares" / "f0000.png"
     Image.fromarray(np.full((CROP, CROP, 3), 200, dtype=np.uint8)).save(p)
     os.utime(p, (packed_at + 60, packed_at + 60))
-    assert pack_mod.load_packed("mix", paths=paths) is None, "Re-Slice blieb unbemerkt"
+    assert packs_mod.load_packed("mix", paths=paths) is None, "Re-Slice blieb unbemerkt"
 
 
 def test_a_failed_norm_conversion_is_not_reported_as_an_unknown_backbone(monkeypatch):
@@ -108,8 +109,8 @@ def test_gradcam_reads_a_session_pack_dataset(tmp_path, monkeypatch):
     zitieren Session-Packs, also lief es in den `mm://`-Abbruch - mit dem Rat, einen
     Synth-Build neu zu bauen, den es nie gab."""
     from chesslab import dataset_build
+    from chesslab.dataset import load_manifest
     from chesslab.training import gradcam
-    from chesslab.training.data import load_manifest
     from test_packs_integration import SIDE, _pixels, _write_pack
 
     paths = config.Paths(root=tmp_path)

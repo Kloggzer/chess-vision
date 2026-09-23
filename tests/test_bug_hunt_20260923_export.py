@@ -282,7 +282,7 @@ def test_staging_refuses_a_failed_temperature_fit(tmp_path, monkeypatch, capsys)
 
 
 def test_a_failed_temperature_fit_leaves_a_marker(tmp_path):
-    from chesslab.training.train import _record_temperature
+    from chesslab.training.temperature import _record_temperature
 
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps({"temperature": 1.3}), encoding="utf-8")
@@ -300,9 +300,9 @@ def test_a_failed_temperature_fit_leaves_a_marker(tmp_path):
 
 def test_run_train_marks_the_failure_where_it_catches_it():
     """`run_train` braucht eine GPU; der Syntaxbaum prueft den echten Fehlerpfad."""
-    from chesslab.training import train as train_mod
+    from chesslab.training import temperature as train_mod
 
-    tree = ast.parse(inspect.getsource(train_mod.run_train))
+    tree = ast.parse(inspect.getsource(train_mod.calibrate_run))
     (handler_try,) = [t for t in ast.walk(tree) if isinstance(t, ast.Try) and any(
         isinstance(c, ast.Call) and getattr(c.func, "id", None) == "fit_temperature"
         for c in ast.walk(ast.Module(body=t.body, type_ignores=[])))]

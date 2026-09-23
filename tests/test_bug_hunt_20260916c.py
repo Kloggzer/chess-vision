@@ -9,7 +9,7 @@ import pytest
 from chesslab import config
 from chesslab.dataset_build import _donor_pack_size, _donor_policy
 from chesslab.training.evaluate import eval_summary
-from chesslab.training.train import started_at
+from chesslab.training.train_lock import started_at
 from conftest import write_jsonl
 
 

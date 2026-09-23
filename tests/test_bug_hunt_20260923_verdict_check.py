@@ -5,7 +5,7 @@ import json
 import pytest
 
 from chesslab import config, dataset_build
-from chesslab.training import evaluate
+from chesslab.training import evaluate, packs
 from chesslab.training import train as tr
 from conftest import write_jsonl
 
@@ -72,7 +72,7 @@ def test_strict_verdicts_stops_train_before_any_training(ds, monkeypatch, capsys
     monkeypatch.setattr(tr.doctor, "validate_gpu", lambda: (True, []))
     monkeypatch.setattr(tr, "_acquire_train_lock", lambda desc: True)
     monkeypatch.setattr(tr.atexit, "register", lambda *a: None)
-    monkeypatch.setattr(tr, "_load_training_pack",
+    monkeypatch.setattr(packs, "open_dataset_pack",
                         lambda *a: pytest.fail("the check must run before the pack is touched"))
     code = tr.run_train("smallcnn", 1, 8, 1e-3, no_amp=True, seed=0, out=str(paths.root / "run"),
                         patience=1, dataset="ds", split="split.json", strict_verdicts=True)

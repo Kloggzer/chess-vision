@@ -4,17 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TRAIN = (ROOT / "src" / "chesslab" / "training" / "train.py").read_text(encoding="utf-8")
+TRAIN = (ROOT / "src" / "chesslab" / "training" / "train_recipe.py").read_text(encoding="utf-8")
 
 
 def _run_train_ast():
     import ast
 
-    tree = ast.parse(TRAIN)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "run_train":
-            return node
-    raise AssertionError("run_train verschwunden")
+    return ast.parse(TRAIN)
 
 
 def _occluding_if():
@@ -143,7 +139,6 @@ def test_subsample_classes_is_deterministic_from_its_seed():
         f"{len(a ^ b)} von {len(a)} behaltenen Crops haengen an der Manifest-Reihenfolge, "
         "nicht am Seed."
     )
-
 
 
 def test_the_symbols_without_readers_stay_removed():

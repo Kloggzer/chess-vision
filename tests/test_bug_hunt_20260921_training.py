@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from chesslab.training import pack as pack_mod
+from chesslab.training import pack_dataset as pack_mod
+from chesslab.training import packs as packs_mod
 from conftest import write_jsonl
 
 CROP = 8
@@ -47,11 +48,11 @@ def test_the_board_cut_pack_stamps_its_watchdog_before_it_writes_pixels(paths, m
     monkeypatch.setattr(pack_mod, "_cut_session", cut_and_reslice)
     pack_mod.pack_dataset("mix", paths=paths, workers=1)
 
-    _, meta_path = pack_mod._packed_paths(dd)
+    _, meta_path = packs_mod._packed_paths(dd)
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["crop_fingerprint"][victim.as_posix()][0] == before, \
         "der Wachhund beglaubigt die Datei, die WAEHREND des Packens neu geschrieben wurde"
-    assert pack_mod.load_packed("mix", paths=paths) is None, "Re-Slice blieb unbemerkt"
+    assert packs_mod.load_packed("mix", paths=paths) is None, "Re-Slice blieb unbemerkt"
 
 
 class _Stop(Exception):
@@ -74,7 +75,7 @@ def _baked_pair(paths, monkeypatch):
     write_jsonl(dd / "manifest.jsonl", rows)
     (dd / "split.json").write_text(json.dumps({"classes": ["empty"]}), encoding="utf-8")
     (dd / "packed_meta.json").write_text(json.dumps(
-        {"n": 4, "h": 80, "w": 80, "digest": pack_mod._manifest_digest(rows),
+        {"n": 4, "h": 80, "w": 80, "digest": packs_mod._manifest_digest(rows),
          "paths": [r["path"] for r in rows]}), encoding="utf-8")
     bake_pack("src", "dst", dict(PARAMS), paths=paths)
     return PARAMS
@@ -125,7 +126,7 @@ def test_the_config_names_the_erase_probability_the_run_really_drew():
 
     from chesslab.config import AUGMENT, NORMALIZE_MEAN, NORMALIZE_STD
     from chesslab.training.batch_aug import BatchPhotometric
-    from chesslab.training.train import _aug_of, _photometry_of
+    from chesslab.training.train_recipe import _aug_of, _photometry_of
 
     photometric = BatchPhotometric(AUGMENT, NORMALIZE_MEAN, NORMALIZE_STD, from_uint8=True)
     zeroed = replace(AUGMENT, erase_p=0.0, brightness=0.0, contrast=0.0, noise_std=0.0)
@@ -156,7 +157,7 @@ def test_the_epoch_record_uses_one_convention_for_an_empty_denominator():
     war, `val_coverage_recall`/`-precision` daneben melden 0,0 — also den schlechtesten Wert."""
     import math
 
-    from chesslab.training.train import _occlusion_diagnostics
+    from chesslab.training.epoch_metrics import _occlusion_diagnostics
 
     val = {"coverage_trues": np.zeros(2, dtype=np.float32),
            "coverage_probs": np.zeros(2, dtype=np.float32),

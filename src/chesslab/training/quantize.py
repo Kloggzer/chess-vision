@@ -26,7 +26,6 @@ quantization-aware training. Per-channel weights are docs/references.md#krishnam
 
 from __future__ import annotations
 
-import json
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -58,9 +57,11 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
     """A small, class-balanced sample of the run's TRAIN crops (never test — no eval
     leak). ``empty`` dominates massively (see CLAUDE.md), so a flat random draw would
     starve the piece classes of calibration range; we round-robin across labels."""
-    from .data import filter_rows_by_split, load_manifest, load_split, run_data_paths
+    from ..dataset import load_manifest, load_split
+    from .data import dataset_paths, filter_rows_by_split
 
-    manifest_path, split_path = run_data_paths(cfg)
+    # Der Split des LAUFS: ein Fold traegt `split-f<i>.json`; `split.json` naennte, was er zurueckhielt.
+    manifest_path, split_path = dataset_paths(cfg.get("dataset"), cfg.get("split_file"))
     if not manifest_path.exists() or not split_path.exists():
         raise FileNotFoundError(f"manifest/split missing ({manifest_path}) — build/split the dataset first.")
 
@@ -223,7 +224,9 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
         print(f"[FAIL] quant types must be one of {sorted(_QUANT_TYPES)}.")
         return 1
 
-    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    from .data import read_run_config
+
+    cfg = read_run_config(run_dir)
 
     import onnxruntime as ort
     from onnxruntime.quantization import quantize

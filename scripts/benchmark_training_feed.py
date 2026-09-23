@@ -169,7 +169,7 @@ def main():
         ds._board(idx)
     step = None
     if args.gpu:
-        from chesslab.training.train import _device_batches
+        from chesslab.training.train_feed import _device_batches
         torch.set_num_threads(main_threads)
         from chesslab.training.model import build_model
         from chesslab.training.occlusion import OcclusionLoss
@@ -195,7 +195,7 @@ def main():
         x, y = ds.collate_fn([ds[i] for i in indices[:4]])
         x, y = x.cuda(), y.cuda()
         if args.channels_last:
-            from chesslab.training.train import _channels_last_batch
+            from chesslab.training.train_feed import _channels_last_batch
             x = _channels_last_batch(x)
         for _ in range(20):
             step(x, y)

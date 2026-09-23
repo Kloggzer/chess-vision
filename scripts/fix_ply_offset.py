@@ -28,7 +28,7 @@ from chesslab.cell_rule import classification_eligible
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import append_rows, read_jsonl
 from chesslab.labeling import ledger_paths, load_corrections
-from chesslab.training.pack import open_packed_rows
+from chesslab.training.packs import open_packed_rows
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 from scan_ply_offset import board_of  # noqa: E402

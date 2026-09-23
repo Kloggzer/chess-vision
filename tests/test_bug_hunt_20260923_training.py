@@ -250,7 +250,7 @@ def test_auroc_ties_take_average_ranks():
 
 def test_a_board_model_is_graded_in_the_datasets_row_order(tmp_path, paths, monkeypatch):
     """M53 (ungedeckt): der Brettdatensatz sortiert um; die Maske gilt fuer SEINE Reihenfolge."""
-    from chesslab.training import engine, evaluate, pack, torch_data
+    from chesslab.training import engine, evaluate, packs, torch_data
 
     rows = [{"path": "x", "label": "wP", "session_id": "s1", "frame": "1", "square": "a1",
              "coverage": 0.9},
@@ -278,7 +278,7 @@ def test_a_board_model_is_graded_in_the_datasets_row_order(tmp_path, paths, monk
                                                      for r in ds.rows])}
 
     monkeypatch.setattr(evaluate, "_load_run", lambda _d: (torch.nn.Identity(), dict(cfg)))
-    monkeypatch.setattr(pack, "resolve_dataset_packs", lambda *a, **k: object())
+    monkeypatch.setattr(packs, "resolve_dataset_packs", lambda *a, **k: object())
     monkeypatch.setattr(torch_data, "PackedBoardDataset", Reordered)
     monkeypatch.setattr(engine, "evaluate_dataset", fake_eval)
 
@@ -308,7 +308,7 @@ def test_an_exported_occlusion_run_declares_its_coverage_output(tmp_path, paths)
 
 
 def _diag(trues, preds, rows, cov=None):
-    from chesslab.training.train import _occlusion_diagnostics
+    from chesslab.training.epoch_metrics import _occlusion_diagnostics
 
     n = len(trues)
     cov = np.zeros(n, dtype=np.float32) if cov is None else np.asarray(cov, dtype=np.float32)
@@ -338,7 +338,7 @@ def test_epoch_visible_piece_acc_without_a_piece_is_nan():
 
 def test_conf_mean_without_a_single_error_is_unmeasured():
     """M60 (ungedeckt): `val_conf_wrong` ohne Fehler ist `None`, nicht "null sicher"."""
-    from chesslab.training.train import _conf_mean
+    from chesslab.training.epoch_metrics import _conf_mean
 
     assert _conf_mean(([0, 1], [0, 1], [0.9, 0.8]), wrong=True) is None
     assert _conf_mean(([0, 1], [0, 1], [0.9, 0.8]), wrong=False) == pytest.approx(0.85)
@@ -348,9 +348,9 @@ def _call_in_run_train(name):
     import ast
     import inspect
 
-    from chesslab.training import train as train_mod
+    from chesslab.training import epoch_metrics, temperature
 
-    tree = ast.parse(inspect.getsource(train_mod.run_train))
+    tree = ast.parse(inspect.getsource(temperature) + inspect.getsource(epoch_metrics))
     return [n for n in ast.walk(tree) if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Name) and n.func.id == name]
 

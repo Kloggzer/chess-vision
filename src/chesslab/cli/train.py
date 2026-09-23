@@ -293,7 +293,8 @@ def train_cmd(
                                    "training helps, so the epoch count is the only variable."),
 ) -> None:
     """Train per-square CNN on the ROCm GPU (board accuracy = checkpoint metric)."""
-    from ..training.train import _release_train_lock, run_train
+    from ..training.train import run_train
+    from ..training.train_lock import _release_train_lock
 
     scale_list = [int(s) for s in scales.split(",") if s.strip()] if scales else None
     _erase_scale = _pair(erase_scale, lambda lo, hi: 0 < lo < hi <= 1,

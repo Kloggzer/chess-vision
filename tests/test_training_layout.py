@@ -2,7 +2,7 @@
 import pytest
 import torch
 
-from chesslab.training.train import _channels_last_batch, _device_batches
+from chesslab.training.train_feed import _channels_last_batch, _device_batches
 
 
 @pytest.mark.parametrize("boards", [1, 2, 3, 4])

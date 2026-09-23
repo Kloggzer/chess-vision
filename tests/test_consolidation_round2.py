@@ -114,8 +114,8 @@ def _capture(monkeypatch) -> list:
         seen.append(p)
         raise _Stop
 
-    monkeypatch.setattr("chesslab.training.data.load_manifest", manifest)
-    monkeypatch.setattr("chesslab.training.data.load_split", split)
+    monkeypatch.setattr("chesslab.dataset.load_manifest", manifest)
+    monkeypatch.setattr("chesslab.dataset.load_split", split)
     return seen
 
 

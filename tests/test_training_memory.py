@@ -8,8 +8,8 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from chesslab.training import memory
-from chesslab.training.pack import open_packed_memmap
-from chesslab.training.train import _device_batches
+from chesslab.training.packs import open_packed_memmap
+from chesslab.training.train_feed import _device_batches
 
 
 def test_low_memory_reader_preserves_random_rows_and_boards(tmp_path, monkeypatch):
@@ -90,7 +90,7 @@ def test_cli_memory_stop_releases_lock_and_exits_with_failure(monkeypatch):
     from typer.testing import CliRunner
 
     from chesslab.cli import app
-    from chesslab.training import train
+    from chesslab.training import train, train_lock
 
     released = []
 
@@ -104,7 +104,7 @@ def test_cli_memory_stop_releases_lock_and_exits_with_failure(monkeypatch):
         raise SystemExit(code)
 
     monkeypatch.setattr(train, "run_train", stop)
-    monkeypatch.setattr(train, "_release_train_lock", lambda: released.append(True))
+    monkeypatch.setattr(train_lock, "_release_train_lock", lambda: released.append(True))
     monkeypatch.setattr(os, "_exit", exit_process)
     result = CliRunner().invoke(app, ["train"])
     assert result.exit_code == 1
@@ -122,9 +122,9 @@ def test_the_run_records_its_patience(tmp_path, monkeypatch):
     """
     import inspect
 
-    from chesslab.training import train
+    from chesslab.training import train_recipe
 
-    src = inspect.getsource(train.run_train)
+    src = inspect.getsource(train_recipe.run_config)
     start = src.index("cfg_written = {")
     block = src[start:src.index("\n    }", start)]
     assert '"patience"' in block, "die Rezeptur eines Laufs muss vollstaendig in der config.json stehen"

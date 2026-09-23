@@ -46,6 +46,48 @@ Abhaengigkeiten laufen abwaerts: `realgames/*`, `sessions`, `session_*` -> `sess
 - `scripts/check_alignment.py` (Nutzer-Verbot) liest `sessions.session_dir` und
   `sessions.missing_source_frames` — beide bleiben dort, weil `sessions.py` sie selbst benutzt.
 
+## training/ (2026-09-23)
+
+`train.py` (1521 Zeilen) trug Rezept, Futterweg, Schleife, Checkpoint-Wahl, Metriken, Temperatur
+und den GPU-Riegel in EINER Funktion; der Pack-Zugriff lag ueber `pack.py`, `packs.py`,
+`pack_bake.py` und `torch_data.py` verteilt, Manifest/Split/`config.json` hatten je zwei bis drei
+Leser. Schnitt nach Aufgabe:
+
+| Modul | Besitzt / tut |
+|---|---|
+| `train.py` (245) | `run_train`: Vorbedingungen, Seeds, `recipe = dict(locals())`, Reihenfolge der Schritte — sonst nichts |
+| `train_recipe.py` (439) | Rezept: `aug_policy`, `batch_photometric`, `build_run_model`, `warm_start`, `loss_weights`, `build_criterion`, `build_optimizer`, `run_config` (die `config.json`), `Refused` |
+| `train_feed.py` (461) | Futterweg: `data_files`/`read_data`, `train_size`, `training_rows`, `build_datasets`, `train_feed` (Worker, Sampler, Loader), `_device_batches` |
+| `train_loop.py` (270) | Schleife: `train_epoch`, `run_epochs`, `state.pt` (`_save_state`/`_load_state`), `resume_progress`, SWA |
+| `checkpoint.py` (42) | Checkpoint-Wahl: `_checkpoint_rank`, `Progress`, `keep_checkpoints` |
+| `epoch_metrics.py` (156) | Metriken/Diagnostik einer Epoche: `score_epoch`, `occlusion_diagnostics`, `epoch_record` (`metrics.jsonl`) |
+| `temperature.py` (80) | `fit_temperature`, `calibrate_run`, `_record_temperature` |
+| `train_lock.py` (135) | `heavy*.lock`, den auch der Autopilot liest |
+| `packs.py` (574) | **Pack-Zugriff, die EINE Leseschicht:** Session- und Datensatz-Pack, `open_dataset_pack` (train, eval, gradcam), `load_packed`, `open_packed_rows`, Memmap/pread-Leser, Zeile -> Position (`_pack_index`), eingebackene Transformation (`cfg_for_pack`, `skip_baked`) |
+| `pack_dataset.py` (360), `pack_session.py` (166), `pack_bake.py` (100) | nur SCHREIBEN: Datensatz-Pack, Session-Pack (`write_meta`), gebackener Pack |
+
+Zusammengefuehrt: `cell_rule.coverage_of`/`brightness_of` (vorher `torch_data` und `train`, dazu
+inline in `classification_eligible`); `dataset.load_manifest`/`load_split` (vorher auch in
+`training/data.py`, dort mit anderer Meldung); `data.dataset_paths`/`unnamed_pin` (Pfade und Pin-
+Riegel aus `train`, `run_eval` und dem geloeschten `run_data_paths`); `data.read_run_config` (evaluate, quantize,
+Warmstart); `pack_dataset._pack_chunk` dekodiert ueber `decode_crop` statt einer Kopie davon.
+
+- **Rezept als ein Wert:** `run_train` haelt seine Argumente als `recipe`; die Schritte lesen
+  daraus, was `run_train` nicht veraendert, und bekommen Abgeleitetes (`rot90`, Worker) explizit.
+- **Bitgleich festgehalten:** `tests/test_train_characterization.py` faehrt `run_train` auf der CPU
+  in vier Szenarien (Datei-Loader, Monolith-Pack mit SWA/Hard-Negatives, Session-Packs im
+  Brettmodus, Focal mit `--batch-aug`) und vergleicht `config.json`, `metrics.jsonl` (ohne Wanduhr)
+  und Gewichte mit Digests vom Stand vor dem Umbau. Gegenprobe: anderer Seed -> rot.
+- **Abhaengigkeiten:** `packs` importiert keinen Schreiber und kein torch; kein Schritt importiert
+  `train` (Waechter: `tests/test_python_architektur.py`).
+
 ## Offen
 
-- nichts
+- `synth/measure_noise.py` importierte `training.pack._manifest_digest` und ist mit umgebogen.
+- `occluded_model.run_config`/`model_classes` lesen die `config.json` weiter selbst: ein Import aus
+  `training` zoege ueber `training/__init__.py` torch nach.
+- `--swa` mit `--batch-aug` starb im Charakterisierungslauf in `update_bn` (uint8-Batch ohne
+  Photometrie) — unveraendert gelassen, darum faehrt kein Szenario beides.
+- SonarCloud-Umfang (`tests/test_sonar_scope.py`) steht nach dem Umbau bei ~45 990 von 46 000.
+- Andere `docs/` (`packs.md`, `training-speed.md`, ...) nennen noch `training/pack.py` und
+  `train.py`-Stellen; der Auftrag erlaubte nur diese Datei.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from chesslab.training import pack
+from chesslab.training import pack_dataset as pack
 
 
 def _session(tmp_path, small_profile, board_size: int, border: int):

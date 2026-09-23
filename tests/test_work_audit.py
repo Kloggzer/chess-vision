@@ -115,7 +115,7 @@ def test_frame_scan_reuses_the_gray_raster():
 
 
 def test_repeated_manifest_loads_are_visible_to_the_profiler(tmp_path):
-    from chesslab.training.data import load_manifest
+    from chesslab.dataset import load_manifest
 
     manifest = tmp_path / "manifest.jsonl"
     manifest.write_text('{"path":"a.png","label":"empty"}\n', encoding="utf-8")

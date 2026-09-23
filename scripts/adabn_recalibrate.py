@@ -102,14 +102,11 @@ import torch.nn as nn
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import labeling  # noqa: E402
+from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
-from chesslab.training.data import (  # noqa: E402
-    filter_rows_by_split,
-    load_manifest,
-    load_split,
-)
+from chesslab.training.data import filter_rows_by_split  # noqa: E402
 from chesslab.training.evaluate import load_run  # noqa: E402
 from chesslab.training.torch_data import normalize_batch  # noqa: E402
 

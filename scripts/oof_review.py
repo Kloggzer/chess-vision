@@ -52,8 +52,7 @@ def main() -> int:
     from chesslab.training.engine import get_device
     from chesslab.training.evaluate import _load_run
     from chesslab.training.occlusion import classification_eligible
-    from chesslab.training.pack import resolve_dataset_packs
-    from chesslab.training.pack_bake import cfg_for_pack
+    from chesslab.training.packs import cfg_for_pack, resolve_dataset_packs
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
     dd = dataset_dir(args.dataset)

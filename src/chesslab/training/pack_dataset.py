@@ -1,56 +1,26 @@
-"""Das DATENSATZ-PACK (`docs/packs.md`), nicht das Session-Pack in `packs.py` daneben.
+"""Das DATENSATZ-PACK schreiben: die Crops eines gebauten Datensatzes in EINE Memmap.
 
-Eines gebauten Datensatzes Crops in EINEM memory-mapped uint8-Array. Loading 1M+ individual PNGs
-per epoch (``Image.open`` per item in ``SquareDataset``) is the training bottleneck on this
-project — random small-file opens on Windows dominate and the GPU starves. Packing all crops into
-a single ``packed_images.u8`` memmap turns 1M random file opens into slice reads from one file:
-the first epoch warms the OS page cache, later epochs are effectively RAM-speed.
-``PackedSquareDataset`` (in ``torch_data``) reads from this instead of the filesystem.
-
-Layout, per dataset dir ``data/datasets/<name>/``:
-  - ``packed_images.u8``  : raw memmap, shape (N, H, W, 3) uint8, in manifest row order.
-  - ``packed_meta.json``  : {"n", "h", "w", "paths": [crop path per row]} — ``paths`` maps each
-    manifest row's crop path to its memmap index, so the existing per-split ``rows`` lists work
-    unchanged (just path -> index instead of path -> file).
+Loading 1M+ individual PNGs per epoch is the training bottleneck — random small-file opens on
+Windows dominate and the GPU starves. ONE ``packed_images.u8`` (N, H, W, 3) uint8 in manifest row
+order turns them into slice reads; ``packed_meta.json`` maps each crop path to its row. Gelesen
+wird ueber `packs` (`load_packed`, `open_dataset_pack`), nie von hier.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import logging
 import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import NamedTuple
 
 import numpy as np
 from PIL import Image
 
 from .. import config
-from ..ioutil import mtime_size, write_json
+from ..ioutil import write_json
 from ..session_store.names import BOARD_DIR, LOG_FILE
-from ..work_audit import measure
-
-log = logging.getLogger("chesslab.pack")
-
-
-class PackedIndex(NamedTuple):
-    """Was `load_packed` zurueckgibt, mit Namen statt Positionen.
-
-    Bleibt ein Tupel, also packt jede aeltere Stelle es weiter positional aus. Fuer MEHRERE Packs
-    reicht es nicht — dafuer ist `resolve_dataset_packs`, und `load_packed` weist solche
-    Datensaetze beim Namen ab statt hier etwas hineinzuzwaengen.
-    """
-
-    image: str
-    shape: tuple[int, int, int]
-    path2idx: dict[str, int] | None
-
-
-def _packed_paths(dd: Path) -> tuple[Path, Path]:
-    return dd / "packed_images.u8", dd / "packed_meta.json"
+from .packs import PACKS_KEY, _crop_fingerprint, _manifest_digest, _manifest_rows, _packed_paths
 
 
 def write_packed_meta(meta_path: Path, rows: list[dict], h: int, w: int, *,
@@ -71,33 +41,6 @@ def write_packed_meta(meta_path: Path, rows: list[dict], h: int, w: int, *,
     if crop_fingerprint is not None:
         meta["crop_fingerprint"] = crop_fingerprint
     write_json(meta_path, meta, indent=None)
-
-
-def _manifest_digest(rows: list[dict]) -> str:
-    """Fingerprint of a manifest: which crops, in which order, with which labels, are packed.
-
-    Row count and crop size are not enough to tell two datasets apart — see the resume guard in
-    ``pack_dataset``. Path + label + out_size covers reordering, substitution and relabelling,
-    and is cheap next to decoding a million PNGs.
-
-    What it deliberately does NOT cover: a crop file whose PIXELS changed while keeping the same
-    path (a re-slice at different pads, a synth re-render writing over itself). Catching
-    that would need a stat() or hash per row. Callers that rewrite crops in place must re-pack;
-    ``build_dataset`` does so implicitly because it rmtree's the dataset dir first.
-    """
-    h = hashlib.sha256()
-    for r in rows:
-        # One encode/update instead of six. The byte stream stays identical, so all existing
-        # packed_meta digests remain valid.
-        h.update((f'{r["path"]}\0{r.get("label", "")}\0{r.get("out_size", "")}\n')
-                 .encode())
-    return h.hexdigest()[:32]
-
-
-def _manifest_rows(dd: Path) -> list[dict]:
-    from .data import load_manifest
-
-    return load_manifest(dd / "manifest.jsonl")
 
 
 # Target bytes per pack chunk. Small on purpose: a worker maps exactly one chunk at a time, so
@@ -136,11 +79,7 @@ def _pack_chunk(task) -> tuple[int, int]:
     start = items[0][0]                    # `items` is a contiguous index run (see pack_dataset)
     with row_window(mm_path, (h, w), [i for i, _ in items]) as put:
         for idx, p in items:
-            im = Image.open(p).convert("RGB")
-            a = np.asarray(im, dtype=np.uint8)
-            if a.shape != (h, w, 3):                   # guard against odd edge crops
-                a = np.asarray(im.resize((w, h)), dtype=np.uint8)
-            put(idx, a)
+            put(idx, decode_crop(p, (w, h)))
     return start, len(items)
 
 
@@ -252,7 +191,6 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     from multiprocessing import Pool
 
     from ..dataset_build import _read_yaml, dataset_dir
-    from . import packs
 
     dd = dataset_dir(name, paths)
     rows = _manifest_rows(dd)
@@ -260,7 +198,7 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
         raise ValueError(f"dataset '{name}' has an empty manifest")
     # Before the fused-synth check below: both kinds carry `mm://` rows, and only dataset.yaml
     # tells them apart.
-    if _read_yaml(dd / "dataset.yaml").get(packs.PACKS_KEY):
+    if _read_yaml(dd / "dataset.yaml").get(PACKS_KEY):
         raise ValueError(f"dataset '{name}' is built from session packs — it has no crop files; "
                          f"its pixels live in data/packs/…")
     if str(rows[0].get("path", "")).startswith("mm://"):
@@ -289,14 +227,9 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     # that is half old pixels, half new, with no sidecar left to hint at it.
     meta_path.unlink(missing_ok=True)
 
-    # Composite-Zeilen tragen ihre Herkunft — dann schneidet der Pixel-Pass aus der Quelle
-    # statt den 128er Pool auf die Modellgroesse zu skalieren. Ein Resample statt zwei
-    # (`docs/data-pipeline.md` 3.1).
-    # Nur wenn die Zielgroesse von der Dateigroesse abweicht — sonst waeren die Dateien
-    # schon exakt und das Dekodieren ist der kuerzere Weg.
-    # Nur wenn die Zielgroesse von der Dateigroesse abweicht: sonst waeren die Crops schon exakt und
-    # das Dekodieren ist der kuerzere Weg. Kompositen tragen ihre Herkunft, echte Aufnahmen ihr
-    # Brett — erst wenn JEDE Zeile eine Quelle hat, faellt der Dateiweg weg.
+    # Echte Aufnahmen schneidet der Pixel-Pass aus ihrem BRETT statt den 128er Pool auf die
+    # Modellgroesse zu skalieren — ein Resample statt zwei (`docs/data-pipeline.md` 3.1). Was
+    # kein Brett hat, kommt aus seiner Datei; `cut_plan` entscheidet je Zeile.
     files, at = cut_plan(rows)
     if at:
         per = max(1, _PACK_CHUNK_BYTES // crop_bytes)
@@ -383,192 +316,6 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     return {"n": n, "h": h, "w": w, "path": str(img_path), "gb": round(gb, 1)}
 
 
-#: How many manifest rows `_rewritten_since_pack` stats. The digest covers path/label/size, so the
-#: one thing left is a crop file whose PIXELS were rewritten under an unchanged path — which is what
-#: a re-slice does to the whole pool at once. Spread evenly, 256 stats cost ~1 ms and miss a re-slice
-#: touching 5 % of the rows with probability 0.95^256 ≈ 2e-6. Full coverage would need a stat per
-#: row, and at a million rows that is tens of seconds on every single load.
-_STALE_SAMPLE = 256
-
-
-def _sampled_paths(crop_paths: list[str]) -> list[str]:
-    step = max(1, len(crop_paths) // _STALE_SAMPLE)
-    return crop_paths[::step]
-
-
-def _crop_fingerprint(crop_paths: list[str]) -> dict[str, list]:
-    """(mtime, size) of the sampled crops, read BEFORE the first chunk is written."""
-    out: dict[str, list] = {}
-    for p in _sampled_paths(crop_paths):
-        try:
-            st = Path(p).stat()
-        except OSError:
-            continue                       # `mm://` rows and absent files simply carry no entry
-        out[p] = [st.st_mtime, st.st_size]
-    return out
-
-
-def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
-                          fingerprint: dict[str, list] | None) -> bool:
-    """True if a sampled crop differs from what it was when the pack STARTED — i.e. it is stale.
-
-    Comparing on inequality needs no clock, so exFAT's 2 s and SMB's server time stop mattering,
-    and a crop restored with an OLDER mtime (a `_parked/` restore, a copy preserving timestamps)
-    is caught too. Packs from before the fingerprint fall back to the memmap's own mtime — the
-    reference they were written under, which Windows leaves anywhere between prealloc and last
-    flush: on `comp13-occ-80-v2` it stood on the prealloc 2.5 h before the pack finished.
-    """
-    if fingerprint is not None:
-        for p, (mtime, size) in fingerprint.items():
-            try:
-                st = Path(p).stat()
-            except OSError:
-                continue                   # a crop that vanished does not unmake the packed pixels
-            if st.st_mtime != mtime or st.st_size != size:
-                return True
-        return False
-    try:
-        packed_at = img_path.stat().st_mtime
-    except OSError:
-        return False
-    for p in _sampled_paths(crop_paths):
-        try:
-            if Path(p).stat().st_mtime > packed_at:
-                return True
-        except OSError:
-            continue                        # a missing crop is the per-PNG loader's problem, not ours
-    return False
-
-
-def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
-                          manifest_rows: list[dict] | None = None):
-    """None for a classic dataset; a MultiPack when its dataset.yaml carries `packs:`.
-
-    Every resolved row keeps its `(pack_no, row_no)` on `_pack_at`, the way `_load_packed` marks
-    `_packed_idx`: train and eval resolve the whole manifest but build datasets from SPLIT rows,
-    and only the row itself carries the pair into that subset.
-    """
-    import yaml  # local, like the imports below: `packs.py` imports this module at module level
-
-    from ..dataset_build import dataset_dir
-    from .packs import PACKS_KEY, resolve_packs
-
-    dd = dataset_dir(name, paths)
-    cfg = dd / "dataset.yaml"
-    if not (cfg.exists() and (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get(PACKS_KEY)):
-        return None
-    rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
-    mp = resolve_packs(rows, paths)                # KeyError/ValueError propagate — never None
-    for row, at in zip(rows, mp.idx, strict=True):
-        row["_pack_at"] = (int(at[0]), int(at[1]))
-    return mp
-
-
-def load_packed(name: str, paths: config.Paths = config.DATA,
-                manifest_rows: list[dict] | None = None):
-    """Audit-aware entry point for loading and validating one packed dataset index.
-
-    ``manifest_rows`` lets callers that already parsed the dataset manifest reuse those rows.
-    Training always has them in memory before it resolves the pack; parsing the same large JSONL
-    a second time used to dominate startup and building a path dictionary duplicated its strings.
-    """
-    from ..dataset_build import dataset_dir
-
-    # The legacy 3-tuple is unpacked positionally at ten sites (train, gradcam, eight scripts);
-    # several memmaps cannot be squeezed into it, so a pack-built dataset is refused by name.
-    if resolve_dataset_packs(name, paths, manifest_rows) is not None:
-        raise ValueError(f"dataset '{name}' is built from session packs — its pixels live in "
-                         "data/packs/…; use training.pack.resolve_dataset_packs (train/eval do)")
-
-    dd = dataset_dir(name, paths)
-    manifest = dd / "manifest.jsonl"
-    meta = dd / "packed_meta.json"
-    fingerprint = tuple(
-        mtime_size(p) if p.exists() else None
-        for p in (manifest, meta)
-    )
-    with measure("packed dataset index loads", (dd.resolve(), fingerprint),
-                 processed_bytes=manifest.stat().st_size if manifest.exists() else 0):
-        return _load_packed(name, paths, manifest_rows)
-
-
-def open_packed_rows(name: str, manifest_rows: list[dict],
-                     paths: config.Paths = config.DATA) -> tuple[np.memmap, dict[str, int]]:
-    """`(Memmap, {Crop-Pfad: Zeile})` fuer Analyse-Skripte — die EINE Aufloesung.
-
-    Zehn Skripte bauten sie woertlich nach (`p2i or {…"_packed_idx"…}` plus `np.memmap`), keines
-    mehrpack-faehig. NICHT fuer DataLoader-Worker: eine offene Memmap uebersteht das Pickling nach
-    Windows-Spawn nicht, dafuer ist [_load_packed] da.
-    """
-    packed = load_packed(name, paths, manifest_rows=manifest_rows)
-    if not packed:
-        raise FileNotFoundError(f"{name} hat keine Memmap — erst `chesslab dataset pack`")
-    n, h, w = packed.shape
-    index = (packed.path2idx
-             or {r["path"]: r["_packed_idx"] for r in manifest_rows if "_packed_idx" in r})
-    return np.memmap(packed.image, dtype=np.uint8, mode="r", shape=(n, h, w, 3)), index
-
-
-def _load_packed(name: str, paths: config.Paths = config.DATA,
-                 manifest_rows: list[dict] | None = None):
-    """Return (packed_file_path, (N,H,W), {crop_path: index}) or None if not packed.
-
-    Deliberately does NOT return an open memmap: an np.memmap doesn't survive pickling to Windows
-    spawn DataLoader workers (`pickle data was truncated`). PackedSquareDataset opens the memmap
-    lazily inside each worker from the path+shape instead, and keeps only a small int index array.
-    """
-    from ..dataset_build import dataset_dir
-
-    dd = dataset_dir(name, paths)
-    img_path, meta_path = _packed_paths(dd)
-    if not meta_path.exists():
-        return None
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    # A variant that only re-selects ROWS reads the owner's pixels (`link_pack`). Every guard below
-    # then checks the owner's file, which is what it should check — the digest still comes from THIS
-    # dataset's own manifest, so a mismatched selection is caught exactly as before.
-    if meta.get("packed_from"):
-        img_path, _ = _packed_paths(dataset_dir(meta["packed_from"], paths))
-    if not img_path.exists():
-        return None
-    n, h, w = int(meta["n"]), int(meta["h"]), int(meta["w"])
-
-    # Refuse a pack that does not belong to the CURRENT manifest. Training reads this by index, so
-    # a mismatch means images silently paired with the wrong labels — the one failure mode that
-    # produces a plausible-looking but wrong model. Packs written before digests existed have no
-    # entry; treat them as unverifiable and fall back to the (slow but correct) per-PNG loader.
-    rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
-    expected = _manifest_digest(rows)
-    if meta.get("digest") != expected:
-        log.warning("packed data for '%s' does not match the current manifest (%s vs %s) — "
-                    "ignoring the pack. Re-run `chesslab dataset pack %s`.",
-                    name, meta.get("digest", "none"), expected, name)
-        return None
-
-    expected_bytes = n * h * w * 3
-    if img_path.stat().st_size != expected_bytes:
-        log.warning("packed file for '%s' is %d bytes, expected %d — ignoring the pack.",
-                    name, img_path.stat().st_size, expected_bytes)
-        return None
-
-    if _rewritten_since_pack(meta["paths"], img_path, meta.get("crop_fingerprint")):
-        log.warning("crops of '%s' were rewritten after it was packed — ignoring the pack. "
-                    "Re-run `chesslab dataset pack %s`.", name, name)
-        return None
-
-    # A direct pack has exactly the manifest's row order.  Marking those already-live row dicts
-    # costs one compact integer per row (~6 MiB for the current 241k corpus), while the old
-    # 241k-entry path dictionary retained another copy of every key and cost tens of MiB.  Linked
-    # packs address an owner's superset and therefore still need the general path lookup.
-    path2idx = None
-    if manifest_rows is not None and not meta.get("packed_from") and len(rows) == n:
-        for i, row in enumerate(rows):
-            row["_packed_idx"] = i
-    else:
-        path2idx = {p: i for i, p in enumerate(meta["paths"])}
-    return PackedIndex(str(img_path), (n, h, w), path2idx)
-
-
 def link_pack(name: str, owner: str, paths: config.Paths = config.DATA) -> dict:
     """Point `name` at `owner`'s memmap instead of copying pixels it already holds.
 
@@ -611,78 +358,3 @@ def link_pack(name: str, owner: str, paths: config.Paths = config.DATA) -> dict:
     img_path.unlink(missing_ok=True)
     print(f"[OK] '{name}' now reads '{owner}' ({freed / 1e9:.2f} GB freed)")
     return {"name": name, "packed_from": owner, "freed_bytes": freed, "rows": len(rows)}
-
-
-class _PreadRows:
-    """Dieselbe `reader[i] -> (H, W, 3)`-Schnittstelle wie die Memmap, aber ueber `seek`+`read`.
-
-    Der Unterschied ist, WO die Bytes liegen bleiben: eine Memmap behaelt jede beruehrte Seite im
-    Arbeitssatz des Workers, ein Datei-Lesevorgang laesst sie im Systemcache — geteilt und
-    verwerfbar. Gemessen ueber 30 000 zufaellige Crops: 1 482 MB gegen 109 MB, also 13,6x weniger.
-    """
-
-    def __init__(self, path: str, shape) -> None:
-        self._n, self._h, self._w = shape
-        self._row = self._h * self._w * 3
-        self._f = open(path, "rb", buffering=0)
-
-    def __getitem__(self, i):
-        # Ein Schnitt ist EIN Lesevorgang statt 64 Suchlaeufen — und dieser Reader wird gerade
-        # dann gewaehlt, wenn der Pack nicht in den RAM passt, also jeder Seek die Platte trifft.
-        if isinstance(i, slice):
-            start, stop, step = i.indices(self._n)
-            if step != 1:
-                raise ValueError(f"nur zusammenhaengende Schnitte, nicht step={step}")
-            self._f.seek(start * self._row)
-            buf = self._f.read(max(0, stop - start) * self._row)
-            return np.frombuffer(buf, np.uint8).reshape(-1, self._h, self._w, 3)
-        self._f.seek(int(i) * self._row)
-        return np.frombuffer(self._f.read(self._row), np.uint8).reshape(self._h, self._w, 3)
-
-
-def _pread_wanted(path: str) -> bool:
-    """pread, sobald der Pack gross gegen den Arbeitsspeicher ist — sonst die schnellere Memmap.
-
-    Auf warmen Seiten ist die Memmap 3x schneller, auf kalten ist pread es. Passt der Pack nicht
-    in den RAM, sind fast alle Seiten kalt, und die Memmap kauft ihren Vorsprung mit Auslagerung.
-    """
-    override = os.environ.get("CHESSLAB_PACK_READER")
-    if override:
-        return override == "pread"
-    total = _total_ram()
-    if not total:
-        log.info("[pack] RAM-Groesse unbekannt — bleibe bei der Memmap.")
-        return False
-    return os.path.getsize(path) > 0.5 * total
-
-
-def _total_ram() -> int:
-    """Physischer Arbeitsspeicher in Bytes, 0 wenn unbekannt. `psutil` ist keine Abhaengigkeit."""
-    import ctypes
-
-    class _Status(ctypes.Structure):
-        _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                    ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
-                    ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
-                    ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
-                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-
-    try:
-        st = _Status()
-        st.dwLength = ctypes.sizeof(_Status)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
-            return int(st.ullTotalPhys)
-    except (AttributeError, OSError):
-        pass
-    try:
-        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-    except (AttributeError, ValueError, OSError):
-        return 0
-
-
-def open_packed_memmap(path: str, shape, *, low_memory: bool = False):
-    """Read-only reader of the packed crops, shape (N, H, W, 3). Called lazily per worker."""
-    if low_memory or _pread_wanted(path):
-        return _PreadRows(path, shape)
-    n, h, w = shape
-    return np.memmap(path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))

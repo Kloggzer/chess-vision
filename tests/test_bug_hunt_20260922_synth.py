@@ -12,7 +12,7 @@ import PIL.Image
 import pytest
 
 from chesslab.ioutil import write_json
-from chesslab.training.pack import _manifest_digest
+from chesslab.training.packs import _manifest_digest
 from conftest import load_script, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]

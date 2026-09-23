@@ -10,7 +10,7 @@ import pytest
 from PIL import Image
 
 from chesslab import config
-from chesslab.training import pack as pack_mod
+from chesslab.training import pack_dataset as pack_mod
 from chesslab.training import packs
 
 CROP = 8  # tiny crops keep the tests fast; the code only cares about h/w consistency
@@ -68,7 +68,7 @@ def serial_pool(monkeypatch):
 
 
 def _packed_array(dd, n):
-    img, _ = pack_mod._packed_paths(dd)
+    img, _ = packs._packed_paths(dd)
     return np.memmap(img, dtype=np.uint8, mode="r", shape=(n, CROP, CROP, 3))
 
 
@@ -123,7 +123,7 @@ def test_resume_skips_already_packed_chunks(tmp_path, paths, monkeypatch):
 
     # Claim the first three chunks (0, 4, 8) are done; only 12 and 16 should be re-run.
     # The signature must carry the manifest digest, otherwise resume is refused (by design).
-    digest = pack_mod._manifest_digest(pack_mod._manifest_rows(dd))
+    digest = packs._manifest_digest(packs._manifest_rows(dd))
     (dd / "packed_progress.json").write_text(json.dumps({
         "signature": {"n": 20, "h": CROP, "w": CROP, "csize": 4, "digest": digest},
         "done": [0, 4, 8],
@@ -229,7 +229,7 @@ def test_interrupted_repack_does_not_leave_old_meta_published(tmp_path, paths, m
     crop_bytes = CROP * CROP * 3
     monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    assert packs.load_packed("ds", paths=paths) is not None
 
     # Same paths, new pixel content (a re-slice / synth re-render writing over itself).
     for i in range(8):
@@ -247,7 +247,7 @@ def test_interrupted_repack_does_not_leave_old_meta_published(tmp_path, paths, m
     with pytest.raises(RuntimeError, match="simulated interrupt"):
         pack_mod.pack_dataset("ds", paths=paths, workers=1)
 
-    assert pack_mod.load_packed("ds", paths=paths) is None, (
+    assert packs.load_packed("ds", paths=paths) is None, (
         "load_packed accepted a half-rewritten pack — the stale meta was left published")
 
 
@@ -274,7 +274,7 @@ def test_load_packed_rejects_pack_from_a_different_manifest(tmp_path, paths, mon
     """Second line of defence: a stale pack must be ignored, not silently used for training."""
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    assert packs.load_packed("ds", paths=paths) is not None
 
     # Rewrite the manifest with different crop paths but the same shape.
     rows = []
@@ -285,7 +285,7 @@ def test_load_packed_rejects_pack_from_a_different_manifest(tmp_path, paths, mon
     (dd / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
 
-    assert pack_mod.load_packed("ds", paths=paths) is None, (
+    assert packs.load_packed("ds", paths=paths) is None, (
         "load_packed served a pack that does not match the current manifest")
 
 
@@ -300,16 +300,16 @@ def test_load_packed_rejects_crops_rewritten_after_the_pack(tmp_path, paths):
     """
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    assert packs.load_packed("ds", paths=paths) is not None
 
-    img, _meta = pack_mod._packed_paths(dd)
+    img, _meta = packs._packed_paths(dd)
     packed_at = img.stat().st_mtime
     for i in range(6):
         p = dd / "squares" / f"{i:04d}.png"
         Image.fromarray(np.full((CROP, CROP, 3), 100 + i, dtype=np.uint8)).save(p)
         os.utime(p, (packed_at + 60, packed_at + 60))   # explicit: mtime resolution is not ours
 
-    assert pack_mod.load_packed("ds", paths=paths) is None, (
+    assert packs.load_packed("ds", paths=paths) is None, (
         "load_packed served a pack whose crops were rewritten under it")
 
 
@@ -318,7 +318,7 @@ def test_load_packed_accepts_an_untouched_pool(tmp_path, paths):
     _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
 
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    assert packs.load_packed("ds", paths=paths) is not None
 
 
 def test_load_packed_rejects_crops_restored_with_an_older_mtime(tmp_path, paths):
@@ -336,7 +336,7 @@ def test_load_packed_rejects_crops_restored_with_an_older_mtime(tmp_path, paths)
         Image.fromarray(np.full((CROP, CROP, 3), 200 + i, dtype=np.uint8)).save(p)
         os.utime(p, (old - 3600, old - 3600))
 
-    assert pack_mod.load_packed("ds", paths=paths) is None
+    assert packs.load_packed("ds", paths=paths) is None
 
 
 def test_load_packed_rejects_crops_rewritten_while_a_pack_with_a_late_mtime_ran(tmp_path, paths):
@@ -348,7 +348,7 @@ def test_load_packed_rejects_crops_rewritten_while_a_pack_with_a_late_mtime_ran(
     """
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    img, _meta = pack_mod._packed_paths(dd)
+    img, _meta = packs._packed_paths(dd)
     started = img.stat().st_mtime
 
     for i in range(6):
@@ -357,21 +357,21 @@ def test_load_packed_rejects_crops_rewritten_while_a_pack_with_a_late_mtime_ran(
         os.utime(p, (started + 60, started + 60))
     os.utime(img, (started + 300, started + 300))      # mtime = end of pack, not its start
 
-    assert pack_mod.load_packed("ds", paths=paths) is None
+    assert packs.load_packed("ds", paths=paths) is None
 
 
 def test_a_legacy_pack_without_a_fingerprint_still_uses_the_file_mtime(tmp_path, paths):
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    _img, meta_path = pack_mod._packed_paths(dd)
+    _img, meta_path = packs._packed_paths(dd)
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     del meta["crop_fingerprint"]
     meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    assert packs.load_packed("ds", paths=paths) is not None
     packed_at = _img.stat().st_mtime
     os.utime(dd / "squares" / "0000.png", (packed_at + 60, packed_at + 60))
-    assert pack_mod.load_packed("ds", paths=paths) is None
+    assert packs.load_packed("ds", paths=paths) is None
 
 
 @pytest.mark.usefixtures("serial_pool")
@@ -401,7 +401,7 @@ def test_wrong_size_file_is_reallocated_and_progress_dropped(tmp_path, paths, mo
     crop_bytes = CROP * CROP * 3
     monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
 
-    img, _ = pack_mod._packed_paths(dd)
+    img, _ = packs._packed_paths(dd)
     img.write_bytes(b"\0" * 16)                      # truncated leftover from a failed run
     (dd / "packed_progress.json").write_text(json.dumps({
         "signature": {"n": 8, "h": CROP, "w": CROP, "csize": 4},
@@ -443,7 +443,7 @@ def test_a_row_selection_reads_the_owners_pixels_instead_of_copying_them(tmp_pat
 
     assert res["freed_bytes"] == 0 and res["rows"] == 3
     assert not (vd / "packed_images.u8").exists()
-    got = pack_mod.load_packed("ds-sub", paths=paths)
+    got = packs.load_packed("ds-sub", paths=paths)
     assert got is not None
     img_path, shape, path2idx = got
     assert shape == (12, CROP, CROP, 3)[:3]
@@ -456,9 +456,9 @@ def test_an_already_loaded_manifest_uses_compact_direct_indices(tmp_path, paths)
     """Training must not parse the manifest again or retain a full path dictionary."""
     dd, _ = _make_dataset(tmp_path, 8)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    rows = pack_mod._manifest_rows(dd)
+    rows = packs._manifest_rows(dd)
 
-    packed = pack_mod.load_packed("ds", paths=paths, manifest_rows=rows)
+    packed = packs.load_packed("ds", paths=paths, manifest_rows=rows)
 
     assert packed is not None and packed[2] is None
     assert [row["_packed_idx"] for row in rows] == list(range(8))
@@ -476,7 +476,7 @@ def test_manifest_digest_keeps_the_existing_byte_contract():
     import hashlib
 
     raw = b"x/a.png\0wP\0[80, 80]\nx/b.png\0empty\0\n"
-    assert pack_mod._manifest_digest(rows) == hashlib.sha256(raw).hexdigest()[:32]
+    assert packs._manifest_digest(rows) == hashlib.sha256(raw).hexdigest()[:32]
 
 
 def test_linking_frees_a_duplicate_memmap_it_replaces(tmp_path, paths):
@@ -490,7 +490,7 @@ def test_linking_frees_a_duplicate_memmap_it_replaces(tmp_path, paths):
 
     assert res["freed_bytes"] == 8 * CROP * CROP * 3
     assert not (vd / "packed_images.u8").exists()
-    assert pack_mod.load_packed("ds-sub", paths=paths) is not None
+    assert packs.load_packed("ds-sub", paths=paths) is not None
 
 
 def test_a_link_is_refused_when_the_owner_lacks_a_crop(tmp_path, paths):
@@ -523,13 +523,13 @@ def test_a_link_inherits_the_owners_staleness_reference(tmp_path, paths):
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
     _variant_of(tmp_path, rows, "ds-sub", [0, 1, 2, 3, 4, 5])
     pack_mod.link_pack("ds-sub", "ds", paths=paths)
-    assert pack_mod.load_packed("ds-sub", paths=paths) is not None
+    assert packs.load_packed("ds-sub", paths=paths) is not None
 
     for i in range(6):
         p = dd / "squares" / f"{i:04d}.png"
         Image.fromarray(np.full((CROP, CROP, 3), 100 + i, dtype=np.uint8)).save(p)
 
-    assert pack_mod.load_packed("ds-sub", paths=paths) is None
+    assert packs.load_packed("ds-sub", paths=paths) is None
 
 
 @pytest.mark.usefixtures("serial_pool")
@@ -560,10 +560,10 @@ def test_a_resume_across_a_re_slice_does_not_certify_the_old_pixels(tmp_path, pa
             dd / "squares" / f"{i:04d}.png")
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
 
-    _img, meta_path = pack_mod._packed_paths(dd)
+    _img, meta_path = packs._packed_paths(dd)
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert meta["crop_fingerprint"] == first["crop_fingerprint"], "resume re-stamped the reference"
-    assert pack_mod.load_packed("ds", paths=paths) is None
+    assert packs.load_packed("ds", paths=paths) is None
 
 
 @pytest.mark.usefixtures("serial_pool")
@@ -574,17 +574,17 @@ def test_a_resume_from_a_sidecar_without_a_fingerprint_falls_back(tmp_path, path
     monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
 
-    digest = pack_mod._manifest_digest(pack_mod._manifest_rows(dd))
+    digest = packs._manifest_digest(packs._manifest_rows(dd))
     (dd / "packed_progress.json").write_text(json.dumps({
         "signature": {"n": 8, "h": CROP, "w": CROP, "csize": 4, "digest": digest},
         "done": [0],
     }), encoding="utf-8")
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
 
-    _img, meta_path = pack_mod._packed_paths(dd)
+    _img, meta_path = packs._packed_paths(dd)
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert "crop_fingerprint" not in meta
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    assert packs.load_packed("ds", paths=paths) is not None
 
 
 def test_pack_dataset_refuses_a_pack_built_dataset(tmp_path, paths):
@@ -609,5 +609,5 @@ def test_a_link_carries_the_owners_baked_recipe(tmp_path, paths):
 
     pack_mod.link_pack("ds-sub", "ds", paths=paths)
 
-    from chesslab.training.pack_bake import baked_of
+    from chesslab.training.packs import baked_of
     assert baked_of("ds-sub", paths) == meta["baked"]

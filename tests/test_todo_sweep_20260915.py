@@ -180,7 +180,7 @@ def test_adopt_corners_refuses_an_out_of_range_from_index(tmp_path, monkeypatch)
 
 def test_balance_rejects_a_typo():
     """A typo fell through to `situation` silently and was written to `config.json` as the typo."""
-    from chesslab.training import train
+    from chesslab.training import train_recipe as train
 
     with pytest.raises(ValueError, match="situaton"):
         train.check_balance("situaton")

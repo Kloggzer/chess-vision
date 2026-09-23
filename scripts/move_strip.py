@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
-from chesslab.training.pack import open_packed_rows
+from chesslab.training.packs import open_packed_rows
 
 CELL, PAD, BAR = 104, 5, 26
 

@@ -77,10 +77,10 @@ def training_rows_and_reader(name, split_name, which="train"):
     """
     import numpy as np
 
-    from chesslab.dataset import load_manifest
+    from chesslab.dataset import load_manifest, load_split
     from chesslab.dataset_build import dataset_dir
-    from chesslab.training.data import filter_rows_by_split, load_split
-    from chesslab.training.pack import open_packed_rows
+    from chesslab.training.data import filter_rows_by_split
+    from chesslab.training.packs import open_packed_rows
 
     dd = dataset_dir(name)
     manifest = load_manifest(dd / "manifest.jsonl")

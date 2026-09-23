@@ -8,8 +8,9 @@ from pathlib import Path
 import numpy as np
 
 from .. import config
+from ..dataset import load_manifest, load_split
 from ..ioutil import write_json
-from .data import crop_of_rows, filter_rows_by_split, load_manifest, load_split
+from .data import crop_of_rows, dataset_paths, filter_rows_by_split, read_run_config, unnamed_pin
 from .model import stock_batchnorm
 
 
@@ -28,9 +29,9 @@ def load_run(run_dir: Path, weights: str | None = None):
     from .model import build_model
     from .torch_data import input_repr_of
 
-    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    cfg = read_run_config(run_dir)
     # `occlusion` is a COMBINED head with one sigmoid coverage unit beside the classes — the same
-    # arithmetic `train.py` uses. Rebuilding it under its own name raised "unknown head", so every
+    # arithmetic `train_recipe.py` uses. Rebuilding it under its own name raised "unknown head", so every
     # run trained with it was unloadable: no eval, no confusion, no export.
     occluding = cfg.get("head") == "occlusion"
     model = build_model(cfg["backbone"], len(cfg["classes"]) + occluding,
@@ -146,28 +147,20 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     # sessions it trained on just as surely as pointing it at another corpus does.
     overridden = foreign or (bool(split_file) and split_file != cfg.get("split_file"))
     ds_name = dataset or cfg.get("dataset")   # ohne --dataset: der Datensatz aus dem run-config
-    if ds_name:
-        from ..dataset_build import dataset_dir
-        dd = dataset_dir(ds_name)
-        # The run's OWN split, not the corpus-wide one: a cross-validation fold shares the packed
-        # dataset with three others, and `split.json` there names every session — evaluating a
-        # fold against it would measure the sessions it trained on. A foreign dataset has no such
-        # claim on the run, so there the default is that dataset's own split.
-        manifest_path = dd / "manifest.jsonl"
-        default_split = "split.json" if foreign else (cfg.get("split_file") or "split.json")
-        # Ein gepinnter Schnitt existiert genau dann, wenn der voreingestellte nicht gemessen
-        # werden soll. Ohne diese Pruefung misst ausgerechnet `eval --dataset <gemeinsamer>` —
-        # das Kommando FUER Quervergleiche — gegen den Val ohne weisse Springer.
-        pinned = dd / "split-pin.json"
-        if split_file is None and pinned.exists() and default_split != pinned.name:
-            print(f"[FAIL] '{ds_name}' hat einen gepinnten Schnitt ({pinned.name}), aber "
-                  "--split-file nennt ihn nicht. Entweder `--split-file split-pin.json` mitgeben "
-                  "oder ausdruecklich `--split-file split.json` sagen.")
-            return 1
-        split_path = dd / (split_file or default_split)
-    else:
-        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
-        split_path = config.DATA.reports / "split.json"
+    # The run's OWN split, not the corpus-wide one: a cross-validation fold shares the packed
+    # dataset with three others, and `split.json` there names every session — evaluating a
+    # fold against it would measure the sessions it trained on. A foreign dataset has no such
+    # claim on the run, so there the default is that dataset's own split.
+    default_split = "split.json" if foreign else (cfg.get("split_file") or "split.json")
+    manifest_path, split_path = dataset_paths(ds_name, split_file, default_split)
+    # Ohne die Pin-Pruefung misst ausgerechnet `eval --dataset <gemeinsamer>` — das Kommando
+    # FUER Quervergleiche — gegen den Val ohne weisse Springer.
+    pinned = unnamed_pin(ds_name, split_file, default_split) if ds_name else None
+    if pinned is not None:
+        print(f"[FAIL] '{ds_name}' hat einen gepinnten Schnitt ({pinned.name}), aber "
+              "--split-file nennt ihn nicht. Entweder `--split-file split-pin.json` mitgeben "
+              "oder ausdruecklich `--split-file split.json` sagen.")
+        return 1
     if not manifest_path.exists() or not split_path.exists():
         print(f"[FAIL] Manifest/split missing ({manifest_path}). Build/split dataset first.")
         return 1
@@ -235,16 +228,13 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     model.to(device)
     # Packed memmap when available: required for fused datasets (mm:// rows have no files) and
     # a free speedup for any packed one. Falls back to per-PNG for classic file-backed datasets.
-    packed = None
-    if ds_name:
-        from .pack import load_packed, resolve_dataset_packs
-        packed = resolve_dataset_packs(ds_name, config.DATA, manifest_rows=rows)
-        if packed is None:
-            packed = load_packed(ds_name, config.DATA)
+    from .packs import open_dataset_pack
+
+    packed = open_dataset_pack(ds_name, config.DATA, split_rows=rows)
     # Wie in `train`: traegt der Pack CLAHE schon in den Pixeln, darf der Loader ihn nicht noch
     # einmal rechnen — zweimal CLAHE ist ein anderer Operator, und die Zahlen benoten dann ein
     # Rezept, das der Lauf nie gefahren ist.
-    from .pack_bake import cfg_for_pack
+    from .packs import cfg_for_pack
 
     cfg = cfg_for_pack(cfg, ds_name, packed)
     tf = eval_transform_for(cfg)

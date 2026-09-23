@@ -34,8 +34,7 @@ import cv2
 import numpy as np
 
 from chesslab.ioutil import read_jsonl
-from chesslab.training.pack import _manifest_digest
-from chesslab.training.packs import MM_PREFIX
+from chesslab.training.packs import MM_PREFIX, _manifest_digest
 
 #: Optics cutoff. Everything above it is noise, not lens signal — the real webcam's blur
 #: kernel is well below this, so a real crop keeps its grain while a clean render has none.

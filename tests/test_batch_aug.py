@@ -115,7 +115,7 @@ def test_noise_runs_before_the_cutout():
 def test_config_records_the_photometry_that_ran_not_the_zeroed_loader():
     """`config.json` ist, was Serving liest. Mit --batch-aug stehen die Staerken im Loader auf 0
     und leben im BatchPhotometric — die Datei muss den GERECHNETEN Operator nennen."""
-    from chesslab.training.train import _photometry_of
+    from chesslab.training.train_recipe import _photometry_of
 
     loader = replace(config.AUGMENT, **OFF)          # so sieht die Policy im Loader aus
     photo = BatchPhotometric(config.AUGMENT, MEAN, STD, from_uint8=True)

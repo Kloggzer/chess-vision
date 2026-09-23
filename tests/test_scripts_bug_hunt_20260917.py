@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from chesslab.training.pack import PackedIndex
+from chesslab.training.packs import PackedIndex
 from conftest import load_script, write_jsonl
 
 # --- 1. `hand_audit`: leere `concepts` sind GEMESSEN, nur `coverage is None` ist blind ----------
@@ -91,7 +91,7 @@ def test_fold_per_session_prints_its_summary_table(tmp_path, monkeypatch, capsys
 
     monkeypatch.setattr(fold_per_session, "dataset_dir", lambda name: dd)
     monkeypatch.setattr(fold_per_session, "read_jsonl", fake_read_jsonl)
-    monkeypatch.setattr("chesslab.training.pack.load_packed",
+    monkeypatch.setattr("chesslab.training.packs.load_packed",
                         lambda name, *a, **k: PackedIndex(str(pack), (len(rows), 4, 4), None))
     monkeypatch.setattr(fold_per_session.occluded_model, "all_reads",
                         lambda run, crops: [{"pred_label": "wP"} for _ in crops])
@@ -119,7 +119,7 @@ def test_fold_per_session_reports_a_session_two_folds_held_back(tmp_path, monkey
 
     monkeypatch.setattr(fold_per_session, "dataset_dir", lambda name: dd)
     monkeypatch.setattr(fold_per_session, "read_jsonl", fake_read_jsonl)
-    monkeypatch.setattr("chesslab.training.pack.load_packed",
+    monkeypatch.setattr("chesslab.training.packs.load_packed",
                         lambda name, *a, **k: PackedIndex(str(pack), (len(rows), 4, 4), None))
     monkeypatch.setattr(fold_per_session.occluded_model, "all_reads",
                         lambda run, crops: [{"pred_label": "wP"} for _ in crops])

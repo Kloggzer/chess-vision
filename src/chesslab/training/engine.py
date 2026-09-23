@@ -1,4 +1,4 @@
-"""Stage 5 — shared eval mechanics (used by train.py and evaluate.py)."""
+"""Stage 5 — shared eval mechanics (used by train_loop.py and evaluate.py)."""
 
 from __future__ import annotations
 

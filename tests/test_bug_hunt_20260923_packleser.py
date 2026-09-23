@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from chesslab import config
-from chesslab.training import packs
+from chesslab.training import pack_session, packs
 from conftest import load_script, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +38,7 @@ def _write_pack(paths: config.Paths, name: str) -> list[dict]:
              "out_size": [16, 16]}                    # der Manifest-Wert, NICHT die Packgroesse
             for lab, sq, col, cov, br in CELLS]
     write_jsonl(d / "manifest.jsonl", rows)
-    packs.write_meta(d, rows, SIDE, SIDE)
+    pack_session.write_meta(d, rows, SIDE, SIDE)
     (d / packs._IMAGE).write_bytes(b"".join(
         np.full((SIDE, SIDE, 3), _colour(pack_no, i), np.uint8).tobytes() for i in range(len(rows))))
     return rows
@@ -142,7 +142,7 @@ def test_lr_range_test_reads_packs_by_path_at_the_packs_size(pack_set):
 def test_lr_range_test_loss_is_the_occlusion_loss_train_runs(pack_set):
     torch = pytest.importorskip("torch")
     from chesslab.dataset import compute_class_weights
-    from chesslab.training.train import visible_class_counts
+    from chesslab.training.train_recipe import visible_class_counts
 
     mod = load_script("lr_range_test")
     ds, crit, _classes, train_rows, _board, n_out = mod.prepare(_range_args())

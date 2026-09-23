@@ -35,10 +35,10 @@ def test_session_meta_readers_keep_their_existing_missing_and_empty_contracts(tm
 
 @pytest.mark.parametrize("dataset_name", ["PackedSquareDataset", "PackedBoardDataset"])
 def test_packed_datasets_open_each_memmap_lazily_once(monkeypatch, dataset_name):
-    from chesslab.training import pack, torch_data
+    from chesslab.training import packs, torch_data
 
     opened = []
-    monkeypatch.setattr(pack, "open_packed_memmap", lambda *args, **kwargs: opened.append(
+    monkeypatch.setattr(packs, "open_packed_memmap", lambda *args, **kwargs: opened.append(
         (args, kwargs)) or object())
     dataset = getattr(torch_data, dataset_name).__new__(getattr(torch_data, dataset_name))
     dataset._files = [(Path("pixels.u8"), (2, 8, 8))]

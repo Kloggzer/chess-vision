@@ -17,7 +17,7 @@ from .. import config
 from ..ioutil import read_jsonl, write_json
 from ..session_store.names import CORRECTIONS_FILE, UNUSABLE_CELLS_FILE
 from . import packs
-from .pack import decode_crop
+from .pack_dataset import decode_crop, write_packed_meta
 
 #: The human ledgers a pack freezes at cut time; `dataset_build` compares this stamp before it cites.
 LEDGERS = (UNUSABLE_CELLS_FILE, CORRECTIONS_FILE)
@@ -28,6 +28,13 @@ def ledger_stamps(session_path: Path) -> dict[str, str | None]:
     from ..provenance import file_stamp
 
     return {n: file_stamp(session_path / n) for n in LEDGERS}
+
+
+def write_meta(dir_: Path, rows: list[dict], h: int, w: int) -> None:
+    """Ohne `crop_fingerprint`, also bytegleich zu vorher. `synth_build` schreibt fuer dieselbe
+    Lage (`mm://`-Zeilen) ein leeres dict, weil FEHLEND "Altpack, nimm die Mtime" heisst — bei
+    reinen `mm://`-Zeilen liefern heute beide Zweige dasselbe, darum steht es in TODO.md."""
+    write_packed_meta(dir_ / packs._META, rows, h, w)
 
 
 def _gb(n: int, h: int, w: int) -> float:
@@ -134,7 +141,7 @@ def _write_rows(name: str, out_dir: Path, size: int, crops, what: str) -> dict:
 
     (out_dir / "manifest.jsonl").write_text(
         "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-    packs.write_meta(out_dir, rows, h, w)
+    write_meta(out_dir, rows, h, w)
     partial.rename(out_dir / packs._IMAGE)
     return {"pack": name, "n": len(rows), "h": h, "w": w, "gb": _gb(len(rows), h, w)}
 

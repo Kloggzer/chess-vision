@@ -86,8 +86,8 @@ def test_a_candidate_without_created_at_gets_no_invented_wall_clock():
                           "Score aus CHECKPOINT_WEIGHTS", strict=True)
 def test_the_logged_checkpoint_score_is_the_weighted_one():
     """`_checkpoint_rank[0]` ist `visible_piece_acc` — identisch zu `val_piece_acc` daneben."""
+    from chesslab.training.checkpoint import _checkpoint_rank
     from chesslab.training.data import CHECKPOINT_WEIGHTS
-    from chesslab.training.train import _checkpoint_rank
 
     bd = {"visible_piece_acc": 0.80, "visible_occupied_acc": 0.90, "calibration": 0.70}
     weighted = sum(w * bd[k] for k, w in CHECKPOINT_WEIGHTS.items())
@@ -178,7 +178,7 @@ def test_a_plate_pool_without_an_index_is_not_silently_declared_1920(tmp_path):
 def test_the_watchdog_replay_refuses_an_occlusion_run_by_name(tmp_path):
     """`--replay` traegt laut Docstring das Ergebnis des Werkzeugs — auf jedem heutigen Lauf stirbt es."""
 
-    from chesslab.training.train import _compact_metrics
+    from chesslab.training.epoch_metrics import _compact_metrics
 
     watchdog = load_script("train_watchdog")
 

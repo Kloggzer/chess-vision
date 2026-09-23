@@ -40,12 +40,17 @@ def prepare(args):
     import torch.nn as nn
 
     from chesslab import config
-    from chesslab.dataset import compute_class_weights, load_priority_paths, subsample_classes
+    from chesslab.dataset import (
+        compute_class_weights,
+        load_manifest,
+        load_priority_paths,
+        load_split,
+        subsample_classes,
+    )
     from chesslab.dataset_build import dataset_dir
-    from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
+    from chesslab.training.data import filter_rows_by_split
     from chesslab.training.occlusion import OcclusionLoss
-    from chesslab.training.pack import load_packed, resolve_dataset_packs
-    from chesslab.training.packs import packed_shape
+    from chesslab.training.packs import load_packed, packed_shape, resolve_dataset_packs
     from chesslab.training.torch_data import (
         PackedBoardDataset,
         PackedSquareDataset,
@@ -53,7 +58,7 @@ def prepare(args):
         build_transform,
         class_weights_tensor,
     )
-    from chesslab.training.train import visible_class_counts
+    from chesslab.training.train_recipe import visible_class_counts
 
     dd = dataset_dir(args.dataset)
     manifest, split = load_manifest(dd / "manifest.jsonl"), load_split(dd / args.split)

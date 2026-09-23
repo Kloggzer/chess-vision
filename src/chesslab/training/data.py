@@ -14,21 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import config
-from ..ioutil import mtime_size
-from ..work_audit import measure
-
-
-def load_manifest(path: Path) -> list[dict]:
-    from ..ioutil import read_jsonl
-
-    p = Path(path)
-    if not p.exists():
-        # Semantics as before Rework 05: missing manifest is a hard error, not an empty
-        # dataset — otherwise one silently "trains" on nothing.
-        raise FileNotFoundError(f"Manifest not found: {p}")
-    version = mtime_size(p)
-    with measure("manifest loads", (p.resolve(), *version), processed_bytes=version[1]):
-        return read_jsonl(p)
 
 
 def crop_of_rows(rows: list[dict]) -> float | None:
@@ -50,23 +35,31 @@ def crop_of_rows(rows: list[dict]) -> float | None:
     return next(iter(pads)) if len(pads) == 1 else None
 
 
-def run_data_paths(cfg: dict) -> tuple[Path, Path]:
-    """`(manifest, split)`, gegen die ein Lauf trainiert hat — ohne Datensatz der Crop-Pool.
-
-    Der Split des LAUFS (`split_file`): ein Fold traegt `split-f<i>.json`, und `split.json`
-    gaebe genau die Sessions zurueck, die der Fold zurueckhalten sollte.
-    """
-    ds_name = cfg.get("dataset")
+def dataset_paths(ds_name: str | None, split_file: str | None = None,
+                  default_split: str = "split.json") -> tuple[Path, Path]:
     if not ds_name:
         return config.DATA.crop_pool / "manifest.jsonl", config.DATA.reports / "split.json"
     from ..dataset_build import dataset_dir
 
     dd = dataset_dir(ds_name)
-    return dd / "manifest.jsonl", dd / (cfg.get("split_file") or "split.json")
+    return dd / "manifest.jsonl", dd / (split_file or default_split)
 
 
-def load_split(path: Path) -> dict:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+def unnamed_pin(ds_name: str, split_file: str | None,
+                default_split: str = "split.json") -> Path | None:
+    # Ein gepinnter Schnitt existiert genau dann, wenn der voreingestellte NICHT gemessen werden
+    # soll: `real13-mix-v6-80/split.json` traegt als Val `21-29-35` — die Aufnahme ohne einen
+    # einzigen weissen Springer. Wer `--split` vergisst, misst blind.
+    from ..dataset_build import dataset_dir
+
+    pinned = dataset_dir(ds_name) / "split-pin.json"
+    if split_file is None and pinned.exists() and default_split != pinned.name:
+        return pinned
+    return None
+
+
+def read_run_config(run_dir: Path) -> dict:
+    return json.loads((Path(run_dir) / "config.json").read_text(encoding="utf-8"))
 
 
 def filter_rows_by_split(rows: list[dict], split: dict, which: str) -> list[dict]:
@@ -319,36 +312,6 @@ def confident_confusions(classes: list[str], trues, preds, conf, top: int = 8) -
              "mean_conf": sum(v) / len(v)} for k, v in out.items()]
     rows.sort(key=lambda r: r["n"] * r["mean_conf"], reverse=True)
     return rows[:top]
-
-
-def fit_temperature(logits, trues, iters: int = 200, *, n_classes: int | None = None) -> float:
-    """Ein Skalar, der die Wahrscheinlichkeiten ehrlich macht — der Argmax bleibt unberuehrt.
-
-    Post-hoc auf val angepasst (Guo et al. 2017). Deshalb aendert sich KEINE Genauigkeit,
-    nur die Konfidenz — der Dekoder braucht dann keine handgesetzte Konstante mehr.
-    """
-    import torch
-
-    if logits is None or not len(trues):
-        return 1.0
-    z = logits.detach().float()
-    y = torch.as_tensor(trues, dtype=torch.long)
-    # Aus dem Aufrufer, nicht aus den Labels: fehlt die letzte Klasse im Val, fiel ihre Spalte
-    # zusammen mit der Coverage-Spalte weg und die gefittete Temperatur landete so in config.json.
-    if n_classes is not None and z.shape[1] > n_classes:
-        z = z[:, :n_classes]                 # Coverage-Logit gehoert nicht dazu
-    log_t = torch.zeros(1, requires_grad=True)
-    opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=iters)
-    loss_fn = torch.nn.CrossEntropyLoss()
-
-    def step():
-        opt.zero_grad()
-        loss = loss_fn(z / log_t.exp(), y)
-        loss.backward()
-        return loss
-
-    opt.step(step)
-    return float(log_t.exp().item())
 
 
 def build_model_card(

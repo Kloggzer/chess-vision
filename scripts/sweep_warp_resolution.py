@@ -64,13 +64,10 @@ os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import calibration, config, labeling  # noqa: E402
+from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
-from chesslab.training.data import (  # noqa: E402
-    filter_rows_by_split,
-    load_manifest,
-    load_split,
-)
+from chesslab.training.data import filter_rows_by_split  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 from sweep_infer_size import (  # noqa: E402

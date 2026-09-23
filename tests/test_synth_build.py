@@ -9,7 +9,7 @@ import numpy as np
 
 from chesslab import config
 from chesslab.synth_build import build_synth_dataset
-from chesslab.training.pack import load_packed
+from chesslab.training.packs import load_packed
 
 # Ein Brett, dessen Warp trivial ist: das Brett fuellt das Bild von (16,16) bis (144,144).
 _CORNERS = [[16.0, 16.0], [144.0, 16.0], [144.0, 144.0], [16.0, 16.0 + 128.0]]
@@ -64,7 +64,7 @@ def test_fused_build_packs_without_crop_pngs(tmp_path):
     # ein Re-Pack wuerde die Pixel mit Muell ersetzen).
     import pytest
 
-    from chesslab.training.pack import pack_dataset
+    from chesslab.training.pack_dataset import pack_dataset
     with pytest.raises(ValueError, match="fused"):
         pack_dataset("fused-t", paths)
 

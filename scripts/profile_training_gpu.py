@@ -55,9 +55,9 @@ def resident_batch(cfg: dict, fixture: dict | None = None):
     from PIL import Image
 
     from chesslab import config
-    from chesslab.training.pack import open_packed_rows
-    from chesslab.training.torch_data import build_transform, coverage_of
-    from chesslab.training.train import brightness_of
+    from chesslab.cell_rule import brightness_of, coverage_of
+    from chesslab.training.packs import open_packed_rows
+    from chesslab.training.torch_data import build_transform
 
     dd = Path("data/datasets") / cfg["dataset"]
     groups = {}

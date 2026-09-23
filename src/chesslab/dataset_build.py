@@ -390,7 +390,7 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
     p = paths.datasets / _safe_name(donor) / "split.json"
     if not p.exists():
         raise ValueError(f"--like: dataset '{donor}' has no split.json at {p}")
-    donor_splits = json.loads(p.read_text(encoding="utf-8")).get("splits") or {}
+    donor_splits = dataset_mod.load_split(p).get("splits") or {}
     unknown = sorted({*add_test, *add_train} - have)
     if unknown:
         raise ValueError(
@@ -856,7 +856,7 @@ def build_dataset(
     packed_info = None
     if write_pack and not from_packs and n_final >= _PACK_MIN_CROPS:   # small sets load fine per-PNG
         try:
-            from .training.pack import pack_dataset
+            from .training.pack_dataset import pack_dataset
             packed_info = pack_dataset(name, paths, out_size=pack_size)
         except Exception as e:  # noqa: BLE001 — packing is an optimization, never fail the build
             print(f"  ! packing skipped ({e}); training will use the per-PNG loader.")
@@ -886,7 +886,7 @@ def list_datasets(paths: config.Paths | None = None) -> list[dict]:
             continue
         cfg = _read_yaml(d / "dataset.yaml")
         sp = d / "split.json"
-        split_counts = json.loads(sp.read_text(encoding="utf-8")).get("counts", {}) if sp.exists() else {}
+        split_counts = dataset_mod.load_split(sp).get("counts", {}) if sp.exists() else {}
         out.append({
             "name": cfg.get("name", d.name),
             "n_sessions": len(cfg.get("session_ids", [])),

@@ -167,7 +167,7 @@ def _kotlin_pack(dir_: Path, name: str = "sid", side: int = 4, short: bool = Fal
     rows = [{"path": f"{packs.MM_PREFIX}{name}/0000/{sq}", "label": "empty",
              "out_size": [side, side]} for sq in ("a1", "a2", "a3")]
     write_jsonl(dir_ / "manifest.jsonl", rows)
-    packs.write_meta(dir_, rows, side, side)
+    pack_session.write_meta(dir_, rows, side, side)
     raw = np.arange(len(rows) * side * side * 3, dtype=np.uint8).tobytes()
     (dir_ / packs._IMAGE).write_bytes(raw[:-1] if short else raw)
 
@@ -232,7 +232,7 @@ def test_pool_pack_takes_only_its_session_and_keeps_the_pool_rows(tmp_path):
 
 def test_pool_pack_pixels_are_the_decoder_the_monolithic_pack_used(tmp_path):
     """Bit-equality by construction: both writers go through `training.pack.decode_crop`."""
-    from chesslab.training.pack import decode_crop
+    from chesslab.training.pack_dataset import decode_crop
 
     paths = config.Paths(root=tmp_path)
     rows = _pool_session(paths, "comp-x-00", "comp13-v3", squares=("a1", "b2", "c3"))

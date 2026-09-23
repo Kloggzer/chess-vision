@@ -6,7 +6,7 @@ import pytest
 
 from chesslab import config, dataset_build
 from chesslab import dataset as dataset_mod
-from chesslab.training import packs
+from chesslab.training import pack_session, packs
 from chesslab.training.data import checkpoint_score
 from chesslab.training.pack_session import _write_rows
 from conftest import write_jsonl
@@ -117,7 +117,7 @@ def test_read_pack_validates_every_rows_pack_name(tmp_path):
     out_dir = paths.packs / "good"
     out_dir.mkdir(parents=True)
     rows = [{"path": "mm://good/1/a1"}, {"path": "mm://other/1/a2"}]
-    packs.write_meta(out_dir, rows, 1, 1)
+    pack_session.write_meta(out_dir, rows, 1, 1)
     (out_dir / packs._IMAGE).write_bytes(bytes(6))
 
     try:

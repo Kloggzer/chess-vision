@@ -95,7 +95,7 @@ def test_validation_returns_coverage_predictions_without_a_second_model_pass():
 def test_occlusion_diagnostics_reuse_the_regular_validation_arrays():
     import numpy as np
 
-    from chesslab.training.train import _occlusion_diagnostics
+    from chesslab.training.epoch_metrics import _occlusion_diagnostics
 
     val = {
         "trues": np.array([0, 1, 1, 0]),

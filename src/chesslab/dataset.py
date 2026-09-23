@@ -19,15 +19,24 @@ from .ioutil import read_jsonl, write_json
 CLASSES = config.CLASSES
 
 
-# --- Load manifest -------------------------------------------------------------------
+# --- Load manifest and split ----------------------------------------------------------
 
 def load_manifest(path: Path) -> list[dict]:
-    from .ioutil import read_jsonl
+    from .ioutil import mtime_size
+    from .work_audit import measure
 
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Manifest not found: {path}. Run `chesslab slice` first.")
-    return read_jsonl(path)
+    p = Path(path)
+    if not p.exists():
+        # Semantics as before Rework 05: missing manifest is a hard error, not an empty
+        # dataset — otherwise one silently "trains" on nothing.
+        raise FileNotFoundError(f"Manifest not found: {p}. Run `chesslab slice` first.")
+    version = mtime_size(p)
+    with measure("manifest loads", (p.resolve(), *version), processed_bytes=version[1]):
+        return read_jsonl(p)
+
+
+def load_split(path: Path) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 # --- stats ----------------------------------------------------------------------------
@@ -100,7 +109,7 @@ def render_stats(stats: dict) -> str:
 def load_priority_paths(paths=None) -> set[str] | None:
     """Mined hard-negative empty crops (`scripts/mine_hard_empty.py`) that must survive the cap.
 
-    Read by BOTH `dataset_build.build_dataset` and `training.train.run_train`, and it has to be
+    Read by BOTH `dataset_build.build_dataset` and `training.train_feed.training_rows`, and it has to be
     both: a built dataset's `manifest.jsonl` holds the UNCAPPED rows, and `run_train` re-runs
     `subsample_classes` from `split["train_subsample"]`. A keep-list honoured only at build time
     is therefore re-drawn away at train time — the protection would land in `split.json`'s counts
@@ -181,7 +190,6 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
                 empties = rng.sample(empties, empty_cap)
     kept.extend(empties)
     return kept
-
 
 
 def compute_class_weights(counts: dict, classes: list[str] | None = None,
@@ -604,7 +612,7 @@ def run_verify() -> int:
     except FileNotFoundError as e:
         print(f"[FAIL] {e}")
         return 1
-    split = json.loads(split_path.read_text(encoding="utf-8")) if split_path.exists() else None
+    split = load_split(split_path) if split_path.exists() else None
     problems = verify(rows, split=split)
     if not problems:
         print(f"[OK] {len(rows)} Crops verified, no problems.")

@@ -34,8 +34,8 @@ def _wire(tmp_path, monkeypatch, model, cfg, rows):
     (tmp_path / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
     monkeypatch.setattr(gradcam, "_crop_reader", lambda _n, _r: lambda r: Image.open(r["path"]))
-    monkeypatch.setattr("chesslab.training.data.load_manifest", lambda _p: rows)
-    monkeypatch.setattr("chesslab.training.data.load_split", lambda _p: {"splits": {"test": ["s"]}})
+    monkeypatch.setattr("chesslab.dataset.load_manifest", lambda _p: rows)
+    monkeypatch.setattr("chesslab.dataset.load_split", lambda _p: {"splits": {"test": ["s"]}})
     monkeypatch.setattr("chesslab.training.data.filter_rows_by_split", lambda m, _s, _w: m)
 
 

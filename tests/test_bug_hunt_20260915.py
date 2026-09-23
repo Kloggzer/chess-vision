@@ -10,7 +10,7 @@ import pytest
 
 from chesslab import config, dataset, dataset_build
 from chesslab.ioutil import read_jsonl, write_rows
-from chesslab.training import packs
+from chesslab.training import pack_session, packs
 from conftest import make_profile, write_jsonl
 
 SIDE = 8
@@ -25,7 +25,7 @@ def _write_pack(paths: config.Paths, name: str, sid: str, side: int) -> None:
              "fen": "x", "out_size": [side, side], "coverage": 0.0}
             for label, frame, square in CELLS]
     write_jsonl(d / "manifest.jsonl", rows)
-    packs.write_meta(d, rows, side, side)
+    pack_session.write_meta(d, rows, side, side)
     (d / packs._IMAGE).write_bytes(b"\x07" * (len(rows) * side * side * 3))
 
 

@@ -24,7 +24,7 @@ from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
 from chesslab.training.evaluate import load_run
 from chesslab.training.gradcam import _crop_reader, compute_cam, jet, last_conv
-from chesslab.training.pack_bake import cfg_for_pack
+from chesslab.training.packs import cfg_for_pack
 from chesslab.training.torch_data import eval_transform_for
 
 #: Der aeussere Ring gehoert dem NACHBARN, nicht dieser Zelle: `pad_side` 0,05 schneidet auf

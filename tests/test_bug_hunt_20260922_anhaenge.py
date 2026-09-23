@@ -17,7 +17,7 @@ import test_json_doors as doors  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 UMGESTELLT = (
     "src/chesslab/session_writer.py",
-    "src/chesslab/training/train.py",
+    "src/chesslab/training/train_loop.py",
     "scripts/fix_ply_offset.py",
 )
 

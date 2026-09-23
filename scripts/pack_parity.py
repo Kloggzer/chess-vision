@@ -29,11 +29,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chesslab import config  # noqa: E402
+from chesslab.dataset import load_manifest  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.training import packs  # noqa: E402
-from chesslab.training.data import load_manifest  # noqa: E402
-from chesslab.training.pack import (  # noqa: E402
+from chesslab.training.packs import (  # noqa: E402
     load_packed,
     open_packed_memmap,
     resolve_dataset_packs,

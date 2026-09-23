@@ -247,7 +247,7 @@ NORMALIZE_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
 # it — and it hard-crashes this ROCm-Windows machine (a 1-epoch smoke test on 5k crops took the
 # whole PC down). The cheapest path must not be the one that reboots the box.
 DEFAULT_BACKBONE: str = "mobilenetv4_conv_small_035"
-DEFAULT_EPOCHS: int = 30      # also the cosine schedule's T_max — see training/train.py
+DEFAULT_EPOCHS: int = 30      # also the cosine schedule's T_max — see training/train_recipe.py
 DEFAULT_BATCH_SIZE: int = 256
 # 8 keeps the GPU fed from memmaps and the user's sweep runs through on it. But six
 # `Resource-Exhaustion` events in August name three or more `python.exe` at 4-7 GB each on a

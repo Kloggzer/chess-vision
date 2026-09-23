@@ -4,7 +4,7 @@ den grosse Packs waehlen, etwas anderes als der Pfad, gegen den getestet wurde."
 import numpy as np
 import pytest
 
-from chesslab.training.pack import _PreadRows, open_packed_memmap
+from chesslab.training.packs import _PreadRows, open_packed_memmap
 
 H, W, N = 8, 6, 40
 

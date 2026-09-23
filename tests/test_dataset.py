@@ -78,7 +78,7 @@ def test_subsample_priority_paths_survive_empty_cap():
 def test_load_priority_paths_reads_the_mined_keep_list(tmp_path):
     """The keep list is read from `<reports>/hard_empty.jsonl`, or None when nothing is mined.
 
-    Both `dataset_build.build_dataset` and `training.train.run_train` go through this one loader.
+    Both `dataset_build.build_dataset` and `training.train_feed.training_rows` go through this one loader.
     They have to: the built dataset's manifest holds the UNCAPPED rows, so `run_train` re-runs
     `subsample_classes` and a keep list honoured only at build time would be re-drawn away before
     a single batch ever saw a hard negative.

@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from chesslab.training.train import STATE_KEYS, _load_state, _save_state
+from chesslab.training.train_loop import STATE_KEYS, _load_state, _save_state
 
 
 class _Dummy(torch.nn.Module):

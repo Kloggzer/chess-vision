@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from chesslab import config, dataset_build
-from chesslab.training import packs
-from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
-from chesslab.training.pack import resolve_dataset_packs
+from chesslab.dataset import load_manifest, load_split
+from chesslab.training import pack_session, packs
+from chesslab.training.data import filter_rows_by_split
+from chesslab.training.packs import resolve_dataset_packs
 from conftest import write_jsonl
 
 SIDE = 8
@@ -31,7 +32,7 @@ def _write_pack(paths: config.Paths, name: str, sid: str, pack_no: int) -> list[
              "fen": "x", "out_size": [SIDE, SIDE], "coverage": 0.0}
             for label, frame, square in CELLS]
     write_jsonl(d / "manifest.jsonl", rows)
-    packs.write_meta(d, rows, SIDE, SIDE)
+    pack_session.write_meta(d, rows, SIDE, SIDE)
     (d / packs._IMAGE).write_bytes(
         b"".join(_pixels(pack_no, i).tobytes() for i in range(len(rows))))
     return rows

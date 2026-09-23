@@ -20,8 +20,12 @@ from chesslab.dataset_build import dataset_dir
 from chesslab.training.boardnet import CELLS
 from chesslab.training.engine import evaluate_dataset
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
-from chesslab.training.pack import load_packed, open_packed_rows, resolve_dataset_packs
-from chesslab.training.pack_bake import cfg_for_pack
+from chesslab.training.packs import (
+    cfg_for_pack,
+    load_packed,
+    open_packed_rows,
+    resolve_dataset_packs,
+)
 from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
 CELL, PAD, BAR = 112, 6, 28
@@ -65,7 +69,8 @@ def main() -> int:
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
+    from chesslab.dataset import load_manifest, load_split
+    from chesslab.training.data import filter_rows_by_split
     from chesslab.training.evaluate import _load_run
 
     run_dir = Path(args.run)

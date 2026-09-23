@@ -110,7 +110,7 @@ def test_plate_long_side_falls_back_when_the_index_has_no_source(tmp_path, name)
 
 def _session_pack(root, name: str, rows: list[dict], crops):
     """Ein Session-Pack auf der Platte: `packed_images.u8` plus Meta, wie `pack_session` ihn legt."""
-    from chesslab.training.packs import write_meta
+    from chesslab.training.pack_session import write_meta
 
     d = root / "packs" / name
     d.mkdir(parents=True)

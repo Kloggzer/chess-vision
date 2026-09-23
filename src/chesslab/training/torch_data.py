@@ -14,11 +14,9 @@ from PIL import Image, ImageOps
 from torch.utils.data import Dataset
 
 from .. import config
+from ..cell_rule import brightness_of, coverage_of
 from .data import class_to_idx
-from .packs import MultiPack
-
-#: What the packed datasets accept: `load_packed`'s legacy `(path, shape, path2idx)` or a MultiPack.
-PackedArg = tuple[str, tuple[int, int, int], dict | None] | MultiPack
+from .packs import PackedArg, _pack_index
 
 
 class _Clahe:
@@ -542,22 +540,11 @@ def paste_neighbour_strip(img: Image.Image, donor: Image.Image,
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
-def coverage_of(row: dict) -> float:
-    """`coverage` als Zahl — ausgeschriebenes `null` zaehlt wie ein fehlender Schluessel.
-
-    EINE Lesart mit `_target` und `occlusion.classification_eligible`. `float(r.get(..., 0.0))`
-    starb an einem `null`, waehrend der Datei-Loader daneben weiterrechnete.
-    """
-    return float(row.get("coverage") or 0.0)
-
-
 def _target(y: int, row: dict) -> torch.Tensor:
     """Klasse, Coverage und Helligkeit in EINEM Tensor, damit der Loader-Vertrag `(x, y)` bleibt.
 
     Ohne `brightness` gilt die Zelle als hell (255) — alte Packs ergeben Zahl fuer Zahl dasselbe.
     """
-    from .train import brightness_of
-
     return torch.tensor([float(y), coverage_of(row), brightness_of(row)])
 
 
@@ -607,49 +594,19 @@ class SquareDataset(Dataset):
         return (x, _target(y, r)) if self.with_coverage else (x, y)
 
 
-def _pack_index(rows, packed: PackedArg) -> tuple[list[tuple[str, tuple[int, int, int]]],
-                                                  np.ndarray]:
-    """`(files, idx)` for both packed forms — the ONE place a row's memmap position is resolved.
-
-    `idx[i]` is `(pack_no, row_no)`, a legacy pack being pack 0. Resolution is per ROW, never by
-    position: split rows are a subset of the manifest and the board dataset re-sorts its own.
-    """
-    if isinstance(packed, MultiPack):
-        return packed.files, _multi_index(rows, packed)
-    path, shape, path2idx = packed
-    idx = np.zeros((len(rows), 2), dtype=np.int64)
-    idx[:, 1] = [r["_packed_idx"] if path2idx is None else path2idx[r["path"]] for r in rows]
-    return [(path, shape)], idx
-
-
-def _multi_index(rows, packed: MultiPack) -> np.ndarray:
-    """`_pack_at` when `resolve_dataset_packs` marked the rows, else the packs' own path lists."""
-    if rows and "_pack_at" in rows[0]:
-        return np.array([r["_pack_at"] for r in rows], dtype=np.int64).reshape(len(rows), 2)
-    from pathlib import Path
-
-    from .packs import read_pack
-
-    lookup: dict[str, tuple[int, int]] = {}
-    for no, (file, _) in enumerate(packed.files):
-        d = Path(file).parent
-        lookup.update({p: (no, j) for j, p in enumerate(read_pack(d.name, dir_=d).paths)})
-    return np.array([lookup[r["path"]] for r in rows], dtype=np.int64).reshape(len(rows), 2)
-
-
 class _PackedMemmaps:
     def _memmap(self, pack_no: int):
         if self._mm is None:
             self._mm = [None] * len(self._files)
         if self._mm[pack_no] is None:
-            from .pack import open_packed_memmap
+            from .packs import open_packed_memmap
             self._mm[pack_no] = open_packed_memmap(
                 *self._files[pack_no], low_memory=getattr(self, "low_memory", False))
         return self._mm[pack_no]
 
 
 class PackedSquareDataset(_PackedMemmaps, Dataset):
-    """Same contract as SquareDataset, but crops come from packed memmaps (see training.pack)
+    """Same contract as SquareDataset, but crops come from packed memmaps (see training.packs)
     instead of one ``Image.open`` per item — the fix for the 1M-PNG I/O bottleneck."""
 
     def __init__(self, rows, classes, transform, packed: PackedArg, with_coverage: bool = False,
@@ -667,8 +624,6 @@ class PackedSquareDataset(_PackedMemmaps, Dataset):
         # file — the memmaps are mapped lazily inside the worker that reads them.
         self._files, self.idx = _pack_index(rows, packed)
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
-        from .train import brightness_of
-
         self.cover = np.array([coverage_of(r) for r in rows], dtype=np.float32)
         self.bright = np.array([brightness_of(r) for r in rows], dtype=np.float32)
         self._empty = c2i.get("empty", -1)
@@ -771,8 +726,6 @@ class PackedBoardDataset(_PackedMemmaps, Dataset):
         step = self.idx[:, :, 1] - self.idx[:, :1, 1]
         self._run = same & (step == np.arange(CELLS)).all(axis=1)
         self.labels = np.array([c2i[r["label"]] for r in self.rows], dtype=np.int64).reshape(-1, CELLS)
-        from .train import brightness_of
-
         self.bright = np.array([brightness_of(r) for r in self.rows],
                                dtype=np.float32).reshape(-1, CELLS)
         self.cover = np.array([coverage_of(r) for r in self.rows],

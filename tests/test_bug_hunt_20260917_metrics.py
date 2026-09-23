@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
+from chesslab.training.checkpoint import _checkpoint_rank
 from chesslab.training.data import board_accuracy, checkpoint_metrics, per_session_metrics
-from chesslab.training.train import _checkpoint_rank
 
 CLASSES = ["wP", "empty"]
 
@@ -70,7 +70,7 @@ def test_the_swa_block_ranks_with_the_same_function_best_pt_does():
     import ast
     import inspect
 
-    from chesslab.training import train as train_mod
+    from chesslab.training import train_loop as train_mod
 
     tree = ast.parse(inspect.getsource(train_mod))
     block = next(n for n in ast.walk(tree)

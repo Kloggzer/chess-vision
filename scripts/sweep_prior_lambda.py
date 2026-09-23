@@ -58,11 +58,12 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config  # noqa: E402
+from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.serving import apply_prior, invalid_mass  # noqa: E402
 from chesslab.state import possible_labels  # noqa: E402
-from chesslab.training.data import filter_rows_by_split, load_manifest, load_split  # noqa: E402
+from chesslab.training.data import filter_rows_by_split  # noqa: E402
 
 LAMBDAS = (0.0, 0.5, 1.0, 2.0, 4.0, 8.0)
 DATASET = "real13-straight-80-v1"

@@ -8,7 +8,7 @@ import numpy as np
 
 from chesslab import config
 from chesslab import dataset_build as DB
-from chesslab.training import packs
+from chesslab.training import pack_session, packs
 
 
 def _write_crop(paths, label, sid, frame, square, img):
@@ -210,7 +210,7 @@ def _pack(paths, name, sid, side=80, cells=_PACK_CELLS):
             for label, frame, square in cells]
     (d / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n",
                                       encoding="utf-8")
-    packs.write_meta(d, rows, side, side)
+    pack_session.write_meta(d, rows, side, side)
     (d / "packed_images.u8").write_bytes(bytes(len(rows) * side * side * 3))
     return rows
 

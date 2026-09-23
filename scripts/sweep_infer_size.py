@@ -63,13 +63,10 @@ os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config, labeling  # noqa: E402
+from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
-from chesslab.training.data import (  # noqa: E402
-    filter_rows_by_split,
-    load_manifest,
-    load_split,
-)
+from chesslab.training.data import filter_rows_by_split  # noqa: E402
 
 #: Outside 48..160 the multi-scale runs were never trained (`scales: [32, 64, 96, 128]` plus the
 #: 128-px native size); numbers there measure extrapolation, not deployment.
@@ -346,8 +343,7 @@ def sweep_path_b(model, cfg: dict, rows: list[dict], sizes: tuple[int, ...],
     import torch
     from torch.utils.data import DataLoader
 
-    from chesslab.training.pack import load_packed
-    from chesslab.training.pack_bake import cfg_for_pack
+    from chesslab.training.packs import cfg_for_pack, load_packed
     from chesslab.training.torch_data import (
         PackedSquareDataset,
         SquareDataset,

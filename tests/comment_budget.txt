@@ -46,7 +46,9 @@ src/chesslab/training/evaluate.py 12
 src/chesslab/training/gradcam.py 11
 src/chesslab/training/losses.py 10
 src/chesslab/training/model.py 17
-src/chesslab/training/pack.py 15
 src/chesslab/training/quantize.py 30
 src/chesslab/training/torch_data.py 33
-src/chesslab/training/train.py 13
+src/chesslab/training/pack_dataset.py 7
+src/chesslab/training/packs.py 11
+src/chesslab/training/train.py 10
+src/chesslab/training/train_lock.py 11

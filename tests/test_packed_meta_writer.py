@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from chesslab.training.pack import write_packed_meta
-from chesslab.training.packs import write_meta
+from chesslab.training.pack_dataset import write_packed_meta
+from chesslab.training.pack_session import write_meta
 
 ROWS = [{"path": "mm://p/1/a1", "label": "empty"}, {"path": "mm://p/1/b1", "label": "wP"}]
 

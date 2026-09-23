@@ -11,7 +11,8 @@ import pytest
 from PIL import Image
 
 from chesslab import config
-from chesslab.training import pack as pack_mod
+from chesslab.training import pack_dataset as pack_mod
+from chesslab.training import packs as packs_mod
 
 CROP = 8
 
@@ -58,7 +59,7 @@ def test_a_crop_rewritten_at_the_SAME_byte_size_still_invalidates_the_pack(tmp_p
     """
     dd, _ = _make_dataset(tmp_path, 4)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    assert packs_mod.load_packed("ds", paths=paths) is not None
 
     sizes = {p.stat().st_size for p in (dd / "squares").glob("*.png")}
     for f in sorted((dd / "squares").glob("*.png")):
@@ -66,7 +67,7 @@ def test_a_crop_rewritten_at_the_SAME_byte_size_still_invalidates_the_pack(tmp_p
     assert {p.stat().st_size for p in (dd / "squares").glob("*.png")} == sizes
     assert pack_mod.decode_crop(str(dd / "squares" / "0000.png"), (CROP, CROP)).max() == 0
 
-    assert pack_mod.load_packed("ds", paths=paths) is None, (
+    assert packs_mod.load_packed("ds", paths=paths) is None, (
         "der Pack traegt die alten Pixel, die Crops die neuen — und nichts sagt es")
 
 
@@ -79,13 +80,13 @@ def test_a_memmap_that_is_shorter_than_its_meta_claims_is_refused(tmp_path, path
     """
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
-    img, _meta = pack_mod._packed_paths(dd)
-    assert pack_mod.load_packed("ds", paths=paths) is not None
+    img, _meta = packs_mod._packed_paths(dd)
+    assert packs_mod.load_packed("ds", paths=paths) is not None
 
     with open(img, "r+b") as fh:
         fh.truncate(img.stat().st_size - CROP * CROP * 3)
 
-    assert pack_mod.load_packed("ds", paths=paths) is None, (
+    assert packs_mod.load_packed("ds", paths=paths) is None, (
         "eine kurze Memmap wurde als vollstaendiger Pack ausgegeben")
     # Die Gegenprobe: die kurze Datei traegt die versprochene Form nicht (Windows: OSError).
     with pytest.raises((ValueError, OSError)):
@@ -97,7 +98,7 @@ def test_a_big_dataset_without_a_memmap_aborts_instead_of_crawling():
     langsam an einem verworfenen Pack vorbei, ohne dass es jemand sah.
     """
     from chesslab.dataset_build import _PACK_MIN_CROPS
-    from chesslab.training.train import _require_pack
+    from chesslab.training.train_feed import _require_pack
 
     with pytest.raises(ValueError, match="allow-unpacked"):
         _require_pack("real13-mix-v7-128", _PACK_MIN_CROPS, allow_unpacked=False)
@@ -111,7 +112,7 @@ def test_the_unpacked_branch_of_run_train_still_asks_for_the_pack():
     """Die Sperre wirkt nur, wo sie steht: im Zweig OHNE `packed`, vor dem `SquareDataset`."""
     from pathlib import Path
 
-    from chesslab.training import train as tr
+    from chesslab.training import train_feed as tr
 
     body = Path(tr.__file__).read_text(encoding="utf-8")
     assert body.index("_require_pack(dataset,") < body.index("train_ds = SquareDataset(")

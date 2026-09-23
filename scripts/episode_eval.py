@@ -79,13 +79,13 @@ def main() -> int:
 
     import torch
 
+    from chesslab.dataset import load_manifest, load_split
     from chesslab.dataset_build import dataset_dir
     from chesslab.training.boardnet import CELLS
-    from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
+    from chesslab.training.data import filter_rows_by_split
     from chesslab.training.engine import evaluate_dataset
     from chesslab.training.evaluate import _load_run
-    from chesslab.training.pack import load_packed, resolve_dataset_packs
-    from chesslab.training.pack_bake import cfg_for_pack
+    from chesslab.training.packs import cfg_for_pack, load_packed, resolve_dataset_packs
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
     run_dir = Path(args.run)

@@ -50,3 +50,21 @@ def test_a_worker_only_counts_and_never_prints(capsys):
         progress.say_progress(counted.append, done, "never")
     assert counted == [progress.WORKER_PROGRESS_EVERY] * 3
     assert capsys.readouterr().out == ""
+
+
+def test_packs_is_the_read_layer_and_imports_no_writer():
+    """`packs` liest beide Pack-Arten; geschrieben wird darueber (`pack_dataset/_session/_bake`)."""
+    writers = ("chesslab.training.pack_dataset", "chesslab.training.pack_session",
+               "chesslab.training.pack_bake", "chesslab.training.torch_data")
+    hits = sorted(m for m in _imports(SRC / "training" / "packs.py") if m.startswith(writers))
+    assert hits == [], "packs.py importiert einen Schreiber oder torch"
+
+
+def test_the_train_steps_do_not_import_the_orchestrator():
+    """`train.py` ruft die Schritte; kein Schritt ruft zurueck (sonst ist der Schnitt keiner)."""
+    steps = ("train_recipe", "train_feed", "train_loop", "train_lock", "checkpoint",
+             "epoch_metrics", "temperature")
+    hits = {s: sorted(m for m in _imports(SRC / "training" / f"{s}.py")
+                      if m == "chesslab.training.train" or m.startswith("chesslab.training.train."))
+            for s in steps}
+    assert {k: v for k, v in hits.items() if v} == {}

@@ -44,7 +44,7 @@ def coverage_weight(cov: torch.Tensor, mode: str = "hard",
         return (cov <= visible_max).to(cov.dtype)
     if mode != "soft":
         raise ValueError(f"unknown coverage weight mode {mode!r} — hard or soft")
-    # `visible_max` wird hier bewusst nicht gelesen — die Kurve IST die Kante. `train.py` warnt
+    # `visible_max` wird hier bewusst nicht gelesen — die Kurve IST die Kante. `train_recipe.py` warnt
     # darum bei `--visible-max` und schreibt unter `soft` `visible_max: null` (2026-09-17).
     s = ((cov + COVERAGE_SHIFT) / COVERAGE_ZERO_AT).clamp(0.0, 1.0)
     return 1.0 - (3 * s**2 - 2 * s**3)

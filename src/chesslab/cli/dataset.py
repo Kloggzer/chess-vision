@@ -271,12 +271,12 @@ def dataset_pack_cmd(
     then reads from the memmap instead of opening 1M files per epoch. Re-run after rebuilding.
     """
     if from_:
-        from ..training.pack import link_pack
+        from ..training.pack_dataset import link_pack
 
         with fail_on(FileNotFoundError, ValueError):
             link_pack(name, from_)
         return
-    from ..training.pack import pack_dataset
+    from ..training.pack_dataset import pack_dataset
 
     with fail_on(FileNotFoundError, ValueError):
         res = pack_dataset(name, out_size=_out_size(pack_size))
@@ -301,7 +301,8 @@ def dataset_bake_cmd(
     Nur der FESTE Teil der Kette geht hier hinein; Augmentation bleibt im Loader, sonst saehe das
     Modell 60 Epochen lang dieselbe Verzerrung. Der Lauf braucht danach kein Flag: `train` liest
     `packed_meta.json` und laesst den Operator selbst aus (`training/pack_bake.py`)."""
-    from ..training.pack_bake import bake_pack, clahe_params
+    from ..training.pack_bake import bake_pack
+    from ..training.packs import clahe_params
 
     if model:
         cfg = json.loads((Path(model) / "config.json").read_text(encoding="utf-8"))

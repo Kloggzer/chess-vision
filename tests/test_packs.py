@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from chesslab import config
+from chesslab.training import pack_session
 from chesslab.training import packs as packs_mod
 from conftest import write_jsonl
 
@@ -27,7 +28,7 @@ def _make_pack(paths: config.Paths, name: str, n: int, crop: int = CROP,
     d.mkdir(parents=True)
     row_paths = row_paths or [_mm(name, i) for i in range(n)]
     rows = [{"path": p, "label": "empty", "out_size": [crop, crop]} for p in row_paths]
-    packs_mod.write_meta(d, rows, crop, crop)
+    pack_session.write_meta(d, rows, crop, crop)
     with open(d / "packed_images.u8", "wb") as fh:
         fh.truncate(n * crop * crop * 3 + size_delta)
     return d, rows
@@ -199,7 +200,7 @@ def test_dataset_pickles_without_memmaps(paths):
 
 
 def test_resolve_dataset_packs_reads_the_yaml_key(paths):
-    from chesslab.training.pack import resolve_dataset_packs
+    from chesslab.training.packs import resolve_dataset_packs
 
     rows = _pixel_pack(paths, "A", 3, base=5)
     dd = _pack_built_dataset(paths, "ds", rows)
@@ -213,7 +214,7 @@ def test_resolve_dataset_packs_reads_the_yaml_key(paths):
 
 
 def test_load_packed_refuses_a_pack_built_dataset(paths):
-    from chesslab.training.pack import load_packed
+    from chesslab.training.packs import load_packed
 
     rows = _pixel_pack(paths, "A", 2, base=1)
     _pack_built_dataset(paths, "ds", rows)

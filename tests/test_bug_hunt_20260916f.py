@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from chesslab.training.pack import PackedIndex
+from chesslab.training.packs import PackedIndex
 from conftest import load_script, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,7 +77,7 @@ def test_mine_hard_coverage_skips_rows_the_matte_never_measured(tmp_path, monkey
     monkeypatch.setattr(mine, "dataset_dir", lambda name: dd)
     # An `pack.load_packed`, nicht am Skript: so laeuft `open_packed_rows` mitsamt seiner
     # `_packed_idx`-Rueckfallebene wirklich mit, statt wegpatcht zu werden.
-    monkeypatch.setattr("chesslab.training.pack.load_packed",
+    monkeypatch.setattr("chesslab.training.packs.load_packed",
                         lambda *a, **k: PackedIndex(str(img), (2, 4, 4),
                                                     {"a.webp": 0, "b.webp": 1}))
     monkeypatch.setattr(mine.occluded_model, "all_reads",

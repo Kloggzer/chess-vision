@@ -88,14 +88,14 @@ def _crop_frames_into_memmap(task) -> int:
     ``task`` = (mm_path, (n, h, w), name, board_size, frames) with
     ``frames`` = [(frame_path, corners, [(row_idx, square), ...]), ...].
     Workers write DISJOINT row indices, so concurrent r+ maps are safe (same scheme as
-    ``training.pack._pack_chunk``). Returns the number of crops written.
+    ``training.pack_dataset._pack_chunk``). Returns the number of crops written.
     """
     import cv2
 
     from .calibration import warp_board_for_crops
     from .ingest import ingestion_profile
     from .labeling import crop_square
-    from .training.pack import row_window
+    from .training.pack_dataset import row_window
 
     mm_path, shape, name, board_size, frames = task
     _n, h, w = shape
@@ -148,7 +148,8 @@ def build_synth_dataset(
 
     from .ingest import _safe_group, synthesize_sessions, to_full_fen
     from .ingest_adapters.synthetic import iter_items
-    from .training.pack import _manifest_digest, write_packed_meta
+    from .training.pack_dataset import write_packed_meta
+    from .training.packs import _manifest_digest
 
     name = _safe_name(name)
     classes = class_list_for(class_mode)
