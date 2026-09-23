@@ -591,6 +591,34 @@ class FrameLoopTest {
         assertNull(rm.meanUint8())
     }
 
+    @Test
+    fun gridGateReleaseAlsoHoldsTheReference() {
+        val h = Harness(testConfig(minGridLineCoverage = 0.5))
+        repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
+        h.feed(coverage = 0.3)
+        h.feed(coverage = 0.9)
+        assertTrue(h.state.refHoldUntil >= h.state.nowS + h.state.config.occluderHoldS, "auch die Referenz wartet")
+    }
+
+    @Test
+    fun baselineOcclusionOffClearsAStandingShadowVeto() {
+        val h = Harness(testConfig().copy(baselineOcclusion = false))
+        h.state.shadowVetoed = 1L
+        h.feed()
+        assertEquals(0L, h.state.shadowVetoed)
+    }
+
+    /** Der Wachhund haengt am Frame-Takt, nicht an einem Beobachter, der gerade nicht antwortet. */
+    @Test
+    fun theFrameLoopDropsAStalledCandidate() {
+        val h = Harness()
+        h.state.pending =
+            PendingVerify(listOf("e2e4"), "e2e4", h.state.board.fen(), grayFrame(), null, frames = 0, priorUsed = false, seq = 0)
+        h.feed(tsMs = 5_000L)
+        assertNull(h.state.pending)
+        assertEquals(VERIFY_STATE_STALLED, h.state.verifyState)
+    }
+
     // -- helpers ---------------------------------------------------------------------------------
 
     /** A harness whose reference is already captured and whose hold has expired. */

@@ -472,6 +472,37 @@ class TaintTest {
         assertEquals(ofSquares("a3"), state.liveExpiry(state.occlCoreExpiry), "expired core stamps are dead")
     }
 
+    /** Der echte Weg durch `applyTaints`, nicht der Filter allein: der Zug darf nicht latchen. */
+    @Test
+    fun applyTaintsLetsAConfidentDisagreementThrough() {
+        val state = handState()
+        state.cnnRun = true
+        state.cnnSnap = snapshot(state, FakeObservation(occupied = mapOf("e2" to false), confident = setOf("e2")))
+        state.motionOccluded = ofSquares("e2")
+        state.setZ("e2")
+        state.applyTaints()
+        assertEquals(0L, state.tainted)
+    }
+
+    /** Die Heuristik ohne Beobachtung: zwei Felder sind noch keine Hand, erst drei. */
+    @Test
+    fun twoSquaresWithoutAnObservationAreNoHand() {
+        val state = handState()
+        state.motionOccluded = ofSquares("a3", "b3")
+        state.setZ("a3", "b3")
+        state.applyTaints()
+        assertEquals(0L, state.tainted)
+    }
+
+    /** Unsicher gelesen UND dem Brett widersprechend bleibt ein Verdecker — das Modell sah nichts. */
+    @Test
+    fun anUnconfidentDisagreementIsStillAnOccluder() {
+        val state = handState()
+        state.cnnRun = true
+        state.cnnSnap = snapshot(state, FakeObservation(occupied = mapOf("d2" to false)))
+        assertEquals(ofSquares("d2"), state.cnnOcclusionFilter(ofSquares("d2")))
+    }
+
     // -- helpers -----------------------------------------------------------------------------------
 
     private fun handState(maxChanged: Int = 6): EngineState {

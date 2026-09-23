@@ -167,6 +167,15 @@ class ResyncTest {
         assertTrue(state.note!!.contains("RESYNC"), state.note!!)
     }
 
+    @Test
+    fun aLookThatAgreesWithTheBoardRestartsTheStreak() {
+        val (state, cnn, obs) = alarmedAutoState(votes = 4)
+        state.cnnTick(cnn, recoverySnap(state, obs, 4))
+        assertEquals(2, state.resyncVotes)
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 5))
+        assertEquals(0, state.resyncVotes, "die Stellung, die die App schon fuehrt, widerspricht dem Kandidaten")
+    }
+
     private companion object {
         const val STARTPOS_TEST = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     }
