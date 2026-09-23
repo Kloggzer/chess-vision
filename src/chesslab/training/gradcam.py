@@ -195,7 +195,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     Returns one dict per class: mean base prob, mean center/border drop, and piece_frac.
     """
     from .. import config
-    from .data import filter_rows_by_split, load_manifest, load_split
+    from .data import filter_rows_by_split, load_manifest, load_split, run_data_paths
     from .evaluate import load_run
 
     model, cfg = load_run(run_dir)
@@ -216,16 +216,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     gray = 0.5  # neutral occluder value on the [0,1] scale
 
     ds_name = cfg.get("dataset")
-    if ds_name:
-        from ..dataset_build import dataset_dir
-        dd = dataset_dir(ds_name)
-        # A fold run trains against `split-f<i>.json`; reading `split.json` here would
-        # hand back the very sessions the fold was built to hold out.
-        manifest_path = dd / "manifest.jsonl"
-        split_path = dd / (cfg.get("split_file") or "split.json")
-    else:
-        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
-        split_path = config.DATA.reports / "split.json"
+    manifest_path, split_path = run_data_paths(cfg)
     manifest = load_manifest(manifest_path)
     split_data = load_split(split_path)
     # Benotet wird, was der Verlust auch lernt: ueber `PIECE_VISIBLE_MAX` verdeckt oder unter

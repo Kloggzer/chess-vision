@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import config, provenance
 from .ioutil import read_jsonl, write_rows
+from .matte_store import read_matte
 
 FLAGS_FILE = "hand-flags.jsonl"
 #: Ab hier behauptet der Occlusion-Kopf eine Verdeckung. Tief angesetzt, weil ein verpasster
@@ -20,23 +21,8 @@ DEFAULT_CUT = 0.3
 
 def measured_coverage(session_dir: Path) -> dict[tuple[str, str], float]:
     """`(frame, square) -> gemessene Coverage` aus `matte.jsonl`; leer, wenn keine Matte da ist."""
-    path = session_dir / "matte.jsonl"
-    if not path.is_file():
-        return {}
-    out: dict[tuple[str, str], float] = {}
-    for row in read_jsonl(path):
-        stem = str(row.get("frame", ""))
-        cover = row.get("coverage")
-        # Punkt 28, wie `labeling.read_matte`: eine Zeile ohne `coverage` ist SAMs Absage und die
-        # juengere Information. Nur die neuen Werte drueberzuschreiben liess die alte Messung
-        # stehen, und `session_flags` las sie als "nachgesehen und frei".
-        if cover is None:
-            for key in [k for k in out if k[0] == stem]:
-                del out[key]
-            continue
-        for square, value in cover.items():
-            out[(stem, square)] = float(value)
-    return out
+    return {(frame, square): float(value) for frame, cells in read_matte(session_dir).items()
+            for square, value in cells.items()}
 
 
 def session_flags(reads: list[dict], measured: dict[tuple[str, str], float], *,

@@ -58,20 +58,9 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
     """A small, class-balanced sample of the run's TRAIN crops (never test — no eval
     leak). ``empty`` dominates massively (see CLAUDE.md), so a flat random draw would
     starve the piece classes of calibration range; we round-robin across labels."""
-    from .data import filter_rows_by_split, load_manifest, load_split
+    from .data import filter_rows_by_split, load_manifest, load_split, run_data_paths
 
-    ds_name = cfg.get("dataset")
-    if ds_name:
-        from ..dataset_build import dataset_dir
-
-        dd = dataset_dir(ds_name)
-        # A fold run trains against `split-f<i>.json`; reading `split.json` here would
-        # hand back the very sessions the fold was built to hold out.
-        manifest_path = dd / "manifest.jsonl"
-        split_path = dd / (cfg.get("split_file") or "split.json")
-    else:
-        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
-        split_path = config.DATA.reports / "split.json"
+    manifest_path, split_path = run_data_paths(cfg)
     if not manifest_path.exists() or not split_path.exists():
         raise FileNotFoundError(f"manifest/split missing ({manifest_path}) — build/split the dataset first.")
 

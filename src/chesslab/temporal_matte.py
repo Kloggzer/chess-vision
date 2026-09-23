@@ -17,6 +17,7 @@ import numpy as np
 from . import config, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
 from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
+from .matte_store import measured_coverage, read_matte
 from .sessions import session_dir
 from .temporal_flags import load_flags, source_stamp
 
@@ -319,14 +320,7 @@ _CONTESTED = ("matte.jsonl changed while {what} — the alpha worker is writing 
 
 def sam_matte(recording):
     """`read_matte` without our own rows: coverage SAM (or the pen) measured, nothing else."""
-    from .matte import measured_coverage
-
-    path = recording / "matte.jsonl"
-    if not path.is_file():
-        return {}
-    # Punkt 28: die juengere Zeile gilt, auch wenn sie SAMs Absage ist.
-    return {frame: row["coverage"] for frame, row in measured_coverage(
-        r for r in read_jsonl(path) if r.get("source") not in ("temporal", "upsert")).items()}
+    return read_matte(recording, skip_sources=("temporal", "upsert"))
 
 
 def matted_frames(rows: list[dict]) -> set[str]:
@@ -335,8 +329,6 @@ def matted_frames(rows: list[dict]) -> set[str]:
     Als blosser Filter (`coverage is not None` ueber alle Zeilen) blieb ein gemessen-dann-
     abgesagtes Frame "gemattet", bekam kein Alpha und ging mit `coverage = 0.0` ins Training.
     """
-    from .matte import measured_coverage
-
     return set(measured_coverage(rows))
 
 
@@ -426,7 +418,7 @@ def upsert_proposals(session_id, *, method="local"):
     """
     from .calibration import load_profile
     from .labeling import MATTE_DIRTY
-    from .matte import FIXED_SUFFIX, coverage_of, measured_coverage
+    from .matte import FIXED_SUFFIX, coverage_of
 
     recording, _ = session_dir(session_id)
     directory = config.DATA.reports / "temporal-mattes" / recording.name / method
@@ -536,7 +528,6 @@ def write_pass_report(session_id, report: dict, inputs: dict | None = None) -> P
 def prune_dead_rows(session_id):
     """Drop a `source: temporal` row once SAM has re-cut the frame: SAM's later row already wins."""
     from .labeling import MATTE_DIRTY
-    from .matte import measured_coverage
 
     recording, _ = session_dir(session_id)
     matte_path = recording / "matte.jsonl"

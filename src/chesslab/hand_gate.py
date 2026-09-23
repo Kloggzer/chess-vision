@@ -68,7 +68,7 @@ def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dic
     """
     from .ioutil import read_jsonl
     from .labeling import all_squares, read_session_meta
-    from .matte import effective_rows
+    from .matte_store import effective_rows, read_rows
 
     tally = Counter() if skipped is None else skipped
     squares = all_squares()
@@ -84,7 +84,7 @@ def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dic
         # Die HISTORIE je Frame auf ihre juengste Zeile (Punkt 28): roh gelesen lehrte eine
         # laengst zurueckgenommene Messung weiter, und ein zweimal gemattetes Brett zaehlte
         # zweimal in denselben Satz.
-        for row in effective_rows(read_jsonl(path)).values():
+        for row in effective_rows(read_rows(session_dir)).values():
             said = verdicts.get((session, str(row["frame"])))
             # Das Wort des Menschen ist das letzte: `matte-bad` heisst "diese Matte ist falsch",
             # und dann taugt weder ihr Ja noch ihr Nein als Lehre (22 SAM-Zeilen lehrten trotzdem).

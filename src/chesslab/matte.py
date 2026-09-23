@@ -6,7 +6,7 @@ import gc
 import json
 import os
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
@@ -25,6 +25,7 @@ from .labeling import (
     read_session_meta,
     usable_board,
 )
+from .matte_store import effective_rows, measured_coverage, read_matte
 
 SAM3_REPO = "facebook/sam3"
 
@@ -347,21 +348,6 @@ def alpha_for(session_dir: Path, row: dict) -> Path:
     return mattes / f"{row['frame']}.webp"
 
 
-def effective_rows(rows: Iterable[dict]) -> dict[str, dict]:
-    """Je Frame die WIRKSAME Zeile — `matte.jsonl` ist eine HISTORIE, die juengste gilt.
-
-    Punkt 28 gilt je FRAME, nicht je ZEILE: wer roh ueber die Zeilen filtert, verarbeitet eine
-    Messung weiter, die eine spaetere Absage laengst zurueckgenommen hat.
-    """
-    return {row["frame"]: row for row in rows if row.get("frame")}
-
-
-def measured_coverage(rows: Iterable[dict]) -> dict[str, dict]:
-    """Die wirksamen Zeilen, die wirklich eine Messung tragen — `coverage is None` ist SAMs Absage."""
-    return {frame: row for frame, row in effective_rows(rows).items()
-            if row.get("coverage") is not None}
-
-
 def coverage_of(
     alpha: np.ndarray,
     entry: dict,
@@ -617,10 +603,9 @@ def matte_status(name: str) -> dict:
     # und `stale` holt allein `--reason all`, und beides als EINE Zahl meldete ewig eine Luecke.
     standard = dirty_pile(rows, ALPHA_REASON)
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
-    path = session_dir / "matte.jsonl"
-    # Wie `read_matte`, einschliesslich Punkt 28: ein gemessen-dann-abgesagtes Frame blieb als
-    # blosser Filter gelesen in `have`, und der Bericht verschwieg die Luecke, die er meldet.
-    have = {str(frame) for frame in measured_coverage(read_jsonl(path))}
+    # Punkt 28: ein gemessen-dann-abgesagtes Frame blieb als blosser Filter gelesen in `have`,
+    # und der Bericht verschwieg die Luecke, die er meldet.
+    have = set(read_matte(session_dir))
     return {"session": name, "dirty": len(want), "matted": len(want & have),
             "missing": sorted(standard - have),
             "missing_other": sorted((want - standard) - have),

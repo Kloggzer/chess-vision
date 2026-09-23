@@ -50,6 +50,21 @@ def crop_of_rows(rows: list[dict]) -> float | None:
     return next(iter(pads)) if len(pads) == 1 else None
 
 
+def run_data_paths(cfg: dict) -> tuple[Path, Path]:
+    """`(manifest, split)`, gegen die ein Lauf trainiert hat — ohne Datensatz der Crop-Pool.
+
+    Der Split des LAUFS (`split_file`): ein Fold traegt `split-f<i>.json`, und `split.json`
+    gaebe genau die Sessions zurueck, die der Fold zurueckhalten sollte.
+    """
+    ds_name = cfg.get("dataset")
+    if not ds_name:
+        return config.DATA.crop_pool / "manifest.jsonl", config.DATA.reports / "split.json"
+    from ..dataset_build import dataset_dir
+
+    dd = dataset_dir(ds_name)
+    return dd / "manifest.jsonl", dd / (cfg.get("split_file") or "split.json")
+
+
 def load_split(path: Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 

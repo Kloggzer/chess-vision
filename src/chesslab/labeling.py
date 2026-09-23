@@ -39,6 +39,8 @@ from .calibration import (
 from .cell_rule import PIECE_VISIBLE_MAX
 from .imgops import resize_keep_aspect
 from .ioutil import mtime_size, read_jsonl
+from .matte_store import read_matte
+from .matte_store import read_rows as read_matte_rows
 from .sessions import read_log as _read_log
 from .sessions import read_session_meta
 from .state import GameState
@@ -383,32 +385,11 @@ def clean_frames(session_dir: Path) -> set[str]:
     log = Path(session_dir) / "log.jsonl"
     if not log.is_file():
         return set()
-    hat_zeile = {str(row.get("frame"))
-                 for row in read_jsonl(Path(session_dir) / "matte.jsonl")}
+    hat_zeile = {str(row.get("frame")) for row in read_matte_rows(session_dir)}
     return {Path(str(row.get("frame"))).stem for row in read_jsonl(log)
             if not row.get("dirty_reason") and not row.get("dirty")
             and row.get("grid_lines_source") != "carried"
             and Path(str(row.get("frame"))).stem not in hat_zeile}
-
-
-def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
-    """`frame stem -> square -> coverage` from `matte.jsonl`, empty when the session has none.
-
-    Ein stilles Frame hat schlicht keinen Eintrag. Eine Zeile OHNE `coverage` ist SAMs Absage und
-    keine Messung — folgt sie auf eine Messung, gewinnt sie: sie sagt "nicht mehr messbar", und
-    das ist die juengere Information. `lib/matte.ts` haelt es seit je so (Punkt 28).
-    """
-    from .ioutil import read_jsonl
-
-    path = Path(session_dir) / "matte.jsonl"
-    out: dict[str, dict[str, float]] = {}
-    for row in read_jsonl(path):
-        cover = row.get("coverage")
-        if cover is None:
-            out.pop(row["frame"], None)
-        else:
-            out[row["frame"]] = cover
-    return out
 
 
 def _session_flat_cells(session_dir: Path, log: list[dict], prof: CalibrationProfile,

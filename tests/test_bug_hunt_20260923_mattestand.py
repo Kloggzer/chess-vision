@@ -35,7 +35,8 @@ def _matte(rec: Path, rows: list[dict]) -> None:
 # H6 / H3-Matte: der echte Weg ist `session temporal-pass` -----------------------------------------
 
 def _run_pass(monkeypatch, during_flags=None) -> Path:
-    from chesslab import cli, position_flags
+    from chesslab import position_flags
+    from chesslab.cli import session as cli
 
     monkeypatch.setattr(temporal_flags, "scan_session", lambda _s: {"cells": 0, "flags": 0})
     monkeypatch.setattr(temporal_matte, "propose_session",
