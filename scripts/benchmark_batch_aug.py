@@ -13,6 +13,23 @@ from pathlib import Path
 from chesslab.ioutil import write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from profile_training_gpu import alternating  # noqa: E402
+
+CALLS = 100
+
+
+def time_variants(variants: dict, raw, sync, calls: int = CALLS) -> dict[str, dict]:
+    """ms je Batch, die Varianten ABBA verschraenkt statt Block fuer Block (Drift faellt heraus)."""
+    def run(aug):
+        sync()
+        start = time.perf_counter()
+        for _ in range(calls):
+            aug(raw)
+        sync()
+        return (time.perf_counter() - start) * 1000 / calls
+
+    return alternating({name: (lambda a=aug: run(a)) for name, aug in variants.items()})
 
 
 def main():
@@ -64,12 +81,12 @@ def main():
         same_rng = build(batch_aug)
         same_rng.compile()
         variants.append(('compiled_eager_rng', same_rng))
+    # One reset for all: a reset between candidates would recompile the first one mid-timing.
+    # Both share `recompile_limit=32` (6 graphs each here); the board checks reset again below.
+    torch._dynamo.reset()
     for name, aug in variants:
         row = {}
         try:
-            if name.startswith('compiled'):
-                # Each candidate owns six order-specialized graphs; do not share its limit.
-                torch._dynamo.reset()
             torch.manual_seed(42)
             expected = current(raw)
             cpu_rng, gpu_rng = torch.get_rng_state(), torch.cuda.get_rng_state()
@@ -82,36 +99,41 @@ def main():
             # Exercise all six jitter orders before timing; compilation is excluded.
             for _ in range(100):
                 aug(raw)
-            measurements = []
-            for _ in range(3):
-                torch.cuda.synchronize()
-                start = time.perf_counter()
-                for _ in range(100):
-                    aug(raw)
-                torch.cuda.synchronize()
-                measurements.append((time.perf_counter()-start)*10)
-            row['ms_per_batch'] = measurements
-            if name == 'compiled_eager_rng':
-                checks = []
-                for n in (64, 128, 192, 256):
-                    for seed in range(6):
-                        image = raw[:n].reshape(n // 64, 64, 3, 80, 80)
-                        torch.manual_seed(seed)
-                        a = current(image)
-                        cpu_state, gpu_state = torch.get_rng_state(), torch.cuda.get_rng_state()
-                        torch.manual_seed(seed)
-                        b = aug(image)
-                        checks.append({'crops': n, 'seed': seed,
-                            'max_error': float((a-b).abs().max()),
-                            'cpu_rng_equal': torch.equal(cpu_state, torch.get_rng_state()),
-                            'gpu_rng_equal': torch.equal(gpu_state, torch.cuda.get_rng_state())})
-                row['board_batch_checks'] = checks
             report['timing_ms'][name] = row
         except Exception as exc:
             report['timing_ms'][name] = {**row, 'error': str(exc)}
         print(name, report['timing_ms'][name], flush=True)
-        write_json(args.output, report)
-
+    ready = {name: aug for name, aug in variants if 'error' not in report['timing_ms'][name]}
+    try:
+        for name, got in time_variants(ready, raw, torch.cuda.synchronize).items():
+            report['timing_ms'][name].update(ms_per_batch=got['median_ms'],
+                                             ms_per_batch_reps=got['reps_ms'])
+            print(name, report['timing_ms'][name], flush=True)
+    except Exception as exc:
+        report['timing_error'] = str(exc)
+    write_json(args.output, report)
+    aug, row = dict(variants).get('compiled_eager_rng'), report['timing_ms'].get('compiled_eager_rng')
+    if aug is None or 'error' in row:
+        return
+    try:
+        torch._dynamo.reset()
+        checks = []
+        for n in (64, 128, 192, 256):
+            for seed in range(6):
+                image = raw[:n].reshape(n // 64, 64, 3, 80, 80)
+                torch.manual_seed(seed)
+                a = current(image)
+                cpu_state, gpu_state = torch.get_rng_state(), torch.cuda.get_rng_state()
+                torch.manual_seed(seed)
+                b = aug(image)
+                checks.append({'crops': n, 'seed': seed,
+                    'max_error': float((a-b).abs().max()),
+                    'cpu_rng_equal': torch.equal(cpu_state, torch.get_rng_state()),
+                    'gpu_rng_equal': torch.equal(gpu_state, torch.cuda.get_rng_state())})
+        row['board_batch_checks'] = checks
+    except Exception as exc:
+        row['error'] = str(exc)
+    write_json(args.output, report)
 
 if __name__ == '__main__':
     main()

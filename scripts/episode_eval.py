@@ -2,7 +2,7 @@
 
 Eine Verweil-Episode ist ein zusammenhaengender Ply-Lauf einer Figur auf einem Feld. Solange sie
 steht, liefert jeder Frame dieselbe Entscheidung noch einmal: der Val-Satz loest ~876 unabhaengige
-Platzierungen auf, nicht 9 028 Zellen (`docs/plan-98/02-fehleranalyse.md`). Auf Zellen gerechnet
+Platzierungen auf, nicht 9 028 Zellen (`docs/plan-98/00-plan.md`). Auf Zellen gerechnet
 zaehlt eine lange Verweildauer als viele Belege, und ein einziges Ansichtsproblem sieht aus wie
 ein allgemeiner Genauigkeitsmangel.
 

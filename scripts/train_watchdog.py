@@ -9,7 +9,7 @@ und `p8`, die beiden besten Arme des Mischungsvergleichs, und `balcls-wcap1-wd05
 aussichtsreichsten Regularisierungslauf. Zwei Gruende:
 
 - **Fremde Val-Saetze.** `p8`/`p2`/`c2d8` sind andere Datensaetze mit anderem Verdeckungsanteil;
-  ihr `occ_acc` gegen den der Basis zu halten ist der Konfundierer aus `docs/per-position-mix.md`.
+  ihr `occ_acc` gegen den der Basis zu halten ist der Konfundierer der Ausduenn-Studie (2026-08-26).
 - **Regularisierte Arme starten langsamer und holen auf.** `wd20` faellt zwischendurch auf
   `occ_acc` 0,626 (von 0,987) und endet ueber der Basis.
 

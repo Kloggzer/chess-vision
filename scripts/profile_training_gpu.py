@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import random
+import statistics
 import sys
 import time
 from dataclasses import replace
@@ -15,6 +16,30 @@ from chesslab.ioutil import iter_jsonl, read_jsonl, write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+#: Durchgaenge je A/B, jeder zweite in umgekehrter Reihenfolge (ABBA): eine lineare Drift
+#: (Takt, Waerme, Nachbarlast) faellt so aus der Differenz heraus.
+REPS = 4
+
+
+def alternating(arms: dict, reps: int = REPS) -> dict[str, dict]:
+    """`{arm: fn -> ms}` abwechselnd messen; je Arm Median UND alle Einzelwerte."""
+    times: dict[str, list[float]] = {name: [] for name in arms}
+    for rep in range(reps):
+        for name in (list(arms) if rep % 2 == 0 else list(arms)[::-1]):
+            times[name].append(arms[name]())
+    return {name: {"median_ms": statistics.median(ts), "reps_ms": ts} for name, ts in times.items()}
+
+
+def parity(reference: dict | None, parameters: dict) -> dict:
+    """Gleichheit gegen den ungefusten Arm; ohne ihn ist sie UNGEMESSEN, nicht wahr."""
+    if reference is None:
+        return {"parameters_equal": None, "max_parameter_error": None}
+    import torch
+
+    return {"parameters_equal": all(torch.equal(p, reference[k]) for k, p in parameters.items()),
+            "max_parameter_error": max(float((p - reference[k]).abs().max())
+                                       for k, p in parameters.items())}
 
 
 def resident_batch(cfg: dict, fixture: dict | None = None):
@@ -136,13 +161,17 @@ def main():
               "batch_crops": int(x.shape[0] * x.shape[1]), "steps": args.steps}
     if parity is not None:
         report["baseline_parity"] = parity
-    for sync in (True, False):
+    def loop(sync):
         torch.cuda.synchronize()
         start = time.perf_counter()
         for _ in range(args.steps):
             step(sync)
         torch.cuda.synchronize()
-        report["synchronized_ms" if sync else "queued_ms"] = (time.perf_counter() - start) * 1000 / args.steps
+        return (time.perf_counter() - start) * 1000 / args.steps
+
+    both = alternating({"synchronized": lambda: loop(True), "queued": lambda: loop(False)})
+    report.update({f"{name}_ms": row["median_ms"] for name, row in both.items()})
+    report["step_reps_ms"] = {name: row["reps_ms"] for name, row in both.items()}
     totals = [0.0] * 3
     for _ in range(10):
         events = [torch.cuda.Event(enable_timing=True) for _ in range(4)]
@@ -248,8 +277,7 @@ def main():
             write_json(Path(args.output), report)
             return
         # Measure the optimizer alone using identical states and gradients.
-        opt_results = {}
-        reference_parameters = None
+        opt_results, opts, reference_parameters = {}, {}, None
         for fused in (False, True):
             net = copy.deepcopy(model)
             net.load_state_dict(saved)
@@ -260,22 +288,28 @@ def main():
                     p.grad = expected_grad[k].clone().div_(1024)
                 opt.step()
                 parameters = {k: p.detach().clone() for k, p in net.named_parameters()}
-                if reference_parameters is None:
+                if not fused:
                     reference_parameters = parameters
-                equal = all(torch.equal(p, reference_parameters[k]) for k, p in parameters.items())
-                error = max(float((p - reference_parameters[k]).abs().max()) for k, p in parameters.items())
+                opt_results[str(fused)] = parity(reference_parameters, parameters)
                 for _ in range(10):
                     opt.step()
-                torch.cuda.synchronize()
-                start = time.perf_counter()
-                for _ in range(args.steps):
-                    opt.step()
-                torch.cuda.synchronize()
-                opt_results[str(fused)] = {"parameters_equal": equal, "max_parameter_error": error,
-                                          "ms": (time.perf_counter() - start) * 1000 / args.steps}
+                opts[str(fused)] = opt
             except Exception as exc:
                 opt_results[str(fused)] = {"error": str(exc)}
-            print("optimizer fused", fused, opt_results[str(fused)], flush=True)
+
+        def opt_loop(opt):
+            torch.cuda.synchronize()
+            start = time.perf_counter()
+            for _ in range(args.steps):
+                opt.step()
+            torch.cuda.synchronize()
+            return (time.perf_counter() - start) * 1000 / args.steps
+
+        timed = alternating({name: (lambda o=o: opt_loop(o)) for name, o in opts.items()})
+        for name, row in timed.items():
+            opt_results[name].update(ms=row["median_ms"], reps_ms=row["reps_ms"])
+        for name, row in opt_results.items():
+            print("optimizer fused", name, row, flush=True)
         report["optimizers"] = opt_results
         validation = []
         left, right = copy.deepcopy(model), copy.deepcopy(model).to(memory_format=torch.channels_last)

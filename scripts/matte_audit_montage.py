@@ -13,10 +13,11 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from chesslab.calibration import _square_to_col_row
 from chesslab.ioutil import read_jsonl
+from chesslab.labeling import _profile_for_session, read_log, read_session_meta
 
 TILE, PAD, BAR = 232, 6, 30
-FILES = "abcdefgh"
 
 
 def board_path(rec: Path, frame: str) -> Path | None:
@@ -25,6 +26,19 @@ def board_path(rec: Path, frame: str) -> Path | None:
         if p.exists():
             return p
     return None
+
+
+def cell_box(square: str, entry: dict, white_pov: bool, tile: int) -> tuple[float, float, float]:
+    """`(x, y, Zellweite)` im Kachelbild — mit Rand und Blickrichtung aus Log-Zeile und Profil.
+
+    Wie `matte_audit` vor 2026-09-21: `tile / 8` ueber das ganze Bild ignoriert den mitgespeicherten
+    Rand, und ohne `white_pov` markiert das Blatt bei Schwarz unten die gespiegelten Felder.
+    """
+    scale = tile / (entry["board_size"] + 2 * entry["board_border"])
+    cell = entry["board_size"] / 8 * scale
+    col, row = _square_to_col_row(square, white_pov)
+    offset = entry["board_border"] * scale
+    return offset + col * cell, offset + row * cell, cell
 
 
 def main() -> int:
@@ -45,18 +59,25 @@ def main() -> int:
     rows = (len(cases) + args.cols - 1) // args.cols
     sheet = Image.new("RGB", (args.cols * (TILE + PAD) + PAD, rows * (TILE + BAR + PAD) + PAD), (18, 20, 24))
     dr = ImageDraw.Draw(sheet)
+    sessions: dict[str, tuple] = {}
+    unplaced = 0
     for i, c in enumerate(cases):
-        p = board_path(Path("data/recordings") / c["session"], c["frame"])
-        if p is None:
+        rec = Path("data/recordings") / c["session"]
+        if c["session"] not in sessions:
+            sessions[c["session"]] = (_profile_for_session(read_session_meta(rec), None).white_pov,
+                                      {Path(r["frame"]).stem: r for r in read_log(rec)})
+        white_pov, log = sessions[c["session"]]
+        entry = log.get(c["frame"], {})
+        p = board_path(rec, c["frame"])
+        if p is None or "board_size" not in entry or "board_border" not in entry:
+            unplaced += 1
             continue
         x = PAD + (i % args.cols) * (TILE + PAD)
         y = PAD + (i // args.cols) * (TILE + BAR + PAD)
         board = Image.open(p).convert("RGB").resize((TILE, TILE), Image.LANCZOS)
         mark = ImageDraw.Draw(board)
-        cell = TILE / 8
         for sq in c["squares"]:
-            fx = FILES.index(sq[0]) * cell
-            fy = (8 - int(sq[1])) * cell            # a1 unten links, wie der Sensor es liest
+            fx, fy, cell = cell_box(sq, entry, white_pov, TILE)
             mark.rectangle([fx, fy, fx + cell - 1, fy + cell - 1], outline=(255, 90, 90), width=2)
         sheet.paste(board, (x, y))
         dr.text((x + 2, y + TILE + 2), f"{c['session'][-8:]} {c['frame']} ply={c['ply']}", fill=(200, 200, 210))
@@ -64,7 +85,8 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(out)
-    print(f"[OK] {len(cases)} Faelle -> {out}")
+    print(f"[OK] {len(cases) - unplaced} von {len(cases)} Faellen -> {out}"
+          + (f" ({unplaced} ohne Brett oder Rasterangabe, nicht gezeichnet)" if unplaced else ""))
     return 0
 
 

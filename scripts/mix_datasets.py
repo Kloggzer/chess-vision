@@ -36,8 +36,8 @@ def main() -> int:
 
     hrows, hsplit = load(a.host)
     grows, gsplit = load(a.guest)
-    if hsplit.get("classes") != gsplit.get("classes"):
-        raise SystemExit("[FAIL] verschiedene Klassenlisten — der Mischsatz waere nicht lesbar.")
+    if not hsplit.get("classes") or hsplit.get("classes") != gsplit.get("classes"):
+        raise SystemExit("[FAIL] Klassenliste fehlt oder weicht ab — der Mischsatz waere nicht lesbar.")
     for side, rows in ((a.host, hrows), (a.guest, grows)):
         mm = [r for r in rows if str(r["path"]).startswith("mm://")]
         if mm:

@@ -2,7 +2,7 @@
 .SYNOPSIS
   Architektur-Arme x Seeds, ein Rezept, ein Datensatz.
 
-  Gepaart je Seed ausgewertet, nicht auf `best` — siehe HANDOFF-TRAINING-2026-09-11.md.
+  Gepaart je Seed ausgewertet, nicht auf `best` — siehe CLAUDE.md.
   Ein Lauf, dessen metrics.jsonl schon voll ist, wird uebersprungen; der Sweep haengt also nicht
   am Exit-Code, sondern an den Epochen auf der Platte.
 #>

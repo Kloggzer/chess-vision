@@ -1,6 +1,6 @@
 """Three time rules for a phone bundle's plies, measured against the replay's own.
 
-The verb planned in `plan/02-phone-candidate` puts every recorded ply on a video frame without
+The `phone-candidate` verb puts every recorded ply on a video frame without
 running the tracker. This measures the three candidate rules (`frame`, `decision`, `wall`) and the
 pre-roll rule the replay already applies (`PhoneLog.kt`), so the pack can fix a rule order and a
 frame offset. It reads and reports only — nothing here writes into a bundle.

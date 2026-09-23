@@ -20,6 +20,7 @@ from pathlib import Path
 import yaml
 
 from chesslab import config
+from chesslab.dataset_build import _stale_packs
 from chesslab.ioutil import iter_jsonl
 from chesslab.training import pack_session, packs
 
@@ -51,6 +52,17 @@ def has_dir(session_id: str, paths: config.Paths) -> bool:
     return True
 
 
+def overtaken(sid: str, name: str, size: int, paths: config.Paths) -> str | None:
+    """Was `dataset build --from-packs` an diesem Pack verweigern wird: `ledgers.json`, sonst Inhalt."""
+    manifest = packs.pack_dir(name, paths) / "manifest.jsonl"
+    rows = list(iter_jsonl(manifest)) if manifest.exists() else []
+    try:
+        _stale_packs({sid: (name, rows)}, size, paths, allow=False)
+    except ValueError as exc:
+        return str(exc).splitlines()[1]
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dataset", required=True, help="Donor dataset: names sessions and pools.")
@@ -63,16 +75,18 @@ def main() -> int:
     cfg = yaml.safe_load((paths.datasets / args.dataset / "dataset.yaml").read_text(encoding="utf-8"))
     at = pool_index(pools_of(cfg), paths)
 
-    # A pack is immutable but NOT automatically current: `rg-2026-08-08-11-59-12-80` predates its
-    # session's last slice and holds 3 333 rows the donor no longer has, with pixels up to 68 grey
-    # levels off (`docs/session-packs.md` §5). Nothing in `packs.py` catches that — so say it here.
+    # Urteile prueft der Ledger-Stempel wie beim Bau. Fuer PIXEL gibt es keinen: `rg-…-11-59-12-80`
+    # trug 3 333 Zeilen eines frueheren Slice (`docs/session-packs.md` §5), bleibt also die Mtime.
     donor_at = (paths.datasets / args.dataset / "manifest.jsonl").stat().st_mtime
-    plan = []
+    plan, verdicts = [], []
     for sid in cfg["session_ids"]:
         have = packs.pack_dir(f"{sid}-{args.size}", paths)
         if have.exists():
+            why = overtaken(sid, have.name, args.size, paths)
             older = have.joinpath("packed_images.u8").stat().st_mtime < donor_at
-            plan.append((sid, "STALE?" if older else "have", None))
+            if why:
+                verdicts.append(why)
+            plan.append((sid, "VERDICT" if why else "STALE?" if older else "have", None))
         elif has_dir(sid, paths):
             plan.append((sid, "boards", None))
         elif sid in at:
@@ -90,8 +104,11 @@ def main() -> int:
     if stale:
         print(f"[WARN] these packs predate {args.dataset} and may hold pixels from an earlier "
               f"slice — check them, and delete + re-pack by hand: {', '.join(stale)}")
+    for why in verdicts:
+        print(f"[FAIL] {why}")
     if missing:
         print(f"[FAIL] no directory and no pool row: {', '.join(missing)}")
+    if missing or verdicts:
         return 1
     if args.dry_run:
         return 0

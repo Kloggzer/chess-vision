@@ -38,8 +38,14 @@ def main():
 
     cover = collections.defaultdict(list)
     for r in rows:
-        cover[(r["session_id"], r["ply"], r["frame"])].append(float(r.get("coverage") or 0.0))
-    mean = {k: sum(v) / len(v) for k, v in cover.items()}
+        cover[(r["session_id"], r.get("ply"), r["frame"])].append(r.get("coverage"))
+    # Ungemessen ist nicht sauber: mit `or 0.0` stand ein ungemattetes Brett im sauberen Kopf.
+    unmeasured = [k for k, v in cover.items() if any(c is None for c in v)]
+    if unmeasured:
+        print(f"[FAIL] {len(unmeasured)} von {len(cover)} Brettern ohne gemessene `coverage` "
+              f"(z. B. {unmeasured[0]}) — sauber/verdeckt ist dort nicht einzustufen")
+        return 1
+    mean = {k: sum(map(float, v)) / len(v) for k, v in cover.items()}
 
     per_pos = collections.defaultdict(list)
     for (sess, ply, frame) in mean:
@@ -61,7 +67,7 @@ def main():
 
     kept = []
     for r in rows:
-        k = (r["session_id"], r["ply"], r["frame"])
+        k = (r["session_id"], r.get("ply"), r["frame"])
         if k not in keep:
             continue
         # Wiederholte Zeilen zeigen auf dieselben Memmap-Eintraege: identische Pixel, nur oefter

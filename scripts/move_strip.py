@@ -22,6 +22,12 @@ from chesslab.training.pack import open_packed_rows
 CELL, PAD, BAR = 104, 5, 26
 
 
+def caption(row: dict) -> str:
+    """Ungemessen steht als `--` da, nicht als `0.00` — sonst liest der Mensch ein freies Feld."""
+    cov = row.get("coverage")
+    return f"{row['label']} cov={'--' if cov is None else f'{float(cov):.2f}'}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--session", required=True, help="Ordnername unter data/recordings/.")
@@ -58,8 +64,7 @@ def main() -> int:
         x = PAD + i * (CELL + PAD)
         sheet.paste(Image.fromarray(np.asarray(mm[index[r["path"]]])).resize((CELL, CELL), Image.NEAREST), (x, PAD))
         dr.text((x + 2, PAD + CELL + 2), r["frame"], fill=(200, 200, 210))
-        dr.text((x + 2, PAD + CELL + 13),
-                f"{r['label']} cov={float(r.get('coverage') or 0):.2f}", fill=(120, 230, 140))
+        dr.text((x + 2, PAD + CELL + 13), caption(r), fill=(120, 230, 140))
     out = Path(args.out or f"data/reports/move-{args.session}-p{args.ply}-{args.square}.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(out)

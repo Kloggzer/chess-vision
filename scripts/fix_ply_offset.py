@@ -23,10 +23,10 @@ from pathlib import Path
 import numpy as np
 
 from chesslab import occluded_model
+from chesslab.cell_rule import classification_eligible
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import append_rows, read_jsonl
-from chesslab.labeling import load_corrections
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
+from chesslab.labeling import ledger_paths, load_corrections
 from chesslab.training.pack import open_packed_rows
 
 ROOT = Path("data/recordings")
@@ -68,9 +68,11 @@ def main():
 
     mm, index = open_packed_rows(args.dataset, manifest)
 
+    # BEIDE Ledger, auch geparkte: ein "FEN stimmt" in `reviewed.jsonl` ist ebenso ein Urteil,
+    # und nur `corrections.jsonl` zu lesen hiess, die Bestaetigung eines Menschen zu ueberschreiben.
     human = {}
-    for sess in {s for s, _ in strong}:
-        load_corrections(ROOT / sess.replace("rg-", "") / "corrections.jsonl", human)
+    for ledger in ledger_paths("reviewed.jsonl") + ledger_paths("corrections.jsonl"):
+        load_corrections(ledger, human)
 
     todo, skipped = collections.defaultdict(list), collections.Counter()
     for (sess, frame), hit in sorted(strong.items()):
@@ -91,8 +93,11 @@ def main():
             if (sess, frame, sq) in human:
                 skipped["Mensch hat entschieden"] += 1
                 continue
-            if float(r.get("coverage") or 0.0) > VMAX:
-                skipped["Zelle verdeckt"] += 1
+            if r.get("coverage") is None:
+                skipped["Zelle ungemessen"] += 1
+                continue
+            if not classification_eligible(r):
+                skipped["Zelle verdeckt oder dunkel"] += 1
                 continue
             if rd["pred_label"] != bb[sq]:
                 skipped["Modell stimmt neuer FEN nicht zu"] += 1

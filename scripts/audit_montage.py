@@ -14,9 +14,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from chesslab.cell_rule import classification_eligible
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import open_packed_rows
 
 CELL, PAD, BAR = 96, 6, 26
@@ -45,10 +45,12 @@ def main():
     man = read_jsonl(dd / "manifest.jsonl")
     mm, index = open_packed_rows(args.dataset, man)
     # Ein Beispielcrop je (Session, Feld, Label) — die Situation ist ueber die Frames dieselbe.
+    # Nur gemessen sichtbare Zellen: `or 0.0` zeigte ein ungemattetes Brett als freies Beispiel.
     pick: dict[tuple, str] = {}
     for r in man:
         k = (r["session_id"], r["square"], r["label"])
-        if k not in pick and r["path"] in index and float(r.get("coverage") or 0.0) <= VMAX:
+        if (k not in pick and r["path"] in index and r.get("coverage") is not None
+                and classification_eligible(r)):
             pick[k] = r["path"]
 
     cols = args.cols

@@ -1,6 +1,6 @@
 """Arme gepaart je Seed vergleichen, auf dem Mittel der letzten Epochen.
 
-`best` ist als Mass raus (HANDOFF-TRAINING-2026-09-11.md): Maximum ueber 60 verrauschte
+`best` ist als Mass raus (CLAUDE.md, "`best` taugt nicht zum Vergleich"): Maximum ueber 60 verrauschte
 Ziehungen, konstruktionsbedingt 2,3-2,9 sd ueber dem Niveau des Laufs. Hier zaehlt der
 Schwanz eines vollstaendig gelaufenen Cosine.
 """

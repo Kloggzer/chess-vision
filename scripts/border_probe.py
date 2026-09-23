@@ -14,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from chesslab import config
+from chesslab import config, realgames
 from chesslab.calibration import load_profile, warp_padded
 from chesslab.ioutil import read_jsonl
 from chesslab.labeling import read_session_meta
@@ -34,11 +34,12 @@ def main():
     if row is None:
         raise SystemExit("kein sauberes Brett mit Frame-Nummer")
     idx = int(Path(str(row["frame"])).stem)
-    cap = cv2.VideoCapture(str(sdir / "video.mp4"))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-    ok, frame = cap.read()
-    cap.release()
-    if not ok:
+    # Vorwaerts dekodiert und gedreht wie der Export: ein Seek landet NEBEN dem Index, und die
+    # Ecken der Zeile saessen dann auf einem fremden Bild.
+    video = realgames.video_path(a.session)
+    rotation = realgames.detect_rotation(video, realgames.load_candidate(a.session), {idx})
+    frame = next((f for _, f in realgames.stream_frames(video, [row], rotation)), None)
+    if frame is None:
         raise SystemExit(f"Frame {idx} nicht lesbar")
     print(f"[i] Frame {idx} aus {a.session}, Quelle {frame.shape[1]}x{frame.shape[0]}")
 
@@ -47,7 +48,7 @@ def main():
     Path(a.out).mkdir(parents=True, exist_ok=True)
     # Der heutige Ausschnitt als Rahmen ins weite Bild: was ausserhalb liegt, ist verloren.
     marked = wide.copy()
-    old = row.get("board_border", 12)
+    old = row["board_border"]
     cv2.rectangle(marked, (pad - old, pad - old), (pad + bs + old, pad + bs + old),
                   (60, 220, 255), 3)
     cv2.putText(marked, f"gespeichert: board_size {bs} + border {old}", (10, 30),
