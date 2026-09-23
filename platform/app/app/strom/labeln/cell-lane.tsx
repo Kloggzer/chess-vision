@@ -10,13 +10,13 @@ import type { FrameHand } from "@/lib/reports/frame-hands";
 import type { StreamSession } from "@/lib/label/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/label/dirty-frames";
 import { pagesByClaim } from "@/lib/label/lane-pages";
-import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/label/lanes";
+import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, laneCellKey as keyOf, type LaneCell } from "@/lib/label/lanes";
 import { pageWritten } from "@/lib/label/lane-commit";
 import { turnPage } from "@/lib/label/page-turn";
 import { matteOverlay } from "@/lib/label/hand-overlay";
 import { standingSquares } from "@/lib/label/setup-swap";
 import { modelPickable, pageClaim, pageCounts } from "./page-head";
-import type { Flush, LaneActions, Verdict } from "./stream";
+import type { Flush, LaneActions, Verdict } from "./lane-types";
 
 export type CellLaneProps = {
   cells: LaneCell[];
@@ -45,7 +45,6 @@ export type CellLaneProps = {
 };
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
-const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
 
 /**
  * OHNE Pinsel heißt der Klick weiter „unsicher" — er schreibt nichts, die Zelle kommt wieder;

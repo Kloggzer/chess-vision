@@ -20,7 +20,8 @@ Abhaengigkeiten laufen abwaerts, festgeschrieben seit Runde 3 (`lib/service-deps
 **Kern <- session-store <- {ingest, reports} <- label <- corpus <- chain <- app.** Ein Modul
 importiert aus seinem eigenen Ordner oder aus einer tieferen Schicht; `ingest` und `reports` sind
 Geschwister und kennen einander nicht; `lib/` importiert nichts aus `app/`/`components/`; ein
-neuer Ordner unter `lib/` braucht eine Schicht. Derselbe Waechter verbietet Importzyklen in `lib/`.
+neuer Ordner unter `lib/` braucht eine Schicht. Derselbe Waechter verbietet Importzyklen in `lib/`,
+seit Runde 4 auch ueber `app/` und `components/` (samt dem, was sie aus `lib/` ziehen).
 
 ## Regeln und ihre Waechter
 
@@ -84,11 +85,33 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
   die Confirm-Seite nicht. Die Props der Seiten sind vor dem Umzug in `lib/page-services.test.ts`
   festgehalten worden.
 
+## Runde 4 (2026-09-23)
+
+- Zyklen in `app/` aufgeloest: `Verdict`/`Flush`/`LaneActions` stehen in
+  `app/strom/labeln/lane-types.ts`, von dem `stream` und die vier Renderer abhaengen — `stream`
+  importiert die Renderer, keiner mehr `stream`. `matte/frame` holt `MatteVerdict` aus
+  `lib/label/matte-page.ts` statt ueber den Re-Export von `review`. Waechter:
+  `lib/service-deps.test.ts` (Tarjan ueber `app/`+`components/`+`lib/`; Gegenprobe: je ein
+  eingepflanzter Zyklus in `matte`, `labeln` und `components -> app` schlaegt an; gegen den alten
+  Stand rot mit genau den zwei Zyklen).
+- Doppelte Client-Helfer zu einem, je mit Paritaetstest gegen die woertlich kopierte alte Fassung:
+  `postJson` in `lib/answer.ts` (sechs gleiche `post`-Kopien in `labeln/stream`, `matte/frame`,
+  `matte/review`, `zuege/stream`, `historie/history-view`, `session-delete`; `cards` und
+  `useless-button` lesen ueber `readAnswer`) — `lib/post-json.test.ts`. `inField`/`pageKey` in
+  `lib/keys.ts` (der Eingabefeld- und Modifier-Waechter aus fuenf Tastatur-Handlern) —
+  `lib/keys.test.ts`. `components/square-ring.tsx` (Ring um ein Feld, Handy-Sortierung und
+  Brett-Lupe) — `lib/square-ring.test.ts` vergleicht das Markup per `renderToStaticMarkup`.
+  `laneCellKey` in `lib/label/lanes.ts` (Zelllane, Handy-Sortierung) — `lib/lane-cell-key.test.ts`.
+- `gameInfo` faengt `loadCandidate` weiter blank ab: kein Befund. Den Knopf setzt `chainState`, das
+  `candidate.json` ueber `peekCandidate` liest — EACCES wirft die ganze Karte, halb geschrieben
+  heisst `confirm`, nie `label`; `runLabel` prueft `hasCandidateFile` selbst und ueberschreibt nie.
+  Festgehalten in `lib/chain/game-info.test.ts` (Gegenprobe: `peekCandidate` mit blankem Fang -> rot).
+
 ## Offen fuer die naechste Runde
 
-- `app/` hat zwei Importzyklen zwischen Client-Komponenten: `app/strom/labeln/` (`stream`,
-  `board-lane`, `cell-lane`, `frame-lane`, `mobile-sort`) und `app/strom/matte/` (`review` <->
-  `frame`). Der Waechter prueft nur `lib/`.
+- Die Tastatur-Registrierung ueber einen Ref (`labeln/stream`, `zuege/stream`) steht zweimal;
+  ohne DOM-Testbibliothek nicht absicherbar, deshalb geblieben. Ebenso die zwei
+  "Brett/Crop fehlt"-Kaesten in `mobile-sort` und die beiden `FailureLine` (verschiedenes Markup).
 - `chain/chain.ts` nennt `log`/`matte`/`modelReads` weiter ueber `recordingFile` zum Stempeln.
 - Ein Service-Eingang je Ordner (`lib/session-store/index.ts`) erst, wenn die Waechter auf den
   Ordner statt auf Dateien zeigen koennen — heute pruefen sie Dateipfade.

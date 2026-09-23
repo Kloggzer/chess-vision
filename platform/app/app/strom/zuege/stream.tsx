@@ -12,6 +12,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { ReviewCard } from "@/lib/label/review-cards";
 import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGame } from "@/lib/label/zuege";
 import { SHORT_HOLD } from "@/lib/label/review-cards";
+import { postJson as post } from "@/lib/answer";
+import { pageKey } from "@/lib/keys";
 
 /**
  * ZÜGE — every pending game's cards back to back, the game boundary a caption and a commit
@@ -33,17 +35,6 @@ type Note =
 
 const without = <T,>(map: Record<number, T>, index: number): Record<number, T> =>
   Object.fromEntries(Object.entries(map).filter(([key]) => Number(key) !== index));
-
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const answer = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(answer.error ?? res.statusText);
-  return answer;
-}
 
 export function ZuegeStream({ games }: { games: StreamGame[] }) {
   const items = useMemo(() => streamItems(games), [games]);
@@ -199,9 +190,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
     return () => window.removeEventListener("keydown", listener);
   }, []);
   const onKey = (event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const target = event.target as HTMLElement | null;
-    if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+    if (!pageKey(event)) return;
     if (zoom) {
       if (event.key === "Escape") setZoom(null);
       return;

@@ -44,7 +44,7 @@ test("a lane's one-shot actionsRef handlers touch render state only through thei
 // `flush` faengt den gescheiterten POST selbst ab; ohne Rueckgabe galt die Seite als geschrieben (2026-09-21).
 test("Flush sagt, ob geschrieben wurde", async () => {
   const stream = await read("stream.tsx");
-  expect(stream).toMatch(/export type Flush = \([\s\S]*?\) => Promise<boolean>;/);
+  expect(await read("lane-types.ts")).toMatch(/export type Flush = \([\s\S]*?\) => Promise<boolean>;/);
   expect(stream.slice(stream.indexOf("const flush = useCallback"))).toMatch(/fail\(error\);\s*return false;/);
 });
 

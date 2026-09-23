@@ -4,18 +4,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { num } from "@/app/corpus/format";
 import { Button } from "@/components/ui/button";
+import { postJson } from "@/lib/answer";
 import type { DeletionCost } from "@/lib/chain/session-delete";
 
-async function post(id: string, body: unknown) {
-  const res = await fetch(`/api/session/${encodeURIComponent(id)}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const answer = (await res.json()) as { error?: string };
-  if (!res.ok) throw new Error(answer.error ?? res.statusText);
-  return answer;
-}
+const post = (id: string, body: unknown) => postJson(`/api/session/${encodeURIComponent(id)}`, body);
 
 /**
  * Delete one exported session, in two steps: `--dry-run` says what would go, the same verb then

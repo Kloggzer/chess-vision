@@ -12,10 +12,10 @@ import type { ReviewNote } from "@/lib/session-store/review-notes";
 import type { VerifyStream } from "@/lib/label/verify";
 import { MatteFrame } from "./frame";
 import { MATTE_PAGE, MatteGrid } from "./grid";
+import { postJson as post } from "@/lib/answer";
+import { inField } from "@/lib/keys";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
-
-export type { MatteVerdict };
 
 /** Ab hier wird nachgeladen: drei Seiten Vorrat reichen, damit niemand auf den Nachschub wartet. */
 const REFILL_AT = MATTE_PAGE * 3;
@@ -51,17 +51,6 @@ const KEYS: [string, string][] = [
   ["← →", "Seite blättern"],
   ["u", "letzte geschriebene Seite zurücknehmen"],
 ];
-
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const answer = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(answer.error ?? res.statusText);
-  return answer;
-}
 
 /**
  * Eine Frage pro Frame: schneidet die Maske die Hand richtig aus. Zehn auf einmal, weil SAMs
@@ -250,8 +239,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
   useEffect(() => {
     if (detail !== null) return;
     function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (inField(event)) return;
       const digit = /^[0-9]$/.test(event.key) ? (Number(event.key) + 9) % 10 : -1;
       const hit: Record<string, () => void> = {
         Enter: () => void commit(),

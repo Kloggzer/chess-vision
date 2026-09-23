@@ -3,14 +3,14 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
-import { SQUARES as BOARD_SQUARES } from "@/components/board-paint";
+import { SquareRing } from "@/components/square-ring";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { CROP } from "@/components/crop-grid";
 import type { Correction, Ledger } from "@/lib/session-store/corrections";
 import type { StreamSession } from "@/lib/label/label-stream";
-import { collapseEvents, groupBySquare, type LaneCell } from "@/lib/label/lanes";
+import { collapseEvents, groupBySquare, laneCellKey as keyOf, type LaneCell } from "@/lib/label/lanes";
 import type { Tally } from "@/lib/label/session-tally";
-import type { Flush, LaneActions } from "./stream";
+import type { Flush, LaneActions } from "./lane-types";
 
 export type MobileSortProps = {
   cells: LaneCell[];
@@ -55,7 +55,6 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
   /** What ⟲ has to put back — the whole group when a long press answered for it. */
   const last = useRef<{ keys: string[]; wrote: boolean } | null>(null);
 
-  const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
   const groups = useMemo(() => {
     const open = groupBySquare(
       cells.filter(
@@ -197,11 +196,7 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
               onError={() => setBroken((was) => new Set(was).add(boardSrc))}
               src={boardSrc}
             />
-            <div className="pointer-events-none absolute inset-0 grid grid-cols-8">
-              {BOARD_SQUARES.map((sq: string) => (
-                <div className={sq === head.square ? "ring-2 ring-fuchsia-400 ring-inset" : ""} key={sq} />
-              ))}
-            </div>
+            <SquareRing passive ring="ring-2 ring-fuchsia-400 ring-inset" square={head.square} />
           </>
         ) : broken.has(cropSrc) ? (
           <div className="border-destructive/60 bg-destructive/10 text-destructive flex h-full w-full items-center justify-center border p-3 text-center font-mono text-sm">

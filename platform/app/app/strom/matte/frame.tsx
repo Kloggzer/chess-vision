@@ -11,8 +11,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { moveLabel } from "@/lib/fen";
 import { verifyFrameKey } from "@/lib/label/position-carry";
-import type { MatteVerdict } from "./review";
+import type { MatteVerdict } from "@/lib/label/matte-page";
 import type { VerifyFrame, VerifySession } from "@/lib/label/verify";
+import { postJson as post } from "@/lib/answer";
+import { inField } from "@/lib/keys";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 
@@ -24,17 +26,6 @@ const KEYS: [string, string][] = [
   ["m", "Alpha ein/aus"],
   ["e", "malen/radieren · [ ] Größe · z zurück · s speichern"],
 ];
-
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const answer = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(answer.error ?? res.statusText);
-  return answer;
-}
 
 export type MatteFrameProps = {
   frame: VerifyFrame;
@@ -101,8 +92,7 @@ export function MatteFrame({ frame, session, onJudge, onClean, onClose }: MatteF
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (inField(event)) return;
       const hit: Record<string, () => void> = {
         Enter: () => void judge("matte-ok"),
         x: () => void judge("matte-bad"),

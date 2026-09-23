@@ -17,6 +17,7 @@ import { SessionDelete } from "@/components/session-delete";
 import { UselessButton } from "@/app/useless-button";
 import type { GameInfo } from "@/lib/chain/game-info";
 import { when as localWhen } from "@/lib/when";
+import { readAnswer } from "@/lib/answer";
 
 /** ISO timestamps rendered deterministically (no locale) so SSR and client agree. */
 const when = (iso: string | null) => localWhen(iso) || null;
@@ -82,9 +83,7 @@ export function GameCard({ game }: { game: GameInfo }) {
   const [note, setNote] = useState("");
 
   async function post(url: string, body?: string) {
-    const res = await fetch(url, { method: "POST", body });
-    const answer = (await res.json()) as { error?: string };
-    if (!res.ok) throw new Error(answer.error ?? res.statusText);
+    await readAnswer(await fetch(url, { method: "POST", body }));
   }
 
   const act = (work: () => Promise<void>) => () =>

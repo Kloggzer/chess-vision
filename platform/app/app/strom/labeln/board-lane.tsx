@@ -9,7 +9,7 @@ import { PhaseChip } from "@/components/phase-chip";
 import type { Correction } from "@/lib/session-store/corrections";
 import type { StreamBoard } from "@/lib/label/label-stream";
 import { confirmLabel, type BoardPlan } from "@/lib/label/selection";
-import type { Flush, LaneActions } from "./stream";
+import type { Flush, LaneActions } from "./lane-types";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 

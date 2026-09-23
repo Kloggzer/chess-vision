@@ -22,7 +22,7 @@ function importsIn(text: string): string[] {
   return ts.preProcessFile(text, true, true).importedFiles.map((f) => f.fileName);
 }
 
-function libGraph(): Graph {
+function graphOf(roots: string[]): Graph {
   const files: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
@@ -31,7 +31,7 @@ function libGraph(): Graph {
       else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) files.push(rel);
     }
   };
-  walk("lib");
+  roots.forEach(walk);
   const mods = new Set(files.map((f) => f.replace(/\.tsx?$/, "")));
   const graph: Graph = new Map();
   for (const file of files) {
@@ -41,13 +41,18 @@ function libGraph(): Graph {
         : spec.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(me), spec)) : null;
       if (raw === null) return [];
       const mod = raw.replace(/\.tsx?$/, "");
-      if (mod.startsWith("app/") || mod.startsWith("components/")) return [mod];
-      return mods.has(mod) ? [mod] : mods.has(`${mod}/index`) ? [`${mod}/index`] : [];
+      if (mods.has(mod)) return [mod];
+      if (mods.has(`${mod}/index`)) return [`${mod}/index`];
+      return !roots.includes(mod.split("/")[0]) && /^(app|components)\//.test(mod) ? [mod] : [];
     });
     graph.set(me, targets);
   }
   return graph;
 }
+
+const libGraph = () => graphOf(["lib"]);
+/** Die Oberflaeche samt allem, was sie zieht: Seiten und Komponenten importieren nur abwaerts. */
+const uiGraph = () => graphOf(["app", "components", "lib"]);
 
 function wrongWay(graph: Graph): string[] {
   const out: string[] = [];
@@ -130,4 +135,19 @@ test("Gegenprobe: eine eingepflanzte Rueckkante und ein Zyklus schlagen an", () 
   expect(wrongWay(new Map(graph).set("lib/neu/x", []))).toHaveLength(1);
   expect(cycles(plant("lib/session-store/recordings", "lib/chain/queues"))).toHaveLength(1);
   expect(cycles(new Map([["a", ["a"]]]))).toEqual([["a"]]);
+});
+
+test("app/ und components/ haben keinen Importzyklus", () => {
+  expect(cycles(uiGraph()), "gemeinsame Typen in eine eigene Datei, Komponenten nur abwaerts").toEqual([]);
+});
+
+test("Gegenprobe: der Oberflaechen-Graph sieht relative Kanten, und ein eingepflanzter Zyklus schlaegt an", () => {
+  const graph = uiGraph();
+  expect(graph.get("app/strom/labeln/stream")).toContain("app/strom/labeln/lane-types");
+  expect(graph.get("app/strom/labeln/stream")).toContain("components/notice");
+  expect(graph.get("app/strom/matte/review")).toContain("app/strom/matte/frame");
+  const plant = (from: string, to: string) => new Map(graph).set(from, [...(graph.get(from) ?? []), to]);
+  expect(cycles(plant("app/strom/matte/frame", "app/strom/matte/review"))).toHaveLength(1);
+  expect(cycles(plant("app/strom/labeln/lane-types", "app/strom/labeln/stream"))).toHaveLength(1);
+  expect(cycles(plant("components/notice", "app/strom/labeln/stream"))).toHaveLength(1);
 });

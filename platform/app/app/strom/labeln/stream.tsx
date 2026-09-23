@@ -8,7 +8,7 @@ import { Progress } from "@/components/progress";
 import { SEGMENTS, segment } from "@/components/segmented";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Correction, Ledger } from "@/lib/session-store/corrections";
+import type { Correction } from "@/lib/session-store/corrections";
 import { coveragePct, coveredSquares } from "@/lib/classes";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyRows, frameKey } from "@/lib/label/dirty-frames";
 import type { LabelStream, StreamBoard } from "@/lib/label/label-stream";
@@ -47,52 +47,15 @@ import { FrameLane, type FrameVerdict } from "./frame-lane";
 import { CellLane } from "./cell-lane";
 import { MobileSort } from "./mobile-sort";
 import { WallQueryBar } from "./wall-query";
+import type { Flush, LaneActions, Verdict } from "./lane-types";
+import { postJson as post } from "@/lib/answer";
+import { pageKey } from "@/lib/keys";
 
-/**
- * LABELN — every board of every session, one continuous feed (CONCEPT.md §4.2).
- *
- * The lane bar is a FILTER over one ordered stream, never a page: every item carries the same
- * ordinal, so switching a lane is a search in that order and keeps you where you were. The
- * renderer is the lane's own (board vs. cell grid, REVIEW S10), and so is its denominator.
- */
-export type Verdict = { rows: Correction[]; ledger: Ledger };
 /** One flush, with the rows that put it back — `z` after the flush needs both (§4.2.2). */
 type Batch = { pos: number; revert: Verdict[] };
-/** `prior` holds what each cell fell back FROM, keyed `session_id|frame|square`. */
-export type Flush = (
-  pos: number,
-  writes: Verdict[],
-  prior: Record<string, string | undefined>,
-) => Promise<boolean>;
-
-/** Everything the one key handler can ask of the active renderer. */
-export type LaneActions = {
-  commit?: () => void;
-  reject?: () => void;
-  flagsOff?: () => void;
-  toggleAt?: () => void;
-  gridAt?: () => void;
-  /** Die ganze Seite auf das Wort des Modells — die Zell-Lanes fragen nichts anderes. */
-  floodModel?: () => void;
-  step?: (delta: number) => void;
-  nextPly?: () => void;
-  brush?: (label: string) => void;
-  undo?: () => boolean;
-};
 
 /** `null` = a tombstone took the cell back out of the judged map. */
 type Written = Record<number, Record<string, string | null>>;
-
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const answer = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(answer.error ?? res.statusText);
-  return answer;
-}
 
 const KEYS: [string, string][] = [
   ["⏎", "commit → nächstes"],
@@ -138,6 +101,13 @@ function OcclusionChip({ coverage, reported }: { coverage?: Record<string, numbe
   );
 }
 
+/**
+ * LABELN — every board of every session, one continuous feed (CONCEPT.md §4.2).
+ *
+ * The lane bar is a FILTER over one ordered stream, never a page: every item carries the same
+ * ordinal, so switching a lane is a search in that order and keeps you where you were. The
+ * renderer is the lane's own (board vs. cell grid, REVIEW S10), and so is its denominator.
+ */
 export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: QueryAnswer }) {
   const router = useRouter();
   const lane = laneBySlug(usePathname().split("/").pop() ?? "")?.id ?? DEFAULT_LANE.id;
@@ -522,9 +492,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     return () => window.removeEventListener("keydown", listener);
   }, []);
   const onKey = (event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const target = event.target as HTMLElement | null;
-    if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+    if (!pageKey(event)) return;
     const now = actions.current;
     switch (event.key) {
       case "Enter":

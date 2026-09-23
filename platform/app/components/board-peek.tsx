@@ -1,6 +1,6 @@
 "use client";
 
-import { SQUARES } from "@/components/board-paint";
+import { SquareRing } from "@/components/square-ring";
 import type { MatteOverlay } from "@/lib/label/hand-overlay";
 
 export type BoardPeekProps = {
@@ -23,7 +23,6 @@ const SIZE = 384;
  * per-cell tooltip left the brush (2026-08-16).
  */
 export function BoardPeek({ src, square, caption, matte }: BoardPeekProps) {
-  const at = SQUARES.indexOf(square);
   return (
     <div className="border-border bg-background/95 pointer-events-none fixed right-4 bottom-4 z-50 rounded-lg border p-2 shadow-xl backdrop-blur">
       <div className="relative" style={{ width: SIZE, height: SIZE }}>
@@ -39,13 +38,7 @@ export function BoardPeek({ src, square, caption, matte }: BoardPeekProps) {
             src={matte.src}
           />
         ) : null}
-        {at >= 0 ? (
-          <div className="absolute inset-0 grid grid-cols-8">
-            {SQUARES.map((sq, i) => (
-              <div className={i === at ? "ring-primary ring-2 ring-inset" : ""} key={sq} />
-            ))}
-          </div>
-        ) : null}
+        <SquareRing ring="ring-primary ring-2 ring-inset" square={square} />
       </div>
       <div className="text-muted-foreground mt-1 text-center font-mono text-xs">
         {caption}

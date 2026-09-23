@@ -8,3 +8,13 @@ export async function readAnswer<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(body?.error ?? res.statusText);
   return body;
 }
+
+/** Ein POST mit JSON-Rumpf, gelesen wie `readAnswer` — die eine Tuer der Client-Seiten. */
+export async function postJson<T = unknown>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return readAnswer<T>(res);
+}

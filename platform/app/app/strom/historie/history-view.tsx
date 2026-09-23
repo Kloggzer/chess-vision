@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Correction, Ledger } from "@/lib/session-store/corrections";
 import { changeText, revertsTo, type Change } from "@/lib/label/history";
+import { postJson as post } from "@/lib/answer";
+import { pageKey } from "@/lib/keys";
 
 /**
  * HISTORIE — jede geschriebene Zeile, jüngste zuerst, rückwärts blätterbar (CONCEPT.md 4.2.4).
@@ -21,16 +23,6 @@ const keyOf = (c: Change) => `${c.sessionId}|${c.frame}|${c.square}`;
  *  der Zelle klebte sonst auf jedem ihrer Auftritte. */
 const rowOf = (c: Change) => `${keyOf(c)}|${c.ts}`;
 const TOUCH = "max-sm:h-11 max-sm:px-3";
-
-async function post(url: string, body: unknown): Promise<void> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const answer = (await res.json()) as { error?: string };
-  if (!res.ok) throw new Error(answer.error ?? res.statusText);
-}
 
 export function HistoryView({ changes }: { changes: Change[] }) {
   const router = useRouter();
@@ -118,9 +110,7 @@ export function HistoryView({ changes }: { changes: Change[] }) {
   });
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (!pageKey(event)) return;
       if (event.key === "Enter") {
         event.preventDefault();
         void now.current.write();

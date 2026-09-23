@@ -230,6 +230,10 @@ export function handsUnmeasured(scanned: boolean[], cell: { session: number }): 
   return scanned[cell.session] !== true;
 }
 
+/** Eine Zelle ueber alle Aufnahmen hinweg: Aufnahme, Frame, Feld. */
+export const laneCellKey = (c: { session: number; stem: string; square: string }) =>
+  `${c.session}|${c.stem}|${c.square}`;
+
 export type LaneCell = {
   session: number;
   pos: number;

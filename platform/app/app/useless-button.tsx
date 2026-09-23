@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { readAnswer } from "@/lib/answer";
 
 /**
  * "nutzlos" / "doch brauchbar" — the one control that takes a game out of every queue.
@@ -29,8 +30,7 @@ export function UselessButton({ name, flagged }: { name: string; flagged: boolea
       body: JSON.stringify({ useless: !flagged, reason }),
     })
       .then(async (res) => {
-        const answer = (await res.json()) as { error?: string };
-        if (!res.ok) throw new Error(answer.error ?? res.statusText);
+        await readAnswer(res);
         router.refresh();
       })
       .catch((error: unknown) => setNote(String(error)))
