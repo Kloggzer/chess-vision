@@ -92,7 +92,6 @@ import random
 import shutil
 import sys
 import time
-from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -102,7 +101,7 @@ import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import calibration, labeling, sessions  # noqa: E402
+from chesslab import labeling, sessions  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
@@ -113,28 +112,15 @@ from chesslab.training.data import (  # noqa: E402
 from chesslab.training.evaluate import load_run  # noqa: E402
 from chesslab.training.torch_data import normalize_batch  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from sweep_warp_resolution import profile_at_warp  # noqa: E402
+
 
 def log(msg: str = "") -> None:
     print(msg, flush=True)
 
 
 # --- the calibration set: frames, re-sliced at the target size -------------------------------
-
-def profile_at_warp(profile, board_size: int):
-    """A COPY of the profile that rectifies to `board_size`. Never written back to disk.
-
-    Same helper as `sweep_warp_resolution.profile_at_warp`: the derived fields (`crop.cell`, the
-    homography) are re-derived rather than carried over, so the object cannot hand a stale number
-    to a caller that trusts it.
-    """
-    return replace(
-        profile,
-        board_size=int(board_size),
-        crop=replace(profile.crop, cell=board_size / 8.0),
-        homography=calibration.compute_homography(profile.image_corners, board_size,
-                                                  profile.margin),
-    )
-
 
 def frames_for_split(rows: list[dict]) -> list[tuple[str, str]]:
     """`[(session_id, frame)]` in manifest order, deduplicated — one entry per board."""

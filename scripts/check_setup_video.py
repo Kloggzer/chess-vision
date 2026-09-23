@@ -12,6 +12,7 @@ Bretter hinweg stabil widerspricht — das ist ein Aufbaufehler, ein wackelndes 
 """
 import argparse
 import collections
+import sys
 from pathlib import Path
 
 import cv2
@@ -20,20 +21,8 @@ from chesslab import occluded_model
 from chesslab.ioutil import read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 
-
-def board_of(fen: str) -> dict[str, str]:
-    out, ranks = {}, fen.split()[0].split("/")
-    for ri, row in enumerate(ranks):
-        f = 0
-        for ch in row:
-            if ch.isdigit():
-                for _ in range(int(ch)):
-                    out[f"{'abcdefgh'[f]}{8 - ri}"] = "empty"
-                    f += 1
-            else:
-                out[f"{'abcdefgh'[f]}{8 - ri}"] = ("w" if ch.isupper() else "b") + ch.upper()
-                f += 1
-    return out
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from scan_ply_offset import board_of  # noqa: E402
 
 
 def main():

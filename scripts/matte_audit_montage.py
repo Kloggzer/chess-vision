@@ -9,6 +9,7 @@ entscheidet das Auge, also zeigt das Blatt das Brett und nicht die Zelle.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -17,15 +18,10 @@ from chesslab.calibration import _square_to_col_row
 from chesslab.ioutil import read_jsonl
 from chesslab.labeling import _profile_for_session, read_log, read_session_meta
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from matte_audit import board_path  # noqa: E402
+
 TILE, PAD, BAR = 232, 6, 30
-
-
-def board_path(rec: Path, frame: str) -> Path | None:
-    for sub in ("dirty", "boards"):
-        p = rec / sub / f"{frame}.webp"
-        if p.exists():
-            return p
-    return None
 
 
 def cell_box(square: str, entry: dict, white_pov: bool, tile: int) -> tuple[float, float, float]:

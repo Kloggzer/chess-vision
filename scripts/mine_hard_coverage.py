@@ -12,14 +12,13 @@ weil ein Fall knapp daneben nichts lehrt.
 """
 import argparse
 import collections
-import json
 from pathlib import Path
 
 import numpy as np
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
-from chesslab.ioutil import read_jsonl
+from chesslab.ioutil import read_jsonl, write_rows
 from chesslab.training.pack import open_packed_rows
 
 
@@ -73,7 +72,7 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("".join(json.dumps(x) + "\n" for x in hits), encoding="utf-8")
+    write_rows(out, hits)
     print(f"\n{len(hits)} entschiedene Widersprueche von {len(rows)} Crops "
           f"({100 * len(hits) / max(len(rows), 1):.3f} %)")
     for k, v in stat.most_common():

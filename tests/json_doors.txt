@@ -21,7 +21,5 @@
 1 scripts/matte_audit.py  # dito, minutenlanger Lauf
 1 scripts/matte_cell_audit.py  # dito
 1 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
-1 scripts/mine_hard_coverage.py  # Bericht eines Aufrufs
 1 scripts/plan_setups.py  # Bericht eines Aufrufs
-1 scripts/scan_ply_offset.py  # Bericht eines Aufrufs
 1 scripts/worker_probe.py  # Subprozess-Ausgabe in ein .log

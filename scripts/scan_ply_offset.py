@@ -17,14 +17,13 @@ Wer es benutzt, vergleiche also gegen `label`, nicht gegen `fen`.
 
 import argparse
 import collections
-import json
 from pathlib import Path
 
 import numpy as np
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
-from chesslab.ioutil import read_jsonl
+from chesslab.ioutil import read_jsonl, write_rows
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import open_packed_rows
 
@@ -111,7 +110,7 @@ def main():
     hits, checked = offsets(per_frame, boards, pred)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("".join(json.dumps(h) + "\n" for h in hits), encoding="utf-8")
+    write_rows(out, hits)
 
     print(f"\n{checked} von {len(per_frame)} Frames geprueft, "
           f"{len(hits)} passen zu einem NACHBAR-Ply besser")

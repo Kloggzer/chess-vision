@@ -19,6 +19,5 @@
 1 scripts/pack_parity.py  # vergleicht ZEILEN bytegleich, nicht Inhalte
 1 scripts/phone_vs_pc.py  # session.yaml
 1 scripts/sweep_infer_size.py  # zeilenweise geflushtes .log, damit ein Hang sichtbar ist WAEHREND er haengt
-1 scripts/sweep_warp_resolution.py  # dito
 1 src/chesslab/labeling.py  # schreibt die ROHEN Zeilen weiter, die es liest - geparst waeren sie nicht mehr bytegleich
 1 scripts/board_grid_probe.py  # NICHT ANFASSEN (Nutzer-Verbot)

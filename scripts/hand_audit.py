@@ -18,26 +18,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 from chesslab.ioutil import iter_jsonl, read_jsonl
 from chesslab.training.occlusion import classification_eligible
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from coverage_errors import neighbours  # noqa: E402
+
 REC = Path("data/recordings")
 
 #: Ab hier ist die Zelle Handkoerper, nicht Saum - ihre Nachbarn sind die verdaechtigen.
 HAND_BODY = 0.5
-
-
-def neighbours(square: str) -> list[str]:
-    file_, rank = ord(square[0]) - 97, int(square[1]) - 1
-    out = []
-    for df, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        f, r = file_ + df, rank + dr
-        if 0 <= f < 8 and 0 <= r < 8:
-            out.append(f"{chr(97 + f)}{r + 1}")
-    return out
 
 
 def _jsonl(path: Path):

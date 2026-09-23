@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from chesslab.ioutil import read_jsonl
+from chesslab.labeling import read_matte
 
 ROOT = Path("data/recordings")
 EDGES = [0.0, 0.02, 0.05, 0.10, 0.15, 0.25, 0.35, 0.50, 0.70, 1.01]
@@ -39,17 +40,7 @@ def collect(reads_name, sessions):
         matte = ROOT / s / "matte.jsonl"
         if not reads.is_file() or not matte.is_file():
             continue
-        truth = {}
-        for r in read_jsonl(matte):
-            # `is not None`, nicht truthy: eine LEERE Coverage ist "gemessen, nichts
-            # verdeckt" und gehoert als Wahrheit dazu — truthy warf sie heraus und die
-            # Schwelle entstuende nur auf Frames, auf denen SAM etwas fand.
-            # ... und die Absage LOESCHT eine fruehere Messung, statt sie stehen zu lassen:
-            # sie sagt "nicht mehr messbar" und ist die juengere Information (`read_matte`).
-            if r.get("coverage") is not None:
-                truth[r["frame"]] = r["coverage"]
-            else:
-                truth.pop(r["frame"], None)
+        truth = read_matte(ROOT / s)
         for r in read_jsonl(reads):
             if "square" not in r or not r["probs"] or r["fen_label"] == "empty":
                 continue

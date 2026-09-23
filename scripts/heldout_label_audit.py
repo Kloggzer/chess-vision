@@ -26,6 +26,7 @@ from pathlib import Path
 import chess
 
 from chesslab.ioutil import read_jsonl
+from chesslab.labeling import read_matte as coverage_of
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 REC = Path("data/recordings")
@@ -179,19 +180,6 @@ def station_disagrees(shares: dict[str, float], label: str, min_share: float) ->
         return False
     top = max(shares, key=lambda k: shares[k])
     return top != label and shares[top] >= min_share
-
-
-def coverage_of(session_dir: Path) -> dict[str, dict[str, float]]:
-    """Frame -> (Feld -> Anteil), aus `matte.jsonl`. Eine Zeile OHNE `coverage` ist SAMs Absage
-    und faellt weg: nicht gemessen ist nicht verdeckt (CLAUDE.md, "Coverage Matte Trap")."""
-    out: dict[str, dict[str, float]] = {}
-    for row in read_jsonl(session_dir / "matte.jsonl"):
-        cells = row.get("coverage")
-        if cells is None:
-            out.pop(str(row["frame"]), None)
-        else:
-            out[str(row["frame"])] = cells
-    return out
 
 
 def covered(cov: dict[str, dict[str, float]], stem: str, square: str) -> bool:

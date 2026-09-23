@@ -48,8 +48,6 @@ Evaluation only: no training, no export, no rendering, no profile write. One pro
 from __future__ import annotations
 
 import argparse
-import json
-import math
 import os
 import sys
 import time
@@ -73,6 +71,18 @@ from chesslab.training.data import (  # noqa: E402
     load_split,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from sweep_infer_size import (  # noqa: E402
+    Log,
+    _counts,
+    frames_for_split,
+    install_at_size,
+    load_torch_run,
+    misses_phantom_free,
+    phantoms_at_miss_target,
+    px_per_square,
+)
+
 #: The profile's own 800, the `config.DEFAULT_BOARD_SIZE` / Android 1600, and one in between.
 WARPS = (800, 1200, 1600)
 
@@ -87,34 +97,6 @@ SPLITS = ("test", "val")
 
 #: The operating point the norm x scale matrix was compared at (specs/22 STATUS.md).
 MISS_TARGET = 43
-
-
-class Log:
-    """stdout + file, flushed on every line — a hang has to be visible while it hangs."""
-
-    def __init__(self, path: Path | None) -> None:
-        self._fh = None
-        if path is not None:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self._fh = path.open("w", encoding="utf-8")
-
-    def __call__(self, msg: str = "") -> None:
-        print(msg, flush=True)
-        if self._fh is not None:
-            self._fh.write(msg + "\n")
-            self._fh.flush()
-
-    def close(self) -> None:
-        if self._fh is not None:
-            self._fh.close()
-
-
-def px_per_square(session_id: str) -> float:
-    """Native resolution of a session: mean edge of the logged corner quad / 8."""
-    p = sessions.session_dir(session_id)[0] / "log.jsonl"
-    with p.open("r", encoding="utf-8") as fh:
-        c = json.loads(fh.readline())["corners"]
-    return sum(math.dist(c[i], c[(i + 1) % 4]) for i in range(4)) / 4 / 8
 
 
 def crop_box_px(profile) -> float:
@@ -143,71 +125,7 @@ def profile_at_warp(profile, board_size: int):
     )
 
 
-# --- metrics -------------------------------------------------------------------------------
-
-def _counts(trues: np.ndarray, preds: np.ndarray) -> tuple[int, int]:
-    """(misses, phantoms): occupied read as empty, empty read as occupied."""
-    return int((trues & ~preds).sum()), int((~trues & preds).sum())
-
-
-def phantoms_at_miss_target(trues: np.ndarray, probs: np.ndarray, target: int) -> tuple[int, int, float]:
-    """Fewest phantoms reachable while keeping misses <= `target`.
-
-    misses(t) grows and phantoms(t) shrinks with the threshold t on P(occupied), so the answer is
-    the LARGEST t whose miss count is still within budget. Returns (phantoms, misses, t).
-    """
-    occ = np.sort(probs[trues])
-    if occ.size == 0:
-        # No occupied cell at all: every threshold keeps the budget, so the most permissive one
-        # wins — and its phantom count is COUNTED, not short-circuited to a flattering 0.
-        t = 0.0
-    elif target < occ.size:
-        t = float(occ[target])
-    else:
-        # The budget exceeds the occupied cells there are: no threshold matches the operating
-        # point, and `misses` says so. The caller has to read it — see `report`.
-        t = float(occ[-1]) + 1e-9
-    preds = probs >= t
-    misses, phantoms = _counts(trues, preds)
-    return phantoms, misses, t
-
-
-def misses_phantom_free(trues: np.ndarray, probs: np.ndarray) -> tuple[int, float]:
-    """Fewest misses reachable at ZERO phantoms = the most permissive phantom-free threshold."""
-    emp = probs[~trues]
-    t = float(emp.max()) + 1e-6 if emp.size else 0.0
-    preds = probs >= t
-    misses, _ = _counts(trues, preds)
-    return misses, t
-
-
 # --- model handling -----------------------------------------------------------------------
-
-def load_torch_run(run_dir: Path):
-    """(model, cfg) from the checkpoint — deliberately NOT via `serving.load_run`.
-
-    `serving.load_run` prefers a `model.onnx` when one exists, and the exporter bakes a static
-    `[64, 3, H, W]` input into the graph. A sweep over input sizes has to run the weights.
-    """
-    from chesslab.training.evaluate import load_run as _load_run
-
-    model, cfg = _load_run(run_dir)
-    return model.eval(), cfg
-
-
-def install_at_size(run_dir: Path, model, cfg: dict, size: int) -> dict:
-    """Make `serving.predict_arrays` treat `size` as this run's inference size.
-
-    `predict_arrays` reads `infer_size_of(cfg)` and would resize freshly sliced s x s crops back to
-    the run's own key, erasing the thing this phase measures. Seeding the module cache is the seam;
-    `out_size` moves with it so the fallback path agrees with the key.
-    """
-    from chesslab import serving
-
-    cfg_at_size = {**cfg, "out_size": [size, size], "infer_size": [size, size]}
-    serving._CACHE[str(Path(run_dir).resolve())] = (model, cfg_at_size)
-    return cfg_at_size
-
 
 def occupied_index(cfg: dict) -> int:
     classes = list(cfg["classes"])
@@ -217,19 +135,6 @@ def occupied_index(cfg: dict) -> int:
 
 
 # --- the sweep: re-sliced from the session frames -----------------------------------------
-
-def frames_for_split(rows: list[dict]) -> list[tuple[str, str, dict[str, str]]]:
-    """[(session_id, frame, {square: label})] in manifest order — the labels for the sweep."""
-    order: list[tuple[str, str]] = []
-    groups: dict[tuple[str, str], dict[str, str]] = {}
-    for r in rows:
-        key = (r["session_id"], str(r["frame"]))
-        if key not in groups:
-            groups[key] = {}
-            order.append(key)
-        groups[key][r["square"]] = r["label"]
-    return [(sid, fr, groups[(sid, fr)]) for sid, fr in order]
-
 
 def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], sizes: tuple[int, ...],
           device: str, max_frames: int | None, log: Log,

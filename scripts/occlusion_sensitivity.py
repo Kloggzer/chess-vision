@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -28,9 +29,8 @@ from chesslab.training.evaluate import load_run
 from chesslab.training.gradcam import jet
 from chesslab.training.torch_data import eval_transform_for
 
-#: Der aeussere Ring gehoert dem NACHBARN: `pad_side` 0,05 schneidet ueber die Feldkante hinaus,
-#: und die perspektivische Neigung schiebt den Nachbarkoerper zusaetzlich herein.
-EDGE = 0.15
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from gradcam_summary import edge_mass  # noqa: E402
 
 
 def occlusion_map(model, x: torch.Tensor, cls: int, n_cls: int, patch: int,
@@ -68,13 +68,6 @@ def occlusion_map(model, x: torch.Tensor, cls: int, n_cls: int, patch: int,
             acc[yy:yy + patch, xx:xx + patch] += drop[i, j]
             cnt[yy:yy + patch, xx:xx + patch] += 1
     return acc / np.maximum(cnt, 1), base, worst
-
-
-def edge_mass(m: np.ndarray) -> float:
-    h, w = m.shape
-    inner = m[int(h * EDGE):int(h * (1 - EDGE)), int(w * EDGE):int(w * (1 - EDGE))]
-    tot = float(m.sum())
-    return 1.0 - (float(inner.sum()) / tot if tot > 0 else 0.0)
 
 
 def pick_rows(manifest, split, n: int) -> list[dict]:

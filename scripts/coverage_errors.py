@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from chesslab.ioutil import read_jsonl
+from chesslab.labeling import read_matte
 
 ROOT = Path("data/recordings")
 FILES = "abcdefgh"
@@ -53,12 +54,7 @@ def main():
         rp, mp = ROOT / s / reads, ROOT / s / "matte.jsonl"
         if not rp.is_file() or not mp.is_file():
             continue
-        truth = {}
-        for r in read_jsonl(mp):
-            # Eine LEERE Coverage ist "gemessen, nichts verdeckt" und gehoert als
-            # Wahrheit dazu; truthy warf sie mit SAMs Absage in denselben Topf.
-            if r.get("coverage") is not None:
-                truth[r["frame"]] = r["coverage"]
+        truth = read_matte(ROOT / s)
         for r in read_jsonl(rp):
             if "square" not in r or r["frame"] not in truth:
                 continue

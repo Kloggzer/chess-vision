@@ -135,8 +135,15 @@ def phantoms_at_miss_target(trues: np.ndarray, probs: np.ndarray, target: int) -
     """
     occ = np.sort(probs[trues])
     if occ.size == 0:
-        return 0, 0, 0.0
-    t = float(occ[target]) if target < occ.size else float(occ[-1]) + 1e-9
+        # No occupied cell at all: every threshold keeps the budget, so the most permissive one
+        # wins — and its phantom count is COUNTED, not short-circuited to a flattering 0.
+        t = 0.0
+    elif target < occ.size:
+        t = float(occ[target])
+    else:
+        # The budget exceeds the occupied cells there are: no threshold matches the operating
+        # point, and `misses` says so (`sweep_warp_resolution.report` marks such cells).
+        t = float(occ[-1]) + 1e-9
     preds = probs >= t
     misses, phantoms = _counts(trues, preds)
     return phantoms, misses, t
