@@ -4,6 +4,7 @@ import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
+import com.chesslab.tracker.io.Jsonl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
@@ -156,7 +157,7 @@ class SessionTimeline(
                     }
                 try {
                     WorkProfiler.span(WorkOperation.TIMELINE_WRITE, entry.seq) {
-                        file.appendText(text + "\n")
+                        Jsonl.appendEncoded(file, text)
                     }
                 } catch (e: IOException) {
                     failure = "timeline not written from row ${entry.seq}: ${e.message}"
@@ -166,7 +167,7 @@ class SessionTimeline(
             val lost = evicted.get()
             if (lost > 0 && failure == null) {
                 val row = EventRow(seq.getAndIncrement(), -1L, -1L, "timeline_dropped", null, reason = "$lost rows evicted")
-                file.appendText(TIMELINE_JSON.encodeToString(EventRow.serializer(), row) + "\n")
+                Jsonl.appendEncoded(file, TIMELINE_JSON.encodeToString(EventRow.serializer(), row))
             }
         }
 

@@ -26,9 +26,22 @@ class JsonlCorrupt(
 object Jsonl {
     fun rows(file: File): List<JsonObject> = if (file.isFile) parse(file, file.readText()) else emptyList()
 
+    fun strictRows(file: File): List<JsonObject> = parse(file, file.readText(), false)
+
+    fun appendEncoded(
+        file: File,
+        row: String,
+    ) = file.appendText("$row\n")
+
+    fun replaceEncoded(
+        file: File,
+        rows: Iterable<String>,
+    ) = file.writeText(rows.joinToString("") { "$it\n" })
+
     internal fun parse(
         file: File,
         text: String,
+        liveWriter: Boolean = true,
     ): List<JsonObject> {
         // Fuehrendes BOM weg, wie `utf-8-sig` in `chesslab.ioutil` und `stripBom` in `lib/jsonl.ts`:
         // PowerShells `Out-File` stempelt eines, und der Desktop liest dieselben Dateien wie Python.
@@ -43,8 +56,9 @@ object Jsonl {
             val element: JsonElement? = parsed.getOrNull()
             when {
                 element != null -> (element as? JsonObject)?.let { rows += it }
-                index == lines.lastIndex -> Unit
-                else -> throw JsonlCorrupt(file, index + 1, parsed.exceptionOrNull()!!)
+                liveWriter && index == lines.lastIndex -> Unit
+                liveWriter -> throw JsonlCorrupt(file, index + 1, parsed.exceptionOrNull()!!)
+                else -> throw parsed.exceptionOrNull()!!
             }
         }
         return rows

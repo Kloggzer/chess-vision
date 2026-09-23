@@ -1,6 +1,7 @@
 package com.chesslab.tracker.diagnostics
 
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.tracker.io.Jsonl
 import com.chesslab.tracker.record.zipSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -134,7 +135,7 @@ class DiagnosticsLog(
         try {
             val file = target()
             if (entry !is Entry.Start) restoreHeaderInto(file)
-            file.appendText(line + "\n")
+            Jsonl.appendEncoded(file, line)
         } catch (_: IOException) {
             return
         }
@@ -145,7 +146,7 @@ class DiagnosticsLog(
     private fun restoreHeaderInto(file: File) {
         val start = announced ?: return
         if (header != null) return
-        file.appendText(DIAGNOSTICS_JSON.encodeToString(RunStart.serializer(), start) + "\n")
+        Jsonl.appendEncoded(file, DIAGNOSTICS_JSON.encodeToString(RunStart.serializer(), start))
         header = start
     }
 
@@ -169,7 +170,7 @@ class DiagnosticsLog(
         // export of anonymous numbers. The repeat keeps the ORIGINAL `seq`: it is the same record
         // written twice, not a second event, and a fresh number would break the one property the
         // counter has, that the decision rows read in file order only ever count up.
-        header?.let { next.appendText(DIAGNOSTICS_JSON.encodeToString(RunStart.serializer(), it) + "\n") }
+        header?.let { Jsonl.appendEncoded(next, DIAGNOSTICS_JSON.encodeToString(RunStart.serializer(), it)) }
         return next
     }
 

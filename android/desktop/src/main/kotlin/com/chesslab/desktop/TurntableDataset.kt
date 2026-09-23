@@ -1,6 +1,6 @@
 package com.chesslab.desktop
 
-import kotlinx.serialization.json.Json
+import com.chesslab.tracker.io.Jsonl
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
@@ -60,10 +60,7 @@ private class Pack(
     val role: String,
 ) {
     val file = File(dir, "packed_images.u8")
-    val rows =
-        File(dir, "manifest.jsonl").readLines().filter(String::isNotBlank).map {
-            Json.parseToJsonElement(it) as JsonObject
-        }
+    val rows = Jsonl.strictRows(File(dir, "manifest.jsonl"))
     val session = rows.first()["session_id"]!!.jsonPrimitive.content
     val side =
         rows

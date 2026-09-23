@@ -2,6 +2,7 @@ package com.chesslab.desktop
 
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.tracker.io.writeAtomic
 import com.chesslab.tracker.settings.KNOBS
 import com.chesslab.tracker.settings.KnobKind
 import kotlinx.serialization.json.JsonNull
@@ -293,10 +294,7 @@ internal fun writeCandidate(
         }
     dir.mkdirs()
     val path = File(dir, "candidate.json")
-    val tmp = File(dir, "candidate.json.tmp")
-    tmp.writeText(prettyJson.encodeToString(JsonObject.serializer(), stamped) + "\n")
-    check(!path.exists() || path.delete()) { "cannot replace ${path.path}" }
-    check(tmp.renameTo(path)) { "cannot move ${tmp.path} into place" }
+    writeAtomic(path, prettyJson.encodeToString(JsonObject.serializer(), stamped) + "\n")
     return path
 }
 

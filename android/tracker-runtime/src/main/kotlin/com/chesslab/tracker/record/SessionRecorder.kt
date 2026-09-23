@@ -1,5 +1,6 @@
 package com.chesslab.tracker.record
 
+import com.chesslab.tracker.io.Jsonl
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -139,7 +140,7 @@ class SessionRecorder(
         val logged =
             runCatching {
                 cutTornTail()
-                logFile.appendText(JSON.encodeToString(LogEntry.serializer(), entry) + "\n")
+                Jsonl.appendEncoded(logFile, JSON.encodeToString(LogEntry.serializer(), entry))
                 logLength = logFile.length()
             }.isSuccess
         if (!logged) {
@@ -160,7 +161,7 @@ class SessionRecorder(
         val file = File(dir, last.frame)
         bytes -= file.length()
         file.delete()
-        logFile.writeText(entries.joinToString("") { JSON.encodeToString(LogEntry.serializer(), it) + "\n" })
+        Jsonl.replaceEncoded(logFile, entries.map { JSON.encodeToString(LogEntry.serializer(), it) })
         logLength = logFile.length()
         return true
     }
