@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { flagFrame } from "@/lib/frame-flag";
+import { jsonlRows } from "@/lib/jsonl";
 import { loadSession } from "@/lib/session";
 import { type RowSpec, sessionRow, tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
@@ -72,4 +73,11 @@ test("das geflaggte Frame verlaesst den Strom, weil `loadSession` es mitliest", 
   expect((await loadSession(NAME)).byStem.get("000200")!.unusable).toBe(false);
   await flagFrame(NAME, "000200", true);
   expect((await loadSession(NAME)).byStem.get("000200")!.unusable).toBe(true);
+});
+
+test("zwei gleichzeitige Urteile verlieren keines", async () => {
+  // Ohne Riegel las der zweite Aufruf die `log.jsonl` VOR dem Schreiben des ersten.
+  const both = await Promise.all([flagFrame(NAME, "000100", true), flagFrame(NAME, "000300", true)]);
+  expect(both.map((r) => r.unusable)).toEqual([true, true]);
+  expect(jsonlRows(await log()).filter((r) => r.unusable === true)).toHaveLength(2);
 });

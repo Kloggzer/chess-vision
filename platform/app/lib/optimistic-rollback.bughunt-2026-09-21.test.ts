@@ -2,11 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
 
-/**
- * Wer eine Karte VOR dem POST aus der Lane nimmt, muss sie beim Fehlschlag zurueckholen. Sonst
- * zeigt die Oberflaeche einen Erfolg, den der Server nie bestaetigt hat: das Frame (oder die ganze
- * Aufnahme) ist fuer den Rest der Sitzung weg, und auf der Platte steht kein Urteil.
- */
+/** Wer eine Karte VOR dem POST ausblendet, holt sie beim Fehlschlag zurueck — sonst zeigt die Lane einen Erfolg ohne Urteil. */
 const HIDERS = ["setThrown", "setDropped", "setReported", "setCommitted"] as const;
 
 /** Beide Stroeme, nicht nur der gelabelte: `zuege/stream.tsx` trug dieselbe Form auf `throwOut`. */
@@ -15,7 +11,6 @@ const STREAMS = ["labeln", "zuege"] as const;
 /** Auf die FORM, nicht die Schreibweise: `post<{ dequeued: boolean }>(…)` traegt kein `post(`. */
 const POST = /\bpost\s*(?:<[^(]*>)?\(/;
 
-/** Die Funktionen der Datei, grob an ihrer Einrueckung geschnitten — Deklaration bis zur naechsten. */
 function functions(source: string): { name: string; body: string }[] {
   const head = /^ {2}(?:(?:async )?function (\w+)|const (\w+) = useCallback)/gm;
   const marks = [...source.matchAll(head)].map((m) => ({ at: m.index, name: m[1] ?? m[2] }));
@@ -37,8 +32,7 @@ function offencesIn(source: string): string[] {
   return offences;
 }
 
-/** Eingepflanzt, mit GENERISCHEM Aufruf: `includes("post(")` sah den bis 2026-09-21 nicht, und
- *  `back()` stand genau so da. Ein Erkenner ohne Gegenprobe meldet still nie etwas. */
+/** Gegenprobe: `includes("post(")` sah den generischen Aufruf bis 2026-09-21 nicht, und `back()` stand genau so da. */
 test("der Erkenner sieht die Form auch bei `post<T>(…)`", () => {
   const planted = [
     "  async function back() {",

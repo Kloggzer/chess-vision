@@ -1,6 +1,33 @@
-import { expect, test } from "vitest";
-import { agreed, groupByPack, parsePerf, shortName } from "@/lib/perf";
-import { countProbs, headerModel, summarize, type Provenance } from "@/lib/provenance";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { beforeEach, expect, test, vi } from "vitest";
+import { agreed, groupByPack, parsePerf, shortName, sweepLog } from "@/lib/perf";
+import { countProbs, headerModel, modelReadProvenance, summarize, type Provenance } from "@/lib/provenance";
+import { tempDataRoot } from "@/lib/test-fixtures";
+
+type Op = "stat" | "readFile" | "readdir" | "open";
+const fail = vi.hoisted(() => ({ on: null as null | ((op: Op, file: string) => string | null) }));
+
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  // Ablehnen, nicht werfen: ein synchroner Wurf liefe am `.catch` vorbei.
+  const hop = (op: Op, file: string, rest: unknown[]) => {
+    const code = fail.on?.(op, String(file)) ?? null;
+    if (code) return Promise.reject(Object.assign(new Error(`${code}: ${file}`), { code }));
+    return (real[op] as (...a: unknown[]) => unknown)(file, ...rest);
+  };
+  return {
+    ...real,
+    stat: (f: string, ...r: unknown[]) => hop("stat", f, r),
+    readFile: (f: string, ...r: unknown[]) => hop("readFile", f, r),
+    readdir: (f: string, ...r: unknown[]) => hop("readdir", f, r),
+    open: (f: string, ...r: unknown[]) => hop("open", f, r),
+  };
+});
+
+beforeEach(() => {
+  fail.on = null;
+});
 
 const FLAT = {
   model: "C:\\x\\data\\models\\id35-80-before-hn-20260812\\model.onnx",
@@ -70,4 +97,39 @@ test("probs are counted by scan, and sessions nobody read stay UNMEASURED, never
     probRows: 140,
     models: ["data/models/d16-f0"],
   });
+});
+
+test("ein EACCES auf den Sweep-Log ist kein fehlender Log", async () => {
+  await tempDataRoot("perfsweep");
+  fail.on = (op, file) => (op === "stat" && file.endsWith(path.join("perf", "sweep_infer_size.log")) ? "EACCES" : null);
+  await expect(sweepLog()).rejects.toThrow(/EACCES/);
+});
+
+// „1 von 43" darf nie als „1" lesbar werden: ein I/O-Fehler ist kein leerer Korpus.
+async function readsFixture(prefix: string): Promise<void> {
+  const dir = path.join(await tempDataRoot(prefix), "recordings", "g");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, "model-reads.jsonl"), JSON.stringify({ _model: "p4a-80-clahe" }) + "\n{}\n", "utf8");
+}
+
+const blowUpOn = (needle: string, code: string) => {
+  fail.on = (op, file) => ((op === "stat" || op === "readdir") && file.includes(needle) ? code : null);
+};
+
+test("ein I/O-Fehler am Aufnahme-Verzeichnis ist kein leerer Korpus", async () => {
+  await readsFixture("provdir");
+  blowUpOn("recordings", "EACCES");
+  await expect(modelReadProvenance()).rejects.toThrow(/EACCES/);
+});
+
+test("ein I/O-Fehler auf model-reads.jsonl ist kein „nie gelesen\"", async () => {
+  await readsFixture("provstat");
+  blowUpOn("model-reads.jsonl", "EMFILE");
+  await expect(modelReadProvenance()).rejects.toThrow(/EMFILE/);
+});
+
+test("und eine Aufnahme ohne Lesarten bleibt ungemessen, nicht null", async () => {
+  const root = await tempDataRoot("provleer");
+  await mkdir(path.join(root, "recordings", "leer"), { recursive: true });
+  expect(await modelReadProvenance()).toEqual([{ name: "leer", rows: null, probs: null, model: null, writtenAt: null }]);
 });

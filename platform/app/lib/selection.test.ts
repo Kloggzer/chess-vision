@@ -80,8 +80,7 @@ test("taking off a flag this session already wrote supersedes it instead of revi
 test("a flagged cell is a two-cycle: one click off, one click back on (CONCEPT 4.2.1 case C)", () => {
   const at = { current: "occluded", proposal: "occluded", base: "wP", fen: "wP", brush: "occluded" };
   expect(cycleNext(at)).toBe("wP");
-  // Was `empty` before 2026-08-15: restoring a flag cost two clicks and made "3 of 12" an
-  // 8-interaction board. A third label is the brush's job now, not the cycle's.
+  // Was `empty` before 2026-08-15: restoring a flag cost two clicks ("3 of 12" took 8 interactions).
   expect(cycleNext({ ...at, current: "wP" })).toBe("occluded");
   expect(cycleNext({ ...at, current: "empty" })).toBe("occluded"); // painted elsewhere: back on
 });
@@ -154,15 +153,11 @@ test("the interaction table of CONCEPT 4.2.1 holds: no case worse, case C strict
   const off = { ...cell, current: "wR" };
 
   const cases: [string, number, number][] = [
-    // A: every flag right — one Enter, both.
     ["A alle Flags richtig", 1, 1],
-    // B: nothing occluded — one Backspace, both.
     ["B nichts verdeckt", 1, 1],
     // C: 3 of 12. Today: the button hunt, then each flag BACK ON; the loop: `f`, then one click.
     ["C 3 von 12", 1 + 3 * clicks(before, off, "occluded") + 1, 1 + 3 * clicks(cycleNext, off, "occluded") + 1],
-    // C′: the same board clicked flag by flag — the loop never makes the worse path mandatory.
     ["C' 3 von 12, einzeln", 9 * clicks(before, cell, "wR") + 1, 9 * clicks(cycleNext, cell, "wR") + 1],
-    // D: 9 of 12 — taking a flag off is the first step of both orders.
     ["D 9 von 12", 3 * clicks(before, cell, "wR") + 1, 3 * clicks(cycleNext, cell, "wR") + 1],
     // E and F are brush gestures and touch no cycle: key + drag + Enter, `a` + erase + Enter.
     ["E zwei Zellen umpinseln", 3, 3],

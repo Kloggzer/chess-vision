@@ -1,16 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { matteCensus } from "@/lib/matte";
 import { tempDataRoot, writeLog } from "@/lib/test-fixtures";
 
 /**
- * Eine Meldung auf einen Frame, den dieser Export gar nicht mehr fuehrt, ist keine offene Arbeit.
- *
- * Der Export waehlt ~8 Frames je Stellung; ein Re-Export waehlt andere. Ein Urteil aus der
- * Label-Lane zeigt danach ins Leere — es gibt kein Brett zu schneiden. `reportedOpen` rechnete
- * aber nur die von SAM ABGELEHNTEN heraus, also hielt jede solche Meldung die Matte-Sprosse fuer
- * immer offen. Gemessen 2026-09-15: 14 Aufnahmen haengen so, auf `2026-08-15-23-01-43` zeigen
- * ALLE 34 Meldungen ins Leere.
+ * Eine Meldung auf einen Frame, den dieser Export nicht mehr fuehrt, ist keine offene Arbeit:
+ * gemessen 2026-09-15 hingen 14 Aufnahmen so, auf `2026-08-15-23-01-43` alle 34 Meldungen.
  */
 let dir: string;
 let rec: string;
@@ -32,7 +28,6 @@ test("eine Meldung ohne Frame im Export haelt die Sprosse nicht offen", async ()
   await writeLog(rec, [{ frame: 2, dirty: true, extra: { dirty_reason: "occluded" } }]);
   await reviews("009999");
 
-  const { matteCensus } = await import("@/lib/matte");
   const census = await matteCensus("g");
 
   expect(census.reportedOrphan, "die Meldung zeigt auf keinen Frame dieses Exports").toBe(1);
@@ -44,7 +39,6 @@ test("eine Meldung auf einen Frame, den es gibt, bleibt offene Arbeit", async ()
   await writeLog(rec, [{ frame: 2, dirty: true, extra: { dirty_reason: "occluded" } }]);
   await reviews("000002");
 
-  const { matteCensus } = await import("@/lib/matte");
   const census = await matteCensus("g");
 
   expect(census.reportedOrphan).toBe(0);
@@ -52,14 +46,24 @@ test("eine Meldung auf einen Frame, den es gibt, bleibt offene Arbeit", async ()
 });
 
 test("auch ein `changed`-Frame zaehlt als vorhanden — der Stapel ist nicht der Export", async () => {
-  // `pile` sind nur die `occluded`-Zeilen. Wer dagegen pruefte, erklaerte jede Meldung auf einem
-  // `changed`/`stale`-Frame faelschlich zur Waise.
+  // `pile` sind nur die `occluded`-Zeilen; dagegen geprueft waere jede `changed`-Meldung eine Waise.
   await writeLog(rec, [{ frame: 4, dirty: true, extra: { dirty_reason: "changed" } }]);
   await reviews("000004");
 
-  const { matteCensus } = await import("@/lib/matte");
   const census = await matteCensus("g");
 
   expect(census.reportedOrphan).toBe(0);
   expect(census.reportedOpen).toBe(1);
+});
+
+// Eine `skipped`-Zeile ist kein Alpha: das Frame bleibt gemeldet, haelt die Kette aber nicht auf.
+test("a frame SAM already refused is reported but no longer open", async () => {
+  await writeLog(rec, [{ frame: 2, dirty: true, extra: { dirty_reason: "stale" } }]);
+  await writeFile(path.join(rec, "matte.jsonl"),
+    JSON.stringify({ frame: "000002", skipped: "board unreadable" }) + "\n", "utf8");
+  await reviews("000002");
+
+  const census = await matteCensus("g");
+  expect(census.reported, "sichtbar bleibt es").toBe(1);
+  expect(census.reportedOpen, "BUG: SAM hat geantwortet, die Kette wartet trotzdem weiter").toBe(0);
 });

@@ -5,12 +5,7 @@ import { nextStep } from "@/lib/chain";
 import { videoInput } from "@/lib/jobs";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
-/**
- * `chain.videoOf` accepts a bundle whose only video sits beside `files/` (the shape the comment
- * names: 2026-08-30-14-33-02), so the chain offers `label`. `jobs.videoInput` looks only inside
- * `files/sessions/<newest>` and answers with a reason — the job is recorded `skipped`, which
- * `backlog.blocker` reads as the no-retry marker, and the recording is stuck in Reparatur.
- */
+// Ohne Rueckfall auf das gespiegelte Video wurde der angebotene `label`-Job `skipped` und hing in Reparatur.
 const NAME = "2026-08-30-14-33-02";
 let data: string;
 
@@ -21,7 +16,6 @@ beforeEach(async () => {
 });
 
 it("finds the same mirrored video the chain offered the label button for", async () => {
-  // The chain's own reading of this bundle: a video is there, so `label` is the step.
   expect(nextStep({
     video: path.join(data, "recordings", NAME, "video.mp4"), videoBroken: null, offeredPgn: null,
     hasReference: false, hasPhoneRecord: false, hasCandidate: false, confirmed: false,

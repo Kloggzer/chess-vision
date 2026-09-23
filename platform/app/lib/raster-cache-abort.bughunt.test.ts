@@ -1,9 +1,4 @@
-/**
- * Der Raster-Cache ist `lru-cache` mit `fetchMethod` und einem BYTE-Deckel. Verdraengt der Deckel
- * einen Eintrag, dessen Dekodierung noch laeuft, BRICHT `lru-cache` sie ab und die wartende
- * Anfrage bekommt `Error('evicted')` statt ihrer Pixel — aus einem Cache-Fehlschuss wird ein 500.
- * Genau der Fall, fuer den der Deckel da ist: eine Seite fragt ~22 Frames auf einmal an.
- */
+// Verdraengt der Byte-Deckel eine laufende Dekodierung, bricht `lru-cache` sie ab: ein 500 statt Pixel.
 import { expect, test, vi } from "vitest";
 
 const gate = vi.hoisted(() => ({ release: new Map<string, () => void>() }));

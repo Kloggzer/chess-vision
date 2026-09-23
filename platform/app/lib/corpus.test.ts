@@ -1,8 +1,30 @@
 import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, expect, test } from "vitest";
-import { classScheme, corpusIndex, corpusIndexDir, datasetDir, INDEX_VERSION, isRealGame, loadDatasetMeta, sameSession, tallyLines, trainShares, type Split } from "@/lib/corpus";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { classScheme, corpusIndex, corpusIndexDir, datasetDir, INDEX_VERSION, isRealGame, listDatasets, loadDatasetMeta, newestDataset, sameSession, tallyLines, trainShares, type Split } from "@/lib/corpus";
+import { listPacks } from "@/lib/packs";
+import { loadPerf } from "@/lib/perf";
 import { tempDataRoot } from "@/lib/test-fixtures";
+
+type Op = "stat" | "readFile" | "readdir" | "open";
+const fail = vi.hoisted(() => ({ on: null as null | ((op: Op, file: string) => string | null) }));
+
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  // Ablehnen, nicht werfen: ein synchroner Wurf liefe am `.catch` vorbei.
+  const hop = (op: Op, file: string, rest: unknown[]) => {
+    const code = fail.on?.(op, String(file)) ?? null;
+    if (code) return Promise.reject(Object.assign(new Error(`${code}: ${file}`), { code }));
+    return (real[op] as (...a: unknown[]) => unknown)(file, ...rest);
+  };
+  return {
+    ...real,
+    stat: (f: string, ...r: unknown[]) => hop("stat", f, r),
+    readFile: (f: string, ...r: unknown[]) => hop("readFile", f, r),
+    readdir: (f: string, ...r: unknown[]) => hop("readdir", f, r),
+    open: (f: string, ...r: unknown[]) => hop("open", f, r),
+  };
+});
 
 /** Two sessions, one of them a real game under its `occ-` alias — the shape §7.2 groups by. */
 const MANIFEST = [
@@ -28,6 +50,7 @@ let manifest: string;
 const clearMemo = () => (globalThis as { __chesslabCorpusIndex?: Map<string, unknown> }).__chesslabCorpusIndex?.clear();
 
 beforeEach(async () => {
+  fail.on = null;
   await tempDataRoot("corpus");
   clearMemo();
   await mkdir(datasetDir("d1"), { recursive: true });
@@ -52,9 +75,7 @@ test("the index lands OUTSIDE the dataset and is keyed by the manifest's mtime",
   // Datasets are snapshots: nothing this app writes may land in one.
   await expect(stat(path.join(datasetDir("d1"), "corpus-index.json"))).rejects.toThrow();
 
-  // A rewritten manifest invalidates the index even when the cached one is still readable.
-  // Angehaengt wird auf den REPARIERTEN Schwanz: `appendRows` schneidet die halbe letzte Zeile
-  // ab, bevor es schreibt — eine Zeile dahinter zu kleben macht daraus Schaden MITTENDRIN.
+  // A rewritten manifest invalidates the index; appended onto the REPAIRED tail, as `appendRows` does.
   await writeFile(manifest, MANIFEST.split("\n").slice(0, -1).join("\n")
     + '\n{"session_id":"rg-neu","label":"empty"}\n', "utf8");
   const later = new Date(Date.now() + 60_000);
@@ -134,8 +155,7 @@ test("a variant prefix is not a different session", () => {
 });
 
 test("der Korpus-Index verschweigt keine kaputte Zeile MITTENDRIN", async () => {
-  // Still uebersprungen zaehlte der Index zu wenig, und nichts sagte es — dieselbe Falle wie
-  // eine ungemessene Zahl als gemessene 0. Der ZEILENUMBRUCH entscheidet.
+  // Still uebersprungen zaehlte der Index zu wenig, und nichts sagte es.
   await expect(tallyLines([
     JSON.stringify({ session_id: "s", label: "wP" }),
     '{"session_id": "s", "lab',
@@ -150,4 +170,78 @@ test("die halbe LETZTE Zeile faellt weg, weil dort ein Schreiber laeuft", async 
   ]);
 
   expect(tally.rows).toBe(1);
+});
+
+// 2026-09-23: die Vorauswahl las jeden `stat`-Fehler auf `split.json` als mtime 0 und waehlte still einen aelteren Datensatz.
+test("ein EACCES auf split.json waehlt keinen anderen Datensatz vor", async () => {
+  await tempDataRoot("corpusnewest");
+  for (const name of ["alt", "neu"]) {
+    await mkdir(datasetDir(name), { recursive: true });
+    await writeFile(path.join(datasetDir(name), "split.json"), "{}", "utf8");
+  }
+  fail.on = (op, file) => (op === "stat" && file === path.join(datasetDir("neu"), "split.json") ? "EACCES" : null);
+  await expect(newestDataset([{ name: "alt" }, { name: "neu" }])).rejects.toThrow(/EACCES/);
+});
+
+// „Nicht da" ist nicht „da, aber unlesbar" (2026-09-22: auf der Platte kein Fall, die Form ist trotzdem gebaut).
+describe("unlesbare Artefakte", () => {
+  let root = "";
+  beforeEach(async () => {
+    root = await tempDataRoot("unreadable-2026-09-22d");
+  });
+
+  async function dataset(name: string, files: Record<string, string>): Promise<void> {
+    const dir = path.join(root, "datasets", name);
+    await mkdir(dir, { recursive: true });
+    for (const [file, text] of Object.entries(files)) await writeFile(path.join(dir, file), text);
+  }
+
+  test("ein FEHLENDES split.json bleibt eine Eigenschaft des Datensatzes", async () => {
+    await dataset("ohne", {});
+    await dataset("mit", { "split.json": JSON.stringify({ classes: ["wP"] }) });
+    const seen = await listDatasets();
+    expect(seen.map((d) => [d.name, d.split === null])).toEqual([
+      ["mit", false],
+      ["ohne", true],
+    ]);
+  });
+
+  test("ein KAPUTTES split.json ist eine Stoerung, kein Datensatz ohne Split", async () => {
+    await dataset("kaputt", { "split.json": '{"classes": [' });
+    await expect(listDatasets()).rejects.toThrow();
+  });
+
+  test("ein unlesbares split.json wird nicht zu 'ohne split.json'", async () => {
+    await mkdir(path.join(root, "datasets", "sperrig", "split.json"), { recursive: true });
+    await expect(listDatasets()).rejects.toThrow();
+  });
+
+  test("eine unlesbare dataset.yaml wird nicht zu classMode null", async () => {
+    await dataset("leer", {});
+    expect(await loadDatasetMeta("leer")).toEqual({ classMode: null });
+    await mkdir(path.join(root, "datasets", "sperrig", "dataset.yaml"), { recursive: true });
+    await expect(loadDatasetMeta("sperrig")).rejects.toThrow();
+  });
+
+  test("eine kaputte summary.json macht den Pack nicht unsichtbar", async () => {
+    const dir = path.join(root, "recordings", "rg-2026-09-22-00-00-00", "training-pack");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "summary.json"), "{ nicht json");
+    await expect(listPacks()).rejects.toThrow();
+  });
+
+  test("eine kaputte Perf-Datei wird nicht zu null Laeufen weggefiltert", async () => {
+    const dir = path.join(root, "reports", "perf");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "gut.json"), JSON.stringify({ model: "m", pack: "p", crops: 1 }));
+    expect((await loadPerf()).map((f) => f.file)).toEqual(["gut.json"]);
+    await writeFile(path.join(dir, "kaputt.json"), "{");
+    await expect(loadPerf()).rejects.toThrow();
+  });
+
+  test("ein fehlendes Verzeichnis bleibt die leere Liste", async () => {
+    expect(await listDatasets()).toEqual([]);
+    expect(await listPacks()).toEqual([]);
+    expect(await loadPerf()).toEqual([]);
+  });
 });

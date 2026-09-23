@@ -1,7 +1,4 @@
-/**
- * `unexported` las JEDEN `stat`-Fehler am `log.jsonl` als „nie exportiert" und lieferte dann das
- * Handy-JPEG unter der Identitaet des exportierten Frames — genau die fremden Pixel, die die Route verbietet.
- */
+/** `unexported` las JEDEN `stat`-Fehler am `log.jsonl` als „nie exportiert" und lieferte fremde Handy-Pixel. */
 import { beforeEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ boardPng: vi.fn(), storedBoardPng: vi.fn(), stat: vi.fn() }));

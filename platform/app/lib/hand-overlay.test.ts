@@ -1,13 +1,5 @@
-/**
- * Die Brett-Vorschau zeigt die MATTE und sonst nichts (Nutzer, 2026-09-17: "anstelle der gelben
- * kaesten die matte eintragen und sicherstellen dass nur die occlusion aus der mattelane da ist").
- *
- * Der Rillen-Sensor ist raus: er nannte auf `2026-08-08-11-59-12` nur 53,8 % der Matte-Hand und
- * sah dabei aus wie die ganze. Und ein Frame OHNE Matte ist nicht handfrei, sondern ungemessen —
- * das muss die Vorschau sagen, nicht verschweigen (CLAUDE.md, "Coverage Matte Trap").
- */
+/** Die Vorschau zeigt nur die Matte (Nutzer, 2026-09-17); der Rillen-Sensor nannte nur 53,8 % der Matte-Hand. */
 import { expect, test } from "vitest";
-
 import { matteOverlay } from "@/lib/hand-overlay";
 
 test("eine gemessene Matte wird gezeigt — mit ihrem eigenen Alpha, nicht als Kaesten", () => {
@@ -25,8 +17,7 @@ test("eine gemessene Matte OHNE Hand ist eine Aussage, kein Fehlen", () => {
 });
 
 test("ohne Matte wird NICHTS gezeigt und nichts behauptet", () => {
-  // Kein Rueckfall auf den Rillen-Sensor: ein grober Vorfilter, der wie eine Messung aussieht,
-  // ist schlimmer als eine Leerstelle, die sich zu erkennen gibt.
+  // Kein Rueckfall auf den Rillen-Sensor: ein Vorfilter, der wie eine Messung aussieht, ist schlimmer als eine Leerstelle.
   expect(matteOverlay(undefined, "/api/matte/rec/000100?size=384")).toEqual({
     src: null,
     measured: false,

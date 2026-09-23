@@ -1,7 +1,45 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { beforeEach, expect, test, vi } from "vitest";
 import { readJsonl } from "@/lib/jsonl";
-import { expect, test } from "vitest";
 import type { CorpusIndex, Split } from "@/lib/corpus";
-import { dedupCorrections, squareLabels, foldPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/pool";
+import { dedupCorrections, squareLabels, foldPool, loadPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/pool";
+import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
+
+const fail = vi.hoisted(() => ({ on: null as null | ((file: string) => void) }));
+
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  // Ein synchroner Wurf liefe am `.catch` des Lesers vorbei und liesse die Gegenprobe gruen.
+  const hop = (name: "stat" | "readdir", file: string, rest: unknown[]) => {
+    try {
+      fail.on?.(file);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return (real[name] as (...a: unknown[]) => unknown)(file, ...rest);
+  };
+  return {
+    ...real,
+    stat: (file: string, ...rest: unknown[]) => hop("stat", file, rest),
+    readdir: (dir: string, ...rest: unknown[]) => hop("readdir", dir, rest),
+  };
+});
+
+beforeEach(() => {
+  fail.on = null;
+});
+
+function blowUpOn(needle: string, code: string) {
+  fail.on = (file) => {
+    if (file.includes(needle)) throw Object.assign(new Error(`${code}: ${file}`), { code });
+  };
+}
+
+function freshPool() {
+  delete (globalThis as { __chesslabPool?: unknown }).__chesslabPool;
+  return loadPool();
+}
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -79,4 +117,38 @@ test("DIFF is pool minus snapshot — positive is what a rebuild would add", () 
   expect(occludedDiff(15616, 3901)).toBe(11715);
   expect(occludedDiff(3901, 3901)).toBe(0);
   expect(occludedDiff(100, 300)).toBe(-200);
+});
+
+// H2 (2026-09-22): `/corpus` zeichnet den Pool als Messung; ein `readdir`/`stat`-Fehler nahm Aufnahmen lautlos heraus.
+test("ein I/O-Fehler auf log.jsonl ist keine Aufnahme ohne Zellen", async () => {
+  await writeSession({ root: await tempDataRoot("poolstat"), rows: [{ frame: 234 }, { frame: 237 }] });
+  blowUpOn("log.jsonl", "EMFILE");
+  await expect(freshPool()).rejects.toThrow(/EMFILE/);
+});
+
+test("ein I/O-Fehler auf dem Aufnahme-Verzeichnis ist kein leerer Korpus", async () => {
+  await writeSession({ root: await tempDataRoot("poolreaddir"), rows: [{ frame: 234 }] });
+  blowUpOn("recordings", "EACCES");
+  await expect(freshPool()).rejects.toThrow(/EACCES/);
+});
+
+test("und eine fehlende Aufnahme bleibt ein leerer Korpus, ohne Fehler", async () => {
+  await tempDataRoot("poolleer");
+  const pool = await freshPool();
+  expect(pool.cells).toBe(0);
+  expect(pool.frames).toBe(0);
+});
+
+test("der gesunde Fall zaehlt weiter 64 Zellen je Frame", async () => {
+  await writeSession({ root: await tempDataRoot("poolok"), rows: [{ frame: 234 }, { frame: 237 }] });
+  const pool = await freshPool();
+  expect(pool.frames).toBe(2);
+  expect(pool.cells).toBe(128);
+});
+
+// 2026-09-17: ein gefangener Lesefehler am Nachbarn `corrections.jsonl` zeigte die Urteile als nie gefaellt, gecacht.
+test("ein unlesbares corrections.jsonl ist kein Pool ohne Korrekturen", async () => {
+  const dir = await writeSession({ root: await tempDataRoot("poolfail"), rows: [{ frame: 234 }] });
+  await mkdir(path.join(dir, "corrections.jsonl"), { recursive: true });
+  await expect(freshPool()).rejects.toThrow();
 });

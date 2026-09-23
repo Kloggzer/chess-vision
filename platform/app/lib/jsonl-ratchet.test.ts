@@ -1,8 +1,5 @@
-/**
- * Wer `.jsonl` selbst in Zeilen schneidet, beantwortet die Leerzeile und die halb geschriebene
- * letzte Zeile neu — und lag dabei schon mehrfach daneben. `lib/jsonl.ts` ist die eine Antwort;
- * diese Liste sind die Stellen davor und darf nur SCHRUMPFEN.
- */
+/** Wer `.jsonl` selbst schneidet, beantwortet Leerzeile und halbe letzte Zeile neu — und lag schon
+ *  mehrfach daneben. `lib/jsonl.ts` ist die eine Antwort; `jsonl-readers.txt` darf nur SCHRUMPFEN. */
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";

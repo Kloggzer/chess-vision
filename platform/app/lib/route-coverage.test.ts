@@ -5,17 +5,11 @@ import { expect, onTestFinished, test } from "vitest";
 import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
 import { routeImportsIn } from "@/ratchet-detect";
 
-/**
- * Eine Ratsche auf die API-Routen, das duennste Stueck des Baums (18,6 % am 2026-09-14) und der
- * Weg, an dem der Handy-Transfer haengt. `route-coverage.txt` listet, was heute keinen Test hat,
- * und darf nur schrumpfen — die Gesamtzahl waere das falsche Mass (`core-engine` stand bei 92 %
- * und trug vier Stellungs-Fehler).
- */
+/** Ratsche auf die API-Routen (18,6 % am 2026-09-14, der Handy-Weg): `route-coverage.txt` darf nur
+ *  schrumpfen — die Gesamtabdeckung waere das falsche Mass (`core-engine`: 92 % und vier Fehler). */
 const APP = process.cwd();
 
-// Dieselbe Sperre wie in `jsonl-ratchet.test.ts`: ohne sie lief der Gang durch 3 961
-// Verzeichnisse, fand 452 Testdateien — 322 davon in `node_modules` — und eine fremde Datei
-// mit dem Muster haette eine unserer Routen als getestet ausgewiesen.
+// Ohne die Sperre fand der Gang 322 Testdateien in `node_modules`, die Routen als getestet auswiesen.
 async function filesUnder(dir: string, name: string): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -60,8 +54,6 @@ test("no route loses its test, and no new route arrives without one", { timeout:
 
 /** Gegenprobe: eine eingepflanzte Fremddatei darf die Abdeckung nicht erfinden. */
 test("der Gang ueberspringt node_modules und Punktverzeichnisse", { timeout: TREE_SCAN_TIMEOUT }, async () => {
-  // `mkdir` gibt bei `recursive` den ERSTEN angelegten Pfad zurueck oder undefined — der Ort
-  // gehoert in eine eigene Variable, sonst haengt die Probe an diesem Detail.
   const base = path.join(tmpdir(), `rc-${Date.now()}`);
   onTestFinished(() => rm(base, { recursive: true, force: true }));
   for (const rel of ["node_modules/fremd", ".next/cache", "lib"]) {

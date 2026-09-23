@@ -1,11 +1,5 @@
-/**
- * Gemessen 2026-09-17: `VID_20260802_222203` traegt Laeufer und Springer auf b8/c8 vertauscht,
- * `2026-08-08-11-59-12` dasselbe auf f1/g1. Die Korrekturen lagen seit dem 2026-08-19 auf der
- * Platte — und trotzdem schrieb die Lane auf ANDEREN Frames derselben Felder 65-mal das
- * FEN-Wort, weil der Schutz je ZELLE greift und der Tausch am FELD haengt.
- */
+/** 2026-09-17: ein Aufbau-Tausch (b8/c8) haengt am FELD; der Zellschutz liess die Lane 65-mal das FEN-Wort schreiben. */
 import { expect, test } from "vitest";
-
 import { standingSquares } from "@/lib/setup-swap";
 
 /** Wie `decided` in der Lane: `stem|square` -> was der Mensch dort entschieden hat. */

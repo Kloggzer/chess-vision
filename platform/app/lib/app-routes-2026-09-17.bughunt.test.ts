@@ -1,7 +1,4 @@
-/**
- * Fehler, die als Nicht-Befund zurueckkommen — dieselbe Regel, die `api/cell` und `api/frame`
- * schon tragen, an den drei Tueren, die sie noch nicht kennen.
- */
+/** Fehler, die als Nicht-Befund zurueckkamen — die 404/500-Regel von `api/cell` an drei weiteren Tueren. */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
@@ -59,8 +56,7 @@ describe("GET /api/ingest/hello", () => {
 
   test("das Erkennungszeichen steht auch dann, wenn der Token nicht zu holen ist", async () => {
     delete process.env.CHESSLAB_DATA_DIR;
-    // Das Handy schickt immer `Bearer …`; ohne Kopfzeile kommt `authorized` am Token vorbei und
-    // der Bruch bleibt unsichtbar.
+    // Das Handy schickt immer `Bearer …`; ohne Kopfzeile kaeme `authorized` am Token vorbei.
     const res = await hello(new Request("http://host/api/ingest/hello", {
       headers: { authorization: "Bearer whatever" },
     }));

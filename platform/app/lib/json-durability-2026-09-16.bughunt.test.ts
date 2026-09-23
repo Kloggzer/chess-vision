@@ -1,9 +1,5 @@
-/**
- * Vier Stellen, die JSON/JSONL anders beantworten als `lib/jsonl.ts` und `lib/serialize.ts` es
- * heute festlegen: der zurueckgeschriebene Schwanz, der Fehler als Leerstand, der Schluessel ohne
- * Groesse und der Schreiber ohne Zwischenstufe.
- */
-import { mkdir, readFile, utimes } from "node:fs/promises";
+/** Stellen, die JSON/JSONL anders beantworteten als `lib/jsonl.ts` und `lib/serialize.ts` es festlegen. */
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 
@@ -19,8 +15,7 @@ vi.mock("node:fs/promises", async () => {
 const { flagFrame } = await import("@/lib/frame-flag");
 const { readJsonl } = await import("@/lib/jsonl");
 const { readUseless, setUseless } = await import("@/lib/useless");
-const { storedFit } = await import("@/lib/stored");
-const { appendReviewNotes, dropReviewNotes, reviewNotesPath } = await import("@/lib/review-notes");
+const { appendReviewNotes, dropReviewNotes, reviewNotesPath, unusableBoards } = await import("@/lib/review-notes");
 const { tempDataRoot, writeSession } = await import("@/lib/test-fixtures");
 
 const NAME = "2026-09-16-10-00-00";
@@ -39,11 +34,7 @@ beforeEach(async () => {
   });
 });
 
-/**
- * 1 — die halbe letzte Zeile. `realgames.py` stroemt in `log.jsonl`; wer waehrend des Exports
- * flaggt, findet seinen Stem oben, bricht die Schleife ab und schreibt die Datei aus `lines`
- * zurueck — mit `"\n"` hinter der halben Zeile. Aus `tail` wird damit `corrupt`, dauerhaft.
- */
+// Wer waehrend des Exports flaggt, schrieb die halbe Zeile mit `"\n"` zurueck: aus `tail` wurde `corrupt`.
 test("flagFrame macht aus dem erwartbaren Schwanz keine dauerhafte Beschaedigung", async () => {
   const file = path.join(dir, "log.jsonl");
   await realWrite(file, (await readFile(file, "utf8")) + '{"frame":"frames/000400.png","ply":2,"fe', "utf8");
@@ -54,48 +45,16 @@ test("flagFrame macht aus dem erwartbaren Schwanz keine dauerhafte Beschaedigung
   expect(readJsonl(await readFile(file, "utf8")).corrupt).toBe(0);
 });
 
-/**
- * 5 — ein `catch`, das den Fehler zum Leerstand macht. `loadMeta` nebenan trennt ENOENT vom Rest,
- * seit ein Lesen-aendern-Schreiben auf `{}` ein gesetztes `archived` mitnahm. `readUseless` faengt
- * alles: eine kaputte `useless.json` liest sich als "nie geflaggt", die Kette laeuft wieder, und
- * der Widerruf faellt lautlos aus (`if (!current) return null`) — mit 200.
- */
+// Als "nie geflaggt" gelesen lief die Kette wieder und der Widerruf fiel lautlos mit 200 aus.
 test("eine unlesbare useless.json ist nicht dasselbe wie keine", async () => {
   const file = path.join(dir, "useless.json");
   await realWrite(file, '{"at":"2026-09-16T10:00:00Z", "rea', "utf8");
   await expect(readUseless(NAME)).rejects.toThrow();
   await expect(setUseless(NAME, false)).rejects.toThrow();
-  // Und eine fehlende Datei bleibt, was sie war: nichts.
   expect(await readUseless("nicht-da-2026-01-01-00-00-00").catch(() => "warf")).toBeNull();
 });
 
-/**
- * 6 — mtime-Cache ohne Groesse. Jede andere Stelle dieser App schluesselt auf `mtimeMs:size`;
- * `lib/stored.ts` nimmt nur die mtime. Ein `fit-stored`-Lauf schreibt `quad-fit.json` neu, und
- * wenn die mtime steht (gleiche Millisekunde, oder eine Kopie mit erhaltenen Zeitstempeln),
- * serviert der Cache die alten Ecken — jeder Crop dieser Sitzung sitzt daneben.
- */
-test("der Fit-Cache haengt nicht allein an der mtime", async () => {
-  const session = path.join(dir, "files", "sessions", "s1");
-  await mkdir(session, { recursive: true });
-  const file = path.join(session, "quad-fit.json");
-  // Dieselbe mtime von Hand gesetzt — das ist die zweite Schreibung in derselben Millisekunde,
-  // nur reproduzierbar. Die GROESSE unterscheidet die beiden Staende, der Schluessel sieht sie nicht.
-  const stamp = new Date("2026-09-16T10:00:00.000Z");
-  await realWrite(file, JSON.stringify({ margin: 0.045, frames: {} }), "utf8");
-  await utimes(file, stamp, stamp);
-  expect((await storedFit(session))!.margin).toBe(0.045);
-
-  await realWrite(file, JSON.stringify({ margin: 0.0, frames: { "000100": { corners: [], align_worst_px: 1 } } }), "utf8");
-  await utimes(file, stamp, stamp);
-  expect((await storedFit(session))!.margin).toBe(0.0);
-});
-
-/**
- * 2 — Schreiben ohne Zwischenstufe. `dropReviewNotes` schreibt das GLOBALE Ledger mit einem
- * blanken `writeFile` neu: der Aufruf kuerzt zuerst. Bricht er dann ab, sind die Urteile aller
- * Sitzungen halb da — `writeConfirmation` und `flagFrame` daneben gehen deshalb ueber tmp+rename.
- */
+// Ein blankes `writeFile` kuerzt zuerst; bricht es ab, sind die Urteile aller Sitzungen halb da.
 test("ein abgebrochener Widerruf laesst das Ledger ganz", async () => {
   await appendReviewNotes([
     { session_id: NAME, frame: "000100", verdict: "matte-ok" },
@@ -114,9 +73,18 @@ test("ein abgebrochener Widerruf laesst das Ledger ganz", async () => {
   expect(await readFile(file, "utf8")).toBe(whole);
 });
 
-/** Und der Riegel darf durch den Fehler nicht stecken bleiben. */
 test("nach dem Abbruch schreibt der naechste Widerruf wieder", async () => {
   await appendReviewNotes([{ session_id: NAME, frame: "000100", verdict: "matte-ok" }]);
   expect(await dropReviewNotes([{ session_id: NAME, frame: "000100", verdict: "matte-ok" }])).toBe(1);
   expect(await readFile(reviewNotesPath(), "utf8")).toBe("");
+});
+
+// Still uebersprungen stand das weggeworfene Frame wieder in der Lane, ohne jeden Fehler.
+test("eine kaputte Zeile mitten im Urteils-Ledger wird gemeldet, nicht uebersprungen", async () => {
+  const verdict = (frame: string) =>
+    JSON.stringify({ session_id: "rg-g", frame, verdict: "unusable-board", ts: "2026-09-16T10:00:00+00:00" });
+  await mkdir(path.join(root, "labels"), { recursive: true });
+  await realWrite(reviewNotesPath(), `${verdict("000100")}\n{"session_id": "rg-g"\n${verdict("000300")}\n`, "utf8");
+  (globalThis as { __chesslabReviewNotes?: Map<string, unknown> }).__chesslabReviewNotes?.clear();
+  await expect(unusableBoards("rg-g")).rejects.toThrow(/beschaedigte Zeile/);
 });

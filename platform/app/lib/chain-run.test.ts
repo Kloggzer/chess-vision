@@ -4,7 +4,7 @@ import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
-const fake = vi.hoisted(() => ({ running: vi.fn(), enqueue: vi.fn(), phone: vi.fn(), state: {} as ChainState }));
+const fake = vi.hoisted(() => ({ running: vi.fn(), enqueue: vi.fn(), phone: vi.fn(), run: null as string | null, state: {} as ChainState }));
 
 vi.mock("@/lib/chain", () => ({ chainState: async () => fake.state }));
 vi.mock("@/lib/jobs", () => ({
@@ -12,7 +12,7 @@ vi.mock("@/lib/jobs", () => ({
   enqueueChain: fake.enqueue,
   enqueueLabel: fake.enqueue,
   enqueuePhoneRecord: fake.phone,
-  modelReadRun: () => "data/runs/other",
+  modelReadRun: () => fake.run,
 }));
 
 const { refused, startStep } = await import("@/lib/chain-run");
@@ -42,6 +42,7 @@ const RUNNING: Job = { name: "2026-08-14-14-32-33", kind: "matte", state: "runni
 beforeEach(async () => {
   await tempDataRoot("door");
   fake.state = MATTE;
+  fake.run = "data/runs/other";
   fake.running.mockReset().mockReturnValue(null);
   fake.enqueue.mockReset().mockResolvedValue({ name: "x", kind: "matte", state: "queued", queuedAt: "" });
   fake.phone.mockReset().mockResolvedValue({ name: "x", kind: "phone-record", state: "queued", queuedAt: "" });
@@ -72,4 +73,22 @@ test("label is admitted while the disk says phone-record, and claims the lock as
   expect(fake.enqueue).toHaveBeenCalledWith("VID_20260726_233432", undefined);
   expect(fake.phone).not.toHaveBeenCalled();
   expect((await readHeavyLock())?.job).toBe("label");
+});
+
+// Ohne gewaehltes Modell ist `model-read` eine Frage an einen Menschen, kein Prozess mit Exit 2.
+test("ohne gewaehltes Modell wird abgewiesen — kein Prozess, kein Riegel", async () => {
+  fake.run = null;
+  fake.state = { step: "model-read", hasCandidate: true } as ChainState;
+  const result = await startStep("2026-09-21-13-00-00", "model-read");
+
+  expect(refused(result) && result.status).toBe(409);
+  expect(refused(result) && result.error).toContain("CHESSLAB_MODEL_READ_RUN");
+  expect(fake.enqueue).not.toHaveBeenCalled();
+  expect(await readHeavyLock()).toBeNull();
+});
+
+test("mit Wahl geht derselbe Druck durch", async () => {
+  fake.state = { step: "model-read", hasCandidate: true } as ChainState;
+  expect(refused(await startStep("2026-09-21-13-00-00", "model-read"))).toBe(false);
+  expect(fake.enqueue).toHaveBeenCalled();
 });

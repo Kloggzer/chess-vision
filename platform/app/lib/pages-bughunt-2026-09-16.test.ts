@@ -1,14 +1,12 @@
 import { expect, test } from "vitest";
 import { barPct } from "@/lib/chart";
 import { clampPage, turnPage } from "@/lib/page-turn";
+import { commitPage } from "@/lib/matte-page";
 import { pageAllMarked, toggleAllOnPage } from "@/lib/matte-select";
 import { DEFAULT_WALL } from "@/lib/query";
 import { cursorSession, linkFilter } from "@/lib/stream-head";
 
-/**
- * Funde in `app/**` — der Ort, den `vitest.config.mts` nicht einsammelt. Jede Stelle steckt
- * deshalb in einer reinen Funktion in `lib/`, die die Seite aufruft.
- */
+// Funde in `app/**`, das vitest nicht einsammelt — jede Stelle steckt in einer reinen Funktion in `lib/`.
 
 // ---- 1. `alle` in der Matte-Lane nahm die Marken der anderen Seiten mit ------------------------
 
@@ -29,6 +27,17 @@ test("eine vorgemerkt leere Karte blockiert das Abraeumen nicht", () => {
   expect([...marked], "die leere bleibt unmarkiert").toEqual(["a|000100"]);
   expect(pageAllMarked(seite, marked, clean), "die Seite ist damit voll").toBe(true);
   expect([...toggleAllOnPage(seite, marked, clean)], "zweiter Druck raeumt ab").toEqual([]);
+});
+
+test("ein Seiten-Commit laesst die Marken der anderen Seiten stehen", () => {
+  const seite1 = ["a|000100", "a|000200"];
+  const seite2 = ["a|000300"];
+  const marked = new Set([...seite1, ...seite2]);
+
+  const plan = commitPage(seite2, marked, new Set<string>());
+
+  expect(plan.verdicts, "geschrieben wird nur die Seite").toEqual({ "a|000300": "matte-bad" });
+  expect([...plan.marked].sort(), "Seite 1 bleibt markiert").toEqual(seite1);
 });
 
 // ---- 2. Seitenwechsel im Zell-Raster liess die Auswahl der ALTEN Seite stehen ------------------
@@ -63,8 +72,7 @@ test("ein Link ohne `min` stellt keine Frage, statt jede Zelle durchzulassen", (
     filter: { klass: "wK", min: 0.5 },
     phase: "after",
   });
-  // Nicht 0 und auch nicht "keine Frage": dieselbe Vorgabe, die `api/query` fuer denselben
-  // Link nimmt — sonst antworten die beiden Seiten verschieden.
+  // Dieselbe Vorgabe wie `api/query` fuer denselben Link, sonst antworten beide Seiten verschieden.
   for (const link of ["?class=wK", "?class=wK&min="]) {
     expect(linkFilter(link)?.filter, link).toEqual({ klass: "wK", min: DEFAULT_WALL.min });
   }
@@ -74,12 +82,8 @@ test("ein Link ohne `min` stellt keine Frage, statt jede Zelle durchzulassen", (
 
 // ---- 5. Gepinnt: der Veto-Balken zeichnet „nicht gemessen" als gemessene Null ------------------
 
-/**
- * `app/corpus/sections.tsx:585` sizes the bar with `run.phantoms ?? 0` while its own text says
- * `—`. `lib/chart.ts:maxOf` promises the opposite ("Nulls are dropped, never read as 0"), and
- * null Phantome ist in diesem Projekt das BESTE Ergebnis, nicht das fehlende. Ein Fix ist eine
- * Entscheidung ueber das Aussehen (eigene Schraffur oder gar kein Balken) — die trifft der Nutzer.
- */
+// `app/corpus/sections.tsx` zeichnet `run.phantoms ?? 0`, null Phantome ist aber das BESTE Ergebnis;
+// das Aussehen des Fixes (Schraffur oder kein Balken) entscheidet der Nutzer.
 test.fails("ein ungemessener Phantom-Wert darf nicht wie eine gemessene Null aussehen", () => {
   const unmeasured: number | null = null;
   expect(barPct(unmeasured ?? 0, 100)).not.toBe(barPct(0, 100));

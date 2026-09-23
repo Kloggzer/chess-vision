@@ -968,7 +968,7 @@ const VERB: Record<ChesslabStep, string> = {
  * Die ganze Kommandozeile einer Sprosse, ohne Platte und ohne Prozess.
  *
  * Als eigene Funktion, weil ein falsch buchstabiertes Flag sonst erst im stundenlangen Lauf
- * auffaellt: `cli-parity-2026-09-21.test.ts` prueft genau diese Zeilen gegen die CLI, die sie
+ * auffaellt: `jobs.test.ts` (cli-parity) prueft genau diese Zeilen gegen die CLI, die sie
  * empfaengt. `--reported` schlaegt `--wanted` schlaegt `--limit` — der Mensch vor dem Stapel.
  */
 export function chesslabArgs(

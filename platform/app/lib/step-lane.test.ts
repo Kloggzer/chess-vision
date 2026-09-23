@@ -1,8 +1,4 @@
-/**
- * Acht Knoepfe, sechs davon auf 0 — und dieselben Zahlen stehen oben in der Einpflegen-Ansicht
- * schon als Filterleiste. Seit es den Ketten-Drain gibt, ist der einzelne Schritt die Ausnahme:
- * er lohnt, wenn man NUR das Matten laufen lassen will, nicht als Dauerzustand.
- */
+// Seit dem Ketten-Drain ist der einzelne Schritt die Ausnahme; Knoepfe auf 0 waren nur Rauschen.
 import { expect, test } from "vitest";
 import { visibleSteps, type Lane } from "@/lib/step-lane";
 

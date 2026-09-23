@@ -1,12 +1,25 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { coveredSquares, PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { claimsAnything } from "@/lib/verify";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
+const fail = vi.hoisted(() => ({ needle: null as string | null }));
+
+// Ablehnen, nicht werfen: ein synchroner Wurf liefe am `.catch` des Lesers vorbei.
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  const hop = (op: "stat" | "readdir") => (file: string, ...rest: unknown[]) =>
+    fail.needle !== null && String(file).includes(fail.needle)
+      ? Promise.reject(Object.assign(new Error(`EACCES: ${file}`), { code: "EACCES" }))
+      : (real[op] as (...a: unknown[]) => unknown)(file, ...rest);
+  return { ...real, stat: hop("stat"), readdir: hop("readdir") };
+});
+
 let dir: string;
 beforeEach(async () => {
+  fail.needle = null;
   dir = await tempDataRoot("matte");
   await mkdir(path.join(dir, "recordings", "g"), { recursive: true });
   (globalThis as { __chesslabMattes?: Map<string, unknown> }).__chesslabMattes?.clear();
@@ -71,6 +84,25 @@ test("painted pixels are pending until a recut newer than them has read the file
 test("a session without corrected alphas answers an empty map, not an error", async () => {
   const { fixedAlphas } = await import("@/lib/matte");
   expect((await fixedAlphas("g")).size).toBe(0);
+});
+
+// Als "niemand hat gemalt" gelesen zeigte die Lane SAMs Zahlen als bestaetigt.
+test("ein I/O-Fehler am mattes-Verzeichnis ist kein „niemand hat gemalt\"", async () => {
+  const { fixedAlphas } = await import("@/lib/matte");
+  await mkdir(path.join(dir, "recordings", "g", "mattes"), { recursive: true });
+  await writeFile(path.join(dir, "recordings", "g", "mattes", "000001.fixed.webp"), "x", "utf8");
+  expect([...(await fixedAlphas("g")).keys()]).toEqual(["000001"]);
+  fail.needle = "mattes";
+  await expect(fixedAlphas("g")).rejects.toThrow(/EACCES/);
+});
+
+// Uebersprungen las sich das Frame als NIE gemattet, obwohl sein Alpha auf der Platte liegt.
+test("eine kaputte Zeile mitten in matte.jsonl wird gemeldet, nicht uebersprungen", async () => {
+  const { loadMatte } = await import("@/lib/matte");
+  const row = (stem: string) =>
+    JSON.stringify({ frame: stem, ply: 1, reason: "occluded", concepts: { hand: 1 }, coverage: { e2: 0.9 } });
+  await write([row("000100"), '{"frame": "000200"', row("000300")]);
+  await expect(loadMatte("g")).rejects.toThrow(/beschaedigte Zeile/);
 });
 
 test("the census counts DISTINCT frames — a recut leaves the same stem twice", async () => {

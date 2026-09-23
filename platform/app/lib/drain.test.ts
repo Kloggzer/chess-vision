@@ -42,12 +42,7 @@ const CHAIN: ChainState = {
 };
 
 const row = (name: string, step: ChainState["step"]): QueueRow => ({
-  name,
-  title: null,
-  plies: 0,
-  frames: 0,
-  archived: false,
-  chain: { ...CHAIN, step },
+  name, title: null, plies: 0, frames: 0, archived: false, chain: { ...CHAIN, step },
 });
 
 const job = (name: string) => ({ name, kind: "matte", state: "queued", queuedAt: "2026-08-18T00:00:00Z" });
@@ -55,8 +50,7 @@ const idle = () => vi.waitFor(async () => expect((await drainStatus()).drain).to
 
 beforeEach(async () => {
   await tempDataRoot("drain");
-  // The 10 s snapshot is pinned on globalThis and outlives a test — the next one would read the
-  // last one's corpus.
+  // The 10 s snapshot is pinned on globalThis and would hand the next test this one's corpus.
   (globalThis as { __chesslabDrain?: { snapshot: unknown } }).__chesslabDrain!.snapshot = null;
   fake.rows = [];
   fake.start.mockReset();
@@ -65,8 +59,7 @@ beforeEach(async () => {
   fake.stop.mockResolvedValue({ error: "kein Prozess läuft" });
 });
 
-// Auf `export` und nicht auf `matte`: hier ist die SCHLEIFE das Thema, und das Matten faehrt
-// seit 2026-09-15 als ein Prozess (`drain-batch.bughunt.test.ts`).
+// Auf `export`: das Matten faehrt seit 2026-09-15 als EIN Prozess (siehe unten).
 test("a press drains the whole step, oldest recording first — and nothing else", async () => {
   fake.rows = [row("2026-08-14-09-23-19", "export"), row("VID_20260726_233432", "export"), row("2026-08-13-12-46-24", "model-read")];
 
@@ -139,4 +132,83 @@ test("one drain at a time — the second press is told which one is running", as
   release(job("2026-08-14-09-23-19"));
   await first;
   await idle();
+});
+
+// SAM zu laden kostet 7-9 min, die Arbeit danach Sekunden je Frame (gemessen 2026-09-15).
+test("Matten laeuft als EIN Job ueber alle wartenden Aufnahmen", async () => {
+  fake.rows = [row("2026-08-14-09-23-19", "matte"), row("VID_20260726_233432", "matte"),
+               row("2026-08-16-20-19-54", "matte")];
+
+  await startDrain("matte");
+  await idle();
+
+  expect(fake.start.mock.calls.length, "ein Druck, ein Prozess").toBe(1);
+  const [name, step, , also] = fake.start.mock.calls[0];
+  expect([name, step]).toEqual(["VID_20260726_233432", "matte"]);
+  expect(also, "die uebrigen reisen im selben Prozess mit")
+    .toEqual(["2026-08-14-09-23-19", "2026-08-16-20-19-54"]);
+});
+
+// Nur SAM traegt diesen Ladeaufwand; ein Export je Aufnahme haelt den Heavy-Slot kuerzer.
+test("jeder andere Schritt bleibt eine Aufnahme nach der anderen", async () => {
+  fake.rows = [row("2026-08-14-09-23-19", "export"), row("VID_20260726_233432", "export")];
+
+  await startDrain("export");
+  await idle();
+
+  expect(fake.start.mock.calls.map((c) => [c[0], c[1], c[3]])).toEqual([
+    ["VID_20260726_233432", "export", []],
+    ["2026-08-14-09-23-19", "export", []],
+  ]);
+});
+
+const reportedRow = (name: string, open: number): QueueRow => ({
+  ...row(name, "matte"),
+  chain: { ...CHAIN, step: "matte", mattes: { ...CHAIN.mattes, reported: open, reportedOpen: open } },
+});
+
+// `runChesslab` waehlt `--reported` ODER `--limit` je Prozess; gemischt fiele eine Haelfte still weg.
+test("gemeldete und Stapel-Aufnahmen reisen nicht im selben Prozess", async () => {
+  fake.rows = [reportedRow("2026-08-14-09-23-19", 3), row("VID_20260726_233432", "matte"),
+               reportedRow("2026-08-16-20-19-54", 7)];
+
+  await startDrain("matte");
+  await idle();
+
+  const first = fake.start.mock.calls[0];
+  expect([first[0], first[3]]).toEqual(["VID_20260726_233432", []]);
+  const second = fake.start.mock.calls[1];
+  expect([second[0], second[3]]).toEqual(["2026-08-14-09-23-19", ["2026-08-16-20-19-54"]]);
+});
+
+// Der Ketten-Drain folgt jeder Aufnahme bis zum naechsten Menschen-Tor (`confirm`, `labeln`).
+test("ein Druck zieht jede Aufnahme auf ihrer eigenen Sprosse weiter", async () => {
+  fake.rows = [row("2026-08-14-09-23-19", "export"), row("VID_20260726_233432", "settle-scan"),
+               row("2026-08-16-20-19-54", "model-read")];
+
+  await startDrain("chain");
+  await idle();
+
+  expect(fake.start.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+    ["2026-08-14-09-23-19", "export"],
+    ["VID_20260726_233432", "settle-scan"],
+    ["2026-08-16-20-19-54", "model-read"],
+  ]);
+});
+
+test("an einem Menschen-Tor haelt er an", async () => {
+  fake.rows = [row("2026-08-14-09-23-19", "confirm"), row("VID_20260726_233432", "labeln")];
+
+  expect(await startDrain("chain")).toEqual({ error: "nichts wartet auf diesen Schritt" });
+  expect(fake.start).not.toHaveBeenCalled();
+});
+
+test("die Kette buendelt das Matten weiterhin", async () => {
+  fake.rows = [row("2026-08-14-09-23-19", "matte"), row("VID_20260726_233432", "matte")];
+
+  await startDrain("chain");
+  await idle();
+
+  expect(fake.start.mock.calls.length).toBe(1);
+  expect(fake.start.mock.calls[0][3]).toEqual(["2026-08-14-09-23-19"]);
 });

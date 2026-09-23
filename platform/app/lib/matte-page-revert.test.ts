@@ -1,10 +1,5 @@
-/**
- * Die Matte-Lane schrieb eine Seite und hatte keinen Rueckweg (Nutzer, 2026-09-17: "habe eben
- * ausversehen eine seite matte abgeschickt ... ich kann leider in der matte view nicht zurueck").
- * Die Zellen-Lane hat ihn seit je (`⟲ zurueck`), die Matte-Lane nicht.
- */
+// Die Matte-Lane hatte keinen Rueckweg fuer eine versehentlich abgeschickte Seite (Nutzer, 2026-09-17).
 import { describe, expect, it } from "vitest";
-
 import { commitPage, revertPage } from "@/lib/matte-page";
 
 describe("eine geschriebene Seite zuruecknehmen", () => {

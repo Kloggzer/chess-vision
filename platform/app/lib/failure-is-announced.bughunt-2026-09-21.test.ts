@@ -1,8 +1,4 @@
-/**
- * Hintergrundarbeit meldet ihr Scheitern. Ein `.catch(() => undefined)` auf einem POST laesst den
- * Knopf zuruecksnappen, als waere nichts gewesen — der Server hat den Auftrag nie bekommen, und
- * nichts auf der Seite sagt es. Beide Stellen hier schrieben vorher keine Notiz.
- */
+/** Ein stiller `.catch` auf einem POST liess den Knopf zuruecksnappen, als waere nichts gewesen. */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";

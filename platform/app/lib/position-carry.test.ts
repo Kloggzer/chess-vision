@@ -47,9 +47,7 @@ describe("position carry", () => {
       current: first.prefilled,
     });
 
-    expect(second.prefilled[verifyFrameKey(frames[2])]).toEqual({
-      e4: "bK",
-    });
+    expect(second.prefilled[verifyFrameKey(frames[2])]).toEqual({ e4: "bK" });
   });
 
   it("does not propose a square already decided for the target stem", () => {
@@ -64,14 +62,8 @@ describe("position carry", () => {
       current: {},
     });
 
-    expect(result.prefilled[verifyFrameKey(frames[1])]).toEqual({
-      f4: "wN",
-    });
-
-    expect(result.prefilled[verifyFrameKey(frames[2])]).toEqual({
-      e4: "wP",
-      f4: "wN",
-    });
+    expect(result.prefilled[verifyFrameKey(frames[1])]).toEqual({ f4: "wN" });
+    expect(result.prefilled[verifyFrameKey(frames[2])]).toEqual({ e4: "wP", f4: "wN" });
   });
 
   it("human paint wins over the carried value", () => {
@@ -85,12 +77,8 @@ describe("position carry", () => {
     });
 
     expect(plan.labels.e4).toBe("bK");
-    expect(plan.corrections).toEqual([
-      { square: "e4", label: "bK" },
-    ]);
-    expect(plan.paintRows).toEqual([
-      { square: "e4", label: "bK" },
-    ]);
+    expect(plan.corrections).toEqual([{ square: "e4", label: "bK" }]);
+    expect(plan.paintRows).toEqual([{ square: "e4", label: "bK" }]);
   });
 
   it("prefilling itself performs no post", () => {

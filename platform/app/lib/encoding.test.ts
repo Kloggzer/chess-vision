@@ -3,13 +3,7 @@ import path from "node:path";
 import { expect, test } from "vitest";
 import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
 
-/**
- * No source line may be double-encoded UTF-8.
- *
- * `drain-status.tsx` shipped `Â·` and `lÃ¤uft` to the sidebar for who knows how long: its text is
- * built from template literals, so whatever stands in the source is what the user reads. An editor
- * that saves as cp1252 what it read as UTF-8 does this silently and eslint has no opinion on it.
- */
+/** `drain-status.tsx` zeigte `Â·` und `lÃ¤uft` in der Leiste: ein Editor speicherte UTF-8 als cp1252. */
 const ROOTS = ["app", "components", "lib"];
 
 async function walk(dir: string): Promise<string[]> {
@@ -22,11 +16,7 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
-/**
- * The round trip IS the test: re-read the text as the single bytes cp1252 would have written, and
- * if that decodes as UTF-8 into something else, the mangling already happened. Latin-1 too, which
- * misses `—` and `…` (they arrive through cp1252's 0x80..0x9F) but catches what cp1252 refuses.
- */
+/** Die Rundreise IST der Test: als cp1252-/Latin-1-Bytes gelesen und anders als UTF-8 dekodiert = verdorben. */
 function doubleEncoded(line: string): string | null {
   for (const enc of ["windows-1252", "latin1"]) {
     let bytes: Uint8Array;
@@ -58,9 +48,6 @@ function charToByte(enc: string): (c: string) => number {
   };
 }
 
-// Gemessen 135 ms allein, aber der Lauf faellt unter Last in den 5-s-Vorgabewert: die Probe
-// liest JEDE Quelldatei und dekodiert jede Zeile zweimal, und vitest verteilt parallel.
-// 30 s sind Luft fuer einen ausgehungerten Arbeiter und fangen ein echtes Haengen weiterhin.
 test("no source line carries double-encoded UTF-8", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const root = process.cwd();
   const files = (await Promise.all(ROOTS.map((r) => walk(path.join(root, r))))).flat();

@@ -142,8 +142,7 @@ describe("backlog — the no-retry marker", () => {
   });
 
   it("a later job of ANOTHER kind does not clear the failed step's marker", () => {
-    // The bug: keyed per recording, the `pack` of a second transfer became "the last row" and the
-    // export that had failed for good went straight back into the loop.
+    // Keyed per recording, a later `pack` became "the last row" and the failed export looped again.
     const confirmed = [row("2026-08-14-09-23-19", { step: "export", hasCandidate: true, confirmed: true })];
     const marked = ledger(
       job("2026-08-14-09-23-19", "export", "failed", "export-session exited 1"),
@@ -216,8 +215,7 @@ describe("backlog — the boundary commit's 90-second export hold (§4.1.1)", ()
   });
 
   it("a taken-back hold does not become a no-retry marker — nothing ever ran", () => {
-    // `z` inside the window appends the cancelled row; once its `notBefore` passes it must say
-    // nothing at all, or one undo would send the export to Reparatur for good.
+    // Once its `notBefore` passes the cancelled row must say nothing, or one undo means Reparatur.
     const cancelled: Job = { ...hold("2026-08-13-19-34-23", iso(-1000)), reason: "z — zurückgenommen" };
     const rows = [confirmed("2026-08-13-19-34-23", iso(-5 * 60_000))];
     expect(run(rows, { ...ledger(cancelled), now: NOW }).repair).toEqual([]);

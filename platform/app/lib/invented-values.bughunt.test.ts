@@ -1,9 +1,4 @@
-/**
- * Vier Stellen erfinden aus einem Fehler einen plausiblen Normalwert, den nachgelagert niemand
- * mehr als erfunden erkennt: eine fehlende Bildrate wird zu 30, eine unlesbare Datei zu "es gibt
- * nichts". `present: false` und eine leere Liste sind aber AUSSAGEN — die Lane zeigt "nie
- * gelaufen", wo in Wahrheit ein Lesefehler stand. Gefunden von Codex, 2026-09-15.
- */
+/** Codex 2026-09-15: vier Stellen machten aus einem Fehler einen plausiblen Normalwert ("30 fps", "nichts da"). */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
@@ -22,8 +17,7 @@ async function dirWhereFileBelongs(...parts: string[]) {
 
 test("eine fehlende Bildrate wird nicht zu 30 erfunden", async () => {
   const { loadSession } = await import("@/lib/session");
-  // Aufnahmen auf dieser Platte laufen zwischen 14,8 und 30,0 fps; 30 als Vorgabe verdoppelt
-  // `sinceS`/`toS` fuer jede Handy-Aufnahme, und die Sekundenangabe sieht dabei normal aus.
+  // Aufnahmen laufen zwischen 14,8 und 30,0 fps; 30 als Vorgabe verfaelscht `sinceS`/`toS` unauffaellig.
   await writeSession({
     root, fps: null,
     moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }],
@@ -43,8 +37,7 @@ test("ein unlesbares Ledger ist nicht dasselbe wie keine Urteile", async () => {
 
 test("ein kaputtes Aufnahme-Wurzelverzeichnis ist nicht ein leeres Projekt", async () => {
   const { listGames } = await import("@/lib/data");
-  // Eine DATEI namens `recordings`: `readdir` wirft ENOTDIR. Heute rendert die Startseite
-  // daraufhin "keine Aufnahmen" — der Nutzer sieht ein leeres Projekt statt eines Fehlers.
+  // Eine DATEI namens `recordings`: `readdir` wirft ENOTDIR, die Startseite zeigte "keine Aufnahmen".
   await writeFile(path.join(root, "recordings"), "", "utf8");
 
   await expect(listGames()).rejects.toThrow();
@@ -56,4 +49,3 @@ test("eine unlesbare position-flags ist nicht `nie gelaufen`", async () => {
 
   await expect(loadPositionFlags()).rejects.toThrow();
 });
-

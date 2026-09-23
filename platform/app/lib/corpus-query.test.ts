@@ -56,3 +56,13 @@ test("the query spans every live session and answers with keys, reads and what â
   expect((await queryCorpus({ klass: "wB", min: 0.25 })).cells).toBe(0);
   expect((await queryCorpus({ klass: "wN", min: 0.9 })).cells).toBe(0);
 });
+
+// `loadSession(name).catch(() => null)` schaltete bei unlesbarem Log den Phasenfilter ab, meldete ihn aber weiter.
+test("a recording whose log cannot be read does not silently skip the phase filter", async () => {
+  const root = await tempDataRoot("phase");
+  await mkdir(path.join(root, "recordings", "a"), { recursive: true });
+  await writeFile(path.join(root, "recordings", "a", "model-reads.jsonl"),
+    cell("a", "000100", "a1", "wR", { wR: 0.2, wQ: 0.7 }) + "\n", "utf8");
+  const answer = await queryCorpus({ klass: DISAGREE, min: 0.5 }, "settled");
+  expect(answer.cells, "BUG: an unreadable log turns the phase restriction off").toBe(0);
+});

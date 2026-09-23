@@ -1,8 +1,4 @@
-/**
- * Zwei Befunde des Architektur-Reviews 2026-09-23, auf dem echten Weg: Route, `adoptDirty`,
- * Ledger, `chainState`. Nur der Kindprozess ist gefaelscht — er liest die Notizen, wartet auf ein
- * Tor und schreibt dann das Log, wie `realgames.adopt_reported_dirty` es tut.
- */
+// Architektur-Review 2026-09-23 auf dem echten Weg; nur der Kindprozess (`adopt_reported_dirty`) ist gefaelscht.
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,8 +1,25 @@
-import { writeFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { loadSession } from "@/lib/session";
-import { type RowSpec, tempDataRoot, writeLog, writeSession } from "@/lib/test-fixtures";
+import { type RowSpec, sessionRow, tempDataRoot, writeLog, writeSession } from "@/lib/test-fixtures";
+
+const fail = vi.hoisted(() => ({ on: null as null | ((file: string) => boolean) }));
+
+// Ablehnen, nicht werfen: ein synchroner Wurf liefe am `.catch` vorbei.
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  return {
+    ...real,
+    stat: (file: string, ...rest: unknown[]) =>
+      fail.on?.(String(file))
+        ? Promise.reject(Object.assign(new Error(`EMFILE: ${file}`), { code: "EMFILE" }))
+        : (real.stat as (...a: unknown[]) => unknown)(file, ...rest),
+  };
+});
+
+/** Die Zeile des AUFRUFERS hinter der Tuer: dieselbe Datei fragen auch andere Module. */
+const caller = () => (new Error().stack ?? "").split("\n").slice(1).find((l) => !/session\.test|measurement/.test(l)) ?? "";
 
 /** Two plies, committed at frames 100 and 200 — one interval, 100 frames wide, at 25 fps. */
 const MOVES = [
@@ -14,6 +31,7 @@ let root: string;
 let dir: string;
 
 beforeEach(async () => {
+  fail.on = null;
   root = await tempDataRoot("session");
   dir = await writeSession({ root, moves: MOVES });
 });
@@ -116,4 +134,24 @@ test("the session cache follows candidate geometry even while log.jsonl is uncha
     (await loadSession("g")).boardSize,
     "candidate.json changed the crop geometry, so cached session coordinates must be invalidated",
   ).toBe(1008);
+});
+
+// `realgames.py` stroemt in `log.jsonl`: die halbe LETZTE Zeile ist ein laufender Export, kein Defekt.
+test("eine halb geschriebene letzte Zeile kostet die Seite nicht", async () => {
+  await write(row(110), row(190));
+  await appendFile(path.join(dir, "log.jsonl"), '{"frame": "frames/0099', "utf8");
+  expect((await loadSession("g")).rows.length).toBe(2);
+});
+
+test("eine kaputte Zeile MITTEN drin wird gemeldet, nicht verschluckt", async () => {
+  const line = (frame: number) => JSON.stringify(sessionRow(row(frame)));
+  await writeFile(path.join(dir, "log.jsonl"), [line(110), '{"kaputt', line(190)].join("\n") + "\n", "utf8");
+  await expect(loadSession("g")).rejects.toThrow(/beschaedigte Zeile/);
+});
+
+// Ein EMFILE auf `candidate.json` traf den Cache-Stand von vor dem Kandidaten und schnitt mit alter Geometrie.
+test("ein EMFILE auf candidate.json ist kein Schluessel „none\"", async () => {
+  await write(row(110));
+  fail.on = (file) => file.endsWith("candidate.json") && caller().includes("session.ts");
+  await expect(loadSession("g")).rejects.toThrow(/EMFILE/);
 });

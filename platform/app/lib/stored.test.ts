@@ -1,6 +1,6 @@
 import { mkdir, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import sharp from "sharp";
 import { applyMat, boardToImage } from "@/lib/warp";
 import {
@@ -12,6 +12,23 @@ import {
   storedSessions,
 } from "@/lib/stored";
 import { tempDataRoot } from "@/lib/test-fixtures";
+
+type Op = "stat" | "readdir" | "readFile";
+const fail = vi.hoisted(() => ({ ops: [] as string[], needle: "", code: "" }));
+
+// Ablehnen, nicht werfen: ein synchroner Wurf liefe am `.catch` des Lesers vorbei.
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  const hop = (op: Op) => (file: string, ...rest: unknown[]) =>
+    fail.ops.includes(op) && String(file).includes(fail.needle)
+      ? Promise.reject(Object.assign(new Error(`${fail.code}: ${file}`), { code: fail.code }))
+      : (real[op] as (...a: unknown[]) => unknown)(file, ...rest);
+  return { ...real, stat: hop("stat"), readdir: hop("readdir"), readFile: hop("readFile") };
+});
+
+function blowUpOn(ops: Op[], needle: string, code: string) {
+  Object.assign(fail, { ops, needle, code });
+}
 
 const BUNDLE = "2026-08-08-22-09-12";
 const ID = "20260808-220912";
@@ -35,6 +52,7 @@ let root: string;
 let session: string;
 
 beforeEach(async () => {
+  fail.ops = [];
   root = await tempDataRoot("stored");
   session = path.join(root, "recordings", BUNDLE, "files", "sessions", ID);
   await mkdir(path.join(session, "frames"), { recursive: true });
@@ -49,6 +67,7 @@ beforeEach(async () => {
 
 const writeLog = (...rows: object[]) =>
   writeFile(path.join(session, "log.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+const writeRaw = (text: string) => writeFile(path.join(session, "log.jsonl"), text, "utf8");
 
 /** The producer's sidecar: `0000` fitted, `0001` given up on — the two paths in one file.
  *  The mtime is bumped explicitly: rewrites inside one test land within the stat resolution,
@@ -90,11 +109,7 @@ const CURVED = {
   cy: [-0.012, -0.009, -0.006, -0.002, 0.001, 0.004, 0.008, 0.011, 0.014],
 };
 
-/**
- * `packLabeledSession` matches corrections on its `id=` argument, and every pack of these stored
- * sessions ran with `phone-<dir>` — see `session_id` in the `packed_meta.json` of every
- * `data/datasets/phone-stored-…` pack, and the `mm://phone-…` paths in `hard_empty.jsonl`.
- */
+/** Every pack of these stored sessions ran with `phone-<dir>` (`packed_meta.json`, `hard_empty.jsonl`). */
 test("a stored session is keyed phone-<id>, which is the id the pack reads corrections under", () => {
   expect(storedSessionId(ID)).toBe("phone-20260808-220912");
   expect(() => storedSessionId("../escape")).toThrow();
@@ -224,5 +239,67 @@ test("without a sidecar nothing moves: no file, no fit, the marker quad as befor
   expect(storedQuad(null, stored.rows[0])).toEqual({ corners: CORNERS, margin: 0.045, fitted: false });
   const png = await storedBoardPng(BUNDLE, "0000", 32);
   expect((await sharp(png).metadata()).width).toBe(32);
+});
+
+// Gekeyt auf mtime UND Groesse: die mtime allein liess zwei Schreibungen derselben Millisekunde als unveraendert gelten.
+test("gleiche mtime, andere Groesse — die Zeilen werden neu gelesen", async () => {
+  const stamp = new Date("2026-09-21T16:00:00Z");
+  const file = path.join(session, "log.jsonl");
+  await writeLog(row(0));
+  await utimes(file, stamp, stamp);
+  expect((await storedSessions(BUNDLE))[0].rows).toHaveLength(1);
+
+  await writeLog(row(0), row(1));
+  await utimes(file, stamp, stamp);
+  expect((await storedSessions(BUNDLE))[0].rows).toHaveLength(2);
+});
+
+test("der Fit-Cache haengt nicht allein an der mtime", async () => {
+  const file = path.join(session, "quad-fit.json");
+  const stamp = new Date("2026-09-16T10:00:00.000Z");
+  await writeFile(file, JSON.stringify({ margin: 0.045, frames: {} }), "utf8");
+  await utimes(file, stamp, stamp);
+  expect((await storedFit(session))!.margin).toBe(0.045);
+
+  await writeFile(file, JSON.stringify({ margin: 0.0, frames: { "000100": { corners: [], align_worst_px: 1 } } }), "utf8");
+  await utimes(file, stamp, stamp);
+  expect((await storedFit(session))!.margin).toBe(0.0);
+});
+
+// Die Stored-Sitzungen sind der einzige Ort der Telefon-Labels: jeder Lesefehler wurde zu "gibt es nicht".
+test("ein I/O-Fehler am sessions-Verzeichnis ist kein Bundle ohne Sitzungen", async () => {
+  await writeLog(row(0));
+  blowUpOn(["stat", "readdir"], "sessions", "EACCES");
+  await expect(storedSessions(BUNDLE)).rejects.toThrow(/EACCES/);
+});
+
+test("ein I/O-Fehler auf log.jsonl ist keine fehlende Sitzung", async () => {
+  await writeLog(row(0));
+  blowUpOn(["stat", "readdir"], "log.jsonl", "EMFILE");
+  await expect(storedSessions(BUNDLE)).rejects.toThrow(/EMFILE/);
+});
+
+test("ein I/O-Fehler auf quad-fit.json ist kein ungelaufener Fit", async () => {
+  await writeLog(row(0));
+  await writeFit();
+  blowUpOn(["stat", "readdir"], "quad-fit.json", "EACCES");
+  await expect(storedFit(session)).rejects.toThrow(/EACCES/);
+});
+
+test("ein Lesefehler am Log wird durchgereicht", async () => {
+  await writeLog(row(0));
+  blowUpOn(["readFile"], "log.jsonl", "EACCES");
+  await expect(storedSessions(BUNDLE)).rejects.toThrow(/EACCES/);
+});
+
+// 2026-09-23: `jsonlRows` warf die Diagnose weg, eine kaputte Zeile MITTENDRIN verschwand samt Label.
+test("eine kaputte Zeile MITTENDRIN wirft, statt ihr Label still zu verlieren", async () => {
+  await writeRaw(`${JSON.stringify(row(0))}\n{"frame": "fra\n${JSON.stringify(row(1))}\n`);
+  await expect(storedSessions(BUNDLE)).rejects.toThrow(/beschaedigte Zeile/);
+});
+
+test("die halbe LETZTE Zeile bleibt verziehen", async () => {
+  await writeRaw(`${JSON.stringify(row(0))}\n${JSON.stringify(row(1))}\n{"frame": "fra`);
+  expect((await storedSessions(BUNDLE))[0].rows.map((r) => r.stem)).toEqual(["0000", "0001"]);
 });
 

@@ -1,8 +1,4 @@
-/**
- * Ein Lesefehler auf `log.jsonl` darf nicht als "noch nicht exportiert" durchgehen: die Aufnahme
- * faellt sonst lautlos aus `progress`, und die Kopfzeile der Matte-Lane nennt einen Nenner ueber
- * eine andere Grundgesamtheit, ohne es zu sagen (dieselbe Politik wie `lib/position-flags.ts`).
- */
+/** Ein Lesefehler auf `log.jsonl` ist kein „nicht exportiert" — sonst fiele die Aufnahme lautlos aus `progress`. */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";

@@ -1,8 +1,5 @@
-/**
- * „Nicht gemessen" ist etwas anderes als „gemessen null". `lib/measurement.ts` ist die eine
- * Antwort darauf; diese Liste sind die Stellen davor, die ein gescheitertes Lesen weiterhin zu
- * einer leeren Antwort machen — sie darf nur SCHRUMPFEN.
- */
+/** „Nicht gemessen" ist nicht „gemessen null": `lib/measurement.ts` ist die eine Antwort,
+ *  `measurement-doors.txt` die Stellen davor — sie darf nur SCHRUMPFEN. */
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";

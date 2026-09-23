@@ -1,6 +1,4 @@
-/**
- * Bug-Jagd 2026-09-17, Achse Zustand/Cache/Nebenlaeufigkeit. Drei Funde, je ein roter Test.
- */
+/** Bug-Jagd 2026-09-17, Achse Zustand/Cache/Nebenlaeufigkeit (Fund 2 und 4 stehen in position-flags/pool.test.ts). */
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -26,9 +24,7 @@ async function gradientBoard(dir: string, stem: string, side: number): Promise<v
   );
 }
 
-// FUND 1: `cellPng` keyt auf Brett-mtime und log-mtime, aber `pad_side` und `board_size` stehen in
-// `candidate.json`. Ein Re-Profilieren laesst beide gekeyten Dateien in Ruhe, und der Cache
-// serviert den alten Schnitt weiter — genau die Klasse, die der Kommentar dort ausschliessen will.
+// FUND 1: `cellPng` keyte nur auf Brett- und log-mtime; `pad_side`/`board_size` stehen in `candidate.json`.
 test("ein neues candidate.json aendert den Schnitt, also darf der Zell-Cache ihn nicht halten", async () => {
   const root = await tempDataRoot("cellkey");
   const dir = await writeSession({
@@ -49,42 +45,14 @@ test("ein neues candidate.json aendert den Schnitt, also darf der Zell-Cache ihn
   expect(after.equals(before)).toBe(false);
 });
 
-// FUND 2: `loadMatte` faengt JEDEN Lesefehler als "" ab und legt das leere Ergebnis unter dem
-// ECHTEN `mtimeMs:size`-Stempel ab. Aus "konnte nicht gelesen werden" wird "nie gemattet" — und es
-// bleibt so, bis sich die Datei bewegt. `corrections.ts` und `unusable-cells.ts` machen es richtig.
-test("ein unlesbares matte.jsonl ist kein handfreies Brett", async () => {
-  const root = await tempDataRoot("mattefail");
-  const dir = path.join(root, "recordings", "g");
-  // stat gelingt, readFile wirft EISDIR — dieselbe Form wie EBUSY/EMFILE unter Last.
-  await mkdir(path.join(dir, "matte.jsonl"), { recursive: true });
-  (globalThis as { __chesslabMattes?: Map<string, unknown> }).__chesslabMattes?.clear();
-  const { loadMatte } = await import("@/lib/matte");
-  await expect(loadMatte("g")).rejects.toThrow();
-});
-
-// FUND 3: `writeFileAtomic*` nimmt fuer JEDEN Schreiber denselben `${file}.tmp`. Wer abbricht,
-// raeumt im `catch` die Zwischendatei eines anderen weg, der noch nicht umgehaengt hat — und der
-// verliert seinen Schreibvorgang mit ENOENT, obwohl er den Riegel hielt.
+// FUND 3: ein gemeinsamer `${file}.tmp` — der abgewiesene Schreiber raeumte die Zwischendatei des laufenden weg.
 test("ein abgewiesener Schreiber raeumt nicht die Zwischendatei des laufenden weg", async () => {
   const root = await tempDataRoot("tmpname");
   const file = path.join(root, "ledger.json");
   await writeFile(file, "alt\n", "utf8");
-  // Die Zwischendatei eines Schreibers, der gleich umhaengen will.
   await writeFile(`${file}.tmp`, "neu\n", "utf8");
 
   await expect(writeFileAtomicGuarded(file, "meins\n", "stempel-von-vorgestern", "ledger")).rejects.toThrow();
   expect(await stat(`${file}.tmp`).then(() => true, () => false)).toBe(true);
   await rm(`${file}.tmp`, { force: true });
-});
-
-// FUND 4: dieselbe Klasse wie Fund 2, eine Datei weiter. `keyedLogs` liest `log.jsonl` ungefedert
-// (richtig), `loadPool` faengt beim NACHBARN `corrections.jsonl` jeden Fehler als "" ab — der
-// Crop-Pool zeigt die Urteile der Aufnahme dann als nie gefaellt, gecacht unter dem echten Stempel.
-test("ein unlesbares corrections.jsonl ist kein Pool ohne Korrekturen", async () => {
-  const root = await tempDataRoot("poolfail");
-  const dir = await writeSession({ root, rows: [{ frame: 234 }] });
-  await mkdir(path.join(dir, "corrections.jsonl"), { recursive: true });
-  delete (globalThis as { __chesslabPool?: unknown }).__chesslabPool;
-  const { loadPool } = await import("@/lib/pool");
-  await expect(loadPool()).rejects.toThrow();
 });

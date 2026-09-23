@@ -87,8 +87,8 @@ function encode(rgb: Buffer, width: number, height: number): Promise<Buffer> {
 }
 
 /**
- * One square out of one frame, at the board's OWN boundaries when the row carries them: the
- * the nominal box, out of a board that is already straight. Same cut as `crop_square`
+ * One square out of one frame, at the board's OWN boundaries when the row carries them — that
+ * is the nominal box, out of a board that is already straight. Same cut as `crop_square`
  * (labeling.py) — the label view has to show the crop the model will get.
  */
 function cellRgb(session: Session, square: string, raster: Raster, h: Mat3, size: number) {

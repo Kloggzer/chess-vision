@@ -4,10 +4,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { parseCost } from "@/lib/session-delete";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
-/**
- * Routen-Jagd 2026-09-16. Jeder Test haengt an einer Route, die bis heute in
- * `route-coverage.txt` stand — der Fund ist der Anlass, der Test die Ratsche.
- */
+// Routen-Jagd 2026-09-16: jeder Test haengt an einer Route, die bis dahin in `route-coverage.txt` stand.
 
 const tool = vi.hoisted(() => ({ stdout: "", code: 0, busy: false, calls: [] as string[][] }));
 vi.mock("@/lib/jobs", async (original) => ({
@@ -47,11 +44,7 @@ beforeEach(async () => {
 
 const params = <T>(value: T) => ({ params: Promise.resolve(value) });
 
-/**
- * 1) `lib/session-delete.ts:26` — eine Kostenzeile ohne `frames`/`crops` wird mit `?? 0`
- * aufgefuellt. Der Dialog verspricht dann "0 Frames, 0 Crops" fuer eine Loeschung, die alles
- * mitnimmt, und der eigene Test daneben heisst "never a zero nobody counted".
- */
+// Eine Kostenzeile ohne `frames`/`crops` versprach "0 Frames, 0 Crops" fuer eine Loeschung, die alles nimmt.
 test("eine halbe Kostenzeile ist keine Kosten von null", async () => {
   expect(parseCost('{"session_id": "rg-x", "corrections": 12}')).toBeNull();
 });
@@ -66,10 +59,7 @@ test("api/session/[id]: der Trockenlauf meldet keine erfundene Null", async () =
   expect(answer.status).toBe(400);
 });
 
-/**
- * 2) `app/api/query/route.ts:11` — `?min=` ist leer, nicht null, also greift `??` nicht und
- * `Number("")` ist 0. Die Klassenwand faellt damit stumm auf "alles zaehlt" zurueck.
- */
+// `?min=` ist leer, nicht null: `Number("")` ist 0, und die Klassenwand liess stumm alles durch.
 test("api/query: ein leeres min ist kein gemessenes null", async () => {
   const answer = await queryGet(new Request("http://h/api/query?min="));
   const body = (await answer.json()) as { filter?: { min: number }; error?: string };
@@ -77,21 +67,12 @@ test("api/query: ein leeres min ist kein gemessenes null", async () => {
   expect(body.filter?.min).toBe(0.9);
 });
 
-/**
- * 3) `lib/corpus-query.ts:46` — eine Phase, die es nicht gibt, filtert jede Zeile weg und die
- * Antwort meldet 0 Treffer als Ergebnis. Dieselbe Regel wie oben fuer die Klasse: null Treffer
- * sind eine Behauptung, kein Nichtwissen.
- */
 test("api/query: eine unbekannte Phase wird abgelehnt, nicht mit 0 Treffern beantwortet", async () => {
   const answer = await queryGet(new Request("http://h/api/query?class=wP&min=0.9&phase=settle"));
 
   expect(answer.status).toBe(400);
 });
 
-/**
- * 4) `app/api/zuege/[name]/note/route.ts:18` — `Number(null)` ist 0 und `Number(true)` ist 1.
- * Ein Koerper ohne `ply` landet damit als Urteil ueber Halbzug 0 in `review-notes.jsonl`.
- */
 test("api/zuege/[name]/note: ein fehlender ply wird nicht zu ply 0", async () => {
   const answer = await notePost(
     new Request("http://h/n", { method: "POST", body: JSON.stringify({ ply: null, reason: "x" }) }),
@@ -101,10 +82,6 @@ test("api/zuege/[name]/note: ein fehlender ply wird nicht zu ply 0", async () =>
   expect(answer.status).toBe(400);
 });
 
-/**
- * 5) `lib/meta.ts:32` — lesen, aendern, schreiben ohne Riegel. Zwei gleichzeitige Schreiber auf
- * dieselbe `ui-meta.json`, und der Zweite legt den Stand des Ersten zurueck; beide melden Erfolg.
- */
 test("api/meta/[name]: zwei gleichzeitige Schreiber verlieren einander nicht", async () => {
   const name = "rg-2026-09-01-00-00-00";
   await mkdir(path.join(root, "recordings", name), { recursive: true });
@@ -117,11 +94,7 @@ test("api/meta/[name]: zwei gleichzeitige Schreiber verlieren einander nicht", a
   expect(await stored.json()).toEqual({ title: "Partie A", archived: true });
 });
 
-/**
- * 6) `lib/ingest.ts:163` — ohne Rumpf entsteht die `.partial` nie. Eine erklaerte Datei mit 0
- * Bytes hat damit fuer immer `have: -1`, und `complete` verweigert die ganze Sitzung auf jedem
- * Versuch: das Handy laedt das Gigabyte daneben endlos neu hoch.
- */
+// Ohne Rumpf entstand die `.partial` nie: `have: -1` fuer immer, und das Handy lud die Sitzung endlos neu.
 test("api/ingest/session/[name]/complete: eine erklaerte 0-Byte-Datei blockiert die Sitzung nicht", async () => {
   const auth = { authorization: "Bearer t0ken" };
   const manifest = {
@@ -144,11 +117,7 @@ test("api/ingest/session/[name]/complete: eine erklaerte 0-Byte-Datei blockiert 
   expect(await readFile(path.join(root, "recordings", name, "files", "games", "g.json"), "utf8")).toBe("");
 });
 
-/**
- * 7) `app/api/ingest/jobs/route.ts:9` — `jobs()` wirft auf einer unlesbaren `jobs.jsonl`, und
- * zwar mit Absicht ("erfolgsfoermige Leere"). Ohne Fang wurde daraus eine nackte 500 ohne
- * Rumpf: die Transfers-Seite pollt, `.json()` wirft, der Nutzer sieht nichts.
- */
+// `jobs()` wirft mit Absicht; ohne Fang war es eine nackte 500 ohne Rumpf, die Transfers-Seite sah nichts.
 test("api/ingest/jobs: ein unlesbares Ledger wird mit seinem Grund gemeldet", async () => {
   await mkdir(path.join(root, "inbox", "jobs.jsonl"), { recursive: true });
   const { GET } = await import("@/app/api/ingest/jobs/route");
@@ -159,15 +128,7 @@ test("api/ingest/jobs: ein unlesbares Ledger wird mit seinem Grund gemeldet", as
   expect((await answer.json()).error).toMatch(/EISDIR|jobs.jsonl/);
 });
 
-/**
- * 8) `lib/useless.ts` — lesen-aendern-schreiben braucht einen Riegel: ein Widerruf, der neben dem
- * Setzen lief, sah noch die leere Datei, schrieb nichts und meldete trotzdem 200.
- *
- * Gegen `Promise.all` geprueft war der Test FLAKY: wer von beiden zuerst in `serialize` laeuft,
- * entscheidet der Scheduler, und "nichts zu widerrufen" ist dann das richtige Ergebnis. Geprueft
- * wird deshalb, was der Riegel wirklich zusagt — der zweite sieht den ersten, und ein Widerruf
- * ins Leere meldet `null` statt einer erfundenen Marke.
- */
+// Nacheinander, nicht per `Promise.all`: die Reihenfolge in `serialize` waehlt der Scheduler (war flaky).
 test("api/useless/[name]: der Widerruf sieht das Setzen, und ins Leere meldet er null", async () => {
   const name = "rg-2026-09-01-00-00-00";
   await mkdir(path.join(root, "recordings", name), { recursive: true });

@@ -1,8 +1,4 @@
-/**
- * `fenLabels` against `tests/data/fen_labels_parity.json`, which Python wrote through
- * `GameState.label_for` (python-chess). Two different routes to the same 64 labels: this side
- * parses the FEN string, the dataset side asks a board object.
- */
+/** `fenLabels` against the labels Python wrote through `GameState.label_for` (python-chess). */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";

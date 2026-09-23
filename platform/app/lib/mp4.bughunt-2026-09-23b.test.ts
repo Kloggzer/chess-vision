@@ -1,7 +1,4 @@
-/**
- * `recordingSegments` endete an jedem `stat`-Fehler, als fehle das Segment: ein EACCES auf
- * `video-001.mp4` kuerzte die Aufnahme still auf ihren Kopf.
- */
+/** `recordingSegments` las jeden `stat`-Fehler als fehlendes Segment und kuerzte die Aufnahme still. */
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";

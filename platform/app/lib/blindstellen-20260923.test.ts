@@ -1,7 +1,4 @@
-/**
- * Die drei Blindstellen, diesmal ueber ROUTE bzw. Seite: `ingest.sizeOf` (`-1`), `data.frameSize`
- * (720x816), `stored` (Zeilen still weg). Die Lib-Tests vom selben Tag riefen die Hilfen direkt.
- */
+/** Drei Blindstellen ueber Route bzw. Seite: `ingest.sizeOf` (`-1`), `data.frameSize` (720x816), `stored`. */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isValidElement, type ReactNode } from "react";

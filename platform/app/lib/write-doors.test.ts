@@ -1,8 +1,5 @@
-/**
- * Wer eine `.json`/`.jsonl` selbst schreibt, beantwortet den Abbruch mitten im Schreiben neu —
- * und beim Anhaengen den abgerissenen Schwanz. `lib/atomic.ts` ist die eine Antwort; diese Liste
- * sind die Stellen davor und darf nur SCHRUMPFEN. Der Zwilling zu `tests/test_json_doors.py`.
- */
+/** Wer `.json`/`.jsonl` selbst schreibt, beantwortet Abbruch und abgerissenen Schwanz neu. `lib/atomic.ts`
+ *  ist die eine Antwort; `write-doors.txt` darf nur SCHRUMPFEN (Zwilling: `tests/test_json_doors.py`). */
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";

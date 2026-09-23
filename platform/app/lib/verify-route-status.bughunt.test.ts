@@ -1,10 +1,6 @@
 import { expect, test, vi } from "vitest";
 
-/**
- * Die einzige Lese-Route ohne `try/catch`: sie hielt nur, solange `loadVerifyStream` jeden
- * Lesefehler selbst schluckt. Der naechste Aufruf darin wurde zur nackten 500 ohne Meldung.
- * Dieselbe Regel wie `api/cell/[name]/[stem]/[square]`: ENOENT -> 404, alles andere -> 500.
- */
+// Dieselbe Regel wie `api/cell`: ENOENT -> 404, alles andere -> 500, beides mit Grund im Rumpf.
 const load = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/verify", () => ({ loadVerifyStream: load }));
 

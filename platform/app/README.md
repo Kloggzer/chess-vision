@@ -45,7 +45,7 @@ control stream below `lo` writes NOTHING), **board drilldown** (8×8 overlay on 
 Painting `occluded` is gone: it is `lib/classes.ts`'s `LEGACY_LABEL`, still READ so the 31 271 rows
 that carry it stay legible, but nothing writes another one — occlusion is measured as `coverage`
 (`matte.jsonl`), not asked, and only the 13 identities are writable. The one-card *tinder* view
-was **deleted** (*"tinder nervt"*, 2026-08-10 — `docs/labeling-ux/CONCEPT.md` §S7). A queue's **flags arrive selected**
+was **deleted** (*"tinder nervt"*, 2026-08-10 — `docs/labeling-ux/CONCEPT.md` §1.4). A queue's **flags arrive selected**
 and a click takes one off (`lib/selection.ts`): confirm commits exactly what is still selected and
 says so live, `⌫` takes all of them off. The `reviewed` ledger lives per recording next to
 `corrections.jsonl` (`lib/corrections.ts` `ledgerPath`) and is provenance only — Python skips it.

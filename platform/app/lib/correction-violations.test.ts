@@ -1,18 +1,14 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { gemessen } from "@/lib/test-fixtures";
+import { beforeEach, expect, test } from "vitest";
+import { gemessen, tempDataRoot } from "@/lib/test-fixtures";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "violations-"));
+  dir = await tempDataRoot("violations");
   await mkdir(path.join(dir, "reports"), { recursive: true });
-  vi.doMock("@/lib/data", () => ({ dataDir: () => dir }));
-  vi.resetModules();
   (globalThis as { __chesslabMeasurements?: Map<string, unknown> }).__chesslabMeasurements?.clear();
 });
-afterEach(() => vi.doUnmock("@/lib/data"));
 
 const load = () => import("@/lib/correction-violations");
 const write = (text: string) => writeFile(path.join(dir, "reports", "correction-violations.jsonl"), text, "utf8");

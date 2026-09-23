@@ -1,8 +1,26 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { archivedAt, isArchived, loadMeta, saveMeta } from "@/lib/meta";
 import { tempDataRoot } from "@/lib/test-fixtures";
+
+const fail = vi.hoisted(() => ({ on: null as null | ((file: string) => boolean) }));
+
+// Ablehnen, nicht werfen: ein synchroner Wurf liefe am `catch` vorbei.
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  return {
+    ...real,
+    readFile: (file: string, ...rest: unknown[]) =>
+      fail.on?.(String(file))
+        ? Promise.reject(Object.assign(new Error(`EACCES: ${file}`), { code: "EACCES" }))
+        : (real.readFile as (...a: unknown[]) => unknown)(file, ...rest),
+  };
+});
+
+beforeEach(() => {
+  fail.on = null;
+});
 
 async function withGame(name = "g") {
   const root = await tempDataRoot("meta");
@@ -50,4 +68,26 @@ test("a session.yaml without the stamp archives nothing", async () => {
   await writeFile(path.join(dir, "session.yaml"), ["notes: nicht_archived_at", "mode: track", ""].join("\n"), "utf8");
   expect(await archivedAt("g")).toBeNull();
   expect(await isArchived("g")).toBe(false);
+});
+
+// Ein halb geschriebenes `ui-meta.json` las sich als `{}`, und ein Titel-Edit schrieb `archived` weg.
+test("refuses to overwrite a ui-meta.json it could not read", async () => {
+  const file = path.join(await withGame(), "ui-meta.json");
+  await saveMeta("g", { archived: true });
+  expect(await isArchived("g")).toBe(true);
+  await writeFile(file, '{"archived": true, "titl', "utf8");
+
+  await expect(
+    saveMeta("g", { title: "Partie 7" }),
+    "BUG: a corrupt file is read as {} and the archived flag is written away",
+  ).rejects.toThrow();
+  expect(await readFile(file, "utf8")).not.toBe('{\n  "title": "Partie 7"\n}\n');
+});
+
+// Als "nie archiviert" gelesen stand eine ausgemusterte Aufnahme (falsche FENs) wieder in der Label-Population.
+test("ein EACCES auf session.yaml ist kein „nie archiviert\"", async () => {
+  const dir = await withGame();
+  await writeFile(path.join(dir, "session.yaml"), "archived_at: '2026-08-30'\n", "utf8");
+  fail.on = (file) => file.endsWith("session.yaml");
+  await expect(isArchived("g")).rejects.toThrow(/EACCES/);
 });

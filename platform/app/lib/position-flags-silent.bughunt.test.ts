@@ -1,9 +1,4 @@
-/**
- * `realgames position-flags` laeuft am Ende von `model-read` und legt die Karten der
- * Strittig-Lane. Sein Exit-Code fiel auf den Boden: die Sprosse meldete `done` OHNE Grund,
- * und der naechste Schritt ist `labeln` — der Mensch labelt dann an genau den zweifelhaften
- * Zellen vorbei, die der Producer auslegen sollte. Rot faerben darf es den Schritt nicht.
- */
+/** `position-flags` legt am Ende von `model-read` die Strittig-Karten; sein Exit-Code fiel auf den Boden. */
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -42,11 +37,10 @@ test("ein gescheitertes position-flags steht im Ledger, statt still durchzugehen
   await whenIdle();
 
   expect(fake.calls.some((a) => a.includes("position-flags"))).toBe(true);
-  // Die Sprosse SUCHEN, nicht die neueste nehmen: die Kette haengt den naechsten Schritt an, und
-  // der stand je nach Last schon als `running` obenauf — daran flackerte der Test.
+  // Suchen statt die neueste nehmen: der naechste Schritt stand je nach Last schon obenauf (Flackern).
   const rows = await jobHistory("2026-09-20-10-00-00");
   const read = rows.find((r) => r.kind === "model-read");
-  // Der Schritt selbst ist gelungen — nur die Karten fehlen, und das gehoert in den Satz.
+  // Der Schritt ist gelungen, nur die Karten fehlen: `done` mit Grund, nicht rot.
   expect(read?.state).toBe("done");
   expect(read?.reason).toMatch(/position-flags/);
 });

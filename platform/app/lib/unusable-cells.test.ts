@@ -69,3 +69,8 @@ test("eine kaputte Zeile mittendrin verliert kein Urteil lautlos", async () => {
   await appendFile(unusableCellsPath(NAME), '{"session_id": "rg-\n');
   await expect(unusableCells(NAME)).rejects.toThrow(/beschaedigte/);
 });
+
+test("ein unlesbares unusable-cells.jsonl wirft, statt die Zellen zurueck in die Lane zu holen", async () => {
+  await mkdir(unusableCellsPath(NAME), { recursive: true });
+  await expect(unusableCells(NAME)).rejects.toThrow();
+});

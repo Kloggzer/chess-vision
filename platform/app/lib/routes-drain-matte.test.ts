@@ -1,9 +1,4 @@
-/**
- * Die vier Routen, die zuletzt ohne Test in `route-coverage.txt` standen.
- *
- * `api/drain` ist der Knopf, der die ganze Kette faehrt; die beiden Matte-Routen sind der Stift
- * und der Schnitt daneben. Getestet wird der TORWAERTER, nicht die Arbeit dahinter.
- */
+// Getestet wird der TORWAERTER der Routen, nicht die Arbeit dahinter.
 import { beforeEach, expect, test, vi } from "vitest";
 
 const drain = vi.hoisted(() => ({

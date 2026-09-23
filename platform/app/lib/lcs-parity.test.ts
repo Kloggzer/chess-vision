@@ -1,8 +1,4 @@
-/**
- * `lcsReport`/`reviewedPlies` against `tests/data/lcs_parity.json` — the file
- * `tests/test_lcs_parity.py` pins the Python side on. One fixture, two readers, because the CLI
- * and this view are supposed to report the same three numbers about the same candidate.
- */
+/** One fixture with `tests/test_lcs_parity.py`: CLI and view must report the same three numbers. */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";

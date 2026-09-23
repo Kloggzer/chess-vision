@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { fenLabels } from "@/lib/fen";
 import {
   applyMat,
   boardToImage,
@@ -16,12 +15,7 @@ import {
   type TiltedMesh,
 } from "@/lib/warp";
 
-/**
- * Truth from the Python side: `data/calibration/desktop.yaml`, written by `chesslab calibrate`
- * for the rec-20260808-003957 recording. `image_corners` + margin 0.045 + board 928 produced
- * `homography` (IMAGE -> board); `boardToImage` is its inverse, so board -> image -> board must
- * come back to where it started. That is the only calibration this geometry gets.
- */
+/** Python's truth: `chesslab calibrate` on rec-20260808-003957 (margin 0.045, board 928); `boardToImage` is its inverse. */
 const CORNERS = [
   [560.4562377929688, 73.46708679199219],
   [1469.7095947265625, 80.20635223388672],
@@ -144,8 +138,7 @@ test.each([
   }
 });
 
-// The scalar stage: offsets without tilts are still a correction, and a map that refused them
-// would drop it silently — the very kind of quiet loss the per-cell cut used to hide.
+// Offsets without tilts are still a correction; refusing them would drop it silently.
 test("a mesh without tilts moves a point by its offsets alone", () => {
   const shifted = [...Array(9)].map((_, k) => k / 8 + 0.01);
   const [x, y] = meshPoint(0.5, 0.5, { x: shifted, y: [...shifted] });
@@ -174,15 +167,6 @@ test("meshFromLines drops one stage per defect", () => {
   expect(meshFromLines({ ...m, x: [...m.x].reverse() })).toBeUndefined();
   expect(meshFromLines({ ...m, y: m.y.map(String) })).toBeUndefined();
   expect(meshFromLines(undefined)).toBeUndefined();
-});
-
-test("fen labels cover all 64 squares", () => {
-  const labels = fenLabels("rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1");
-  expect(Object.keys(labels).length).toBe(64);
-  expect(labels.a8).toBe("bR");
-  expect(labels.e3).toBe("wP");
-  expect(labels.e2).toBe("empty");
-  expect(labels.d1).toBe("wQ");
 });
 
 test("invertMat undoes boardToImage, corners and centre alike", () => {

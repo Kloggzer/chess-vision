@@ -3,6 +3,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ChainState } from "@/lib/chain";
+import { listFrameStems } from "@/lib/data";
 import { isBare, queueRows, splitQueues, type QueueRow } from "@/lib/queues";
 import { setUseless } from "@/lib/useless";
 import { tempDataRoot } from "@/lib/test-fixtures";
@@ -141,5 +142,25 @@ describe("queueRows", () => {
     expect(splitQueues(after).confirm).toEqual([]);
     expect(after[0].chain.useless).toMatchObject({ reason: "Brett halb aus dem Bild" });
     expect(after[0].chain.step).toBeNull();
+  });
+
+  // Zaehlen braucht keinen Bildkopf; wer die GROESSE will, wirft (2026-09-23).
+  async function junkFrame(): Promise<string> {
+    const dir = game("g", "frames");
+    await mkdir(dir, { recursive: true });
+    const board = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).webp().toBuffer();
+    await writeFile(path.join(dir, "000001.webp"), board);
+    await writeFile(path.join(dir, "000002.webp"), Buffer.from("kein bild"));
+    return path.join(dir, "000002.webp");
+  }
+
+  it("ein kaputter Frame-Kopf nimmt die Startseite nicht mit — gezaehlt wird die Datei", async () => {
+    await junkFrame();
+    expect((await queueRows()).map((r) => [r.name, r.frames])).toEqual([["g", 2]]);
+  });
+
+  it("wer die GROESSE will, bekommt den kaputten Frame beim Namen genannt", async () => {
+    const broken = await junkFrame();
+    await expect(listFrameStems("g")).rejects.toThrow(broken);
   });
 });

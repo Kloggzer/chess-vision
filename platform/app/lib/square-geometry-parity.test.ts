@@ -1,12 +1,6 @@
 /**
- * `squareCropBox`/`squareColRow` against the file `tests/test_square_geometry_parity.py` and
- * `SquareGeometryParityTest.kt` read — the production scales, where `pad_side * cell` is
- * fractional.
- *
- * The TS box is the only one of the three that is NOT rounded: `crop_square` (labeling.py) and
- * `squareToCropBox` (CropBox.kt) both round each endpoint half-to-even, this side samples the
- * float box directly. So `boxExact` is the parity assertion and the rounded box is checked only
- * to stay within half a pixel — a full-pixel drift would mean the formula, not the resampler.
+ * Shared fixture with `test_square_geometry_parity.py` and `SquareGeometryParityTest.kt`. Only the TS
+ * box is unrounded (Python/Kotlin round half-to-even), so `boxExact` is the parity and the rounded box need only stay within 0.5 px.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";

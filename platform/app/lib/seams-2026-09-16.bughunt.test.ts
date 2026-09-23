@@ -1,7 +1,5 @@
-/**
- * Naht-Jagd 2026-09-16: drei Stellen, an denen ein Schluessel die Sprachgrenze nicht ueberlebt.
- * Jede Fixture hat genau die Form, die die ANDERE Seite auf die Platte schreibt.
- */
+/** Naht-Jagd 2026-09-16: Schluessel, die die Sprachgrenze nicht ueberleben. Jede Fixture hat die
+ *  Form, die die ANDERE Seite auf die Platte schreibt. */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -18,12 +16,7 @@ function forget(key: string): void {
   (globalThis as Record<string, unknown>)[key] = new Map();
 }
 
-/**
- * `matte-wanted` ist eine Sackgasse. Die Frame-Lane schreibt den Zettel (`app/api/frame-verdict`),
- * `openFrames` nimmt das Frame daraufhin aus der Lane — aber `matteCensus` zaehlt nur `dirty`, und
- * `runChesslab` uebergibt nur `--reported` oder `--limit`. `occluders alpha-worker --wanted`, das
- * Python dafuer hat, faehrt niemand. Das Frame ist danach weder sichtbar noch gemattet.
- */
+// `matte-wanted` war eine Sackgasse: aus der Lane genommen, aber nie gezaehlt noch gemattet.
 test("ein zur Matte geschicktes Frame bleibt offene Arbeit, nicht bloss unsichtbar", async () => {
   const root = await tempDataRoot("wanted");
   const name = "2026-09-16-10-00-00";
@@ -40,13 +33,11 @@ test("ein zur Matte geschicktes Frame bleibt offene Arbeit, nicht bloss unsichtb
   );
   forget("__chesslabReviewNotes");
   forget("__chesslabMatteSets");
-  // EIGENES Feld, nicht `reportedOpen`: das steuert `--reported`, ein zur Matte geschicktes
-  // Frame braucht `--wanted`. In einen Zaehler geworfen bekaeme der Lauf die falsche Fahne.
+  // EIGENES Feld, nicht `reportedOpen`: das steuert `--reported`, ein solches Frame braucht `--wanted`.
   const { matteCensus } = await import("@/lib/matte");
   expect((await matteCensus(name)).wanted, "sonst ist das Frame nirgends mehr sichtbar").toBe(1);
 
-  // Und die Sprosse darf sich nicht darueber schliessen — sonst ist die Arbeit gezaehlt, aber
-  // niemand bietet sie an. (Die Fixture-Session ist unbestaetigt, also direkt an `nextStep`.)
+  // Die Sprosse darf sich nicht darueber schliessen (Fixture unbestaetigt, also direkt an `nextStep`).
   const { nextStep } = await import("@/lib/chain");
   const full = { done: 9, total: 9, target: 9, reported: 0, reportedOpen: 0, reportedOrphan: 0 };
   expect(nextStep({
@@ -57,11 +48,7 @@ test("ein zur Matte geschicktes Frame bleibt offene Arbeit, nicht bloss unsichtb
   }).step).toBe("matte");
 });
 
-/**
- * `position_flags.timing_flags` schreibt `matte_cov: null` und sagt im Kommentar dazu, warum:
- * „ohne Matte eine 0 zu melden liesse sich in der Lane als 'die Matte sagt frei' lesen". Genau das
- * tut der Leser. Das Geschwister-Modul `hand-flags.ts` macht an derselben Stelle `null` daraus.
- */
+// Python schreibt `matte_cov: null` mit Absicht — eine 0 laese die Lane als „die Matte sagt frei".
 test("ein `matte_cov: null` heisst UNGEMESSEN und darf keine 0 werden", async () => {
   const root = await tempDataRoot("poscov");
   await reports(root, "position-flags.jsonl",
@@ -73,11 +60,7 @@ test("ein `matte_cov: null` heisst UNGEMESSEN und darf keine 0 werden", async ()
   expect(gemessen(await loadPositionFlags()).rows[0].matte_cov).toBeNull();
 });
 
-/**
- * `audit_flags.flags_for` legt `judged` ausdruecklich fuer diese Lane dazu — „die Lane zeigt sonst
- * die FEN und verschweigt, dass hier schon jemand widersprochen hat". Der Leser laesst den
- * Schluessel fallen, die Karte behauptet weiter die FEN.
- */
+// `audit_flags.flags_for` legt `judged` fuer diese Lane dazu; der Leser laesst es fallen.
 test.fails("das Wort des Menschen (`judged`) ueberlebt das Lesen der Audit-Flags", async () => {
   const root = await tempDataRoot("judged");
   await reports(root, "audit-flags.jsonl",

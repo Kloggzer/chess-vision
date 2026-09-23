@@ -1,7 +1,5 @@
-/** Je eine EINGEPFLANZTE Gegenprobe, wie `tests/test_ratchet_counterchecks.py` und
- *  `CommentBudgetCounterCheckTest.kt`: geprueft wird der ERKENNER, nicht die Liste — ein Verstoss
- *  MUSS zaehlen, ein erlaubter Fall darf es NICHT. Alle lagen an derselben Stelle falsch:
- *  ein Vorkommen in einem Text oder Kommentar galt als Code (`@/ratchet-detect`). */
+/** Eingepflanzte Gegenproben auf den ERKENNER, nicht die Liste: ein Verstoss MUSS zaehlen, ein
+ *  erlaubter Fall darf es NICHT. Alle lagen gleich falsch: Text oder Kommentar galt als Code. */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -11,8 +9,7 @@ const NL = String.fromCharCode(92) + "n";
 const laeuft = (body: string) => `${body}
 test("x", () => {});
 `;
-/** Der Pfad wird zusammengesetzt: stuende er als Ganzes da, wiese diese Datei dem Sammler eine
- *  Route als getestet aus, die es nicht gibt — genau der Fehler, den sie pruefen soll. */
+/** Zusammengesetzt, sonst wiese diese Datei dem Sammler eine erfundene Route als getestet aus. */
 const AT = "@/app/";
 const imp = (pfad: string, q = '"') => `import { GET } from ${q}${AT}${pfad}/route${q};`;
 
@@ -44,6 +41,25 @@ test("ein uebersprungener Test fuehrt die Route nie aus", () => {
 test("z", () => {});`)).toEqual(["api/echt"]);
 });
 
+// 2026-09-22: gezaehlt wurde die Schreibweise des Imports, nicht ob der Rumpf je LAEUFT.
+test("ein `describe` ohne einen einzigen laufenden Test deckt keine Route", () => {
+  expect(routeImportsIn(`${imp("api/echt")}
+describe("x", () => { test.skip("y", () => {}); it.todo("z"); });`)).toEqual([]);
+  expect(routeImportsIn(`${imp("api/echt")}
+describe("x", () => {});`)).toEqual([]);
+
+  expect(routeImportsIn(`${imp("api/echt")}
+describe("x", () => { test("y", () => {}); });`)).toEqual(["api/echt"]);
+});
+
+test("ein Nur-Typ-Import fuehrt die Route nie aus", () => {
+  expect(routeImportsIn(`import type { GET } from "${AT}api/erfunden/route";
+test("y", () => {});`)).toEqual([]);
+
+  expect(routeImportsIn(`${imp("api/echt")}
+test("y", () => {});`)).toEqual(["api/echt"]);
+});
+
 // --- JSONL-Leser --------------------------------------------------------------------------
 
 test("ein eingepflanzter Zeilenschnitt zaehlt, der im Kommentar nicht", () => {
@@ -62,6 +78,14 @@ test("eine eingepflanzte Schreib-Tuer zaehlt, die im Kommentar nicht", () => {
   expect(writeDoorsIn("/*\n * writeFile(f, JSON.stringify(rows))\n */")).toBe(0);
 });
 
+test("eine Schreib-Tuer zaehlt auch, wenn das JSON eine Zeile FRUEHER gebaut wird", () => {
+  expect(writeDoorsIn(`const body = JSON.stringify(rows);
+await writeFile(ziel, body, "utf8");`)).toBe(1);
+
+  expect(writeDoorsIn(`const body = rows.join("|");
+await writeFile(ziel, body, "utf8");`)).toBe(0);
+});
+
 // --- Kommentar-Budget ---------------------------------------------------------------------
 
 test("ein zu langer Kommentarblock zaehlt, ein Text mit `//`-Zeilen nicht", () => {
@@ -74,8 +98,7 @@ test("ein zu langer Kommentarblock zaehlt, ein Text mit `//`-Zeilen nicht", () =
 
 // --- Mess-Tueren --------------------------------------------------------------------------
 
-/** Die FORM, nicht eine Schreibweise: jede Art, ein gescheitertes Lesen zu einer leeren Antwort
- *  zu machen, muss zaehlen. Genau hier lag der Routen-Erkenner falsch — er suchte `post(`. */
+// Die FORM, nicht eine Schreibweise — der Routen-Erkenner suchte einst nur `post(`.
 test("jede Form des geschluckten Lesefehlers zaehlt", () => {
   const planted = [
     'const t = await readFile(f, "utf8").catch(() => "");',
@@ -91,9 +114,7 @@ test("jede Form des geschluckten Lesefehlers zaehlt", () => {
   for (const form of planted) expect(measurementDoorsIn(form), form).toBeGreaterThan(0);
 });
 
-/** Der Erkenner zeigte auf den FUNKTIONSNAMEN und schloss `readdir`/`stat` als
- *  „Verzeichnisfrage" aus — im Pool entscheidet genau `readdir`, ob der gemessene Korpus null
- *  Aufnahmen hat. Entscheidend ist, ob eine MESSPOPULATION entsteht. */
+// `readdir` galt als „Verzeichnisfrage" — im Pool entscheidet genau es, ob der Korpus null Aufnahmen hat.
 test("ein Verzeichnis-Lesen zaehlt, sobald daraus eine Messpopulation wird", () => {
   const planted = [
     "const games = await readdir(recordings).catch(() => []);\nreturn games.length;",
@@ -104,8 +125,6 @@ test("ein Verzeichnis-Lesen zaehlt, sobald daraus eine Messpopulation wird", () 
   for (const form of planted) expect(measurementDoorsIn(form), form).toBeGreaterThan(0);
 });
 
-/** Eine strukturierte Leere ist dieselbe Luege wie `null`: das Feld, das die Messung traegt,
- *  ist leer, und die Huelle drumherum macht sie nur unsichtbar. */
 test("eine strukturierte Leere hinter einem Lesen zaehlt", () => {
   const planted = [
     'try { return meta(await readFile(f, "utf8")); } catch { return { classMode: null }; }',
@@ -133,8 +152,7 @@ test("ein geschluckter Lesefehler im Kommentar oder in einer Zeichenkette zaehlt
   expect(measurementDoorsIn("const hilfe = `for (const o of jsonlRows(t)) {}`;")).toBe(0);
 });
 
-/** Die Formen, an denen am 2026-09-23 menschliche Urteile hingen — der Erkenner sah KEINE davon.
- *  Wortgleich die Stellen VOR `60c1d559`: eine erfundene Antwort auf eine Plattenfrage. */
+// Wortgleich die Stellen vor `60c1d559` (2026-09-23), an denen menschliche Urteile hingen.
 test("eine erfundene Antwort auf `stat`/`open` zaehlt, auch als Ja/Nein", () => {
   const planted = [
     "export const stampOf = (file: string): Promise<Stamp> =>\n  stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => null);",
@@ -165,15 +183,13 @@ test("ein geratenes Objekt-Literal als Rueckfall zaehlt", () => {
   expect(measurementDoorsIn("const d = await readFile(f).catch(() => ({ width: 720, height: 816 }));")).toBe(1);
 });
 
-/** Die andere Seite: wer nicht auf die Platte fragt, beantwortet eine echte Ja/Nein-Frage. */
 test("ein `catch { return false }` ohne Plattenzugriff ist keine Mess-Tuer", () => {
   expect(measurementDoorsIn("try {\n  JSON.parse(text);\n  return true;\n} catch {\n  return false;\n}")).toBe(0);
   expect(measurementDoorsIn("const ok = await stat(f).then(() => true, (e) => { if (e.code !== \"ENOENT\") throw e; return false; });")).toBe(0);
   expect(measurementDoorsIn("const hinweis = await stat(f).then(() => 1, (e) => ({ fehler: String(e) }));")).toBe(0);
 });
 
-/** Die heute GEFIXTEN Stellen, gelesen aus dem jetzigen Code: zaehlte der Erkenner sie weiter,
- *  wuerde er Falsch-Positive melden und die Ratsche wuchse an Stellen, die schon richtig sind. */
+// Zaehlte der Erkenner die gefixten Stellen weiter, wuchse die Ratsche an richtigem Code.
 test("die am 2026-09-23 umgestellten Stellen zaehlen im jetzigen Code nicht mehr", () => {
   const fixed: [string, string][] = [
     ["lib/atomic.ts", "stampOf"],
@@ -198,7 +214,6 @@ test("die am 2026-09-23 umgestellten Stellen zaehlen im jetzigen Code nicht mehr
   }
 });
 
-/** Eine Deklaration auf oberster Ebene bis zu ihrer schliessenden Spalte-0-Klammer. */
 function symbolIn(text: string, symbol: string): string {
   const start = new RegExp(`^(?:export )?(?:async )?(?:function ${symbol}\\b|const ${symbol}\\b)`, "m").exec(text);
   if (!start) return "";

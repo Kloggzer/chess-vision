@@ -1,9 +1,6 @@
 /**
  * Die fuenf Zustaende einer `matte.jsonl`-Zeile — DASSELBE Fixture wie `tests/test_matte_state_parity.py`.
- *
- * Von keiner Seite geschrieben, von beiden gelesen, wie `parity/_geometry/mesh_crop_parity.json`.
- * Die Zustaende zu verwechseln war am 2026-09-15/16 vier Mal ein Bug: SAMs Absage als sauberes
- * Brett, eine fehlende Matte als `coverage 0`.
+ * Sie zu verwechseln war 2026-09-15/16 vier Mal ein Bug (Absage als sauberes Brett, fehlend als 0).
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";

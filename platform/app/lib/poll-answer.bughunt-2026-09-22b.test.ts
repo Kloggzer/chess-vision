@@ -1,10 +1,5 @@
-/**
- * Drei Poller lasen `r.json()` ohne `res.ok`. Der Rumpf einer 4xx/5xx-Antwort ist `{error}` und
- * traegt KEINES der Felder, die danach gelesen werden: die Leiste setzte ihn als `DrainStatus`
- * (`waiting` undefined — `visibleSteps` warf), die Karte als `{job, progress}` (`job` undefined —
- * `job.state` warf), die Transfer-Seite als `Board` und blieb auf "laedt…" stehen, waehrend die
- * Route ihren Grund schon geschrieben hatte.
- */
+/** Drei Poller lasen `r.json()` ohne `res.ok` und nahmen den `{error}`-Rumpf als Nutzlast — Leiste
+ *  und Karte warfen, die Transfer-Seite blieb auf "laedt…" stehen. */
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -12,8 +7,7 @@ import { readAnswer } from "@/lib/answer";
 
 const ROOT = path.join(__dirname, "..");
 
-/** Die FORM des Defekts: ein `.then`-Glied, das nur `x.json()` weiterreicht — dort ist `res.ok`
- *  nie gefragt worden und kann es auch nicht mehr werden. */
+/** Die FORM des Defekts: ein `.then`-Glied, das nur `x.json()` weiterreicht, fragt `res.ok` nie. */
 const RAW_JSON = /\.then\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*\1\s*\.json\(\)/g;
 
 async function sources(dir: string): Promise<string[]> {
@@ -66,10 +60,7 @@ test("ohne `error` im Rumpf bleibt der Statustext — nie ein leerer Erfolg", as
   await expect(readAnswer(answer(false, {}, "Internal Server Error"))).rejects.toThrow(/Internal Server Error/);
 });
 
-/**
- * Der Grund muss beim EMPFAENGER ankommen. Ein berechnetes Feld, das nur gesetzt und nirgends
- * gezeigt wird, ist derselbe stille Fang mit mehr Zeilen — `handScanned` lief so ins Leere.
- */
+// Der Grund muss beim EMPFAENGER ankommen; gesetzt und nie gezeigt ist derselbe stille Fang.
 const SHOWS = [
   ["app/shell.tsx", "fault"],
   ["app/transfers/board.tsx", "fault"],

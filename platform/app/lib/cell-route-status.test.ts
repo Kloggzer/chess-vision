@@ -4,11 +4,7 @@ import { beforeEach, expect, test } from "vitest";
 import { GET } from "@/app/api/cell/[name]/[stem]/[square]/route";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
-/**
- * Im ganzen TS-API gab es keine einzige 500: diese Route machte aus JEDEM Fehler ein 404 — aus
- * einer korrupten `log.jsonl` genauso wie aus einem fehlenden Frame. Das `<img>` zeigt beides als
- * kaputtes Bild, und den Rumpf liest niemand; unterscheidbar war es nur noch von Hand.
- */
+// Die Route machte aus JEDEM Fehler ein 404, auch aus einer korrupten `log.jsonl`.
 let root: string;
 
 const params = (name: string) =>
