@@ -109,7 +109,8 @@ def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
             "visible_type_err": bd["type_err"] if bd.get("n_pieces", 1) else None,
             "piece_acc": every["piece_acc"], "type_err": every["type_err"],
             "color_err": every["color_err"],
-            "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
+            "recall": {c: None if r is None else float(r)
+                       for c, r in zip(classes, recall, strict=False)},
             "per_session": per_session, "session_spread": spread}
 
 
@@ -321,10 +322,13 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
               "Spanne schlagen, sonst misst er, welche Sessions im Split lagen.")
     # 2. Per-Klassen-Recall
     cm = confusion_matrix(np.asarray(vis_trues), np.asarray(vis_preds), len(classes))
-    recall = per_class_recall(cm)
+    # Ohne sichtbare Zelle ist eine Klasse ungemessen, nicht "nie erkannt" — `ModelCard.kt` laesst
+    # `null` aus der "lowest recall"-Zeile, eine 0,0 fuehrte sie an.
+    recall = [float(r) if n else None
+              for r, n in zip(per_class_recall(cm), cm.sum(axis=1), strict=True)]
     print("Per-class recall:")
     for c, r in zip(classes, recall, strict=False):
-        print(f"  {c:<6} {r:.3f}")
+        print(f"  {c:<6} {_fmt(r)}")
     # 3. Confusion (Text + PNG), Blick auf König<->Dame und Figur<->empty
     # A foreign eval writes under its own stem: `eval_test.json` and its confusion are what
     # `run_export` merges into model_card.json, and must keep describing the run's own test split.
