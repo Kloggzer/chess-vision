@@ -29,7 +29,7 @@ import numpy as np
 from PIL import Image
 
 from .. import config
-from ..ioutil import write_json
+from ..ioutil import mtime_size, write_json
 from ..work_audit import measure
 
 log = logging.getLogger("chesslab.pack")
@@ -483,7 +483,7 @@ def load_packed(name: str, paths: config.Paths = config.DATA,
     manifest = dd / "manifest.jsonl"
     meta = dd / "packed_meta.json"
     fingerprint = tuple(
-        (p.stat().st_mtime_ns, p.stat().st_size) if p.exists() else None
+        mtime_size(p) if p.exists() else None
         for p in (manifest, meta)
     )
     with measure("packed dataset index loads", (dd.resolve(), fingerprint),

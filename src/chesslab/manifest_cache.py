@@ -15,7 +15,7 @@ import threading
 from collections import Counter
 from pathlib import Path
 
-from .ioutil import iter_jsonl
+from .ioutil import iter_jsonl, mtime_size
 
 _LOCK = threading.Lock()
 _CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
@@ -32,10 +32,9 @@ def manifest_stats(path: Path) -> dict:
     """Per-session aggregates for a manifest file; cached until the file changes."""
     path = Path(path)
     try:
-        st = path.stat()
+        key = mtime_size(path)
     except FileNotFoundError:
         return {"crops_by_session": {}}
-    key = (st.st_mtime_ns, st.st_size)
     with _LOCK:
         hit = _CACHE.get(path)
     if not (hit and hit[0] == key):

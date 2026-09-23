@@ -637,7 +637,18 @@ def _multi_index(rows, packed: MultiPack) -> np.ndarray:
     return np.array([lookup[r["path"]] for r in rows], dtype=np.int64).reshape(len(rows), 2)
 
 
-class PackedSquareDataset(Dataset):
+class _PackedMemmaps:
+    def _memmap(self, pack_no: int):
+        if self._mm is None:
+            self._mm = [None] * len(self._files)
+        if self._mm[pack_no] is None:
+            from .pack import open_packed_memmap
+            self._mm[pack_no] = open_packed_memmap(
+                *self._files[pack_no], low_memory=getattr(self, "low_memory", False))
+        return self._mm[pack_no]
+
+
+class PackedSquareDataset(_PackedMemmaps, Dataset):
     """Same contract as SquareDataset, but crops come from packed memmaps (see training.pack)
     instead of one ``Image.open`` per item — the fix for the 1M-PNG I/O bottleneck."""
 
@@ -683,15 +694,6 @@ class PackedSquareDataset(Dataset):
         state["_mm"] = None
         return state
 
-    def _memmap(self, pack_no: int):
-        if self._mm is None:                                   # opened lazily, once per worker
-            self._mm = [None] * len(self._files)
-        if self._mm[pack_no] is None:
-            from .pack import open_packed_memmap
-            self._mm[pack_no] = open_packed_memmap(
-                *self._files[pack_no], low_memory=getattr(self, "low_memory", False))
-        return self._mm[pack_no]
-
     def __len__(self) -> int:
         return len(self.idx)
 
@@ -725,7 +727,7 @@ def board_collate(batch):
     return torch.stack(xs), torch.cat(ys)
 
 
-class PackedBoardDataset(Dataset):
+class PackedBoardDataset(_PackedMemmaps, Dataset):
     """Ganze Bretter statt einzelner Zellen — 64 Crops eines Frames, in `a1..h8`-Reihenfolge.
 
     Nur VOLLSTAENDIGE Bretter: im Manifest von `real13-mix-v4` sind das 9 218 von 9 619 (95,8 %),
@@ -782,15 +784,6 @@ class PackedBoardDataset(Dataset):
         state["rows"] = None
         state["_mm"] = None
         return state
-
-    def _memmap(self, pack_no: int):
-        if self._mm is None:
-            self._mm = [None] * len(self._files)
-        if self._mm[pack_no] is None:
-            from .pack import open_packed_memmap
-            self._mm[pack_no] = open_packed_memmap(
-                *self._files[pack_no], low_memory=getattr(self, "low_memory", False))
-        return self._mm[pack_no]
 
     def __len__(self) -> int:
         return len(self.idx)

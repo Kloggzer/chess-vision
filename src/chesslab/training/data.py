@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import config
+from ..ioutil import mtime_size
 from ..work_audit import measure
 
 
@@ -25,9 +26,8 @@ def load_manifest(path: Path) -> list[dict]:
         # Semantics as before Rework 05: missing manifest is a hard error, not an empty
         # dataset — otherwise one silently "trains" on nothing.
         raise FileNotFoundError(f"Manifest not found: {p}")
-    st = p.stat()
-    with measure("manifest loads", (p.resolve(), st.st_mtime_ns, st.st_size),
-                 processed_bytes=st.st_size):
+    version = mtime_size(p)
+    with measure("manifest loads", (p.resolve(), *version), processed_bytes=version[1]):
         return read_jsonl(p)
 
 

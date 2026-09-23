@@ -17,6 +17,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,9 @@ from .calibration import (
 )
 from .cell_rule import PIECE_VISIBLE_MAX
 from .imgops import resize_keep_aspect
-from .ioutil import read_jsonl
+from .ioutil import mtime_size, read_jsonl
+from .sessions import read_log as _read_log
+from .sessions import read_session_meta
 from .state import GameState
 from .work_audit import current as current_work_audit
 from .work_audit import measure
@@ -209,25 +212,12 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
             for square in (all_squares() if squares is None else squares)]
 
 
-def read_session_meta(session_dir: Path) -> dict:
-    import yaml
-
-    p = session_dir / "session.yaml"
-    if not p.exists():
-        raise FileNotFoundError(f"session.yaml missing in {session_dir}")
-    with p.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
-
-
-def read_log(session_dir: Path) -> list[dict]:
-    from .ioutil import read_jsonl
-    from .sessions import refuse_interrupted_export
-
-    refuse_interrupted_export(session_dir)
-    p = session_dir / "log.jsonl"
-    if not p.exists():
-        raise FileNotFoundError(f"log.jsonl missing in {session_dir}")
-    return read_jsonl(p)
+read_log = partial(
+    _read_log,
+    allow_empty=True,
+    with_stamp=False,
+    missing_message="log.jsonl missing in {session_dir}",
+)
 
 
 def effective_profile(profile: CalibrationProfile, pad_side) -> CalibrationProfile:
@@ -296,9 +286,9 @@ def _fen_labels(fen: str, squares: tuple[str, ...], cache: dict[str, tuple[str, 
 
 def _read_slice_image(path: Path):
     try:
-        st = path.stat()
-        key = (path.resolve(), st.st_mtime_ns, st.st_size)
-        size = st.st_size
+        version = mtime_size(path)
+        key = (path.resolve(), *version)
+        size = version[1]
     except OSError:
         key, size = path.resolve(), 0
     with measure("slice image decodes", key, processed_bytes=size):

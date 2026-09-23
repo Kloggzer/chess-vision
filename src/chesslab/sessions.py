@@ -22,6 +22,7 @@ import json
 import logging
 import shutil
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from statistics import median
 
@@ -39,14 +40,18 @@ def _safe_id(session_id: str) -> str:
     return session_id
 
 
-def _read_meta(session_dir: Path) -> dict:
-    import yaml
-
+def read_session_meta(session_dir: Path, *, missing_ok: bool = False) -> dict | None:
     p = session_dir / "session.yaml"
     if not p.exists():
-        return {}
+        if missing_ok:
+            return {}
+        raise FileNotFoundError(f"session.yaml missing in {session_dir}")
     with p.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        meta = yaml.safe_load(fh)
+    return meta or {} if missing_ok else meta
+
+
+_read_meta = partial(read_session_meta, missing_ok=True)
 
 
 def _log_count(session_dir: Path) -> int:
@@ -517,7 +522,14 @@ def refuse_interrupted_export(sdir: Path) -> None:
             "two generations. Re-run `realgames export-session` or `session rewarp` first.")
 
 
-def read_log(sdir: Path, *, under_export: bool = False) -> LogRows:
+def read_log(
+    sdir: Path,
+    *,
+    under_export: bool = False,
+    allow_empty: bool = False,
+    with_stamp: bool = True,
+    missing_message: str | None = None,
+) -> list[dict]:
     """Every row of `log.jsonl`, in order — carrying the stamp `_write_log` presents back.
 
     `under_export=True` only for the steps that set and clear `EXPORT_MARKER` themselves, and for
@@ -526,13 +538,17 @@ def read_log(sdir: Path, *, under_export: bool = False) -> LogRows:
         refuse_interrupted_export(sdir)
     log_path = sdir / "log.jsonl"
     if not log_path.exists():
-        raise FileNotFoundError(f"Session '{sdir.name}' has no log.jsonl.")
-    stamp = stamp_of(log_path)
-    rows = LogRows(read_jsonl(log_path))
-    if not rows:
+        message = missing_message or "Session '{name}' has no log.jsonl."
+        raise FileNotFoundError(message.format(name=sdir.name, session_dir=sdir))
+    stamp = stamp_of(log_path) if with_stamp else None
+    rows = read_jsonl(log_path)
+    if not rows and not allow_empty:
         raise FileNotFoundError(f"Session '{sdir.name}' has no captured frames.")
-    rows.stamp = stamp
-    return rows
+    if not with_stamp:
+        return rows
+    stamped = LogRows(rows)
+    stamped.stamp = stamp
+    return stamped
 
 
 
