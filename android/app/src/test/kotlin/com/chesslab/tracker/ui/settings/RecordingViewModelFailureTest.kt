@@ -98,10 +98,10 @@ class RecordingViewModelFailureTest {
             val model =
                 RecordingViewModel(SessionStore(root), RecordingSettings(UnwritableStore()), this, StandardTestDispatcher(testScheduler))
 
-            model.exportSession("20260923-120000") { FullOutput() }
+            model.exportSession("20260923-120000", { FullOutput() }, { true })
             advanceUntilIdle()
 
-            assertEquals("Storage error: disk full", model.ui.value.error)
+            assertEquals("Storage error: disk full; the partial export was deleted", model.ui.value.error)
         }
 
     @Test
@@ -110,7 +110,7 @@ class RecordingViewModelFailureTest {
             val model =
                 RecordingViewModel(SessionStore(root), RecordingSettings(UnwritableStore()), this, StandardTestDispatcher(testScheduler))
 
-            model.exportSession("20260923-120000") { throw SecurityException("permission revoked") }
+            model.exportSession("20260923-120000", { throw SecurityException("permission revoked") }, { true })
             advanceUntilIdle()
 
             assertTrue(

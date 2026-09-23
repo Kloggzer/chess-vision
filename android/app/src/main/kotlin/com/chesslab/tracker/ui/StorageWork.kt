@@ -1,6 +1,7 @@
 package com.chesslab.tracker.ui
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -11,8 +12,9 @@ internal fun CoroutineScope.launchStorageWork(
     context: CoroutineContext,
     onFailure: (String) -> Unit,
     block: suspend () -> Unit,
+    start: CoroutineStart = CoroutineStart.DEFAULT,
 ): Job =
-    launch(context) {
+    launch(context, start) {
         try {
             block()
         } catch (e: IOException) {

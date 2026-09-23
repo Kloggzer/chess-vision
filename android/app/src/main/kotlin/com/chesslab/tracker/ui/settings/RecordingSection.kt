@@ -1,5 +1,6 @@
 package com.chesslab.tracker.ui.settings
 
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -40,10 +41,17 @@ import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart.ATOMIC
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.job
+import java.io.FilterOutputStream
 import java.io.IOException
 import java.io.OutputStream
 import kotlin.coroutines.CoroutineContext
@@ -103,18 +111,35 @@ class RecordingViewModel(
             mutable.value = onDisk(mutable.value).copy(error = if (deleted) null else "$id could not be deleted completely")
         }
 
-    /** [open] is the SAF destination; a refused or failed write lands on the page with its reason. */
+    /**
+     * [open] is a SAF document, which cannot be renamed into place: an export that does not finish
+     * [discard]s it. ATOMIC, so leaving before the start still removes the document SAF already made.
+     */
     fun exportSession(
         id: String,
         open: () -> OutputStream?,
-    ) = io {
-        val out =
-            try {
-                open()
-            } catch (e: SecurityException) {
-                throw IOException("access to the export destination was refused (${e.message})", e)
-            } ?: throw IOException("the export destination could not be opened")
-        out.use { zipSession(sessions.dir(id), it) }
+        discard: () -> Boolean,
+    ) = scope.launchStorageWork(
+        context,
+        { mutable.value = mutable.value.copy(error = it) },
+        { export(id, open, discard) },
+        ATOMIC,
+    )
+
+    private suspend fun export(
+        id: String,
+        open: () -> OutputStream?,
+        discard: () -> Boolean,
+    ) {
+        val job = currentCoroutineContext().job
+        try {
+            CancellableOutput(opened(open), job).use { zipSession(sessions.dir(id), it) }
+        } catch (e: CancellationException) {
+            mutable.value = mutable.value.copy(error = "Export of $id cancelled; ${discarded(discard)}")
+            throw e
+        } catch (e: IOException) {
+            throw IOException("${e.message}; ${discarded(discard)}", e)
+        }
         mutable.value = mutable.value.copy(error = null)
     }
 
@@ -124,8 +149,42 @@ class RecordingViewModel(
         return base.copy(sessions = list, sessionBytes = sessions.totalBytes(), transferred = transferred)
     }
 
+    private fun opened(open: () -> OutputStream?): OutputStream =
+        try {
+            open()
+        } catch (e: SecurityException) {
+            throw IOException("access to the export destination was refused (${e.message})", e)
+        } ?: throw IOException("the export destination could not be opened")
+
+    private fun discarded(discard: () -> Boolean): String =
+        if (runCatching(discard).getOrDefault(false)) {
+            "the partial export was deleted"
+        } else {
+            "the partial export could not be deleted, remove it by hand"
+        }
+
     private fun io(block: suspend () -> Unit) {
         scope.launchStorageWork(context, { mutable.value = mutable.value.copy(error = it) }, block)
+    }
+}
+
+/** Checks the export's job on every write; a blocking zip otherwise outlives the screen that started it. */
+private class CancellableOutput(
+    out: OutputStream,
+    private val job: Job,
+) : FilterOutputStream(out) {
+    override fun write(b: Int) {
+        job.ensureActive()
+        out.write(b)
+    }
+
+    override fun write(
+        b: ByteArray,
+        off: Int,
+        len: Int,
+    ) {
+        job.ensureActive()
+        out.write(b, off, len)
     }
 }
 
@@ -231,7 +290,11 @@ private fun SessionRow(
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri ?: return@rememberLauncherForActivityResult
             // SAF: the user picks the destination, so no storage permission is involved.
-            model.exportSession(session.id) { context.contentResolver.openOutputStream(uri) }
+            model.exportSession(
+                session.id,
+                open = { context.contentResolver.openOutputStream(uri) },
+                discard = { DocumentsContract.deleteDocument(context.contentResolver, uri) },
+            )
         }
     var confirming by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

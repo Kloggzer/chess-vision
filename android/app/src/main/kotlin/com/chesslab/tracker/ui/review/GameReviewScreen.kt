@@ -132,7 +132,7 @@ fun ArchiveReviewRoute(
     if (game == null) {
         val message =
             when {
-                ui.loading -> "Loading gameâ€¦"
+                ui.loading -> "Loading game…"
                 ui.error != null -> ui.error.orEmpty()
                 else -> "Game not found."
             }
