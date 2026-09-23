@@ -7,7 +7,6 @@
  * step's input is the previous file, so the next step is not a decision — it is READ OFF THE DISK.
  * The UI therefore offers exactly one button, and never one whose input does not exist yet.
  */
-import { createHash } from "node:crypto";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -391,34 +390,3 @@ export function clearAdoptFailures(): void {
   refusals.clear();
 }
 
-/** `phone` = the reference IS the phone's own move list, so confirming is a self-check. */
-export type ReferenceOrigin = "none" | "phone" | "outside";
-
-const md5 = (bytes: Buffer) => createHash("md5").update(bytes).digest("hex");
-
-/**
- * Where `reference.pgn` came from, by digest against every `files/games/*.pgn`.
- *
- * The same test `realgames.reference_is_the_phones_own` makes — deliberately not a second
- * definition, because `chesslab realgames confirm --yes` REFUSES on `phone` and a screen that drew
- * the line elsewhere would wave through what the CLI blocks.
- */
-export async function referenceOrigin(name: string): Promise<ReferenceOrigin> {
-  const dir = gameDir(name);
-  // Nur ENOENT ist "none": ein EACCES liess sonst das Handy-PGN als menschliche Referenz durch.
-  const bytes = await readReferenceBytes(name);
-  if (bytes === null) return "none";
-  const digest = md5(bytes);
-  const games = path.join(dir, "files", "games");
-  let pgns: string[] = [];
-  try {
-    pgns = (await readdir(games)).filter((f) => f.endsWith(".pgn"));
-  } catch (e) {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return "outside"; // no bundle to have written it
-  }
-  for (const file of pgns) {
-    if (md5(await readFile(path.join(games, file))) === digest) return "phone";
-  }
-  return "outside";
-}

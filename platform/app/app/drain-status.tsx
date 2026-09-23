@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { readAnswer } from "@/lib/answer";
-import type { DrainTarget } from "@/lib/chain/drain";
+import type { DrainTarget } from "@/lib/job-steps";
 import type { DrainStatus } from "@/lib/chain/drain";
 
 const POLL_MS = 5000;

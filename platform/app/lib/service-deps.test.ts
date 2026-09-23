@@ -1,26 +1,133 @@
-/** Der Store meldet, die Kette startet: `lib/session-store/` importiert nichts aus `lib/chain/`
- *  (`docs/web-architektur.md`). Die Rueckkante `matte-fix -> chain/jobs` ist so entfernt worden. */
-import { readFile, readdir } from "node:fs/promises";
+/** Die erlaubte Richtung zwischen den Services unter `lib/` (`docs/web-architektur.md`): ein
+ *  Modul importiert nur aus seinem eigenen Ordner oder aus einer TIEFEREN Schicht, und der
+ *  Importgraph hat keinen Zyklus. Importe liest `ts.preProcessFile` — die Form, nicht der Text. */
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 import { expect, test } from "vitest";
 
 const ROOT = path.join(__dirname, "..");
-const CHAIN = /(?:from\s+|import\s*\(\s*)["']@\/lib\/chain\/[^"']+["']/g;
 
-const chainImportsIn = (text: string): string[] => [...text.matchAll(CHAIN)].map((m) => m[0]);
+/** Kern <- session-store <- {ingest, reports} <- label <- corpus <- chain. Gleiche Zahl heisst
+ *  Geschwister: die duerfen einander NICHT importieren. Ein neuer Ordner muss hier eingetragen werden. */
+const RANK: Record<string, number> = {
+  kern: 0, "session-store": 1, ingest: 2, reports: 2, label: 3, corpus: 4, chain: 5,
+};
 
-test("lib/session-store/ haengt nicht an lib/chain/", async () => {
-  const dir = path.join(ROOT, "lib", "session-store");
-  const offences: string[] = [];
-  for (const file of (await readdir(dir)).filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".test.ts"))) {
-    for (const hit of chainImportsIn(await readFile(path.join(dir, file), "utf8"))) offences.push(`${file}: ${hit}`);
+type Graph = Map<string, string[]>;
+
+const serviceOf = (mod: string) => (mod.split("/").length > 2 ? mod.split("/")[1] : "kern");
+
+function importsIn(text: string): string[] {
+  return ts.preProcessFile(text, true, true).importedFiles.map((f) => f.fileName);
+}
+
+function libGraph(): Graph {
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(rel);
+      else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) files.push(rel);
+    }
+  };
+  walk("lib");
+  const mods = new Set(files.map((f) => f.replace(/\.tsx?$/, "")));
+  const graph: Graph = new Map();
+  for (const file of files) {
+    const me = file.replace(/\.tsx?$/, "");
+    const targets = importsIn(readFileSync(path.join(ROOT, file), "utf8")).flatMap((spec) => {
+      const raw = spec.startsWith("@/") ? spec.slice(2)
+        : spec.startsWith(".") ? path.posix.normalize(path.posix.join(path.posix.dirname(me), spec)) : null;
+      if (raw === null) return [];
+      const mod = raw.replace(/\.tsx?$/, "");
+      if (mod.startsWith("app/") || mod.startsWith("components/")) return [mod];
+      return mods.has(mod) ? [mod] : mods.has(`${mod}/index`) ? [`${mod}/index`] : [];
+    });
+    graph.set(me, targets);
   }
-  expect(offences, "der Store meldet, die Kette startet — ruf ihn aus lib/chain/ auf").toEqual([]);
+  return graph;
+}
+
+function wrongWay(graph: Graph): string[] {
+  const out: string[] = [];
+  for (const [from, targets] of graph) {
+    const a = serviceOf(from);
+    if (!(a in RANK)) out.push(`${from}: Ordner ${a} hat keine Schicht`);
+    for (const to of targets) {
+      if (!to.startsWith("lib/")) { out.push(`${from} -> ${to}`); continue; }
+      const b = serviceOf(to);
+      if (a !== b && !(RANK[a] > RANK[b])) out.push(`${from} -> ${to}`);
+    }
+  }
+  return out;
+}
+
+/** Tarjan: jede stark zusammenhaengende Komponente mit mehr als einem Modul (oder Selbstschleife). */
+function cycles(graph: Graph): string[][] {
+  let next = 0;
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const out: string[][] = [];
+  const visit = (v: string) => {
+    index.set(v, next);
+    low.set(v, next++);
+    stack.push(v);
+    onStack.add(v);
+    for (const w of graph.get(v) ?? []) {
+      if (!index.has(w)) {
+        visit(w);
+        low.set(v, Math.min(low.get(v)!, low.get(w)!));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v)!, index.get(w)!));
+    }
+    if (low.get(v) !== index.get(v)) return;
+    const scc: string[] = [];
+    let w: string;
+    do {
+      w = stack.pop()!;
+      onStack.delete(w);
+      scc.push(w);
+    } while (w !== v);
+    if (scc.length > 1 || (graph.get(v) ?? []).includes(v)) out.push(scc.sort());
+  };
+  for (const v of graph.keys()) if (!index.has(v)) visit(v);
+  return out;
+}
+
+test("lib/ importiert nur abwaerts: Kern <- session-store <- {ingest, reports} <- label <- corpus <- chain", () => {
+  expect(wrongWay(libGraph()), "Funktion an den tieferen Ort ziehen, Typ in den gemeinsamen").toEqual([]);
 });
 
-test("Gegenprobe: statischer, Typ- und dynamischer Import zaehlen, ein Kommentar-Pfad nicht", () => {
-  expect(chainImportsIn('import { busy } from "@/lib/chain/slot";')).toHaveLength(1);
-  expect(chainImportsIn("import type { Job } from '@/lib/chain/slot';")).toHaveLength(1);
-  expect(chainImportsIn('const m = await import("@/lib/chain/jobs");')).toHaveLength(1);
-  expect(chainImportsIn("// wie `lib/chain/jobs.ts`")).toEqual([]);
+test("lib/ hat keinen Importzyklus", () => {
+  expect(cycles(libGraph())).toEqual([]);
+});
+
+test("der Graph sieht die Service-Ordner und ihre Kanten", () => {
+  const graph = libGraph();
+  expect(graph.get("lib/chain/queues")).toContain("lib/session-store/recordings");
+  expect(new Set([...graph.keys()].map(serviceOf))).toEqual(new Set(Object.keys(RANK)));
+});
+
+test("Gegenprobe: statischer, Typ-, Re-Export- und dynamischer Import zaehlen, Kommentar und Text nicht", () => {
+  expect(importsIn('import { busy } from "@/lib/chain/slot";')).toEqual(["@/lib/chain/slot"]);
+  expect(importsIn("import type { Job } from '@/lib/chain/slot';")).toEqual(["@/lib/chain/slot"]);
+  expect(importsIn('export { x } from "@/lib/chain/slot";')).toEqual(["@/lib/chain/slot"]);
+  expect(importsIn('const m = await import("@/lib/chain/jobs");')).toEqual(["@/lib/chain/jobs"]);
+  expect(importsIn('// import { a } from "@/lib/chain/jobs";\nconst s = "from \'@/lib/chain/x\'";')).toEqual([]);
+});
+
+test("Gegenprobe: eine eingepflanzte Rueckkante und ein Zyklus schlagen an", () => {
+  const graph = libGraph();
+  const plant = (from: string, to: string) => new Map(graph).set(from, [...(graph.get(from) ?? []), to]);
+  expect(wrongWay(plant("lib/session-store/recordings", "lib/chain/chain"))).toEqual([
+    "lib/session-store/recordings -> lib/chain/chain",
+  ]);
+  expect(wrongWay(plant("lib/ingest/ingest", "lib/reports/audit-flags"))).toHaveLength(1);
+  expect(wrongWay(plant("lib/fen", "lib/label/lanes"))).toHaveLength(1);
+  expect(wrongWay(plant("lib/label/lanes", "components/x"))).toHaveLength(1);
+  expect(wrongWay(new Map(graph).set("lib/neu/x", []))).toHaveLength(1);
+  expect(cycles(plant("lib/session-store/recordings", "lib/chain/queues"))).toHaveLength(1);
+  expect(cycles(new Map([["a", ["a"]]]))).toEqual([["a"]]);
 });

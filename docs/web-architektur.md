@@ -16,9 +16,11 @@ schrieb, baute sich den Pfad selbst, und zwei Seiten/Routen gingen direkt an `no
 | Reports | `lib/reports/` | die READ-ONLY-Berichte unter `data/reports/` (`audit-flags`, `hand-flags`, ...) |
 | Kern | `lib/*.ts` | Politik und reine Helfer: `atomic`, `jsonl`, `measurement`, `serialize`, `warp`, `fen`, `classes`, `lcs`, `pgn`, `query`, ... |
 
-Abhaengigkeiten laufen abwaerts: `label`/`corpus`/`reports`/`ingest` -> `session-store` -> Kern;
-`chain` darf alle Services lesen. Der Store haengt nicht an der Kette (`lib/service-deps.test.ts`);
-`label` tut es noch (`label-stream` -> `chain/queues#recordedAt`, Typen aus `backlog`/`drain`/`chain`).
+Abhaengigkeiten laufen abwaerts, festgeschrieben seit Runde 3 (`lib/service-deps.test.ts`):
+**Kern <- session-store <- {ingest, reports} <- label <- corpus <- chain <- app.** Ein Modul
+importiert aus seinem eigenen Ordner oder aus einer tieferen Schicht; `ingest` und `reports` sind
+Geschwister und kennen einander nicht; `lib/` importiert nichts aus `app/`/`components/`; ein
+neuer Ordner unter `lib/` braucht eine Schicht. Derselbe Waechter verbietet Importzyklen in `lib/`.
 
 ## Regeln und ihre Waechter
 
@@ -29,8 +31,11 @@ Abhaengigkeiten laufen abwaerts: `label`/`corpus`/`reports`/`ingest` -> `session
   `boards/`, `mattes/` (als Pfad, nicht als Schluessel), und `recordingFile(…, "candidate"|"reference")`
   gilt ausserhalb des Stores als Verstoss: die Lesepolitik steht in `peekCandidate`,
   `hasCandidateFile`, `readReferenceBytes`, `hasReferenceFile`, `writeReferenceOnce`.
-- **Der Store meldet, die Kette startet**: `session-store/` importiert nichts aus `chain/`
-  (`lib/service-deps.test.ts`). Der Stift fragt den Slot in `chain/matte-edit.ts`, der Store legt
+- **Abwaerts und zyklenfrei**: die Schichtfolge oben, gelesen mit `ts.preProcessFile` (statisch,
+  `import type`, Re-Export, dynamisch; Kommentar und Text nicht). Gegenprobe im Test: eine
+  eingepflanzte Rueckkante, ein Geschwister-Import, Kern -> Service, `lib` -> `components`, ein
+  Ordner ohne Schicht und ein Zyklus schlagen je an (`lib/service-deps.test.ts`).
+- **Der Store meldet, die Kette startet**: `session-store/` importiert nichts aus `chain/`. Der Stift fragt den Slot in `chain/matte-edit.ts`, der Store legt
   nur die `.fixed.webp` ab.
 - **`app/` greift nicht auf die Platte**: kein `node:fs`, aus `atomic`/`measurement`/`jsonl` nur
   die Fehlerklassen (`Contested`, `isMissing`, `absentOnly`). Waechter: `lib/route-boundary.test.ts`.
@@ -61,9 +66,29 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
 - `label/lanes.ts` und `label-stream.ts` bleiben ungeteilt: `lanes` beantwortet eine Frage (was
   zeigt eine Lane), `label-stream` baut einen Strom; ein Schnitt waere kosmetisch.
 
+## Runde 3 (2026-09-23)
+
+- Rueckkanten `label -> chain` aufgeloest: `recordedAt` (ein Name, keine Kette) nach
+  `session-store/recordings.ts`; `JobStep`/`JOB_STEPS`/`isJobStep`/`DrainTarget` in den Kern
+  (`lib/job-steps.ts`, rein, client-tauglich — `step-lane` fuehrt damit keine Kopie der
+  Reihenfolge mehr); `referenceOrigin` samt Typ `ReferenceOrigin` in `session-store/reference.ts`
+  (liest nur die Aufnahme). `chain -> label` (`backlog` -> `zuege#EXPORT_HOLD_MS`) und
+  `corpus -> label` (`liveGames`) sind erlaubt und bleiben.
+- Zyklen: `lib/` hatte keinen (Tarjan ueber alle Nicht-Test-Module), der Waechter haelt es so.
+- Logik aus `app/` in Services: `gameInfo` stand zweimal (`app/page.tsx`, `app/game/[name]`),
+  jetzt `lib/chain/game-info.ts` mit dem Typ `GameInfo` — die Kopie auf `/game/<name>` las nur
+  `ui-meta.json` und zeigte einen von Python archivierten Lauf als aktiv (roter Test in
+  `lib/page-services.test.ts`, jetzt `isArchived` wie `/`). LCS + Karten + Galerie standen in
+  `/confirm/<name>` und `/strom/zuege`: jetzt `review-cards.ts#reviewOf` (rein) und
+  `label/review-read.ts` (`confirmReview`, `streamGame`); der Strom verwirft das Handy-PGN weiter,
+  die Confirm-Seite nicht. Die Props der Seiten sind vor dem Umzug in `lib/page-services.test.ts`
+  festgehalten worden.
+
 ## Offen fuer die naechste Runde
 
-- `label/` liest aus `chain/` (siehe oben) — `recordedAt` gehoert eher in den Store.
+- `app/` hat zwei Importzyklen zwischen Client-Komponenten: `app/strom/labeln/` (`stream`,
+  `board-lane`, `cell-lane`, `frame-lane`, `mobile-sort`) und `app/strom/matte/` (`review` <->
+  `frame`). Der Waechter prueft nur `lib/`.
 - `chain/chain.ts` nennt `log`/`matte`/`modelReads` weiter ueber `recordingFile` zum Stempeln.
 - Ein Service-Eingang je Ordner (`lib/session-store/index.ts`) erst, wenn die Waechter auf den
   Ordner statt auf Dateien zeigen koennen — heute pruefen sie Dateipfade.

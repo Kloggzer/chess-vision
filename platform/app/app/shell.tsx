@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { DrainTarget } from "@/lib/chain/drain";
+import type { DrainTarget } from "@/lib/job-steps";
 import { visibleSteps } from "@/lib/label/step-lane";
 import { runDot, runState, useDrain, type Drain } from "./drain-status";
 
@@ -91,8 +91,7 @@ const STEPS: readonly { step: DrainTarget; label: string; hint: string }[] = [
 function StepButton({ drain, entry, wide }: { drain: Drain; entry: (typeof STEPS)[number]; wide: boolean }) {
   const { status, busy, start } = drain;
   // Die Kette hat keine eigene Warteschlange: sie bedient jede Sprosse, also zaehlt die Summe.
-  // Ueber die Antwort summiert, nicht ueber `JOB_STEPS` — das Modul fasst die Platte an und
-  // gehoert damit nicht in eine Client-Komponente (`client-boundary.test.ts`).
+  // Ueber die Antwort summiert: sie traegt genau die Sprossen, die der Server gezaehlt hat.
   const waiting = entry.step === "chain"
     ? Object.values(status?.waiting ?? {}).reduce((sum, n) => sum + n, 0)
     : (status?.waiting?.[entry.step] ?? 0);

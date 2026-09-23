@@ -4,7 +4,7 @@
  *
  * Pure on purpose — the client component owns the loop and imports this, the page owns the disk.
  */
-import type { ReferenceOrigin } from "@/lib/chain/chain";
+import type { ReferenceOrigin } from "@/lib/session-store/reference";
 import type { ReviewCard } from "@/lib/label/review-cards";
 
 /**

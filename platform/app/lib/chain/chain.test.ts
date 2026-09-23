@@ -1,7 +1,8 @@
 import { appendFile, mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, test, vi } from "vitest";
-import { adoptPgn, chainState, nextStep, referenceOrigin } from "@/lib/chain/chain";
+import { adoptPgn, chainState, nextStep } from "@/lib/chain/chain";
+import { referenceOrigin } from "@/lib/session-store/reference";
 import { videoInput } from "@/lib/ingest/ingest";
 import { matteCensus, matteSources } from "@/lib/session-store/matte";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";

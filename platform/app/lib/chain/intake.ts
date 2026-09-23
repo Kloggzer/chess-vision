@@ -5,7 +5,8 @@
  */
 import { STEP } from "@/lib/chain/steps";
 import type { Job } from "@/lib/chain/slot";
-import { newestFirst, recordedAt, type QueueRow } from "@/lib/chain/queues";
+import { newestFirst, type QueueRow } from "@/lib/chain/queues";
+import { recordedAt } from "@/lib/session-store/recordings";
 
 /** The chain's own order; a recording is in exactly one group, or in none (useless, archived, bare). */
 export const INTAKE_GROUPS = ["phone-record", "label", "confirm", "export", "settle-scan", "matte", "temporal", "model-read", "labeln"] as const;

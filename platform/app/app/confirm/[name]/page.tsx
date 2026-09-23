@@ -1,20 +1,12 @@
 import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import { PageTitle } from "@/app/page-title";
-import { chainState, referenceOrigin } from "@/lib/chain/chain";
+import { chainState } from "@/lib/chain/chain";
 import { Badge } from "@/components/ui/badge";
 import { ReferenceChip } from "@/components/reference-chip";
-import {
-  confirmedAgainst,
-  listFrameStems,
-  loadCandidate,
-  readReference,
-  readReferenceBytes,
-  referenceDigest,
-} from "@/lib/session-store/recordings";
-import { lcsReport } from "@/lib/lcs";
+import { loadCandidate } from "@/lib/session-store/recordings";
 import { absentOnly } from "@/lib/measurement";
-import { buildGalleryCards, buildReviewCards } from "@/lib/label/review-cards";
+import { confirmReview } from "@/lib/label/review-read";
 import { ConfirmReview } from "./cards";
 import { ReferenceEditor } from "./reference-editor";
 
@@ -51,51 +43,10 @@ export default async function ConfirmPage({
   // is nothing to confirm yet, and the page that says so is also the page that offers the step.
   const candidate = await loadCandidate(name).catch(absentOnly);
   if (!candidate) return <NoCandidate name={name} />;
-  const [reference, origin] = await Promise.all([
-    readReference(name),
-    referenceOrigin(name),
-  ]);
-  const referenceBytes = await readReferenceBytes(name);
-  const referenceText = referenceBytes?.toString("utf8") ?? "";
-  const referenceMd5 = referenceBytes === null ? null : referenceDigest(referenceBytes);
-  const truth = reference?.sans ?? null;
-  const against = candidate.confirmed ? confirmedAgainst(candidate, referenceMd5) : null;
+  const {
+    reference, origin, truth, referenceText, referenceMd5, against, matched, invented, missed, cards, gallery,
+  } = await confirmReview(name, candidate);
   const moves = candidate.moves;
-  // Without a `reference.pgn` there is nothing to match against, so EVERY ply is the human's to
-  // judge — the same review, minus the machine narrowing it down first.
-  const { matched, invented, missed } = truth
-    ? lcsReport(
-        truth,
-        moves.map((m) => m.san),
-      )
-    : {
-        matched: [] as [number, number][],
-        invented: moves.map((_, i) => i),
-        missed: [],
-      };
-  const missedSans = new Set(missed.map((i) => truth?.[i] ?? ""));
-
-  // Every stem on disk once, then per card the window [commit-2, next commit) — the frames that
-  // can show the position AFTER this ply. A commit can anchor mid-hand (a verify or pair commit,
-  // or a blitz reply already arriving), so ONE picture is sometimes a hand and nothing else; the
-  // card lets the human step through what exists instead of judging a covered board. Plies that
-  // share a commit frame share that window, so they share ONE card (`lib/label/review-cards.ts`).
-  const stems = await listFrameStems(name);
-  const cards = buildReviewCards({
-    moves,
-    indices: invented,
-    stems,
-    startFen: candidate.start_fen,
-    missedSans,
-  });
-  // The matched plies get the same windows without a verdict: a clean LCS says nothing about
-  // hands, crops or dark frames, and a game that matches perfectly showed the human NOTHING.
-  const gallery = buildGalleryCards({
-    moves,
-    matched,
-    stems,
-    startFen: candidate.start_fen,
-  });
 
   return (
     <main className="space-y-4">

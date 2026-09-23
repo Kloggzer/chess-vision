@@ -1,55 +1,13 @@
 import { Progress } from "@/components/progress";
-import { chainState } from "@/lib/chain/chain";
+import { gameInfo, type GameInfo } from "@/lib/chain/game-info";
 import { jobs } from "@/lib/chain/jobs";
-import type { Job } from "@/lib/chain/slot";
-import { judgedKeys } from "@/lib/session-store/corrections";
-import { listGames, loadCandidate, truthSans } from "@/lib/session-store/recordings";
-import { isArchived, loadMeta } from "@/lib/session-store/meta";
-import { boardProgressOf, modelReadRows, readKey } from "@/lib/session-store/model-reads";
-import { bareFrames, splitQueues, type QueueRow } from "@/lib/chain/queues";
-import { sessionId } from "@/lib/session-store/session";
+import { listGames } from "@/lib/session-store/recordings";
+import { splitQueues, type QueueRow } from "@/lib/chain/queues";
 import { BareBundles } from "./bare-bundles";
-import { GameCard, type GameInfo } from "./cards";
+import { GameCard } from "./cards";
 import { PageTitle } from "./page-title";
 
 export const dynamic = "force-dynamic";
-
-/** BRETTER first, cells second (CONCEPT.md 6.2): the board is the unit a human clears. */
-async function progress(name: string) {
-  const decided = await judgedKeys(name);
-  const { census, boards, done } = await boardProgressOf(name, decided.keys());
-  const rows = await modelReadRows(name);
-  return {
-    boards,
-    boardsDone: done,
-    cells: census.cells,
-    cellsDone: rows.filter((r) => decided.has(readKey(r))).length,
-    modelRead: census.present,
-  };
-}
-
-async function gameInfo(name: string, lastJob: Job | null): Promise<GameInfo> {
-  const meta = await loadMeta(name);
-  const candidate = await loadCandidate(name).catch(() => null);
-  const chain = await chainState(name);
-  const pgn = await truthSans(name);
-  return {
-    name,
-    sessionId: sessionId(name),
-    title: meta.title ?? null,
-    archived: await isArchived(name),
-    frames: await bareFrames(name, chain),
-    createdAt: candidate?.created_at ?? null,
-    confirmed: candidate?.confirmed ?? false,
-    confirmedAt: candidate?.confirmed_at ?? null,
-    plies: candidate?.moves.length ?? 0,
-    reviewed: candidate?.reviewed_plies?.length ?? 0,
-    pgnPlies: pgn ? pgn.length : null,
-    chain,
-    lastJob,
-    ...(await progress(name)),
-  };
-}
 
 /** The same row the queue pages split — built from what this page already read, not re-read. */
 const rowOf = (game: GameInfo): QueueRow => ({
@@ -65,7 +23,7 @@ export default async function Home() {
   // One read of the job ledger for the whole list, not one per card.
   const recent = new Map((await jobs(200)).map((job) => [job.name, job]));
   const games = await Promise.all(
-    (await listGames()).map((name) => gameInfo(name, recent.get(name) ?? null)),
+    (await listGames()).map(async (name) => (await gameInfo(name, recent.get(name) ?? null)).info),
   );
   const rows = games.map(rowOf);
   const queues = splitQueues(rows);

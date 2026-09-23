@@ -1,10 +1,10 @@
 import { constants } from "node:fs";
-import { copyFile, writeFile } from "node:fs/promises";
+import { copyFile, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Chess } from "chess.js";
 import { stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
 import { exists, stampOrMissing } from "@/lib/measurement";
-import { referencePath } from "@/lib/session-store/recordings";
+import { gameDir, readReferenceBytes, referenceDigest, referencePath } from "@/lib/session-store/recordings";
 
 /** Liegt eine `reference.pgn`? Nur ENOENT heisst nein — ein EACCES wirft. */
 export const hasReferenceFile = (name: string): Promise<boolean> => exists(referencePath(name));
@@ -75,4 +75,30 @@ export async function saveReference(name: string, text: string, replace: boolean
   } finally {
     writing.delete(file);
   }
+}
+
+/** `phone` = the reference IS the phone's own move list, so confirming is a self-check. */
+export type ReferenceOrigin = "none" | "phone" | "outside";
+
+/** Where `reference.pgn` came from, by digest against every `files/games/*.pgn` — the same test
+ *  `realgames.reference_is_the_phones_own` makes, because `chesslab realgames confirm --yes`
+ *  REFUSES on `phone` and a screen that drew the line elsewhere would wave through what it blocks. */
+export async function referenceOrigin(name: string): Promise<ReferenceOrigin> {
+  const dir = gameDir(name);
+  // Nur ENOENT ist "none": ein EACCES liess sonst das Handy-PGN als menschliche Referenz durch.
+  const bytes = await readReferenceBytes(name);
+  if (bytes === null) return "none";
+  const digest = referenceDigest(bytes);
+  const games = path.join(dir, "files", "games");
+  let pgns: string[] = [];
+  try {
+    pgns = (await readdir(games)).filter((f) => f.endsWith(".pgn"));
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
+    return "outside"; // no bundle to have written it
+  }
+  for (const file of pgns) {
+    if (referenceDigest(await readFile(path.join(games, file))) === digest) return "phone";
+  }
+  return "outside";
 }

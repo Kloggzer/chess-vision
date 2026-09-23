@@ -205,7 +205,7 @@ test("die am 2026-09-23 umgestellten Stellen zaehlen im jetzigen Code nicht mehr
     ["lib/session-store/recordings.ts", "frameSize"],
     ["lib/session-store/recordings.ts", "requireRecording"],
     ["lib/chain/chain.ts", "stampOf"],
-    ["lib/chain/chain.ts", "referenceOrigin"],
+    ["lib/session-store/reference.ts", "referenceOrigin"],
   ];
   for (const [file, symbol] of fixed) {
     const body = symbolIn(readFileSync(path.join(__dirname, "..", file), "utf8"), symbol);

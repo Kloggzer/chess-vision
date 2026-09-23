@@ -1,19 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { GameCard, type GameInfo } from "@/app/cards";
+import { GameCard } from "@/app/cards";
 import { PageTitle } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { SessionDelete } from "@/components/session-delete";
-import { chainState } from "@/lib/chain/chain";
 import { failureParts } from "@/lib/failure";
-import { judgedKeys } from "@/lib/session-store/corrections";
-import { listGames, loadCandidate, truthSans } from "@/lib/session-store/recordings";
+import { gameInfo } from "@/lib/chain/game-info";
+import { listGames } from "@/lib/session-store/recordings";
 import { jobLogTail } from "@/lib/chain/job-log";
 import { jobHistory } from "@/lib/chain/ledger";
 import type { Job } from "@/lib/chain/slot";
-import { loadMeta } from "@/lib/session-store/meta";
-import { boardProgressOf, modelReadRows, readKey, type ReadCensus } from "@/lib/session-store/model-reads";
-import { bareFrames } from "@/lib/chain/queues";
 import { sessionDir, sessionId } from "@/lib/session-store/session";
 
 export const dynamic = "force-dynamic";
@@ -25,39 +21,6 @@ export const dynamic = "force-dynamic";
  * It is the ONE page that may be slow: the exact `cellsDone` costs a parse of this game's model
  * reads, which is precisely what the list surfaces refuse to pay and what a debug surface is for.
  */
-async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: GameInfo; census: ReadCensus }> {
-  const [meta, candidate, chain, pgn] = await Promise.all([
-    loadMeta(name),
-    loadCandidate(name).catch(() => null),
-    chainState(name),
-    truthSans(name),
-  ]);
-  const decided = await judgedKeys(name);
-  const { census, boards, done } = await boardProgressOf(name, decided.keys());
-  const rows = await modelReadRows(name);
-  const info: GameInfo = {
-    name,
-    sessionId: sessionId(name),
-    title: meta.title ?? null,
-    archived: meta.archived ?? false,
-    frames: await bareFrames(name, chain),
-    createdAt: candidate?.created_at ?? null,
-    confirmed: candidate?.confirmed ?? false,
-    confirmedAt: candidate?.confirmed_at ?? null,
-    plies: candidate?.moves.length ?? 0,
-    reviewed: candidate?.reviewed_plies?.length ?? 0,
-    pgnPlies: pgn ? pgn.length : null,
-    boards,
-    boardsDone: done,
-    cells: census.cells,
-    cellsDone: rows.filter((r) => decided.has(readKey(r))).length,
-    modelRead: census.present,
-    chain,
-    lastJob,
-  };
-  return { info, census };
-}
-
 export default async function GamePage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;
   if (!(await listGames()).includes(name)) notFound();

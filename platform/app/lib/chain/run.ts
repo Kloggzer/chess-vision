@@ -1,5 +1,5 @@
 // Single door for every press; the lock is taken HERE, so no two heavy jobs can overlap.
-import { isJobStep } from "@/lib/chain/backlog";
+import { isJobStep } from "@/lib/job-steps";
 import { chainState, type ChainState } from "@/lib/chain/chain";
 import { claimHeavyLock, releaseHeavyLock } from "@/lib/chain/heavy-lock";
 import { modelReadRun } from "@/lib/chain/cli-args";

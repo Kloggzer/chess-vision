@@ -7,7 +7,7 @@
  */
 import type { ChainState, ChainStep } from "@/lib/chain/chain";
 import { adoptOffered, chainState } from "@/lib/chain/chain";
-import { countFrames, listGames, loadCandidate } from "@/lib/session-store/recordings";
+import { countFrames, listGames, loadCandidate, recordedAt } from "@/lib/session-store/recordings";
 import { isArchived, loadMeta } from "@/lib/session-store/meta";
 
 export type QueueRow = {
@@ -48,15 +48,6 @@ export function isBare(row: Pick<QueueRow, "chain">): boolean {
 
 /** The two steps that write `candidate.json`: a bundle with a phone record waits like a replay one. */
 export const proposesCandidate = (step: ChainStep | null): boolean => step === "label" || step === "phone-record";
-
-/**
- * The second a bundle was recorded, read off its name.
- *
- * Two naming schemes are on disk and both carry the same 14 digits — `2026-08-13-19-34-23` from
- * the transfer and `VID_20260802_222741` from the phone's own camera roll. On the raw name the
- * letter sorts above every digit, which put the OLDEST recordings at the top of both queues.
- */
-export const recordedAt = (name: string) => name.replace(/\D/g, "").padEnd(14, "0").slice(0, 14);
 
 /** Newest first, ties broken by the name so the order never depends on the readdir. */
 export const newestFirst = (rows: QueueRow[]) =>

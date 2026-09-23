@@ -10,7 +10,7 @@
  */
 import { judgedKeys, recentVerdicts, type Ledger } from "@/lib/session-store/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
-import { listGames } from "@/lib/session-store/recordings";
+import { listGames, recordedAt } from "@/lib/session-store/recordings";
 import { type AuditFlag, loadAuditFlags } from "@/lib/reports/audit-flags";
 import { type PositionFlag, loadPositionFlags } from "@/lib/reports/position-flags";
 import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/reports/correction-violations";
@@ -19,7 +19,6 @@ import { type FrameHand, handKey, loadFrameHands } from "@/lib/reports/frame-han
 import { isArchived } from "@/lib/session-store/meta";
 import { modelReadRows, topRead, type ModelRead } from "@/lib/session-store/model-reads";
 import { frameReviews, matteWanted, unusableBoards } from "@/lib/session-store/review-notes";
-import { recordedAt } from "@/lib/chain/queues";
 import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session-store/session";
 import { loadMatte } from "@/lib/session-store/matte";
 import { unusableCells } from "@/lib/session-store/unusable-cells";

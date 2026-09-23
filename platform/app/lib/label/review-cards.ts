@@ -1,6 +1,7 @@
 /** One card per frame (not ply); plies on same frame collapse with shared picture. Wire: index stays intact. */
 import { Chess } from "chess.js";
 
+import { lcsReport, type LcsReport } from "@/lib/lcs";
 import type { FrameStem } from "@/lib/session-store/recordings";
 
 export type MoveSquares = { from: string; to: string };
@@ -203,4 +204,25 @@ export function buildReviewCards({
       held: next === null ? null : next - frame,
     };
   });
+}
+
+export type Review = LcsReport & { cards: ReviewCard[]; gallery: ReviewCard[] };
+
+/** LCS gegen die Wahrheit, daraus Karten und Galerie — `/confirm` und der ZUEGE-Strom bauen sie
+ *  gleich (CONCEPT.md §10.3). Ohne Wahrheit ist JEDER Halbzug des Menschen, nichts fehlt. */
+export function reviewOf({ moves, truth, stems, startFen }: {
+  moves: ReviewMove[];
+  truth: string[] | null;
+  stems: FrameStem[];
+  startFen?: string;
+}): Review {
+  const { matched, invented, missed } = truth
+    ? lcsReport(truth, moves.map((m) => m.san))
+    : { matched: [] as [number, number][], invented: moves.map((_, i) => i), missed: [] };
+  const missedSans = new Set(missed.map((i) => truth?.[i] ?? ""));
+  return {
+    matched, invented, missed,
+    cards: buildReviewCards({ moves, indices: invented, stems, startFen, missedSans }),
+    gallery: buildGalleryCards({ moves, matched, stems, startFen }),
+  };
 }

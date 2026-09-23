@@ -108,6 +108,11 @@ export async function listGames(): Promise<string[]> {
   }
 }
 
+/** The second a bundle was recorded, read off its name. Both schemes on disk carry the same 14
+ *  digits (`2026-08-13-19-34-23` from the transfer, `VID_20260802_222741` from the camera roll);
+ *  on the raw name the letter sorts above every digit and put the OLDEST recordings on top. */
+export const recordedAt = (name: string) => name.replace(/\D/g, "").padEnd(14, "0").slice(0, 14);
+
 export async function loadCandidate(name: string): Promise<Candidate> {
   return JSON.parse(await readFile(recordingFile(name, "candidate"), "utf8"));
 }

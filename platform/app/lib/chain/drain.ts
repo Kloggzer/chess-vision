@@ -3,16 +3,13 @@ import { adoptFailures, clearAdoptFailures } from "@/lib/chain/chain";
 import { refused, startStep } from "@/lib/chain/run";
 import { jobs, lastByStep, stopRunning } from "@/lib/chain/jobs";
 import { runningJob, whenIdle, type Job } from "@/lib/chain/slot";
-import { backlog, JOB_STEPS, type Backlog, type JobStep } from "@/lib/chain/backlog";
+import { backlog, type Backlog } from "@/lib/chain/backlog";
+import { JOB_STEPS, type DrainTarget, type JobStep } from "@/lib/job-steps";
 import { readHeavyLock, stale } from "@/lib/chain/heavy-lock";
 import { queueRows } from "@/lib/chain/queues";
 
 /** The panel polls; two polls inside this window share one pass over `recordings/`. */
 const SNAPSHOT_MS = 10_000;
-
-/** `"chain"` folgt der KETTE statt einer Sprosse: jede Aufnahme auf ihrer eigenen, bis zum
- *  naechsten Menschen-Tor (`confirm`, `labeln` sind Seiten und damit keine Jobs). */
-export type DrainTarget = JobStep | "chain";
 
 /** One press, one step, across the corpus. `started` is the loop guard, gekeyt auf
  *  `<name>|<step>`: eine Aufnahme darf dieselbe Sprosse nie zweimal nehmen, die naechste schon. */

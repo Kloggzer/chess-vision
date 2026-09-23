@@ -15,38 +15,8 @@ import { ListRow } from "@/components/list-row";
 import { Notice } from "@/components/notice";
 import { SessionDelete } from "@/components/session-delete";
 import { UselessButton } from "@/app/useless-button";
-import type { ChainState } from "@/lib/chain/chain";
-import type { Job } from "@/lib/chain/slot";
+import type { GameInfo } from "@/lib/chain/game-info";
 import { when as localWhen } from "@/lib/when";
-
-export type GameInfo = {
-  name: string;
-  //: Handed down, not derived: this is a client component and `lib/session` reaches the disk
-  //: through `sharp` — `client-boundary.test.ts` guards exactly that import.
-  sessionId: string;
-  title: string | null;
-  archived: boolean;
-  /** Review PNGs on disk — only counted for bundles with neither video nor candidate. */
-  frames: number;
-  createdAt: string | null;
-  confirmed: boolean;
-  confirmedAt: string | null;
-  plies: number;
-  reviewed: number;
-  /** Mainline length of `reference.pgn`, or null — no reference on disk. */
-  pgnPlies: number | null;
-  /** Boards a model has read and how many carry a human verdict (CONCEPT.md 6.2). */
-  boards: number;
-  boardsDone: number;
-  cells: number;
-  cellsDone: number;
-  /** `false` = no `model-reads.jsonl`, so the bar prints `—` instead of claiming zero of zero. */
-  modelRead: boolean;
-  /** Where this game sits on the label → confirm → export → model-read → labeln ladder. */
-  chain: ChainState;
-  /** The last job this game ran, so a reload still shows what failed and what answers it. */
-  lastJob: Job | null;
-};
 
 /** ISO timestamps rendered deterministically (no locale) so SSR and client agree. */
 const when = (iso: string | null) => localWhen(iso) || null;

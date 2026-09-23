@@ -1,5 +1,5 @@
 import { Hint } from "@/app/page-title";
-import type { ReferenceOrigin } from "@/lib/chain/chain";
+import type { ReferenceOrigin } from "@/lib/session-store/reference";
 
 /**
  * A `phone` reference is not an independent witness, and the confirm screen must say so where the

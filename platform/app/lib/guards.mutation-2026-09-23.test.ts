@@ -118,7 +118,7 @@ test("referenceOrigin vergleicht nur die .pgn des Handys, nicht seine Records", 
   await writeFile(path.join(game, "reference.pgn"), "1. d4 *\n", "utf8");
   await writeFile(path.join(games, "rec.json"), "1. d4 *\n", "utf8");
   await writeFile(path.join(games, "a.pgn"), "1. e4 *\n", "utf8");
-  const { referenceOrigin } = await import("@/lib/chain/chain");
+  const { referenceOrigin } = await import("@/lib/session-store/reference");
   expect(await referenceOrigin("g")).toBe("outside");
 });
 

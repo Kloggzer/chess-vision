@@ -1,22 +1,9 @@
 // Pure on purpose: testable without disk or server, driven by queue state and clock.
-import type { ChainStep } from "@/lib/chain/chain";
 import type { Job } from "@/lib/chain/slot";
-import { proposesCandidate, recordedAt, type QueueRow } from "@/lib/chain/queues";
+import { proposesCandidate, type QueueRow } from "@/lib/chain/queues";
+import { recordedAt } from "@/lib/session-store/recordings";
 import { EXPORT_HOLD_MS } from "@/lib/label/zuege";
-
-/**
- * The chain steps that are JOBS — one button each. `confirm` and `labeln` are the human's pages.
- * Nothing here ever starts by itself: every one of them is a press (2026-08-18, "ich will die
- * immer selbst starten"), which is also the interlock `matte` and `model-read` always needed.
- */
-export type JobStep = "phone-record" | "label" | "export" | "settle-scan" | "matte" | "temporal" | "model-read";
-export const JOB_STEPS = ["phone-record", "label", "export", "settle-scan", "matte", "temporal", "model-read"] as const satisfies readonly JobStep[];
-
-const JOBS: ReadonlySet<ChainStep> = new Set<ChainStep>(JOB_STEPS);
-
-export function isJobStep(step: string | null): step is JobStep {
-  return step !== null && JOBS.has(step as ChainStep);
-}
+import { isJobStep, JOB_STEPS, type JobStep } from "@/lib/job-steps";
 
 /** A step that will not run again by itself: the human presses, or nothing happens (§5.4). */
 type Repair = { name: string; step: JobStep; reason: string };
