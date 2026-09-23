@@ -14,7 +14,7 @@ import { gameDir } from "@/lib/data";
 import { dataDir } from "@/lib/data";
 import { readJsonl, stripBom } from "@/lib/jsonl";
 import { type MatteCensus, matteCensus, matteSources } from "@/lib/matte";
-import { absentOnly } from "@/lib/measurement";
+import { absentOnly, exists } from "@/lib/measurement";
 import { firstUnfinalized } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
@@ -53,10 +53,6 @@ export type ChainState = {
   /** The human's "nutzlos" verdict, active only — see `lib/useless.ts`. */
   useless: UselessFlag | null;
 };
-
-async function exists(file: string): Promise<boolean> {
-  return (await stat(file).catch(absentOnly)) !== null;
-}
 
 /**
  * The bundle's own recording: the newest session directory that has a video, else the mirrored copy.

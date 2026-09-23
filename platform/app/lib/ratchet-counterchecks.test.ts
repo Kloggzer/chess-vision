@@ -177,7 +177,7 @@ test("ein `catch { return false }` ohne Plattenzugriff ist keine Mess-Tuer", () 
 test("die am 2026-09-23 umgestellten Stellen zaehlen im jetzigen Code nicht mehr", () => {
   const fixed: [string, string][] = [
     ["lib/atomic.ts", "stampOf"],
-    ["lib/jobs.ts", "exists"],
+    ["lib/measurement.ts", "exists"],
     ["lib/corrections.ts", "ledgerRows"],
     ["lib/review-notes.ts", "bySession"],
     ["lib/meta.ts", "archivedAt"],

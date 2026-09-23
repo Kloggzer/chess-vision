@@ -27,6 +27,12 @@ export function absentOnly(error: unknown): null {
   return null;
 }
 
+/** Da oder nicht da, `false` nur bei ENOENT: ein EACCES auf `candidate.json` startete sonst das
+ *  Werkzeug, das menschliche Bestaetigungen neu schreibt. */
+export async function exists(file: string): Promise<boolean> {
+  return (await stat(file).catch(absentOnly)) !== null;
+}
+
 /**
  * Der Stempel einer Messdatei, `null` nur wenn sie FEHLT. Ein `stat`, das jeden Fehler auf
  * "keine Datei" abschneidet, springt am ENOENT-Griff des Lesers vorbei: EMFILE unter dem

@@ -20,7 +20,7 @@ import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir, gameDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
-import { absentOnly } from "@/lib/measurement";
+import { absentOnly, exists } from "@/lib/measurement";
 import { jsonlRows, stripBom } from "@/lib/jsonl";
 
 type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
@@ -134,18 +134,6 @@ export function desktopBinary(): string {
   if (process.env.CHESSLAB_DESKTOP_BIN) return process.env.CHESSLAB_DESKTOP_BIN;
   const bin = process.platform === "win32" ? "desktop.bat" : "desktop";
   return path.join(repoDir(), "android", "desktop", "build", "install", "desktop", "bin", bin);
-}
-
-/** Nur ENOENT ist „nicht da": ein EACCES auf `candidate.json` liess das Label-Werkzeug eine Datei
- *  mit menschlichen Bestaetigungen neu schreiben. */
-async function exists(file: string): Promise<boolean> {
-  try {
-    await stat(file);
-    return true;
-  } catch (e) {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return false;
-  }
 }
 
 const TRAINING_LABELS = new Set([

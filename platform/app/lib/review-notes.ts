@@ -5,7 +5,7 @@ import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/data";
 import { readJsonl, stripBom } from "@/lib/jsonl";
-import { stampOrMissing } from "@/lib/measurement";
+import { absentOnly, stampOrMissing } from "@/lib/measurement";
 
 /**
  * Is SAM's alpha right, is the interval's FEN what the board shows. "I cannot read this square" is
@@ -76,7 +76,7 @@ export async function dropReviewNotes(rows: ReviewNote[]): Promise<number> {
 
 async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
   const file = reviewNotesPath();
-  const text = await readFile(file, "utf8").catch(() => "");
+  const text = (await readFile(file, "utf8").catch(absentOnly)) ?? "";
   if (!text) return 0;
   const drop = new Set(rows.map(noteKey));
   // Ohne `stripBom` scheiterte Zeile 1 am Parse, und der `catch` unten BEHAELT eine unlesbare

@@ -2469,3 +2469,15 @@ je Aufnahme wuerde sie neu schreiben — das ist eine Entscheidung ueber `data/`
 (`ReplayPlan.quad()` -> `quadFromCandidate`), und das wirft bei fehlender `geometry`. Der Zweig
 `no board found` ist im `score`-Modus unerreichbar. Mit Exit 0 enden kann er nur ohne `score`
 (schlichter `replay`, `frames`) — dort gibt es keinen Ergebnisblock, den jemand erwarten koennte.
+
+## 47. `appendRows` liest den Schwanz mit `.catch(() => "")` — Absicht oder Luecke? (2026-09-23)
+
+Die Mutationsprobe ueber `platform/app/lib/` drehte die Stelle auf `absentOnly` um: kein Test
+faellt (ein Treffer in `spawn-quoting-2026-09-21.test.ts` war Last-Flackern, einzeln dreimal
+gruen). Heute gilt jeder Lesefehler als "leere Datei": bei EMFILE entfaellt die Schwanzreparatur,
+und gelingt das `appendFile` danach doch, klebt die neue Zeile an einen halben Schwanz —
+Beschaedigung MITTENDRIN. `measurement-doors.txt` fuehrt die Stelle als Absicht ("leer IST dort ein
+gueltiger Vorzustand"), das trifft aber nur ENOENT. **Zu entscheiden:** auf `absentOnly` umstellen
+(ein EMFILE laesst das Anhaengen scheitern statt es zu riskieren) oder die Begruendung im Ratschen-
+Eintrag auf "jeder Fehler" erweitern. Derselbe Fehler beim Widerruf (`dropReviewNotes`) ist seit
+heute behoben: ein EACCES meldete dort "0 entfernt", jetzt wirft er.
