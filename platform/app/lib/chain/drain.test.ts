@@ -59,7 +59,7 @@ beforeEach(async () => {
   fake.stop.mockResolvedValue({ error: "kein Prozess läuft" });
 });
 
-// Auf `export`: das Matten faehrt seit 2026-09-15 als EIN Prozess (siehe unten).
+// Auf `export`: das Matten faehrt als EIN Prozess (siehe unten).
 test("a press drains the whole step, oldest recording first — and nothing else", async () => {
   fake.rows = [row("2026-08-14-09-23-19", "export"), row("VID_20260726_233432", "export"), row("2026-08-13-12-46-24", "model-read")];
 
@@ -81,7 +81,7 @@ test("nothing starts without a press: reading the status starts no job", async (
   expect(status.drain).toBeNull();
 });
 
-// Not a pause: the user pressed stop and watched the job carry on (2026-08-19). It kills.
+// Not a pause: it kills.
 test("Stopp kills the running process AND takes no further recording", async () => {
   fake.rows = [row("2026-08-14-09-23-19", "matte"), row("VID_20260726_233432", "matte")];
   fake.start.mockImplementationOnce(async (name: string) => {
@@ -134,7 +134,7 @@ test("one drain at a time — the second press is told which one is running", as
   await idle();
 });
 
-// SAM zu laden kostet 7-9 min, die Arbeit danach Sekunden je Frame (gemessen 2026-09-15).
+// SAM zu laden kostet 7-9 min, die Arbeit danach Sekunden je Frame.
 test("Matten laeuft als EIN Job ueber alle wartenden Aufnahmen", async () => {
   fake.rows = [row("2026-08-14-09-23-19", "matte"), row("VID_20260726_233432", "matte"),
                row("2026-08-16-20-19-54", "matte")];

@@ -402,8 +402,7 @@ const ENOENT = String.raw`\s*["']ENOENT["'][^;]*?\)\s*`;
 const THROW_ELSE = new RegExp(String.raw`^\{\s*${GATE}!==?${ENOENT}throw\s+\w+\s*;?\s*return\b[^;{}]*;?\s*$`);
 const RETURN_ELSE = new RegExp(String.raw`^\{\s*${GATE}===?${ENOENT}return\b[^;{}]*;\s*throw\s+\w+\s*;?\s*$`);
 
-/** Benannte Fehler-Griffe, deren GANZER Rumpf die ENOENT-Regel ist — Kopien von `absentOnly`.
- *  Zehn standen 2026-09-23 wortgleich in `lib/`; eine elfte, die `EACCES` mitfaengt, saehe gleich aus. */
+/** Benannte Fehler-Griffe, deren GANZER Rumpf die ENOENT-Regel ist — Kopien von `absentOnly`. */
 export function enoentGateCopiesIn(source: string): string[] {
   const text = withoutComments(source);
   const out: string[] = [];

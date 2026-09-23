@@ -14,11 +14,8 @@ export function cursorSession<S>(
 
 export type WallLink = { filter: Filter; phase: string };
 
-/**
- * Die Frage, die ein geteilter Link stellt. Ein fehlendes `min` ist nicht 0 — `Number(null)` und
- * `Number("")` sind 0, und 0 laesst JEDE Zelle mit `probs` durch. Es faellt auf dieselbe Vorgabe
- * wie `app/api/query/route.ts`, sonst antworten Client und Route demselben Link verschieden.
- */
+/** Ein fehlendes `min` ist nicht 0 — 0 laesst JEDE Zelle mit `probs` durch. Dieselbe Vorgabe wie
+ *  `app/api/query/route.ts`, sonst antworten Client und Route demselben Link verschieden. */
 export function linkFilter(search: string): WallLink | null {
   const url = new URLSearchParams(search);
   const klass = url.get("class")?.trim();

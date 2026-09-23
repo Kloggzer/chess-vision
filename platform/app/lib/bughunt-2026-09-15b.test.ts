@@ -69,7 +69,7 @@ test("a field a reader parses has somebody who asks for it", async () => {
   }
 });
 
-// 2026-09-14: `prob`/`margin` wanderten in jede `StreamAuditCell` und wurden nie gelesen.
+// `prob`/`margin` wanderten in jede `StreamAuditCell` und wurden nie gelesen.
 test("prob und margin bleiben aus der Audit-Zelle draussen", async () => {
   const stream = await readFile(path.join(process.cwd(), "lib", "label/label-stream.ts"), "utf8");
   const audit = stream.slice(stream.indexOf("StreamAuditCell"), stream.indexOf("StreamAuditCell") + 400);

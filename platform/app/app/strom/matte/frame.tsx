@@ -48,8 +48,6 @@ export function MatteFrame({ frame, session, onJudge, onClean, onClose }: MatteF
 
   const key = verifyFrameKey(frame);
   const pen = useAlphaPen(key);
-  // Wer diese Ansicht oeffnet, kommt zum Malen: das Raster hat die Frage "stimmt die Maske"
-  // schon mit einem Klick beantwortet, hier bleibt nur noch der Strich.
   const { setArmed } = pen;
   useEffect(() => setArmed(true), [setArmed]);
   /** Gemalte Pixel schlagen den Serverstand: die Zahlen sind ab dem Speichern wieder SAM's. */

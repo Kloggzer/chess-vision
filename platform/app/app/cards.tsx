@@ -22,12 +22,8 @@ import { readAnswer } from "@/lib/answer";
 /** ISO timestamps rendered deterministically (no locale) so SSR and client agree. */
 const when = (iso: string | null) => localWhen(iso) || null;
 
-/**
- * A game the human called useless: the flag, its reason, and the way back.
- *
- * Collapsed on purpose — every control on it would run work on a recording that was judged not
- * worth any, and the one thing that must stay reachable is the undo.
- */
+/** Collapsed on purpose — every control would run work on a recording judged not worth any, and the
+ *  one thing that must stay reachable is the undo. */
 function UselessCard({ game }: { game: GameInfo }) {
   const flag = game.chain.useless;
   return (

@@ -1,14 +1,6 @@
-/**
- * Is this MP4 finalized?
- *
- * `moov` is the index, and a recorder writes it LAST. A file with `ftyp` and `mdat` but no `moov`
- * is a recording that was interrupted — the phone was killed mid-capture — and FFmpeg answers it
- * with `avformat_open_input() error -1094995529` after opening and scanning the file.
- *
- * Four of the eleven recordings transferred on 2026-08-13 are in that state (1.99 GB), and each of
- * them cost a ten-minute replay to find out. Reading the atom chain costs three seeks: an MP4 is a
- * list of length-prefixed boxes, so the header of each says where the next one starts.
- */
+/** Is this MP4 finalized? `moov` is written LAST, so an interrupted recording has `ftyp` and `mdat`
+ *  but no `moov`, and FFmpeg fails it only after scanning the file. The atom chain says so in a few
+ *  seeks: each box header says where the next one starts. */
 import { open, stat } from "node:fs/promises";
 import { absentOnly } from "@/lib/measurement";
 import path from "node:path";

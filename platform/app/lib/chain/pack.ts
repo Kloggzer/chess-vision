@@ -110,11 +110,8 @@ export async function verifyPack(out: string): Promise<PackResult> {
   return result;
 }
 
-/**
- * The two inputs of a pack: the recording and the game it was played in. The link is
- * `StoredGame.sessionId`, which the phone writes into the game record — matching by timestamp
- * would be a guess, and a pack built against the wrong game labels every crop wrongly.
- */
+/** Linked by `StoredGame.sessionId`, which the phone writes — matching by timestamp would be a guess,
+ *  and a pack built against the wrong game labels every crop wrongly. */
 export async function packInputs(name: string): Promise<{ video: string; game: string } | { reason: string }> {
   const recording = await videoInput(name);
   if ("reason" in recording) return recording;

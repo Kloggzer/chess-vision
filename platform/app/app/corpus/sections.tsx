@@ -211,11 +211,8 @@ export function BalanceCard({ view, pool }: { view: DatasetView; pool: Pool }) {
   );
 }
 
-/**
- * §7.1's second half, in the scheme the snapshot was BUILT in: `pieces14` compares its occluded
- * bucket against the pool, `pieces13` has no such bucket and reports its coverage instead. Old
- * snapshots keep reading exactly as before — the page branches, it does not convert.
- */
+/** In the scheme the snapshot was BUILT in: `pieces14` compares its occluded bucket against the pool,
+ *  `pieces13` reports coverage instead. The page branches, it does not convert. */
 export function PoolCard({ view, pool }: { view: DatasetView; pool: Pool }) {
   return view.scheme === "pieces14" && view.fit ? (
     <OccludedPool fit={view.fit} pool={pool} view={view} />

@@ -28,14 +28,13 @@ export type Job = {
   lens?: boolean;
   /** The server process that wrote the row. Absent on every row written before this key existed. */
   pid?: number;
-  /** The spawned tool's own pid: it outlives a killed server, and today's exports did (2026-08-15). */
+  /** The spawned tool's own pid: it outlives a killed server. */
   childPid?: number;
   /** Wall clock before which the picker must not start this step — the boundary commit's undo
    *  window (§4.1.1). Additive, declared in the §9.1 register; nothing in Python reads this file. */
   notBefore?: string;
-  /** Weitere Aufnahmen, die IM SELBEN Prozess laufen. Nur beim Matten: SAM zu laden kostet
-   *  7-9 min und die Arbeit danach Sekunden je Frame (gemessen 2026-09-15). Der Log nennt jede
-   *  Aufnahme einzeln (`alpha_worker_all`), Stopp killt wie sonst auch den ganzen Prozess. */
+  /** Weitere Aufnahmen IM SELBEN Prozess, nur beim Matten: SAM zu laden kostet 7-9 min, die Arbeit
+   *  danach Sekunden je Frame. Stopp killt wie sonst den ganzen Prozess. */
   also?: string[];
 };
 
@@ -72,9 +71,8 @@ export function runningJob(): Job | null {
 
 /** Resolves when everything queued right now has finished — a drain starts the next recording here. */
 export async function whenIdle(): Promise<void> {
-  // Bis die Kette WIRKLICH steht, nicht nur bis der gerade laufende Schritt fertig ist: eine
-  // Sprosse haengt die naechste an und ersetzt dabei `queue.running`. Wer die alte Zusage
-  // abwartet, sieht den Nachfolger noch als `running` — daran flackerte ein Test.
+  // Bis die Kette WIRKLICH steht: eine Sprosse haengt die naechste an und ersetzt dabei
+  // `queue.running`, die alte Zusage sieht den Nachfolger noch als `running`.
   for (let seen = queue.running; ; seen = queue.running) {
     await seen;
     if (queue.running === seen) return;

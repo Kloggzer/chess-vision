@@ -1,12 +1,6 @@
-/**
- * `data/recordings/<name>/ui-meta.json` — what the UI knows about a game that the pipeline does
- * not: a human-readable title and the archived flag.
- *
- * A separate file ON PURPOSE: `candidate.json` is rewritten wholesale by the desktop `label`
- * verb, so any extra key stored there would be silently dropped on the next replay. Nothing on
- * the Python side reads this file; archiving here hides a game from the UI's lists, it moves no
- * data (that is `data/_parked/`'s job, and a human decision).
- */
+/** `ui-meta.json` — title and archived flag, a separate file ON PURPOSE: the desktop `label` verb
+ *  rewrites `candidate.json` wholesale and would drop any extra key. Archiving here only hides a
+ *  game from the UI's lists; it moves no data. */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
@@ -53,11 +47,8 @@ export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
   });
 }
 
-/**
- * The PIPELINE's own archive stamp — `session.yaml`'s `archived_at`, written by Python when a
- * recording is retired (2026-08-30-14-33-02: wrong FENs from ply 8). Read as text: the file is
- * YAML, this is one top-level scalar, and the app carries no YAML parser for it.
- */
+/** The PIPELINE's own archive stamp, `session.yaml`'s `archived_at`. Read as text: one top-level
+ *  scalar, and the app carries no YAML parser. */
 export async function archivedAt(name: string): Promise<string | null> {
   try {
     const yaml = await readFile(recordingFile(name, "session"), "utf8");
@@ -69,10 +60,8 @@ export async function archivedAt(name: string): Promise<string | null> {
   }
 }
 
-/**
- * Archived at all: two files, two owners, and EITHER retires a game. The UI only ever read its
- * own flag, so a Python-archived recording kept feeding the Stichprobe its 404 crops (2026-09-07).
- */
+/** Two files, two owners, and EITHER retires a game — reading only the UI flag let a Python-archived
+ *  recording keep feeding the Stichprobe 404 crops. */
 export async function isArchived(name: string): Promise<boolean> {
   const [meta, at] = await Promise.all([loadMeta(name), archivedAt(name)]);
   return meta.archived === true || at !== null;

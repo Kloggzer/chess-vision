@@ -1,4 +1,4 @@
-/** Flags are a selection now, not rows (fixed 2026-08-15). Pure — brush is client-side. */
+/** Flags are a selection, not rows. Pure — the brush is client-side. */
 
 export type Labels = Record<string, string>;
 export type Row = { square: string; label: string };
@@ -72,11 +72,8 @@ export function planRejectAll(input: PlanInput): BoardPlan {
   return planBoard({ ...input, painted: { ...off, ...input.painted } });
 }
 
-/**
- * Flagged: `proposal ⇄ brush ⇄ base` (4.2.1) — the brush is IN the cycle, deduped, so a flag whose
- * brush repeats it stays the two-step toggle. Without it the `FEN unklar` lane, whose flag IS the
- * FEN's word, cycled `wQ ⇄ empty` and the one label it exists to write was unreachable by click.
- */
+/** Flagged: `proposal ⇄ brush ⇄ base`, the brush IN the cycle and deduped — without it the
+ *  `FEN unklar` lane, whose flag IS the FEN's word, could never reach its own label by click. */
 export function cycleNext(at: {
   current: string;
   proposal?: string;

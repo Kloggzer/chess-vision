@@ -19,11 +19,9 @@ function sameLabels(a: Labels, b: Labels): boolean {
   return aKeys.every((key) => a[key] === b[key]);
 }
 
-// ENTSCHIEDEN 2026-09-16 (Nutzer: "natuerlich nicht ungefragt"): bleibt UNVERDRAHTET.
-// `planBoard` legt ein `prefilled` in `corrections` und damit auf den Bestaetigen-Knopf — wer
-// schnell bestaetigt, schriebe Labels, die er nie angesehen hat. Die Gegenseite steht bereit,
-// das Anschliessen ist ein Aufruf; es braucht dann aber einen eigenen Knopf.
-// `carry-unwired.bughunt.test.ts` haelt den Zustand fest.
+// Bleibt bewusst UNVERDRAHTET: `planBoard` legt ein `prefilled` auf den Bestaetigen-Knopf, und wer
+// schnell bestaetigt, schriebe Labels, die er nie angesehen hat. Anschliessen braucht einen eigenen
+// Knopf; `carry-unwired.bughunt.test.ts` haelt den Zustand fest.
 export function carryPositionCorrections(input: {
   frames: readonly CarryFrame[];
   from: number;

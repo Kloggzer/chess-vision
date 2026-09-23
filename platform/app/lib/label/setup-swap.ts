@@ -1,7 +1,5 @@
-/** Welche Felder einer Aufnahme auf einem anderen Wort STEHEN, als das FEN sagt.
- *
- *  Ein Aufbau-Tausch haengt am FELD, der Schutz der Lane greift je ZELLE: 65 Zellen trugen so den
- *  getauschten Namen, obwohl das Feld laengst korrigiert war (`docs/offene-entscheidungen.md`). */
+/** Welche Felder einer Aufnahme auf einem anderen Wort STEHEN, als das FEN sagt: ein Aufbau-Tausch
+ *  haengt am FELD, der Schutz der Lane greift je ZELLE. */
 
 /** Wie `decided` in der Lane: `stem|square` -> was der Mensch dort entschieden hat. */
 export type Decided = Record<string, string>;

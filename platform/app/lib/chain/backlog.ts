@@ -49,11 +49,7 @@ const byRecording = (a: string, b: string) => recordedAt(a).localeCompare(record
 
 const noneWaiting = (): Waiting => ({ "phone-record": [], label: [], export: [], "settle-scan": [], matte: [], temporal: [], "model-read": [] });
 
-/**
- * What waits on which step, in one pass over the disk state the cards already read. `useless` and
- * `archived` are out by the same filters the queues apply — both flags mean "not my work right
- * now", and a button that counts them is the one thing they exist to prevent.
- */
+/** What waits on which step. `useless` and `archived` are out by the same filters the queues apply. */
 export function backlog({ rows, lastJobs, lastSteps, now = Date.now() }: BacklogInput): Backlog {
   const waiting = noneWaiting();
   const repair: Repair[] = [];

@@ -22,8 +22,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/frame/[name
       },
     });
   } catch (error) {
-    // Wie `api/cell`: "nicht da" ist 404, alles andere unser Fehler. Pauschal 404 machte aus einem
-    // unlesbaren File dieselbe Antwort wie aus einem fehlenden, und das `<img>` zeigt beide gleich.
+    // "nicht da" ist 404, alles andere 500 — sonst zeigt das `<img>` ein unlesbares File wie ein fehlendes.
     const missing = isMissing(error);
     return new Response(missing ? "no such frame" : String(error), { status: missing ? 404 : 500 });
   }

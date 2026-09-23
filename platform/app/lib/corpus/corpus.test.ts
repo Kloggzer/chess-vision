@@ -172,7 +172,7 @@ test("die halbe LETZTE Zeile faellt weg, weil dort ein Schreiber laeuft", async 
   expect(tally.rows).toBe(1);
 });
 
-// 2026-09-23: die Vorauswahl las jeden `stat`-Fehler auf `split.json` als mtime 0 und waehlte still einen aelteren Datensatz.
+// Die Vorauswahl las jeden `stat`-Fehler auf `split.json` als mtime 0 und waehlte still einen aelteren Datensatz.
 test("ein EACCES auf split.json waehlt keinen anderen Datensatz vor", async () => {
   await tempDataRoot("corpusnewest");
   for (const name of ["alt", "neu"]) {
@@ -183,7 +183,7 @@ test("ein EACCES auf split.json waehlt keinen anderen Datensatz vor", async () =
   await expect(newestDataset([{ name: "alt" }, { name: "neu" }])).rejects.toThrow(/EACCES/);
 });
 
-// „Nicht da" ist nicht „da, aber unlesbar" (2026-09-22: auf der Platte kein Fall, die Form ist trotzdem gebaut).
+// „Nicht da" ist nicht „da, aber unlesbar".
 describe("unlesbare Artefakte", () => {
   let root = "";
   beforeEach(async () => {

@@ -1,8 +1,5 @@
-/**
- * Android "Stored" recordings: `files/sessions/<id>/` inside a bundle — `log.jsonl` and a sparse
- * FEN-labelled JPEG per commit, no video and no candidate, so no chain step touches them.
- * `LabeledVideoPack.packLabeledSession` is their consumer and keys corrections on the id below.
- */
+/** Android "Stored" recordings: `files/sessions/<id>/` inside a bundle — `log.jsonl` and a sparse
+ *  FEN-labelled JPEG per commit, no video and no candidate, so no chain step touches them. */
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -63,9 +60,8 @@ export type StoredQuad = {
   mesh?: GridMesh;
 };
 
-// Gekeyt auf `mtimeMs:size` wie ueberall sonst: die mtime ALLEIN liess zwei Schreibungen in
-// derselben Millisekunde — und jede Kopie mit erhaltenen Zeitstempeln — als unveraendert gelten,
-// und der Cache servierte die alten Ecken weiter.
+// Gekeyt auf `mtimeMs:size`: die mtime ALLEIN liess zwei Schreibungen in derselben Millisekunde —
+// und jede Kopie mit erhaltenen Zeitstempeln — als unveraendert gelten.
 const cache = new Map<string, { key: string; value: StoredSession }>();
 type FitCache = Map<string, { key: string; value: QuadFit }>;
 const fits: FitCache = ((globalThis as { __chesslabQuadFits?: FitCache }).__chesslabQuadFits ??= new Map());
@@ -166,11 +162,8 @@ async function storedCut(
   throw Object.assign(new Error(`no stored frame ${stem} in ${name}`), { code: "ENOENT" });
 }
 
-/**
- * The rectified playing field of one stored frame: the raw JPEG through the row's own quad, and
- * globally straightened by the mesh when the sidecar carries one — exactly as `lib/session-store/crops.ts`
- * does it for an exported session, only the margin differs.
- */
+/** The raw JPEG through the row's own quad, straightened by the sidecar's mesh — as `crops.ts` does
+ *  for an exported session, only the margin differs. */
 export function storedBoardPng(name: string, stem: string, size: number): Promise<Buffer> {
   return storedCut(name, stem, size, (quad, raster) => {
     const box = { x0: 0, y0: 0, x1: BOARD_SIZE, y1: BOARD_SIZE };
@@ -182,11 +175,8 @@ export function storedBoardPng(name: string, stem: string, size: number): Promis
   });
 }
 
-/**
- * One square of a stored frame — the nominal box, sampled through the sidecar's mesh when there
- * is one. Same global straightening as `storedBoardPng`, cut down to one cell, so this square is
- * the square inside that board rather than a second answer to the same question.
- */
+/** Same straightening as `storedBoardPng`, cut down to one cell, so this square is the square
+ *  inside that board and not a second answer. */
 export function storedCellPng(name: string, stem: string, square: string, size: number): Promise<Buffer> {
   return storedCut(name, stem, size, (quad, raster) => {
     const h = boardToImage(quad.corners, BOARD_SIZE, quad.margin);

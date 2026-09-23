@@ -1,12 +1,6 @@
-/**
- * The `model-reads.jsonl` SCHEMA and the questions you can ask of it — pure, and deliberately free
- * of `node:fs`.
- *
- * Split out of the file reader on 2026-08-09 because the filter bar is a client component and
- * imported one constant from it: a single value import drags the whole module, `node:fs/promises`
- * included, into the browser bundle, and Turbopack fails the page at runtime. Types are erased and
- * were harmless; the constant was not. Anything a client component needs belongs here.
- */
+/** The `model-reads.jsonl` SCHEMA and its questions — pure, deliberately free of `node:fs`: one value
+ *  import from a client component drags the whole module, `node:fs/promises` included, into the
+ *  browser bundle, and Turbopack fails the page at runtime. Client-needed values belong here. */
 import { isIdentity } from "@/lib/classes";
 
 export type ModelRead = {
@@ -70,11 +64,8 @@ export function readKey(p: { frame: string; square: string }): string {
 /** The thresholds a human actually asks for — 0.05 is the "show me anything at all" end. */
 export const STEPS = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9];
 
-/**
- * What `Klassenwand` asks before anyone touches it. The sharpest end first: 11 091 cells over the
- * corpus against 52 285 at 0.1, and a confident contradiction is the likeliest real label error
- * (Northcutt 2021). Every wider question is one click away in the lane head.
- */
+/** The sharpest end first: a confident contradiction is the likeliest real label error, and every
+ *  wider question is one click away in the lane head. */
 export const DEFAULT_WALL: Filter = { klass: DISAGREE, min: 0.9 };
 
 /**

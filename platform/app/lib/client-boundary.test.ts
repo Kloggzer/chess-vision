@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
 
 /** Ein einziger WERT-Import aus einem Server-Modul buendelt `node:fs` in den Browser, und Turbopack
- *  scheitert zur Laufzeit mit einem Stack auf Reacts hydrate (2026-08-09) — weder tsc noch eslint sehen es. */
+ *  scheitert zur Laufzeit mit einem Stack auf Reacts hydrate — weder tsc noch eslint sehen es. */
 const ROOTS = ["app", "components", "lib"];
 const NODE_IMPORT = /from\s+"node:/;
 /** `[^;]`, nicht `[\s\S]`: sonst liefe die Klausel bis zum `from` eines SPAETEREN Imports. */
@@ -30,8 +30,8 @@ test("no client component imports a value from a filesystem-touching lib module"
 
   const libs = [...text].filter(([f]) => f.includes(`${path.sep}lib${path.sep}`));
   const touchesFs = new Set(libs.filter(([, t]) => NODE_IMPORT.test(t)).map(([f]) => modOf(f)));
-  // TRANSITIV, seit `lib/label/history.ts` (2026-09-08): ein Modul ohne eigenes `node:` reicht die Platte
-  // trotzdem weiter, und der Bundle-Fehler nennt dann ein Modul, das sauber aussieht.
+  // TRANSITIV: ein Modul ohne eigenes `node:` reicht die Platte trotzdem weiter, und der Bundle-Fehler
+  // nennt dann ein Modul, das sauber aussieht.
   for (let grew = true; grew; ) {
     grew = false;
     for (const [file, body] of libs) {

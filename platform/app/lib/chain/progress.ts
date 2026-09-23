@@ -1,14 +1,6 @@
-/**
- * What a running job has actually done so far, read out of the thing it already writes: its log.
- *
- * A ten-minute replay behind a button that only says "running" is indistinguishable from a hung
- * one — which on 2026-08-13 is exactly what it was. The replay prints its own milestones
- * (`state: … at 12.34s`, `decision: ply=…`), and the recording states its duration in
- * `session.yaml`, so the percentage is a MEASURED position in the video, not a spinner.
- *
- * Where a denominator is missing (a chesslab step, a recording without `video_duration_ns`) there is
- * no bar — the last line of output is shown instead. An invented percentage is worse than none.
- */
+/** What a running job has done so far, read out of its log: the replay's milestones against the
+ *  duration in `session.yaml` give a MEASURED position in the video. Without a denominator there is
+ *  no bar, only the last line — an invented percentage is worse than none. */
 import { open, readFile, stat } from "node:fs/promises";
 import { checkName } from "@/lib/session-store/recordings";
 import { phoneSessionSeconds } from "@/lib/session-store/stored";
@@ -70,8 +62,7 @@ export async function progressOf(name: string, log: string | undefined): Promise
     // counting those told the card "3 plies" for a candidate whose move list is empty.
     const decision = /^decision: ply=(\d+).*decider=(\S+)/.exec(line);
     if (decision && decision[2] !== "rejected") plies = Math.max(plies, Number(decision[1]));
-    // The JVM formats with the SYSTEM locale, so a German machine prints `at 30,38s`. Matching only
-    // a dot is why the bar stayed empty on the first real run (2026-08-13).
+    // The JVM formats with the SYSTEM locale, so a German machine prints `at 30,38s`.
     const at = /\bat (\d+[.,]\d+)s\b/.exec(line);
     if (at) atSeconds = Math.max(atSeconds ?? 0, Number(at[1].replace(",", ".")));
     // A chesslab step counts FRAMES, not seconds of video (`realgames.PROGRESS_EVERY`): without

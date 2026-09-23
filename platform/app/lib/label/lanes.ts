@@ -1,12 +1,5 @@
-/**
- * The lanes of the LABELN stream (CONCEPT.md 4.2) — pure, so the stream's client half can import
- * it (`lib/client-boundary.test.ts`).
- *
- * A lane is a FILTER over one stream, never a page. The chip prints ONE number, because the only
- * question it answers is whether work is left ("da reicht eine zahl", User 2026-08-18); the unit
- * and the denominator moved into its tooltip. A lane the producer has not filled yet prints `—`
- * with its reason — `0` would claim there is no such work when nobody has been asked.
- */
+/** The lanes of the LABELN stream — pure, so the client half can import it. A lane whose producer
+ *  has not run prints `—` with its reason: `0` would claim there is no work when nobody was asked. */
 
 import { PIECE_VISIBLE_MAX, coveragePct, isIdentity } from "@/lib/classes";
 import { fenLabels } from "@/lib/fen";
@@ -23,7 +16,6 @@ type LaneUnit = "Bretter" | "Zellen" | "Frames";
 
 export type Lane = {
   id: LaneId;
-  /** Its own URL segment under `/strom/labeln` — a lane is a place, so Back and a bookmark work. */
   slug: string;
   label: string;
   renderer: LaneRenderer;
@@ -37,11 +29,7 @@ export type Lane = {
 export const FRAME_LANE_SET =
   "dirty Frames OHNE `occluded` — stale, changed, grid-late: weder SAM noch der Slice fasst sie an";
 
-/**
- * DREI Lanes, nach der FRAGE geschnitten, nicht nach dem Produzenten (2026-09-07). Neun Lanes
- * waren neun Herkuenfte derselben drei Fragen, und benutzt wurden zwei („ich verstehe die schon
- * gar nicht mehr"). Wer die Herkunft braucht, liest sie auf der Karte: jede traegt ihre Notiz.
- */
+/** Nach der FRAGE geschnitten, nicht nach dem Produzenten — die Herkunft steht auf der Karte. */
 export const LANES: readonly Lane[] = [
   {
     id: "audit",
@@ -79,14 +67,6 @@ export const LANES: readonly Lane[] = [
   },
 ];
 
-/**
- * Der Stapel, ueber den nie jemand entschieden hat: dirty, aber NICHT `occluded`. SAM mattet nur
- * `occluded` (`matte.alpha_worker --reason`), und ohne Matte laesst `slice_session` jede Zelle
- * eines dirty Frames fallen — 1 179 Frames in 28 Aufnahmen (`stale` 978, `changed` 177,
- * `grid-late` 24) liegen damit still auf der Platte. `occluded` hat seinen Weg schon.
- */
-/** Der Pinsel „unbrauchbar" der Zell-Lane, mit seiner Taste — der Strom und die Lane laden ihn
- *  von hier, damit die Tastatur und die Palette nicht auseinanderlaufen (wie `DIRTY_BRUSH`). */
 export const UNUSABLE_BRUSH = "unbrauchbar";
 export const UNUSABLE_KEY = "u";
 
@@ -118,11 +98,8 @@ export const NO_SETTLE_SCAN =
   "auf diesen Aufnahmen lief `chesslab session settle-scan` nie — sie tragen null Stellungs-" +
   "Karten, weil niemand gemessen hat, nicht weil nichts strittig war:";
 
-/**
- * Was der Strittig-Lane gerade FEHLT. Eine schweigende Quelle darf nicht in der Summe verschwinden:
- * die Zahl waere sonst „so viel ist strittig", wo sie „so viel ist strittig, gemessen an dem, was
- * gelaufen ist" heisst. Leer heisst deshalb `—` mit Grund, teilweise heisst Zahl mit Fussnote.
- */
+/** Was der Strittig-Lane FEHLT: eine schweigende Quelle darf nicht in der Summe verschwinden.
+ *  Leer heisst `—` mit Grund, teilweise heisst Zahl mit Fussnote. */
 function missingSources(stream: LabelStream, wall?: WallQuery): string[] {
   const out: string[] = [];
   if (stream.audit === null) out.push(NO_AUDIT);
@@ -152,7 +129,6 @@ export type LaneCount = {
   denominator?: string;
 };
 
-/** ONE number — is there anything left here. What it is measured against is the tooltip's job. */
 export function laneChip(lane: Lane, count: LaneCount): { text: string; title: string } {
   const over = count.denominator ?? lane.denominator;
   if (count.n === null) return { text: `${lane.label} —`, title: count.why ?? "kein Input auf der Platte" };
@@ -163,42 +139,28 @@ export function laneChip(lane: Lane, count: LaneCount): { text: string; title: s
   };
 }
 
-/**
- * Where a lane switch lands: the first item at or after the position you were on.
- *
- * "Switching a lane keeps you in place" (CONCEPT.md 4.2) — every item carries the same ordinal, so
- * a switch is a search in that order, never a reset to the top; past the end the last item is the
- * honest answer. By VALUE, because a cell lane is grouped by square and its ordinals do not ascend.
- */
+/** The first item at or after the position you were on; past the end, the last. By VALUE, because
+ *  a cell lane is grouped by square and its ordinals do not ascend. */
 export function keepPosition(positions: readonly number[], at: number): number {
   if (positions.length === 0) return 0;
   const ahead = positions.filter((p) => p >= at);
   return positions.indexOf(ahead.length > 0 ? Math.min(...ahead) : Math.max(...positions));
 }
 
-/**
- * Cells of one lane, grouped BY SQUARE inside a session (REVIEW S10) while the sessions stay
- * sequential. Score order scattered a square's six crops over six pages ("ich sehe
- * immer noch alte Bilder", 2026-08-09); the stream's session order is the outer key.
- */
+/** Grouped BY SQUARE inside a session, sessions stay sequential — score order scattered one
+ *  square's crops over several pages. */
 export function groupBySquare<T extends { session: number; square: string; stem: string }>(cells: T[]): T[] {
   return [...cells].sort(
     (a, b) => a.session - b.session || a.square.localeCompare(b.square) || a.stem.localeCompare(b.stem),
   );
 }
 
-/**
- * How far apart two crops may sit and still be "the same event" (kept for the phone mode of
- * CONCEPT.md 4.3). A resting hand produces forty identical cards otherwise, the failure that
- * killed the tinder band.
- */
+/** How far apart two crops may sit and still be one event — a resting hand makes forty identical
+ *  cards otherwise. */
 export const GROUP_SPAN = 150;
 
-/**
- * What SAM measured on ONE crop, as its card prints it. A page mixes frames and sessions, so the
- * lookup takes the whole map; `null` covers both "no alpha was ever cut here" and "nothing worth
- * printing", because a card has no room to tell those apart — the lane head's chip does.
- */
+/** `null` covers both "no alpha was ever cut here" and "nothing worth printing" — the card has no
+ *  room to tell them apart, the lane head's chip does. */
 export function cellCoverage(
   coverage: Record<string, Record<string, number> | undefined>[],
   cell: { session: number; stem: string; square: string },
@@ -207,11 +169,8 @@ export function cellCoverage(
   return value === undefined ? null : coveragePct(value);
 }
 
-/**
- * Die Hand liegt am BRETT, aber nicht auf diesem Feld — dem Crop sieht man das nicht an, und der
- * FEN eines Frames mitten im Griff ist so belastbar wie die Stellung darunter (User, 2026-09-12).
- * `null` heisst "keine Hand ODER nie gescannt"; welches von beiden, sagt `handScanned`.
- */
+/** Die Hand liegt am Brett, aber nicht auf diesem Feld. `null` heisst "keine Hand ODER nie
+ *  gescannt"; welches von beiden, sagt `handScanned`. */
 export function handBeside(
   hands: Record<string, FrameHand>[],
   coverage: Record<string, Record<string, number> | undefined>[],
@@ -222,15 +181,11 @@ export function handBeside(
   return (coverage[cell.session]?.[cell.stem]?.[cell.square] ?? 0) > PIECE_VISIBLE_MAX ? null : hand;
 }
 
-/**
- * `true`, wenn fuer diese Aufnahme NIE ein Hand-Scan lief — dann ist ein fehlender Stem keine
- * Aussage. CLAUDE.md: ohne Messung ist eine Zelle nicht unbedenklich, sondern ungemessen.
- */
+/** Ohne Hand-Scan ist ein fehlender Stem keine Aussage: ungemessen, nicht unbedenklich. */
 export function handsUnmeasured(scanned: boolean[], cell: { session: number }): boolean {
   return scanned[cell.session] !== true;
 }
 
-/** Eine Zelle ueber alle Aufnahmen hinweg: Aufnahme, Frame, Feld. */
 export const laneCellKey = (c: { session: number; stem: string; square: string }) =>
   `${c.session}|${c.stem}|${c.square}`;
 
@@ -249,11 +204,8 @@ export type LaneCell = {
   note?: string;
 };
 
-/**
- * The identity lanes ask the human to rule on a MODEL's word, so the one-key verdict is "FEN
- * stimmt" and the model's read costs a click: ~51 % of the flags are false alarms (Northcutt 2021,
- * CONCEPT.md 4.2) and no page of 60 may write a model's guess into training input by default.
- */
+/** Das Ein-Tasten-Urteil ist "FEN stimmt", die Modell-Lesart kostet einen Klick: ~51 % der Flags
+ *  sind Fehlalarme, und keine Seite darf per Vorgabe ein Modell-Raten ins Training schreiben. */
 function judgedCell(c: {
   session: number; pos: number; stem: string; square: string; fen_label: string;
   predicted: string;
@@ -275,11 +227,8 @@ function judgedCell(c: {
   };
 }
 
-/**
- * Eine Behauptung pro Seite, wie im Audit: FEN-Gruppe → Modell-Wort, größte zuerst. Innerhalb der
- * Untergruppe Feld+Frame statt Score — Score-Ordnung verstreute die sechs Crops eines Feldes über
- * sechs Seiten („ich sehe immer noch alte Bilder", 2026-08-09), und DIE Lektion bleibt.
- */
+/** Eine Behauptung pro Seite: FEN-Gruppe → Modell-Wort, groesste zuerst; innen Feld+Frame statt
+ *  Score, sonst verstreuen sich die Crops eines Feldes ueber mehrere Seiten. */
 function byClaim(cells: LaneCell[]): LaneCell[] {
   const group = new Map<string, number>();
   const sub = new Map<string, number>();
@@ -299,14 +248,10 @@ function byClaim(cells: LaneCell[]): LaneCell[] {
   );
 }
 
-/** The `Klassenwand` answer as the lane sees it: its cells, and the question that produced them. */
 export type WallQuery = { cells: LaneCell[]; text: string };
 
-/**
- * The query's hits placed IN THE STREAM — the server answers with session ids and frame stems, the
- * ordinal and the FEN come from the boards the stream already carries. A hit on a board no lane
- * shows (unusable, thrown out) has no ordinal and drops here rather than being answered off-screen.
- */
+/** A hit on a board no lane shows (unusable, thrown out) has no ordinal and drops here rather
+ *  than being answered off-screen. */
 export function wallCells(hits: readonly QueryHit[], stream: LabelStream): LaneCell[] {
   const index = new Map(stream.sessions.map((s, i) => [s.sessionId, i]));
   const boards = new Map(stream.boards.map((b) => [`${b.session}|${b.stem}`, b]));
@@ -352,11 +297,8 @@ function handCells(stream: LabelStream): LaneCell[] {
   ));
 }
 
-/**
- * Die Gründe der Stellungs-Karten, in der Reihenfolge, in der die Lane sie zeigt. Sie stellen
- * VERSCHIEDENE Fragen — „steht da etwas anderes" gegen „gilt der Zug hier schon" —, und nach Feld
- * sortiert lagen sie auf einer Seite gemischt (User, 2026-09-12). Unbekannte Gründe hinten.
- */
+/** Die Gruende stellen VERSCHIEDENE Fragen und duerfen nicht nach Feld gemischt auf einer Seite
+ *  liegen. Unbekannte Gruende hinten. */
 const POSITION_REASONS = ["changed", "temporal", "timing", "unreadable"];
 const reasonRank = (reason: string) => {
   const i = POSITION_REASONS.indexOf(reason);
@@ -376,7 +318,6 @@ function positionCell(c: StreamPositionCell): LaneCell {
     caption: `${c.square} · FEN ${c.fen_label}`,
     note: c.reason === "temporal"
       ? `Bildabweichung ${c.temporal_score?.toFixed(2) ?? "?"} · Hand oder Stellung prüfen`
-      // `timing` fragt nicht "steht da etwas anderes", sondern "gilt der Zug hier schon".
       : c.reason === "timing" ? `Zug-Zeitpunkt · schon gezogen oder noch nicht?`
       : c.reason === "unreadable" ? "Stellung? kaum Feld zu sehen" : `Stellung? Δ ${c.dev.toFixed(0)}`,
   };
@@ -396,21 +337,14 @@ function positionCells(stream: LabelStream): LaneCell[] {
     .flatMap(([, rows]) => byClaim(groupBySquare(rows.map(positionCell))));
 }
 
-/**
- * Ist die Zelle ueberhaupt eine FRAGE? Ueber `PIECE_VISIBLE_MAX` maskiert der Occlusion-Verlust sie
- * aus der Klassifikation — was ein Mensch dort urteilt, lernt kein Kopf, und die Lane war voll
- * davon (User, 2026-09-07). Ohne Messung bleibt sie drin: ungemessen heisst nicht verdeckt.
- */
+/** Ueber `PIECE_VISIBLE_MAX` maskiert der Verlust die Zelle, ein Urteil dort lernt kein Kopf.
+ *  Ohne Messung bleibt sie drin: ungemessen heisst nicht verdeckt. */
 function visible(stream: LabelStream, cell: { session: number; stem: string; square: string }): boolean {
   return (stream.coverage[cell.session]?.[cell.stem]?.[cell.square] ?? 0) <= PIECE_VISIBLE_MAX;
 }
 
-/**
- * The cells of a cell lane, one claim per page. Empty for a board lane.
- *
- * `Strittig` is every measurer at once, BLOCK BY BLOCK and not interleaved: each source keeps its
- * own claim order, so a page stays one question even though the lane holds four.
- */
+/** `Strittig` is every measurer at once, BLOCK BY BLOCK and not interleaved, so a page stays one
+ *  question even though the lane holds four. Empty for a board lane. */
 export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
   if (id === "audit") {
     return [
@@ -437,13 +371,8 @@ export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   );
 }
 
-/**
- * Was schon beurteilt ist, juengste zuerst — was „Fertige zeigen" einer Zell-Lane VORANSTELLT.
- *
- * Nicht die Lane selbst: die Stichprobe zieht per Bauart nur aus den UNBEURTEILTEN Zellen, ein
- * bestaetigtes Feld waere dort also fuer immer weg. Der Rueckweg haengt deshalb am Ledger, nicht
- * an der Frage, und ist in jeder Lane derselbe.
- */
+/** Was schon beurteilt ist, juengste zuerst. Haengt am Ledger, nicht an der Lane: die Stichprobe
+ *  zieht nur aus UNBEURTEILTEN Zellen, ein bestaetigtes Feld waere dort fuer immer weg. */
 export function recentCells(stream: LabelStream): LaneCell[] {
   return stream.recent.map((c) => ({
     session: c.session,
@@ -464,14 +393,8 @@ export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   return id === "all" ? stream.boards : [];
 }
 
-/**
- * `{square: label}` die Lane auf einem Brett vorwaehlt — alles, was jemand an DIESEM Brett
- * angezweifelt hat, in einer Vorwahl. Reihenfolge = Schaerfe: der Regelbruch beweist einen
- * Widerspruch, `unknown` ist nur die Zweifel des Exporters, und die Modell-Lesart ist eine Meinung.
- *
- * `unknown` traegt das FEN-Wort, weil `labeling.py` die Zelle sonst beim Slice faellen laesst —
- * das FEN zu bestaetigen ist hier die Rettung, nicht eine Tautologie (CONCEPT.md D5).
- */
+/** Reihenfolge = Schaerfe: Regelbruch vor `unknown` vor Modell-Lesart. `unknown` traegt das
+ *  FEN-Wort, weil `labeling.py` die Zelle sonst beim Slice fallen laesst. */
 export function laneAccept(board: StreamBoard, id: LaneId): Record<string, string> {
   if (id !== "all") return {};
   const fen = fenLabels(board.fen);
@@ -486,10 +409,7 @@ export function laneReads(board: StreamBoard, id: LaneId): Record<string, string
   return id === "all" ? board.disagreeReads : {};
 }
 
-/**
- * A board lane's flagged squares as single crops — the phone renders one crop, never an 8x8
- * (CONCEPT.md 4.3), so every lane has to be answerable cell by cell.
- */
+/** The phone renders one crop, never an 8x8, so every lane has to be answerable cell by cell. */
 export function boardCells(boards: readonly StreamBoard[], id: LaneId): LaneCell[] {
   return groupBySquare(
     boards.flatMap((board) => {
@@ -510,28 +430,16 @@ export function boardCells(boards: readonly StreamBoard[], id: LaneId): LaneCell
   );
 }
 
-/**
- * A board still worth stopping at — the lane's own unit of work, unanswered.
- *
- * `Alle Bretter` is free-hand touch-up and closes only when every square carries a verdict.
- * `Regelbruch` never closes: its squares are corrections ON FILE, so the ledger calls them judged
- * by construction — the board leaves the lane when the audit runs again and drops its row.
- */
+/** `Regelbruch` never closes: its squares are corrections ON FILE, so the ledger calls them judged —
+ *  the board leaves when the audit reruns and drops its row. `Alle Bretter` closes only when full. */
 export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string, string>): boolean {
   if (id !== "all") return false;
-  // Ein Brett mit Regelbruch bleibt IMMER offen: seine markierten Felder sind Korrekturen auf der
-  // Platte, das Ledger nennt sie also von Bauart her beurteilt. Es geht erst, wenn der Audit neu
-  // laeuft und die Zeile faellt. Sonst zaehlen die 64 Felder — Freihand schliesst nur ganz.
   if (board.violations.length > 0) return true;
   return Object.keys(fenLabels(board.fen)).some((sq) => decided[`${board.stem}|${sq}`] === undefined);
 }
 
-/**
- * Liefert dieses Brett noch einen Crop? `slice_session`: mit Settle-Messung UND Matte entscheidet
- * die Zelle, sonst wird nur ein `occluded` Frame mit Matte gerettet und jedes andere dirty Frame
- * nur noch da, wo ein Mensch etwas benannt hat. Fehlende `phase` heißt NICHT dirty — sonst
- * blendet ein ungemessenes Brett sich selbst aus.
- */
+/** Spiegelt `slice_session`. Fehlende `phase` heisst NICHT dirty — sonst blendet ein ungemessenes
+ *  Brett sich selbst aus. */
 export function reachesPool(board: StreamBoard, coverage: Record<string, Record<string, number> | undefined>[]): boolean {
   if (board.phase !== "after" && board.phase !== "before") return true;
   const cover = coverage[board.session]?.[board.stem];
@@ -544,12 +452,8 @@ export function laneFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
   return id === "frames" ? stream.boards.filter(frameCandidate) : [];
 }
 
-/**
- * Was noch auf ein Urteil wartet. Ein Frame geht raus, sobald es EINES von beiden traegt: zur
- * Matte geschickt (der Zettel bleibt liegen, auch bevor SAM lief) oder schon gemattet — dann
- * gehoeren seine Zellen der Strittig-Lane. `unusable` kommt gar nicht erst im Strom an: die Zeile
- * traegt das Flag, und `loadLabelStream` laesst sie fallen.
- */
+/** Ein Frame geht raus, sobald es zur Matte geschickt oder schon gemattet ist — dann gehoeren seine
+ *  Zellen der Strittig-Lane. */
 export function openFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
   return laneFrames(stream, id).filter(
     (b) =>

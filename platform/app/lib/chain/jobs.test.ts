@@ -214,7 +214,7 @@ describe("refusalOf", () => {
     expect(refusalOf("geometry: 471 frames\nexit 0\n")).toBeNull();
   });
 
-  // `phone-record` starb 2026-09-15 an einer OpenCV-Meldung im Log, der Ledger trug nur `exit 1`.
+  // Der Ledger trug nur `exit 1`, die OpenCV-Ursache stand allein im Log.
   const TRACEBACK = [
     "  retime 9561/9593 frames read",
     "Traceback (most recent call last):",
@@ -402,7 +402,7 @@ describe("the boundary commit's export hold (§4.1.1)", () => {
     expect(history[0].reason).toBe("z — zurückgenommen, der Export lief nie");
   });
 
-  // `holdExport` schreibt nur in den Ledger; die Zeile im Speicher gewann trotzdem (2026-09-21).
+  // `holdExport` schreibt nur in den Ledger; die Zeile im Speicher gewann trotzdem.
   test("ein frueherer Export im Speicher verdeckt den spaeteren Halt nicht", async () => {
     const name = "2026-09-21-10-00-00";
     await enqueueChain(name, "export");
@@ -620,7 +620,6 @@ describe("der Slot", () => {
   }, 30_000);
 });
 
-// Vor dem Aufteilen von jobs.ts nachgezogen: diese Wege lagen ungetestet unter den Mocks der Routen.
 describe("Pack-Lauf", () => {
   test("ohne Spielstand ist der Pack uebersprungen, mit dem Grund", async () => {
     const name = "2026-08-13-19-34-23";

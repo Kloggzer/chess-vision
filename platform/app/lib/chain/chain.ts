@@ -1,12 +1,5 @@
-/**
- * The ladder from a transferred recording to the labelling stream, as a STATE, not a procedure.
- *
- * Seven rungs with a human in the middle (`docs/phone-transfer.md`): the tracker proposes a move
- * list, a person judges it, the confirmed intervals become a session, SAM cuts the hand out of its
- * occluded frames, the three-frame sensor catches what SAM missed, and a model reads it. Each
- * step's input is the previous file, so the next step is not a decision — it is READ OFF THE DISK.
- * The UI therefore offers exactly one button, and never one whose input does not exist yet.
- */
+/** The ladder from a transferred recording to the labelling stream, as a STATE: each step's input
+ *  is the previous file, so the next step is read off the disk — never offered before it exists. */
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -67,21 +60,14 @@ async function videoOf(name: string): Promise<string | null> {
   return "video" in found ? found.video : null;
 }
 
-/**
- * An exported session, not merely a `log.jsonl` — and whether `settle-scan` has measured it.
- *
- * The export writes frames first and log.jsonl LAST, so the directory alone proves nothing: a
- * killed export left one, the chain offered the next step, and Python refused (2026-08-15). And a
- * mirrored bundle keeps the PHONE's own commit log under that very name — `frame` rows, no `board`
- * — which read as an export and skipped the export rung outright (Phase 00, `2026-08-30-14-33-02`).
- */
+/** The export writes log.jsonl LAST, so the directory alone proves nothing. A mirrored bundle keeps
+ *  the PHONE's commit log under the same name — `frame` rows, no `board` — which is no export. */
 async function exportedSession(name: string): Promise<{ exported: boolean; settled: boolean; interrupted: boolean }> {
   // `realgames.mark_export`: Bretter schon neu, Log noch alt — was darauf weiterlaeuft, mischt Generationen.
   if (await exists(path.join(sessionDir(name), ".export-running"))) return { exported: false, settled: false, interrupted: true };
   const text = await readFile(recordingFile(name, "log"), "utf8").catch(absentOnly);
-  // Hier wird NICHT geworfen, anders als in `loadSession` auf derselben Datei: die Kette ist die
-  // Seite, die den naechsten Knopf zeigt, und eine kaputte Zeile darf die ganze Aufnahmeliste
-  // nicht 500en (dieselbe Entscheidung wie beim `candidate.json`-Parse unten).
+  // Hier wird NICHT geworfen, anders als in `loadSession`: eine kaputte Zeile darf die ganze
+  // Aufnahmeliste nicht 500en.
   const rows = readJsonl(text ?? "").rows as { board?: unknown; ply?: unknown; settle_dev?: unknown }[];
   if (rows.length === 0 || !("board" in rows[0])) return { exported: false, settled: false, interrupted: false };
   const perPly = new Map<unknown, number>();
@@ -102,11 +88,9 @@ async function stampOf(file: string): Promise<string | null> {
 /** Wer die Aufnahme geschnitten hat, als der Lauf lief (`chesslab.provenance.source_stamp`). */
 type Provenance = { log?: string; model?: string };
 
-/** `model-reads.jsonl` is one line per CELL — only its header is ever read here.
- *
- *  `null` bei unlesbarer Kopfzeile, nicht `{}`: `{}` hiesse "ungestempelt, gilt weiter" (die Regel
- *  fuer Altbestand), und eine leere Datei — was ein gestoppter Lauf hinterlaesst — schloesse damit
- *  die Sprosse. Der Mensch landete auf `labeln` ohne eine einzige Lesart. */
+/** Only the header of `model-reads.jsonl` is read. `null` bei unlesbarer Kopfzeile, nicht `{}`:
+ *  `{}` hiesse "ungestempelt, gilt weiter", und die leere Datei eines gestoppten Laufs schloesse
+ *  damit die Sprosse. */
 async function headerOf(file: string): Promise<Provenance | null> {
   // Nur ENOENT heisst "nie gelaufen"; ein EACCES bot sonst den schweren Lauf erneut an.
   const handle = await open(file, "r").catch(absentOnly);
@@ -123,16 +107,10 @@ async function headerOf(file: string): Promise<Provenance | null> {
   }
 }
 
-/**
- * Whether a finished run still belongs to what is on disk now.
- *
- * Eine Datei OHNE Stempel gilt weiter als gueltig: alles, was heute auf der Platte liegt, hat
- * keinen, und sie ungueltig zu nennen risse jeder bestehenden Aufnahme die Kette auf.
- */
+/** Eine Datei OHNE Stempel gilt weiter: alles, was heute auf der Platte liegt, hat keinen, und sie
+ *  ungueltig zu nennen risse jeder bestehenden Aufnahme die Kette auf. */
 function stillCurrent(source: Provenance, log: string | null, model: string | null): boolean {
-  // `Provenance`, nicht `Provenance | null`: `null` heisst UNLESBAR und darf die Sprosse nicht
-  // schliessen. Hier stand der Fall mit drin und lieferte "gilt weiter" -- dieselbe Antwort wie
-  // fuer eine ungestempelte Datei, und genau der Unterschied, den `headerOf` trennt.
+  // `null` heisst UNLESBAR und darf die Sprosse nicht schliessen — deshalb nimmt dies kein `null`.
   if (source.log === undefined) return true;
   if (model !== null && source.model !== undefined && path.basename(source.model) !== path.basename(model)) return false;
   return sameLog(source.log, log);
@@ -147,12 +125,8 @@ function sameLog(stamped: string, current: string | null): boolean {
   return size === nowSize && Math.abs(Number(ms) - Number(nowMs)) <= 1;
 }
 
-/**
- * A game record naming this bundle's session — what `phone-candidate` reads instead of the video.
- *
- * Exactly one session directory, because the verb refuses several: with two, the record names one
- * of them and the video is the other's. `index.json` is the phone's list of records, not a record.
- */
+/** Exactly one session directory, because the verb refuses several: with two, the record names one
+ *  and the video is the other's. `index.json` is the phone's list of records, not a record. */
 async function phoneRecord(name: string): Promise<boolean> {
   const dir = gameDir(name);
   const entries = (await readdir(path.join(dir, "files", "sessions"), { withFileTypes: true }).catch(absentOnly)) ?? [];
@@ -203,8 +177,7 @@ export async function chainState(name: string): Promise<ChainState> {
   const confirmed = doc?.confirmed === true;
   const hasReference = referenceBytes !== null;
   const against = confirmed ? confirmedAgainst(doc!, hasReference ? referenceDigest(referenceBytes) : null) : null;
-  // Die Umgebungsvariable ist die Wahl des Menschen (`jobs.modelReadRun`); ohne sie hat niemand
-  // ein Modell benannt, gegen das sich ein fertiger Lauf vergleichen liesse.
+  // Ohne die Umgebungsvariable hat niemand ein Modell benannt, gegen das sich ein Lauf vergleichen liesse.
   const model = process.env.CHESSLAB_MODEL_READ_RUN?.trim() || null;
   const passSource = passRun?.source ?? null;
   const moved = passRun?.inputs ? await inputsMoved(name, passRun.inputs) : null;
@@ -213,8 +186,8 @@ export async function chainState(name: string): Promise<ChainState> {
   const freshReads = readsSource !== null && stillCurrent(readsSource, logStamp, model);
   const otherModel = model !== null && readsSource?.model !== undefined
     && path.basename(readsSource.model) !== path.basename(model);
-  // Die gespeicherte `coverage` ist ein Schnappschuss vom Matten, und `crop_square` schneidet
-  // danach mit den NEUEN Ecken — gemessen 13 von 24 Aufnahmen. Nichts erinnerte daran.
+  // Die gespeicherte `coverage` ist ein Schnappschuss vom Matten; `crop_square` schneidet danach mit
+  // den NEUEN Ecken.
   const staleMatte = matteStamps.some((stamp) => !sameLog(stamp, logStamp));
   const outdated: Partial<Record<ChainStep, string>> = {
     ...(against === "moved" ? { confirm: REFERENCE_MOVED } : {}),
@@ -291,7 +264,6 @@ async function inputsMoved(name: string, inputs: PassInputs): Promise<string | n
   return null;
 }
 
-/** Was die Sprosse wieder aufgemacht hat — der eine Fall, den reine Dateiexistenz nie sieht. */
 const STALE = "der Lauf stammt von vor dem letzten Export — seine Zahlen gehoeren zu anderen Brettern";
 
 const MATTE_MOVED = "seit dem Lauf hat sich die matte.jsonl geaendert — Frames, auf denen SAM nichts fand, hat kein Upsert gesehen";
@@ -302,18 +274,10 @@ const REFERENCE_MOVED = "die Referenz wurde nach der Bestaetigung ersetzt — di
 
 const EXPORT_INTERRUPTED = "ein Export wurde abgebrochen (`.export-running`) — Bretter und Log stammen aus verschiedenen Laeufen, erst ein neuer Export gibt die Folgeschritte frei";
 
-/** Die Matte hat einen eigenen Satz: hier hilft kein zweiter SAM-Lauf, sondern die Arithmetik. */
 const RECUT = "die Alphas wurden vor dem letzten Export geschnitten — `chesslab occluders recut-coverage` rechnet ihre Coverage gegen die heutige Geometrie neu";
 
-/**
- * The one step that can run now, and in einem Satz, warum.
- *
- * Order is the chain's own, with the confirm gate honoured: `export-session` reads
- * `reviewed_plies`, so an unconfirmed candidate has nothing for it to export, and offering the
- * button anyway would produce an empty session and a puzzled user. A game the human called
- * useless has no step at all — that is the whole point of the flag, and it is one click undone.
- * With a record on disk the phone already knows the moves; the replay is then the fallback button.
- */
+/** The one step that can run now, and why. `export-session` reads `reviewed_plies`, so an
+ *  unconfirmed candidate would export an empty session. A useless game has no step at all. */
 export function nextStep(state: Omit<ChainState, "step" | "reason">): { step: ChainStep | null; reason: string } {
   const because = (step: ChainStep, reason: string) => ({ step, reason: state.outdated[step] ?? reason });
   if (state.useless) return { step: null, reason: "als nutzlos markiert — kein Schritt offen" };
@@ -329,12 +293,9 @@ export function nextStep(state: Omit<ChainState, "step" | "reason">): { step: Ch
   // Producer-Reihenfolge, nicht Kosmetik: ohne `settle_dev` legt `position-flags` nichts aus, und
   // eine leere Strittig-Lane sieht aus wie "alles unstrittig" statt wie "nie gemessen".
   if (!state.hasSettle) return because("settle-scan", "keine Zeile traegt `settle_dev` — ungemessen ist nicht unstrittig, die Strittig-Lane bliebe leer");
-  // Before `model-read`, which needs a model picked by hand: the alphas need nothing but the
-  // export. The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out,
-  // and a step waiting for the other 314 would strand the biggest sessions on this rung forever.
-  // Auch gemeldete Frames AUSSERHALB des Haufens: `--reported` holt sie, aber sobald das Ziel
-  // erfuellt war, bot die Kette den Schritt nicht mehr an und sie blieben unerreichbar. Nur die
-  // OFFENEN: ein von SAM abgelehntes Frame bliebe sonst fuer immer der Grund, hier zu stehen.
+  // The bar is the run's TARGET, not the pile — waiting for all of it would strand the biggest
+  // sessions here forever. Reported frames outside the pile count too, but only OPEN ones: a frame
+  // SAM refused would otherwise hold the rung forever.
   if (state.mattes.reportedOpen > 0) return because("matte", `${state.mattes.reportedOpen} von Hand gemeldete Frames sind noch nicht gemattet`);
   if (state.mattes.wanted > 0) return because("matte", `${state.mattes.wanted} von Hand zur Matte geschickte Frames sind noch nicht gemattet`);
   if (state.mattes.done < state.mattes.target) return because("matte", `${state.mattes.done} von ${state.mattes.target} verdeckten Frames sind gemattet`);
@@ -348,13 +309,8 @@ export function nextStep(state: Omit<ChainState, "step" | "reason">): { step: Ch
   return { step: "labeln", reason: "alle Maschinenschritte sind durch — jetzt korrigiert der Mensch" };
 }
 
-/**
- * Copy the phone's PGN in as `reference.pgn` — the chain's default, run by `tick`, never a button.
- *
- * Never overwrites: an existing reference is a human's choice (uploaded by hand, or edited), and
- * the phone's own move list is exactly the thing the confirm screen exists to doubt — which is why
- * `referenceOrigin` has to say so wherever the adopted file is used.
- */
+/** Never overwrites: an existing reference is a human's choice, and the phone's own move list is
+ *  exactly what the confirm screen exists to doubt. */
 export async function adoptPgn(name: string): Promise<{ adopted: string } | { reason: string }> {
   if (await hasReferenceFile(name)) return { reason: "reference.pgn already exists — nothing was overwritten" };
   const source = await phonePgn(name);
@@ -365,11 +321,7 @@ export async function adoptPgn(name: string): Promise<{ adopted: string } | { re
   return { adopted: path.basename(source) };
 }
 
-/**
- * Every offered PGN adopted, wherever the queue is read — there is no ticker to do it any more.
- * A refusal is remembered, not retried: it is the same news on every read until a human acts, and
- * silence about it is the defect (see `docs/labeling-ux/CONCEPT.md` §5).
- */
+/** A refusal is remembered, not retried: it is the same news on every read until a human acts. */
 export async function adoptOffered(names: readonly string[]): Promise<void> {
   for (const name of names) {
     if (refusals.has(name)) continue;

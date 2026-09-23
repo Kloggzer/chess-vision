@@ -7,7 +7,6 @@ export const dynamic = "force-dynamic";
 /** So weit reicht der Rückweg — ein paar Sitzungen, nicht das ganze Ledger. */
 const DEPTH = 2000;
 
-/** Was zuletzt gelabelt wurde, jüngste Änderung zuerst, und der Weg zurück durch die älteren. */
 export default async function HistoriePage() {
   const changes = await loadHistory(DEPTH);
   return (

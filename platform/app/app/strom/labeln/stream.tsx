@@ -73,12 +73,8 @@ const KEYS: [string, string][] = [
   [".", "/game (neuer Tab)"],
 ];
 
-/**
- * What is known about a hand on THIS frame: SAM's measurement, and the human's own report.
- *
- * Both lanes need it — a cell lane shows one square at a time and never the hand beside it, which
- * is how a covered crop reaches the eye with nothing saying so (User, 2026-08-19).
- */
+/** SAM's measurement and the human's report for THIS frame — a cell lane shows one square and never
+ *  the hand beside it, so a covered crop would otherwise reach the eye unannounced. */
 function OcclusionChip({ coverage, reported }: { coverage?: Record<string, number>; reported: boolean }) {
   const over = coverage === undefined ? [] : coveredSquares(coverage);
   const [tone, text, why] =
@@ -101,13 +97,8 @@ function OcclusionChip({ coverage, reported }: { coverage?: Record<string, numbe
   );
 }
 
-/**
- * LABELN — every board of every session, one continuous feed (CONCEPT.md §4.2).
- *
- * The lane bar is a FILTER over one ordered stream, never a page: every item carries the same
- * ordinal, so switching a lane is a search in that order and keeps you where you were. The
- * renderer is the lane's own (board vs. cell grid, REVIEW S10), and so is its denominator.
- */
+/** The lane bar is a FILTER over one ordered stream, never a page: switching a lane is a search in
+ *  that order and keeps you where you were. */
 export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: QueryAnswer }) {
   const router = useRouter();
   const lane = laneBySlug(usePathname().split("/").pop() ?? "")?.id ?? DEFAULT_LANE.id;
@@ -118,10 +109,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   const [written, setWritten] = useState<Written>({});
   const [thrown, setThrown] = useState<ReadonlySet<string>>(new Set<string>());
   const [dropped, setDropped] = useState<ReadonlySet<number>>(new Set<number>());
-  /**
-   * Gemeldete Frames. Der Zettel liegt in `review-notes.jsonl`, also muss die Marke einen Reload
-   * überleben — sonst meldet man dasselbe Frame in der nächsten Sitzung ein zweites Mal.
-   */
+  /** Die Marke muss einen Reload ueberleben — sonst meldet man dasselbe Frame zweimal. */
   const [reported, setReported] = useState<ReadonlySet<string>>(
     () =>
       new Set(
@@ -171,11 +159,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     }
   }, [fail]);
 
-  // A shared link carries a query the server's default answer is not. Scheduled, not called: the
-  // fetch is the external system this effect talks to, and the render must not wait on it.
-  // Ein fehlendes `min` ist nicht die Schwelle 0: die laesst jede Zelle mit `probs` durch, der
-  // Client schrieb sie auch noch in die URL zurueck, und die Huerde in `app/api/query/route.ts`
-  // hatte danach nichts mehr zu halten.
+  // A shared link carries a query the server's default answer is not; scheduled, so the render does
+  // not wait on the fetch. Ein fehlendes `min` ist nicht die Schwelle 0 — die liesse jede Zelle mit
+  // `probs` durch und hebelte die Huerde in `app/api/query/route.ts` aus.
   useEffect(() => {
     const link = linkFilter(window.location.search);
     if (!link) return;
@@ -289,12 +275,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     [indexOf],
   );
 
-  /**
-   * The tombstone carries the value the cell falls back to, so the row is a correct last-wins
-   * label for `load_corrections` and a delete for `decidedKeys` (§4.2.2). It goes into the ledger
-   * the row came FROM: a reviewed row left judged keeps the board closed, which is the half
-   * REVIEW S4 says a superseding row cannot fix.
-   */
+  /** The tombstone carries the value the cell falls back to: a correct last-wins label for
+   *  `load_corrections` and a delete for `decidedKeys`. It goes into the ledger the row came FROM,
+   *  since a superseding row cannot reopen a board a reviewed row closed. */
   const flush = useCallback<Flush>(
     async (pos_, writes, prior) => {
       const real = writes.filter((w) => w.rows.length > 0);
@@ -483,8 +466,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     [fail, say, stream.sessions],
   );
 
-  // One listener, one keymap — the renderers publish what they can do instead of binding keys of
-  // their own, which is how `bucket.tsx` and `drilldown.tsx` came to disagree about Space.
+  // One listener, one keymap — the renderers publish what they can do instead of binding keys.
   const handler = useRef<(event: KeyboardEvent) => void>(() => undefined);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => handler.current(event);

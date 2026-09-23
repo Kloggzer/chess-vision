@@ -38,9 +38,8 @@ export function validateNote(row: unknown): ReviewNote {
     return { session_id: String(r.session_id), frame: String(r.frame), verdict: r.verdict as FrameVerdict, ...reason };
   }
   if (r.verdict === "bad-interval") {
-    // `Number(null)` ist 0, `Number(true)` ist 1, `Number("")` ist 0: ein Koerper ohne `ply`
-    // landete sonst als Urteil ueber Halbzug 0. `app/api/zuege/[name]/note` prueft das seit je,
-    // `app/api/review-notes` kommt ueber DIESE Tuer und tat es nicht.
+    // `Number(null)` ist 0, `Number(true)` ist 1, `Number("")` ist 0: ein Koerper ohne `ply` landete
+    // sonst als Urteil ueber Halbzug 0.
     const given = typeof r.ply === "number" || (typeof r.ply === "string" && r.ply.trim() !== "");
     const ply = given ? Number(r.ply) : Number.NaN;
     if (!Number.isInteger(ply) || ply < 0) throw new Error(`bad ply: ${String(r.ply)}`);
@@ -68,9 +67,8 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
 
 export async function dropReviewNotes(rows: ReviewNote[]): Promise<number> {
   if (rows.length === 0) return 0;
-  // Lesen-aendern-schreiben auf der GLOBALEN Datei: zwei gleichzeitige Widerrufe lasen denselben
-  // Text, der zweite holte die Zeile des ersten zurueck, und beide meldeten Erfolg. Der Aufrufer
-  // erzeugt genau das (`stream.tsx::markPaintedDirty` feuert je Frame ohne `await`).
+  // Lesen-aendern-schreiben auf der GLOBALEN Datei: zwei gleichzeitige Widerrufe holten sonst die
+  // Zeile des anderen zurueck, und der Aufrufer feuert je Frame ohne `await`.
   return serialize(reviewNotesPath(), () => dropUnlocked(rows));
 }
 
@@ -82,9 +80,8 @@ async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
   // Ohne `stripBom` scheiterte Zeile 1 am Parse, und der `catch` unten BEHAELT eine unlesbare
   // Zeile: ein Urteil in der ersten Zeile liess sich damit nie widerrufen.
   const lines = stripBom(text).split("\n");
-  // Die LETZTE Zeile ohne Umbruch dahinter gehoert einem laufenden `appendRows`. Ihr hier einen
-  // zu geben machte aus dem geduldeten Schwanz Beschaedigung MITTENDRIN — und seit `bySession`
-  // darauf wirft, waere danach jedes Urteil JEDER Sitzung unerreichbar.
+  // Die LETZTE Zeile ohne Umbruch gehoert einem laufenden `appendRows`. Ihr hier einen zu geben machte
+  // aus dem geduldeten Schwanz Beschaedigung MITTENDRIN, auf die `bySession` wirft.
   const tail = lines.length > 0 && lines[lines.length - 1] !== "" ? lines.pop() : null;
   const kept = lines.filter((line) => {
     if (!line.trim()) return false;
@@ -134,16 +131,14 @@ async function bySession(): Promise<BySession> {
   if (hit?.key === key) return hit.value;
 
   const value: BySession = new Map();
-  // Nur ein FEHLENDES Ledger ist "noch keine Urteile", wie `lib/session-store/corrections.ts` es haelt. Jeder
-  // andere Lesefehler als "" durchgereicht loescht jedes menschliche Urteil aller Sitzungen —
-  // und der Cache haelt die Luege, bis sich die mtime bewegt.
+  // Nur ein FEHLENDES Ledger ist "noch keine Urteile". Jeder andere Lesefehler als "" loeschte jedes
+  // Urteil aller Sitzungen, und der Cache hielte die Luege bis zur naechsten mtime.
   const text = await readFile(file, "utf8").catch((e) => {
     if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return "";
   });
-  // Eine kaputte Zeile MITTENDRIN zu ueberspringen verliert ein Urteil lautlos: das Frame, das ein
-  // Mensch weggeworfen hat, steht danach wieder in der Lane. Der Schwanz eines laufenden
-  // Anhaengens ist dagegen erwartbar und kostet nichts.
+  // Eine kaputte Zeile MITTENDRIN verliert sonst ein Urteil lautlos; der Schwanz eines laufenden
+  // Anhaengens ist dagegen erwartbar.
   const read = readJsonl(text);
   if (read.corrupt > 0) throw new Error(`${file}: ${read.corrupt} beschaedigte Zeile(n)`);
   for (const line of read.rows) {

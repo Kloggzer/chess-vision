@@ -1,7 +1,5 @@
-/**
- * Die fuenf Zustaende einer `matte.jsonl`-Zeile — DASSELBE Fixture wie `tests/test_matte_state_parity.py`.
- * Sie zu verwechseln war 2026-09-15/16 vier Mal ein Bug (Absage als sauberes Brett, fehlend als 0).
- */
+/** Die fuenf Zustaende einer `matte.jsonl`-Zeile — DASSELBE Fixture wie `tests/test_matte_state_parity.py`.
+ *  Sie zu verwechseln war vier Mal ein Bug (Absage als sauberes Brett, fehlend als 0). */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";

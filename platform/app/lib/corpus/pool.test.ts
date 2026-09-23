@@ -135,7 +135,7 @@ test("DIFF is pool minus snapshot — positive is what a rebuild would add", () 
   expect(occludedDiff(100, 300)).toBe(-200);
 });
 
-// H2 (2026-09-22): `/corpus` zeichnet den Pool als Messung; ein `readdir`/`stat`-Fehler nahm Aufnahmen lautlos heraus.
+// `/corpus` zeichnet den Pool als Messung; ein `readdir`/`stat`-Fehler nahm Aufnahmen lautlos heraus.
 test("ein I/O-Fehler auf log.jsonl ist keine Aufnahme ohne Zellen", async () => {
   await writeSession({ root: await tempDataRoot("poolstat"), rows: [{ frame: 234 }, { frame: 237 }] });
   blowUpOn("log.jsonl", "EMFILE");
@@ -162,7 +162,7 @@ test("der gesunde Fall zaehlt weiter 64 Zellen je Frame", async () => {
   expect(pool.cells).toBe(128);
 });
 
-// 2026-09-17: ein gefangener Lesefehler am Nachbarn `corrections.jsonl` zeigte die Urteile als nie gefaellt, gecacht.
+// Ein gefangener Lesefehler an `corrections.jsonl` zeigte die Urteile als nie gefaellt, gecacht.
 test("ein unlesbares corrections.jsonl ist kein Pool ohne Korrekturen", async () => {
   const dir = await writeSession({ root: await tempDataRoot("poolfail"), rows: [{ frame: 234 }] });
   await mkdir(path.join(dir, "corrections.jsonl"), { recursive: true });

@@ -1,7 +1,4 @@
-/**
- * Der eine Leser fuer `.jsonl` — und die eine Antwort auf die halb geschriebene Zeile: der
- * ZEILENUMBRUCH entscheidet. Drei Leser derselben Datei antworteten bis 2026-09-16 verschieden.
- */
+/** Der eine Leser fuer `.jsonl`: der ZEILENUMBRUCH entscheidet ueber die halb geschriebene Zeile. */
 export type JsonlRead = {
   rows: Record<string, unknown>[];
   /** Die letzte Zeile war unvollstaendig. Erwartbar, kein Defekt. */
@@ -10,11 +7,8 @@ export type JsonlRead = {
   corrupt: number;
 };
 
-/**
- * `utf-8-sig` wie `chesslab.ioutil`: PowerShells `Out-File` stempelt ein BOM, und ohne dies zaehlt
- * Zeile 1 als beschaedigt — die Leser werfen darauf die ganze Datei weg. Nur das FUEHRENDE
- * Zeichen: ein U+FEFF mitten im Inhalt ist Inhalt und bleibt stehen.
- */
+/** `utf-8-sig` wie `chesslab.ioutil`: PowerShells `Out-File` stempelt ein BOM, sonst zaehlt Zeile 1
+ *  als beschaedigt. Nur das FUEHRENDE Zeichen — ein U+FEFF mitten im Inhalt ist Inhalt. */
 export function stripBom(text: string): string {
   return text.startsWith("﻿") ? text.slice(1) : text;
 }
@@ -40,11 +34,8 @@ export function readJsonl(text: string): JsonlRead {
   return { rows, tail, corrupt };
 }
 
-/**
- * Die Zeilen, und die kaputte MITTENDRIN als FEHLER. Kein Schreiber kann sie erklaeren, und still
- * uebersprungen wird aus einer Messung eine mit weniger Treffern, aus einem Ledger eins mit
- * weniger Urteilen — von aussen nicht zu unterscheiden. Der halbe SCHWANZ faellt weiter weg.
- */
+/** Die kaputte Zeile MITTENDRIN ist ein FEHLER: still uebersprungen wird aus einer Messung eine mit
+ *  weniger Treffern, von aussen nicht zu unterscheiden. Der halbe SCHWANZ faellt weiter weg. */
 export function jsonlRowsStrict(where: string, text: string): Record<string, unknown>[] {
   const read = readJsonl(text);
   if (read.corrupt > 0) throw new Error(`${where}: ${read.corrupt} beschaedigte Zeile(n)`);

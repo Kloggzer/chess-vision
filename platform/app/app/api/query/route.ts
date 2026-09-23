@@ -1,11 +1,8 @@
 import { queryCorpus } from "@/lib/corpus/corpus-query";
 import { DEFAULT_WALL } from "@/lib/query";
 
-/**
- * The corpus-wide identity question — `api/filter/[name]` grown to every session, for the LABELN
- * stream's `Klassenwand`. A class query is unanswerable in the browser because `StreamCell` carries
- * no `probs` and must not: that is 58 MB. The answer is cell keys, their reads and what ⏎ agrees to.
- */
+/** The corpus-wide `Klassenwand` question, answered server-side: `StreamCell` carries no `probs` and
+ *  must not — that is 58 MB. The answer is cell keys, their reads and what ⏎ agrees to. */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   // `?min=` ist leer, nicht null: `??` greift nicht und `Number("")` ist 0 — die Wand fiele still

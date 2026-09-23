@@ -1,11 +1,6 @@
-/**
- * `/corpus` §7.1, POOL and DIFF: what a slice run RIGHT NOW would yield, against the snapshot.
- *
- * POOL is the ledgers over the exported sessions — every log frame's FEN expanded to its 64 cells,
- * with `corrections.jsonl` winning last per `(session_id, str(frame), square)`, the same tuple
- * `labeling.load_corrections` dedups on. DIFF exists because datasets are snapshots and nothing is
- * incremental (docs/data-pipeline.md §5.9): without it nobody can see which labels made it in.
- */
+/** POOL and DIFF: what a slice run RIGHT NOW would yield, against the snapshot. Corrections win last
+ *  per `(session_id, str(frame), square)`, the tuple `labeling.load_corrections` dedups on. Datasets
+ *  are snapshots, so without DIFF nobody sees which labels made it in. */
 import { fenLabels } from "@/lib/fen";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -21,9 +16,8 @@ const cellKey = (sessionId: string, frame: string | number, square: string) =>
 
 /** Last line wins — an undo is a superseding row, never a deletion (`lib/session-store/corrections.ts`). */
 export function dedupCorrections(read: JsonlRead): Map<string, string> {
-  // Eine kaputte Zeile MITTENDRIN ist kein laufender Schreiber. Sie still zu ueberspringen
-  // machte aus dem Urteil eines Menschen ein "gab es nie" — dieselbe Form wie die Absage,
-  // die als sauberes Brett gelesen wurde.
+  // Eine kaputte Zeile MITTENDRIN ist kein laufender Schreiber; sie still zu ueberspringen machte aus
+  // dem Urteil eines Menschen ein "gab es nie".
   if (read.corrupt > 0) throw new Error(`${read.corrupt} kaputte Zeile(n) in corrections.jsonl`);
   const last = new Map<string, string>();
   for (const row of read.rows) {
@@ -88,12 +82,8 @@ export type OccludedFit = {
   outside: string[];
 };
 
-/**
- * Which exported session's occluded labels are IN the snapshot, and which are not.
- *
- * A session can sit in the dataset under `rg-…` and still be "not in": only the `occ-…` slices
- * carry occluded crops, so membership is decided on the occluded count, never on the session list.
- */
+/** Membership is decided on the occluded count, never on the session list: a session can sit in the
+ *  dataset under `rg-…` while only its `occ-…` slices carry occluded crops. */
 export function occludedFit(pool: Pool, snapshot: SnapshotOccluded): OccludedFit {
   const fit: OccludedFit = { inside: [], outside: [] };
   for (const [sessionId, cells] of Object.entries(pool.occludedBySession)) {
@@ -107,15 +97,10 @@ export function occludedFit(pool: Pool, snapshot: SnapshotOccluded): OccludedFit
 
 type Cached<T> = { key: string; value: T };
 type Store = { logs?: Cached<SessionLog[]>; pool?: Cached<Pool> };
-/** Pinned like `jobs.ts:56`: a dev reload must not re-expand 12 641 FENs and 18 k ledger rows. */
+/** Pinned on `globalThis`: a dev reload must not re-expand 12 641 FENs and 18 k ledger rows. */
 const store: Store = ((globalThis as { __chesslabPool?: Store }).__chesslabPool ??= {});
 
-/**
- * Every exported session's log, mtime-keyed.
- *
- * Read once for both readers: the pool expands the FENs, §7.3's dirty ratio counts the same rows,
- * and 12 641 rows parsed twice per request is the read-model cost §6.3 asks not to pay.
- */
+/** Every exported session's log, mtime-keyed, read once for the pool and the dirty ratio. */
 export async function sessionLogs(): Promise<SessionLog[]> {
   return (await keyedLogs()).value;
 }
@@ -151,9 +136,8 @@ export async function loadPool(): Promise<Pool> {
   const key = `${names.map((name, i) => `${name}@${stats[i] ?? "none"}`).join(",")}|${logs.key}`;
   if (store.pool?.key === key) return store.pool.value;
 
-  // Nur ein FEHLENDES Ledger ist "noch keine Urteile" — `stats[i]` sagt das schon. Jeder andere
-  // Lesefehler als "" durchgereicht zeigte die Aufnahme als unkorrigiert, unter ihrem echten
-  // Stempel gecacht, bis die Datei sich bewegt.
+  // Nur ein FEHLENDES Ledger ist "noch keine Urteile". Jeder andere Lesefehler als "" zeigte die
+  // Aufnahme als unkorrigiert, unter ihrem echten Stempel gecacht.
   const reads = await Promise.all(
     files.map(async (f, i) => readJsonl(stats[i] === null ? "" : await readFile(f, "utf8"))));
   const merged: JsonlRead = {

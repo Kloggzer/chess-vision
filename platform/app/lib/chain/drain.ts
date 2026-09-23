@@ -1,4 +1,4 @@
-// No ticker, no timer, no work on import: every job starts on a press (2026-08-18).
+// No ticker, no timer, no work on import: every job starts on a press.
 import { adoptFailures, clearAdoptFailures } from "@/lib/chain/chain";
 import { refused, startStep } from "@/lib/chain/run";
 import { jobs, lastByStep, stopRunning } from "@/lib/chain/jobs";
@@ -48,9 +48,8 @@ async function cachedBacklog(): Promise<Backlog> {
   return freshBacklog();
 }
 
-/** SAM zu laden kostet 7-9 min, die Arbeit danach Sekunden je Frame (gemessen 2026-09-15) —
- *  also faehrt der ganze Stapel in EINEM Prozess. Jeder andere Schritt bleibt einzeln: er haelt
- *  den Heavy-Slot kuerzer, und Stopp trifft dann genau eine Aufnahme. */
+/** SAM zu laden kostet 7-9 min, die Arbeit danach Sekunden je Frame — also faehrt der ganze Stapel in
+ *  EINEM Prozess. Jeder andere Schritt bleibt einzeln: kuerzer im Heavy-Slot, Stopp trifft eine Aufnahme. */
 const BATCHED: JobStep = "matte";
 
 /** Die Aufnahmen aus [rest], die denselben Matte-Modus haben wie [first]. */
@@ -103,11 +102,8 @@ function keepDraining(drain: Drain): void {
     });
 }
 
-/**
- * Drain ONE step across the corpus, oldest recording first, one recording at a time.
- * Every job goes through `startStep`, so a press shares the single slot and the heavy lock with
- * every other press; the first refusal goes back to the button instead of only to the panel.
- */
+/** Oldest recording first, one at a time, each through `startStep`, so a press shares the single slot
+ *  and the heavy lock with every other; the first refusal goes back to the button. */
 export async function startDrain(step: DrainTarget): Promise<{ started: string } | { error: string }> {
   if (engine.drain) return { error: `${engine.drain.step} läuft schon — ein Schritt nach dem anderen` };
   engine.errors = [];
@@ -123,11 +119,8 @@ export async function startDrain(step: DrainTarget): Promise<{ started: string }
   return first;
 }
 
-/**
- * Stopp: the running process is killed and no further recording is taken. Not a pause — the user
- * pressed stop and watched an 11-second-per-frame job carry on (2026-08-19): "alles stehen und
- * liegen lassen". Works on a job started from a card too, which is why it does not need a drain.
- */
+/** Kills the running process and takes no further recording — not a pause. Works on a job started
+ *  from a card too, which is why it does not need a drain. */
 export async function stopDrain(): Promise<{ stopped: string } | { error: string }> {
   const drain = engine.drain;
   if (drain) drain.stopped = true;

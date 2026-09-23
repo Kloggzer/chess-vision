@@ -1,8 +1,4 @@
-/**
- * Schreiben ueber eine Zwischenstufe: `writeFile` kuerzt zuerst, also ist die Datei zwischen
- * Kuerzen und letztem Byte halb da. `writeConfirmation` und `flagFrame` gehen aus diesem Grund
- * seit je ueber tmp+rename; dies ist dieselbe Bewegung als eine Funktion.
- */
+/** `writeFile` kuerzt zuerst, die Datei ist bis zum letzten Byte halb da — daher tmp+rename. */
 import { createHash } from "node:crypto";
 import { appendFile, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { absentOnly } from "@/lib/measurement";
@@ -28,7 +24,7 @@ export async function writeFileAtomic(file: string, body: string | Uint8Array): 
 export type Stamp = string | null;
 
 /** Groesse und Inhalts-Hash; `null` nur, wenn die Datei FEHLT. Mtime taugt nicht: zwei gleich
- *  lange Schreiber im selben Takt tragen dieselbe, auch in ns (gemessen 2026-09-23). */
+ *  lange Schreiber im selben Takt tragen dieselbe, auch in ns. */
 export async function stampOf(file: string): Promise<Stamp> {
   const data = await readFile(file).catch(absentOnly);
   return data === null ? null : `${data.length}:${createHash("sha256").update(data).digest("hex")}`;
@@ -63,10 +59,9 @@ export async function writeFileAtomicGuarded(
  */
 export async function appendRows(file: string, rows: unknown[]): Promise<number> {
   if (rows.length === 0) return 0;
-  // Der Riegel gehoert HIERHER, nicht an jeden Aufrufer: Lesen, Kuerzen und Anhaengen sind drei
-  // Schritte, und ohne ihn ersetzte der zweite Schreiber die Datei aus seinem aelteren Lesestand
-  // (auf Windows scheiterte sein `rename` stattdessen mit EPERM). `serialize` ist NICHT
-  // wiedereintrittsfaehig — wer aussen auf denselben Pfad riegelt, verklemmt sich.
+    // Der Riegel gehoert HIERHER: Lesen, Kuerzen, Anhaengen sind drei Schritte (auf Windows scheiterte
+    // der zweite Schreiber sonst mit EPERM am `rename`). `serialize` ist NICHT wiedereintrittsfaehig —
+    // wer aussen auf denselben Pfad riegelt, verklemmt sich.
   return serialize(file, async () => {
     const text = await readFile(file, "utf8").catch(() => "");
     if (text !== "" && !text.endsWith("\n")) {

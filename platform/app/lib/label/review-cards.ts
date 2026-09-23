@@ -36,11 +36,8 @@ export type ReviewCard = {
   stems: FrameStem[];
   /** Index into [stems] nearest the commit — where the card opens. */
   start: number;
-  /**
-   * The picture the move STARTED from — the frame nearest the previous commit, where that position
-   * has settled. "Shows the photo the position AFTER this move?" is unanswerable without it, and
-   * the card's own window reaches only 2 frames back, which is still mid-move (User, 2026-08-17).
-   */
+  /** The picture the move STARTED from, nearest the previous commit — the card's own window reaches
+   *  only 2 frames back, which is still mid-move. */
   before: FrameStem | null;
   /** Indices posted as `kept` when the human says the picture matches. */
   keep: number[];

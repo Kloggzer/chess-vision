@@ -4,13 +4,8 @@ import { enqueuePack } from "@/lib/chain/jobs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * Seal the transfer and put the chain in the queue.
- *
- * The pack is queued, never awaited: it runs for minutes and the phone is holding a request open.
- * A held (duplicate) transfer queues nothing — the session already on this machine is the one whose
- * pack counts.
- */
+/** The pack is queued, never awaited: it runs for minutes and the phone holds the request open. A
+ *  held (duplicate) transfer queues nothing. */
 export async function POST(request: Request, ctx: RouteContext<"/api/ingest/session/[name]/complete">) {
   if (!(await authorized(request))) return Response.json({ error: "unpaired" }, { status: 401 });
   const { name } = await ctx.params;

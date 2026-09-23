@@ -1,8 +1,6 @@
-/**
- * W2/W3: der Stempel rechnet ueber die ROHEN Bytes wie `realgames.write_confirmation`, und der
- * Confirm-POST urteilt gegen die Referenz, die die Seite zeigte. Der md5 steht wortgleich in
- * `tests/test_bug_hunt_20260923_confirm_stamp.py`.
- */
+/** Der Stempel rechnet ueber die ROHEN Bytes wie `realgames.write_confirmation`, und der Confirm-POST
+ *  urteilt gegen die gezeigte Referenz. Der md5 steht wortgleich in
+ *  `tests/test_bug_hunt_20260923_confirm_stamp.py`. */
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, vi } from "vitest";

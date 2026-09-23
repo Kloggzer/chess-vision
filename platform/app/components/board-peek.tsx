@@ -17,11 +17,8 @@ export type BoardPeekProps = {
 
 const SIZE = 384;
 
-/**
- * The whole board behind one cell, while the magnifier is on. FIXED to a corner and NOT following
- * the pointer — a panel under the cursor covers the cells the eye is crossing, which is why the
- * per-cell tooltip left the brush (2026-08-16).
- */
+/** FIXED to a corner, NOT following the pointer — a panel under the cursor covers the cells the eye
+ *  is crossing. */
 export function BoardPeek({ src, square, caption, matte }: BoardPeekProps) {
   return (
     <div className="border-border bg-background/95 pointer-events-none fixed right-4 bottom-4 z-50 rounded-lg border p-2 shadow-xl backdrop-blur">

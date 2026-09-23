@@ -41,8 +41,6 @@ import {
 } from "@/lib/label/lanes";
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
-  // DREI, nach der Frage geschnitten: strittige Zelle, blinde Stichprobe, ganzes Brett. Neun
-  // Lanes waren neun Herkuenfte derselben drei Fragen und wurden zu zweit benutzt (2026-09-07).
   expect(LANES.map((l) => l.id)).toEqual(["audit", "control", "frames", "all"]);
   const UNIT = { board: "Bretter", cells: "Zellen", frames: "Frames" } as const;
   for (const lane of LANES) {
@@ -54,7 +52,7 @@ test("every lane declares a renderer, a unit and its own denominator", () => {
 });
 
 test("a chip prints ONE number, and an unavailable lane says — with a reason", () => {
-  // „nur wichtig ist ob da noch was zu tun ist" (User, 2026-08-18) — der Nenner lebt im Tooltip.
+  // Nur ob noch etwas zu tun ist — der Nenner lebt im Tooltip.
   expect(laneChip(laneById("all"), { n: 128, total: 612 })).toEqual({
     text: "Bretter 128",
     title: "128 offen von 612 Bretter · Bretter im Strom",
@@ -153,7 +151,7 @@ test("a lane counts what is OPEN against what it holds, and null only when EVERY
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
   expect(LANES.map((l) => l.slug)).toEqual(["audit", "stichprobe", "frames", "alle"]);
   expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);
-  // `Abnicken` ist weg — der Lesezeichen-Pfad darf keine Lane mehr treffen (User, 2026-08-18).
+  // `Abnicken` ist weg — der Lesezeichen-Pfad darf keine Lane mehr treffen.
   expect(laneBySlug("abnicken")).toBeUndefined();
   expect(laneBySlug("nope")).toBeUndefined();
   expect(lanePath("audit")).toBe("/strom/labeln/audit");
@@ -180,8 +178,7 @@ test("die Bretter-Lane waehlt alles vor, was jemand an diesem Brett angezweifelt
 });
 
 test("a cell lane carries its own pre-label and ledger, and the identity lanes never write the model by default", () => {
-  // EIN ⏎ überall: die alte occluded-Vorbelegung des Mittelbands schrieb Trainings-Zeilen,
-  // während im Audit-Muster bestätigt wurde — 615 Fehl-Zeilen am 2026-08-15. Nur noch reviewed.
+  // EIN ⏎ ueberall, und die Stichprobe schreibt nur `reviewed` — nie Trainings-Zeilen per Vorbelegung.
   const control = laneCells(streamOf({ cells: [cell()] }), "control")[0];
   expect(control).toMatchObject({ label: "bP", ledger: "reviewed" });
 
@@ -198,7 +195,7 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
     "audit",
   )[0];
   expect(audit).toMatchObject({ label: "bP", ledger: "reviewed", exception: "bB" });
-  // Nur die zwei Worte, die das Urteil braucht — prob/margin waren Karten-Lärm (User, 2026-08-15).
+  // Nur die zwei Worte, die das Urteil braucht.
   expect(audit.note).toBe("Modell bB");
 });
 
@@ -343,7 +340,7 @@ test("temporal anomalies are review questions, not hand or coverage claims", () 
 test("erst der Grund, dann die Klasse — eine Seite zeigt eine Frage an einer Figur", () => {
   const at = (square: string, reason: string, fen_label: string) =>
     ({ session: 0, pos: 0, stem: "000100", square, fen_label, dev: 50, reason });
-  // Nach Feld sortiert lagen drei FRAGEN und alle Figuren auf einer Seite (User, 2026-09-12).
+  // Nach Feld sortiert lagen drei verschiedene FRAGEN auf einer Seite.
   const positions = [
     at("a1", "timing", "wQ"), at("a2", "changed", "wP"), at("a3", "timing", "wP"),
     at("a4", "timing", "wP"), at("a5", "temporal", "wP"), at("a6", "timing", "wQ"),
@@ -492,7 +489,7 @@ test("und die Karte kennt sie und zeigt sie", async () => {
   expect(grid, "und der Renderer liest es").toMatch(/cell\.handsUnmeasured/);
 });
 
-// H1 (2026-09-22): `accept` startete zwei Schreiber als `void` — schlug einer fehl, schloss die Korrektur trotzdem die Karten.
+// `accept` startete zwei Schreiber als `void` — schlug einer fehl, schloss die Korrektur trotzdem die Karten.
 const ok: PageWriter = () => Promise.resolve(true);
 
 test("ein einziger fehlgeschlagener Schreiber haelt die Seite offen", async () => {

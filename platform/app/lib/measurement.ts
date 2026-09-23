@@ -1,8 +1,5 @@
-/**
- * Die eine Tuer fuer eine MESSDATEI. „Nicht gemessen" ist etwas anderes als „gemessen null", und
- * ein Lesefehler ist keins von beidem — fuenf Geschwister-Leser beantworteten das je fuer sich und
- * meldeten am 2026-09-21 jeden Fehler als „nie gelaufen", gecacht bis zur naechsten mtime.
- */
+/** Die eine Tuer fuer eine MESSDATEI: „nicht gemessen" ist etwas anderes als „gemessen null", und
+ *  ein Lesefehler ist keins von beidem. */
 import { readFile, stat } from "node:fs/promises";
 import { jsonlRowsStrict } from "@/lib/jsonl";
 
@@ -33,11 +30,8 @@ export async function exists(file: string): Promise<boolean> {
   return (await stat(file).catch(absentOnly)) !== null;
 }
 
-/**
- * Der Stempel einer Messdatei, `null` nur wenn sie FEHLT. Ein `stat`, das jeden Fehler auf
- * "keine Datei" abschneidet, springt am ENOENT-Griff des Lesers vorbei: EMFILE unter dem
- * Aufnahme-Faecher wurde so zur leeren Messung, gecacht bis zur naechsten mtime.
- */
+/** `null` nur wenn die Datei FEHLT: ein `stat`, das jeden Fehler auf "keine Datei" abschneidet,
+ *  machte ein EMFILE zur leeren Messung, gecacht bis zur naechsten mtime. */
 export async function stampOrMissing(file: string): Promise<string | null> {
   const s = await stat(file).catch(absentOnly);
   return s === null ? null : `${s.mtimeMs}:${s.size}`;

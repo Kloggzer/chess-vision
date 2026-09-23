@@ -78,11 +78,9 @@ export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer
   const session = await loadSession(name);
   const board = session.byStem.get(stem)?.board;
   if (!board) throw new Error(`frame ${stem} carries no stored board`);
-  // No mesh: the stroke is drawn on the straightened board, and the alpha is that same straight
-  // raster (`realgames.straighten_boards` pulls both). Mapping back would undo the straightening.
-  // Die HANDFASSUNG ist die Grundlage, wenn es sie gibt (`alphaPath`, was die Lane auch zeigt):
-  // auf SAMs Rohalpha zu setzen warf jeden frueheren Strich weg — der Stift schickt nach
-  // `pen.reset()` nur noch den neuen. Zurueck zu SAM kommt man ueber `restore`.
+  // No mesh: stroke and alpha are the same straightened raster. Die HANDFASSUNG ist die Grundlage,
+  // wenn es sie gibt — der Stift schickt nach `pen.reset()` nur den neuen Strich, auf SAMs Rohalpha
+  // gesetzt waeren fruehere verloren. Zurueck zu SAM fuehrt `restore`.
   const alpha = await grey(await alphaPath(name, stem));
   const fixed = applyAlphaMask({
     alpha,

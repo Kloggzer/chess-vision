@@ -18,11 +18,8 @@ function toggle(only: readonly IntakeGroupKey[], key: IntakeGroupKey): IntakeGro
   return alone ? [...INTAKE_GROUPS] : [key];
 }
 
-/**
- * The chain as a stepper: every step visible in order with its count, the occupied ones dark, the
- * empty ones quiet — and each one is the filter. Chosen over per-step columns (design 2026-09-06):
- * seven columns on 1024 px leave a card 130 px, and a failure then needs a second click to be read.
- */
+/** The chain as a stepper, each step the filter. Not per-step columns: seven on 1024 px leave a card
+ *  130 px, and a failure then needs a second click to be read. */
 export function IntakeStepper({
   groups,
   only,

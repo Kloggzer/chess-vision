@@ -15,13 +15,8 @@ import { SHORT_HOLD } from "@/lib/label/review-cards";
 import { postJson as post } from "@/lib/answer";
 import { pageKey } from "@/lib/keys";
 
-/**
- * ZÜGE — every pending game's cards back to back, the game boundary a caption and a commit
- * (CONCEPT.md §4.1). The human never picks a game and never presses Confirm.
- *
- * `g` is the Sichtprüfung gallery of the current game and `.` opens `/game/<name>`: §4.1's table
- * hands `g` to both, and §3.1 gives the debug surface to `.` on any item.
- */
+/** ZÜGE — every pending game's cards back to back; the human never picks a game and never presses
+ *  Confirm. `g` is the Sichtprüfung gallery, `.` opens `/game/<name>`. */
 type Verdict = "keep" | "drop";
 type Committed = { plies: number; until: number };
 //: The NAME, never the index: `games` comes from the server and loses a game the moment it is

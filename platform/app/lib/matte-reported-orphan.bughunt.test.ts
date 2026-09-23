@@ -4,10 +4,7 @@ import { beforeEach, expect, test } from "vitest";
 import { matteCensus } from "@/lib/session-store/matte";
 import { tempDataRoot, writeLog } from "@/lib/test-fixtures";
 
-/**
- * Eine Meldung auf einen Frame, den dieser Export nicht mehr fuehrt, ist keine offene Arbeit:
- * gemessen 2026-09-15 hingen 14 Aufnahmen so, auf `2026-08-15-23-01-43` alle 34 Meldungen.
- */
+/** Eine Meldung auf einen Frame, den dieser Export nicht mehr fuehrt, ist keine offene Arbeit. */
 let dir: string;
 let rec: string;
 

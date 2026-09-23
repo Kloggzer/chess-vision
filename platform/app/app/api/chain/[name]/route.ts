@@ -9,11 +9,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/chain/[name
   const { name } = await ctx.params;
   try {
     const body = (await request.json().catch(() => ({}))) as { step?: string; lens?: boolean };
-    // `lens` is passed through UNTOUCHED: absent means "let the source decide" (`lensFor`), and the
-    // old `body.lens !== false` turned every ordinary press back into an explicit `lens: true`,
-    // which is exactly the refusal the automation exists to avoid.
-    // Ohne diesen Riegel wird ein fehlendes `step` zur Zeichenkette "undefined" und steht so in
-    // der 409-Meldung, die ein Mensch liest — das ist kein Konflikt, sondern eine kaputte Anfrage.
+    // `lens` passes UNTOUCHED: absent means "let the source decide" (`lensFor`). Ein fehlendes
+    // `step` ist eine kaputte Anfrage, kein Konflikt — sonst stuende "undefined" in der 409.
     if (typeof body.step !== "string" || body.step === "") {
       return Response.json({ error: "step fehlt im Rumpf" }, { status: 400 });
     }

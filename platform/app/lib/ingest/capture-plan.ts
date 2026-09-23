@@ -67,11 +67,8 @@ export async function loadPlan(): Promise<CapturePlan | EmptyPlan> {
   return JSON.parse(text) as CapturePlan;
 }
 
-/**
- * Die Abdeckung kann nicht live sein: sie entsteht aus einem gebauten Datensatz, eine frische
- * Aufnahme erscheint erst nach Slice, Export und Dataset-Bau. Deshalb traegt die Antwort die
- * mtime der Datei — der Bericht sagt sein Alter selbst, statt Aktualitaet vorzutaeuschen.
- */
+/** Nicht live: die Abdeckung entsteht aus einem gebauten Datensatz. Die Antwort traegt deshalb die
+ *  mtime — der Bericht sagt sein Alter selbst. */
 export async function loadCoverage(): Promise<Coverage | EmptyPlan> {
   const file = reportPath(GAPS);
   const read = await Promise.all([readFile(file, "utf8"), stat(file)]).catch(absentOnly);

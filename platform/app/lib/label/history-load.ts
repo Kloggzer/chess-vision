@@ -1,8 +1,5 @@
-/**
- * Die Label-Historie lesen: jede geschriebene Zeile beider Ledger, jüngste zuerst, mit dem Wert,
- * den sie abgelöst hat (CONCEPT.md 4.2.4). Aus den Ledgern und nicht aus dem Strom — ein Urteil
- * verschwindet aus jeder Lane, sobald es geschrieben ist, und genau da fängt die Historie an.
- */
+/** Jede geschriebene Zeile beider Ledger, juengste zuerst, mit dem abgeloesten Wert. Aus den Ledgern,
+ *  nicht aus dem Strom: ein Urteil verschwindet aus jeder Lane, sobald es geschrieben ist. */
 import { ledgerChanges, type Ledger, type LedgerChange } from "@/lib/session-store/corrections";
 import { fenLabels } from "@/lib/fen";
 import type { Change } from "@/lib/label/history";
@@ -32,9 +29,8 @@ export async function loadHistory(limit: number): Promise<Change[]> {
     // gekeyt und ueberleben das — geschnitten wurde sonst auf Zeilen, die danach wegfielen.
     const start = out.length;
     for (const row of rows.sort(newestFirst)) {
-      // Der Deckel gilt JE AUFNAHME: `liveGames` ordnet nach Aufnahmedatum, nicht danach, wann
-      // jemand gelabelt hat — global gezaehlt fuellte ihn die erste Aufnahme, und eine gestern
-      // gelabelte aeltere kam nie vor. Geschnitten wird am Ende ueber den ganzen Korpus.
+      // Der Deckel gilt JE AUFNAHME: `liveGames` ordnet nach Aufnahmedatum, global gezaehlt fuellte
+      // ihn die erste Aufnahme. Geschnitten wird am Ende ueber den ganzen Korpus.
       if (out.length - start >= limit * GAMES_HEADROOM) break;
       const fen = fens.get(row.frame);
       if (fen === undefined) continue;

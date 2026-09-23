@@ -1,11 +1,5 @@
-/**
- * `data/reports/audit-flags.jsonl` — the landing surface for the two-halves label audit
- * (CONCEPT.md 4.2, TODO "Datensatz-Qualität per Zwei-Hälften-Kreuztest").
- *
- * READ ONLY. The audit is its own project and writes this file; the stream renders the pair of
- * labels a row carries, ranked by `margin`. Its absence is a `—` chip, never an empty lane
- * pretending to be finished.
- */
+/** `data/reports/audit-flags.jsonl`, READ ONLY — the two-halves audit writes it. Its absence is a `—`
+ *  chip, never an empty lane pretending to be finished. */
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
@@ -25,12 +19,8 @@ export type AuditFlag = {
   margin: number;
 };
 
-/**
- * `staleSince` is set when a matte or a model read is NEWER than the flags — the lane then shows
- * work the producer would no longer flag. On 2026-08-26 that was a five-day-old file whose
- * coverage filter had run before the mattes existed: 4 878 flags, mostly hands, against 728 after
- * a rebuild. Silence about it cost an entire review pass.
- */
+/** `staleSince` is set when a matte or a model read is NEWER than the flags — the lane then shows
+ *  work the producer would no longer flag, and must say so. */
 export type AuditFlagsValue = { rows: AuditFlag[]; staleSince?: string };
 /** `measured: false` = the producer has not run; the lane renders `—` and says so. */
 export type AuditFlags = Measurement<AuditFlagsValue>;
@@ -69,9 +59,8 @@ function parse(lines: Record<string, unknown>[], staleSince: string | undefined)
   const rows: AuditFlag[] = [];
   for (const o of lines) {
     if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
-    // 11 088 of 36 891 rows read `occluded`, which the 14-class audit models still emit. That
-    // claim is measured now (`matte.jsonl` -> coverage) and unwritable, so agreeing with it
-    // would 400 the whole page — the lane keeps the identity pairs it can act on.
+    // The 14-class audit models still emit `occluded`; that claim is measured now and unwritable,
+    // so agreeing with it would 400 the whole page.
     if (!isIdentity(String(o.predicted ?? ""))) continue;
     rows.push({
       session_id: o.session_id,
@@ -84,7 +73,7 @@ function parse(lines: Record<string, unknown>[], staleSince: string | undefined)
     });
   }
   // Grouped by the CLAIMED label and INSIDE that by the model's word, biggest groups first: a page
-  // then carries ONE claim ("FEN bP, Modell empty") and the eye only hunts the outlier (2026-08-15).
+  // then carries ONE claim and the eye only hunts the outlier.
   const groupSize = new Map<string, number>();
   const subSize = new Map<string, number>();
   for (const row of rows) {

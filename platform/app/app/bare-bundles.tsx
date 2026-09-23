@@ -2,13 +2,8 @@ import Link from "next/link";
 import type { QueueRow } from "@/lib/chain/queues";
 import { UselessButton } from "./useless-button";
 
-/**
- * The bundles with no recording and no candidate, as ONE row that opens.
- *
- * Eighteen identical cards saying "nothing to label" are a wall, not information. Collapsed they
- * are a number; opened, each one states what it DOES carry (frames, a PGN) so the verdict is a
- * judgement and not a guess — and the verdict itself is one click away, per row.
- */
+/** Collapsed they are a number; opened, each states what it DOES carry (frames, a PGN), so the
+ *  verdict is a judgement, not a guess. */
 export function BareBundles({ rows }: { rows: QueueRow[] }) {
   if (rows.length === 0) return null;
   return (

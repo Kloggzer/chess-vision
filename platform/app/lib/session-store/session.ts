@@ -1,10 +1,5 @@
-/**
- * The exported session (`data/recordings/<name>/`, phase 01) as the label views need it:
- * one row per FRAME with its ply, its FEN and its own corner quad.
- *
- * Read paths are mtime-keyed (CLAUDE.md: never re-read a whole manifest per request) — the log
- * of a 10 000-frame video is ~2 MB and every crop request would otherwise parse it again.
- */
+/** The exported session as the label views need it: one row per FRAME with its ply, FEN and quad.
+ *  Mtime-keyed — the log of a 10 000-frame video is ~2 MB, parsed once, not per crop request. */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir, loadCandidate } from "@/lib/session-store/recordings";
@@ -12,22 +7,9 @@ import { type CropParams, type GridMesh, type Mat3, meshFromLines } from "@/lib/
 import { readJsonl } from "@/lib/jsonl";
 import { stampOrMissing } from "@/lib/measurement";
 
-/**
- * Where a frame sits between the two commits that bound its interval — the labeling context.
- *
- * "die stillen fens sind alle akurat die nerven nur" (2026-08-09): the FEN is not equally
- * trustworthy across an interval, and a labeler needs to know WHICH side of it a frame is on.
- * `after` is the hand withdrawing from the move that just landed — the FEN is true and the
- * occluders are real. `before` is the next move being played: the piece may ALREADY have moved
- * while the interval FEN has not caught up, which is why the exporter marks `unknown_squares`
- * there and nowhere else. `settled` is the quiet middle, clear of both hands.
- *
- * Whether a hand is in the frame is the EXPORTER's word (`dirty`, written from the quiet margin);
- * only which SIDE is derived here, from the commit frames in `candidate.json` and the ply on the
- * row — so this needs no re-export. Checked against 3 772 real rows: `unknown_squares`, which the
- * exporter writes on the trailing window alone, lands on a `before` frame every single time.
- * Distances are reported raw (frames and seconds) so the phase never has to be taken on faith.
- */
+/** `after`: the hand withdrawing from the move that just landed — FEN true. `before`: the next move
+ *  being played, the piece may ALREADY have moved (the exporter marks `unknown_squares` only here).
+ *  Whether a hand is in the frame is the exporter's `dirty`; only the SIDE is derived here. */
 export type FramePhase = "settled" | "after" | "before";
 export type SessionRow = {
   stem: string;
@@ -43,10 +25,8 @@ export type SessionRow = {
   toS: number;
   /** Squares the exporter refuses to vouch for on this frame (the next move's footprint). */
   unknown: string[];
-  /** The frame's 18 measured grid lines, when `session fit-mesh` could put them there.
-   *  Ausser `session.test.ts` liest das heute NIEMAND: `crops.ts` schneidet mit `sampleBox`
-   *  (Homographie), nur der Stored-Weg in `stored.ts` nimmt `sampleBoxMesh`. Umstellen wuerde
-   *  jeden ausgelieferten Crop der Labeling-Lane aendern — offene Entwurfsfrage, kein Aufraeumen. */
+  /** The frame's 18 measured grid lines. Nur `session.test.ts` liest sie: `crops.ts` schneidet per
+   *  Homographie — umstellen aenderte jeden Crop der Lane, offene Entwurfsfrage, kein Aufraeumen. */
   mesh?: GridMesh;
   /** The stored board's own path and scale (`realgames.write_board`). A homography lets board
    *  coordinates cancel against it; a stored raster does not, so both are read, never assumed. */
@@ -94,13 +74,8 @@ export function boardPath(name: string, rel: string): string {
   return path.join(sessionDir(name), ...rel.split("/").map((part) => checkName(part, "board path")));
 }
 
-/**
- * Board coordinates -> pixels of the STORED board: scale to its side, then shift past its border.
- *
- * The candidate's geometry says 1008 where the export profile says 928, and the two only ever
- * agreed because a homography absorbs the difference. Reading the row's own numbers is what keeps
- * the label view on the training crop instead of 8 % beside it (measured at 14 dB before this).
- */
+/** Board coordinates -> pixels of the STORED board. The candidate says 1008 where the export
+ *  profile says 928; only a homography absorbed that, so the row's own numbers are read. */
 export function boardToStored(session: Session, board: { size: number; border: number }): Mat3 {
   const s = board.size / session.boardSize;
   return [s, 0, board.border, 0, s, board.border, 0, 0, 1];
@@ -115,9 +90,8 @@ export async function loadSession(name: string): Promise<Session> {
   // aus `candidate.json`, ein Schnitt auf altem Stand trifft das falsche Feld.
   const stamp = async (file: string) => (await stampOrMissing(file)) ?? "none";
   const key = `${await stamp(log)}|${await stamp(path.join(sessionDir(name), "candidate.json"))}`;
-  // Keyed by the PATH, not the bare name: `CHESSLAB_DATA_DIR` is a variable, and two roots
-  // holding a session of the same name would otherwise share an entry whenever their logs
-  // happened to land in the same millisecond.
+  // Keyed by the PATH, not the bare name: `CHESSLAB_DATA_DIR` is a variable, and two roots with a
+  // session of the same name would otherwise share an entry.
   const hit = cache.get(log);
   if (hit?.key === key) return hit.value;
 

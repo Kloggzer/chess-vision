@@ -1,10 +1,7 @@
 import type { LaneCell } from "@/lib/label/lanes";
 
-/**
- * Was die SEITE behauptet, nicht ihre erste Karte. Eine Seite von 60 laeuft ueber die Bloecke der
- * Strittig-Lane hinweg (Audit, Wand, Stellung, Hand), und `slice[0]` sprach fuer alle: ohne
- * Modellwort auf Karte 1 blieb das Modellwort der ganzen Seite unsichtbar.
- */
+/** Was die SEITE behauptet, nicht ihre erste Karte: eine Seite laeuft ueber die Bloecke der
+ *  Strittig-Lane hinweg, und `slice[0]` sprach sonst fuer alle. */
 export function pageClaim(slice: readonly LaneCell[]): {
   fen: string[];
   models: string[];
@@ -18,11 +15,8 @@ export function pageClaim(slice: readonly LaneCell[]): {
   };
 }
 
-/**
- * `⇧⎵` und der Rechtsklick sagen „Modell hat recht". Eine Stellungs- oder Hand-Karte traegt per
- * Bauart kein Modellwort (`exception: null`), `accept` schreibt dafuer also nichts — die Marke
- * zaehlte im Kopf trotzdem als Antwort und nahm der Zelle ihre Vorbelegung.
- */
+/** Eine Stellungs- oder Hand-Karte traegt kein Modellwort (`exception: null`), `accept` schreibt
+ *  dafuer nichts — als Antwort gezaehlt nahm die Marke der Zelle ihre Vorbelegung. */
 export const modelPickable = (cell: Pick<LaneCell, "exception">): boolean => cell.exception !== null;
 
 /** Eine Karte der Seite, so wie der Kopf sie zaehlen muss. `pick: undefined` = nie angefasst. */
@@ -35,11 +29,8 @@ export type PageCell = {
 
 export type PageCounts = { painted: number; model: number; unsure: number; taken: number; useless: number };
 
-/**
- * Was ⏎ wirklich schreibt. Eine als unbrauchbar markierte Zelle bekommt weder Vorbelegung noch
- * Klassenzeile (`accept` filtert sie heraus), zaehlte im Kopf aber weiter mit — der Knopf
- * versprach dann mehr Zeilen, als er schrieb.
- */
+/** Was ⏎ wirklich schreibt: eine unbrauchbare Zelle bekommt weder Vorbelegung noch Klassenzeile und
+ *  darf im Kopf nicht mitzaehlen. */
 export function pageCounts(cells: readonly PageCell[]): PageCounts {
   const live = cells.filter((c) => !c.useless);
   return {

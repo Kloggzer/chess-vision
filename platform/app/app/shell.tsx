@@ -153,8 +153,7 @@ function StepPanel({ drain, wide }: { drain: Drain; wide: boolean }) {
   }
   const { status, busy, stop, note, fault } = drain;
   const stoppable = status !== null && (status.drain !== null || status.running !== null);
-  // Nur was etwas zu tun hat: acht Knoepfe, sechs davon auf 0, und dieselben Zahlen stehen in
-  // der Einpflegen-Ansicht als Filterleiste. Der einzelne Schritt ist seit der Kette die Ausnahme.
+  // Nur was etwas zu tun hat: dieselben Zahlen stehen in der Einpflegen-Ansicht als Filterleiste.
   const lane = status
     ? visibleSteps({ waiting: status.waiting, running: status.running?.step ?? null })
     : ["chain" as DrainTarget];
@@ -197,8 +196,7 @@ function StepPanel({ drain, wide }: { drain: Drain; wide: boolean }) {
 export function Shell({ counts, children }: { counts: NavCounts; children: React.ReactNode }) {
   const drain = useDrain();
   const repair = drain.status?.repair ?? 0;
-  // Mapped, not indexed: `/strom/matte` sat in STROM for a day without ever being drawn, because
-  // the two Rows were written out by hand and the third entry had no line of its own.
+  // Mapped, not indexed: two hand-written Rows once left a third entry without a line of its own.
   const items = (
     <>
       {STROM.map((item) => (

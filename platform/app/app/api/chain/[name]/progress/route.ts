@@ -8,8 +8,6 @@ export const dynamic = "force-dynamic";
 export async function GET(_request: Request, ctx: RouteContext<"/api/chain/[name]/progress">) {
   const { name } = await ctx.params;
   try {
-    // `jobs(100)` schnitt VOR dem Filter: hinter 120 neueren Zeilen las ein laufender Job der
-    // gesuchten Aufnahme als idle, und die Seite bot den Knopf erneut an.
     const job = await jobOf(name);
     return Response.json({ job, progress: await progressOf(name, job?.log) });
   } catch (error) {

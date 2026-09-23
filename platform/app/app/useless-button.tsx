@@ -5,12 +5,8 @@ import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { readAnswer } from "@/lib/answer";
 
-/**
- * "nutzlos" / "doch brauchbar" — the one control that takes a game out of every queue.
- *
- * The reason is asked for once, on the way in, and a cancelled prompt cancels the whole flag; the
- * undo asks nothing, because a flag that costs a dialog to take back is a flag nobody sets.
- */
+/** A cancelled reason prompt cancels the whole flag; the undo asks nothing — a flag that costs a
+ *  dialog to take back is a flag nobody sets. */
 export function UselessButton({ name, flagged }: { name: string; flagged: boolean }) {
   const router = useRouter();
   const [note, setNote] = useState<string | null>(null);

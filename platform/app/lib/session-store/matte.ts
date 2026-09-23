@@ -78,9 +78,8 @@ export function alphaState(row: MatteFrame, fixedAt: number | undefined, recutAt
   return row.alpha === "fixed" && fixedAt <= recutAt ? "fixed" : "pending";
 }
 
-/** Nur ein verschwundenes File ist leer. Jeder andere Lesefehler — EBUSY waehrend der Matte-Lauf
- *  schreibt, EMFILE wenn die Stream-Seite ueber 40 Aufnahmen faechert — landete sonst als "nie
- *  gemattet" unter dem ECHTEN Stempel und stand, bis sich die Datei bewegt. */
+/** Nur ein verschwundenes File ist leer. EBUSY oder EMFILE landeten sonst als "nie gemattet" unter
+ *  dem ECHTEN Stempel und standen, bis sich die Datei bewegt. */
 async function readOnlyMissingIsEmpty(file: string): Promise<string> {
   try {
     return await readFile(file, "utf8");
@@ -148,9 +147,8 @@ export type MatteCensus = {
   /** Gemeldete Frames OHNE Matte. Nicht in `total`: die meisten sind `stale`, und der Stapel, den
    *  `--reason occluded` abarbeitet, kennt sie nicht — sichtbar wurden sie deshalb nie. */
   reported: number;
-  /** Davon die, auf die SAM noch gar nicht geantwortet hat — die Zahl, an der die Kette haengt.
-   *  Ein abgelehntes Frame bleibt in `reported` sichtbar, haelt den Schritt aber nicht ein
-   *  zweites Mal auf: SAM wuerde es wieder ablehnen. */
+  /** Davon die, auf die SAM noch nicht geantwortet hat — daran haengt die Kette. Ein abgelehntes
+   *  Frame haelt den Schritt nicht auf: SAM wuerde es wieder ablehnen. */
   reportedOpen: number;
   /** Meldungen auf Frames, die dieser Export nicht mehr fuehrt — ein Re-Export waehlt andere.
    *  Es gibt kein Brett zu schneiden, also ist es keine offene Arbeit, sondern ein altes Urteil. */
@@ -235,9 +233,8 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
     frameReviews(sessionId(name)),
     cachedSet(path.join(dir, "log.jsonl"), "exported", exportedStemsIn),
   ]);
-  // Nur was BEIDES ist: brauchbar gemattet UND heute noch im Stapel. Ein Re-Export waehlt andere
-  // Frames, und die alten Zeilen meldeten die Session sonst als erledigt, waehrend der Stapel
-  // unberuehrt daliegt (gemessen an den sechs ungescannten Sessions, 2026-09-09).
+  // Nur was BEIDES ist: brauchbar gemattet UND heute noch im Stapel — ein Re-Export waehlt andere
+  // Frames, und die alten Zeilen meldeten die Session sonst als erledigt.
   const rows = [...latest.values()];
   const usable = new Set(rows.filter(measured).map((row) => stemOf(row.stem)));
   const skipped = new Set(rows.filter((row) => row.skipped).map((row) => stemOf(row.stem)));

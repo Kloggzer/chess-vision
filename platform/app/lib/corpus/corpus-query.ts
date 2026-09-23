@@ -32,8 +32,8 @@ export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryA
   // Eine unbekannte Phase filtert jede Zeile weg, und 0 Treffer waeren dann eine Behauptung statt
   // einer Antwort — dieselbe Absage wie fuer eine unbekannte Klasse darunter.
   if (!PHASES.has(phase)) throw new Error(`${phase} ist keine Phase: ${[...PHASES].join(", ")}`);
-  // Refused, not answered with an empty set: `occluded` was an askable class until 2026-08-18 and
-  // a bookmark still carries it. Zero hits would read as "nothing covered", which is a claim.
+  // Refused, not answered with an empty set: a bookmark may still carry `occluded`, and zero hits
+  // would read as "nothing covered".
   if (filter.klass !== DISAGREE && !isIdentity(filter.klass))
     throw new Error(`${filter.klass} ist keine Identität — Verdeckung wird gemessen (matte.jsonl), nicht gefragt`);
   const started = Date.now();
@@ -45,10 +45,8 @@ export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryA
     const rows = await modelReadRows(name);
     if (rows.length === 0) continue;
     for (const klass of classesSeen(rows)) classes.add(klass);
-    // Only when asked for: `loadSession` parses a log the query itself has no use for.
-    // Unlesbares Log bei gesetztem Filter heisst NICHT "passt": die Aufnahme faellt raus. Vorher
-    // schaltete `catch(() => null)` den Filter fuer sie still ab, und die Antwort nannte die
-    // Phase trotzdem.
+    // Only when asked for. Unlesbares Log bei gesetztem Filter heisst NICHT "passt": die Aufnahme
+    // faellt raus, statt den Filter fuer sie still abzuschalten.
     const session = phase === "any" ? null : await loadSession(name).catch(() => undefined);
     if (session === undefined) continue;
     const id = sessionId(name);

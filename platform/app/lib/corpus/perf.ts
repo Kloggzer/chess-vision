@@ -1,10 +1,5 @@
-/**
- * `/corpus` §7.5: the eval artefacts under `data/reports/perf/`, rendered from whole files.
- *
- * The hard rule: a model name and an eval result that were not in the SAME file must
- * never appear on one line. Every run below therefore carries the file it came from, and a file that
- * names no pack is grouped as exactly that instead of being attached to a plausible one.
- */
+/** The eval artefacts under `data/reports/perf/`. Hard rule: a model name and a result that were not
+ *  in the SAME file never appear on one line, so a packless file is grouped as exactly that. */
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/session-store/recordings";
@@ -49,12 +44,8 @@ function metrics(row: Record<string, unknown>, model: string, pack: string | nul
   };
 }
 
-/**
- * Two shapes are on disk and both stay attributable.
- *
- * Flat files carry `model` + `pack` and are one run. The comparison files key their metrics by the
- * model name and have NO pack at all — that absence is reported, never filled from a sibling file.
- */
+/** Flat files carry `model` + `pack` and are one run; comparison files key metrics by model and have
+ *  NO pack — that absence is reported, never filled from a sibling file. */
 export function parsePerf(file: string, raw: unknown): PerfFile {
   const row = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
   if (typeof row.model === "string") {

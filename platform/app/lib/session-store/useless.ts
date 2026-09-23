@@ -1,10 +1,5 @@
-/**
- * `data/recordings/<name>/useless.json` — the human's verdict that a recording is not worth work.
- *
- * A marker beside `candidate.json`, never a deletion: the repo rule is park, don't delete, so the
- * undo stamps `undone_at` instead of removing the file and the two timestamps stay as the record
- * of what was judged when. Nothing on the Python side reads this; it only silences the chain.
- */
+/** `useless.json` — the human's verdict that a recording is not worth work. A marker, never a
+ *  deletion: the undo stamps `undone_at` and both timestamps stay as the record. */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
@@ -47,12 +42,7 @@ export async function uselessFlag(name: string): Promise<UselessFlag | null> {
   return isUseless(flag) ? flag : null;
 }
 
-/**
- * Flag or unflag, and return what the file now holds.
- *
- * Unflagging a game nobody flagged writes nothing (there is no history to keep), and re-flagging
- * an undone one starts a fresh `at` rather than resurrecting the old verdict.
- */
+/** Unflagging a game nobody flagged writes nothing; re-flagging an undone one starts a fresh `at`. */
 export async function setUseless(
   name: string,
   useless: boolean,

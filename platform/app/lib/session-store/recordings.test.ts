@@ -82,7 +82,7 @@ test("the confirm POST writes only the three keys", async () => {
   const after = JSON.parse(text);
   // The key-set diff of tests/test_realgames.py::test_confirm_writes_only_its_own_keys.
   const added = Object.keys(after).filter((k) => !(k in before));
-  // Plus der Referenzstand (docs/offene-entscheidungen.md, Urteils-Revisionen 2026-09-23).
+  // Plus der Referenzstand (docs/offene-entscheidungen.md, Urteils-Revisionen).
   expect(new Set(added)).toEqual(new Set(["confirmed_at", "reviewed_plies", "confirmed_reference"]));
   expect(before.confirmed).toBe(false);
   expect(after.confirmed).toBe(true);

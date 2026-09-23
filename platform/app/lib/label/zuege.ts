@@ -1,18 +1,11 @@
-/**
- * The ZÜGE stream's model (`docs/labeling-ux/CONCEPT.md` §4.1): every pending game's cards,
- * concatenated, newest recording first. The game boundary is a caption and a COMMIT, never a page.
- *
- * Pure on purpose — the client component owns the loop and imports this, the page owns the disk.
- */
+/** The ZÜGE stream's model: every pending game's cards, concatenated, newest first; the game
+ *  boundary is a caption and a COMMIT, never a page. Pure — the page owns the disk. */
 import type { ReferenceOrigin } from "@/lib/session-store/reference";
 import type { ReviewCard } from "@/lib/label/review-cards";
 
-/**
- * The undo window §4.1.1 buys. The boundary commit enqueues its own export with
- * `notBefore = now + this`, and for exactly this long `z` costs nothing: no session directory has
- * been written yet. It is also the age under which a `confirmed_at` holds off the picker, so a
- * commit from another client gets the same grace.
- */
+/** For this long after the boundary commit `z` costs nothing: its export is enqueued with
+ *  `notBefore = now + this`. A younger `confirmed_at` also holds off the picker, so a commit from
+ *  another client gets the same grace. */
 export const EXPORT_HOLD_MS = 90_000;
 
 export type StreamGame = {
@@ -46,12 +39,8 @@ export function streamItems(games: StreamGame[]): StreamItem[] {
   );
 }
 
-/**
- * The next card a human should see — `items.length` when the stream is through.
- *
- * `x` throws a whole recording out, so every remaining card of it is skipped rather than asked:
- * the human already answered for all of them at once.
- */
+/** `items.length` when the stream is through. A thrown-out recording's remaining cards are skipped:
+ *  `x` already answered for all of them. */
 export function nextItem(items: StreamItem[], from: number, dropped: ReadonlySet<number>): number {
   for (let i = from + 1; i < items.length; i++) if (!dropped.has(items[i].game)) return i;
   return items.length;

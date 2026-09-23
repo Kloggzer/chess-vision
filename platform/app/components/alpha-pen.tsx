@@ -3,11 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 
-/**
- * Correcting SAM 3's alpha by hand: strokes on a canvas over the straightened board. No coverage
- * and no threshold here — a two-colour stencil the server burns into `mattes/<stem>.fixed.webp`
- * (`lib/session-store/matte-fix.ts`). Red raises the alpha, cyan lowers it, both opaque so the file is the eye's.
- */
+/** Strokes on a canvas over the straightened board: a two-colour stencil the server burns into
+ *  `mattes/<stem>.fixed.webp`. Red raises the alpha, cyan lowers it. */
 const PEN_CANVAS = 720;
 const UP_COLOR = "rgb(255,0,0)";
 const DOWN_COLOR = "rgb(0,255,255)";
@@ -16,7 +13,7 @@ const NONE: Stroke[] = [];
 
 type Stroke = { erase: boolean; size: number; points: [number, number][] };
 
-/** Outside React by design: a remount must not throw away an unsaved stroke (User, 2026-08-19). */
+/** Outside React by design: a remount must not throw away an unsaved stroke. */
 const DRAWN = new Map<string, Stroke[]>();
 
 export type PenState = {

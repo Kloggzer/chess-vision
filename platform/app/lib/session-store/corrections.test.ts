@@ -32,8 +32,8 @@ let legacyFile: string;
 beforeEach(async () => {
   fail.on = null;
   root = await tempDataRoot("corrections");
-  // One ledger per recording since 2026-08-20: the id keeps `rg-`, the directory never had it.
-  // "g" gehoert dazu, seit der Schreiber eine fehlende Aufnahme ABLEHNT statt sie anzulegen.
+  // One ledger per recording: the id keeps `rg-`, the directory never had it. "g" muss existieren,
+  // weil der Schreiber eine fehlende Aufnahme ABLEHNT.
   for (const name of ["rec-1", "old", "g"]) await mkdir(path.join(root, "recordings", name), { recursive: true });
   file = path.join(root, "recordings", "rec-1", "corrections.jsonl");
   legacyFile = path.join(root, "recordings", "old", "corrections.jsonl");

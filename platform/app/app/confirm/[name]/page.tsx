@@ -38,9 +38,8 @@ export default async function ConfirmPage({
   params,
 }: PageProps<"/confirm/[name]">) {
   const { name } = await params;
-  // A transferred recording has no candidate until the tracker has read it — 29 of them arrived
-  // over the LAN on 2026-08-13 and every one of their `confirm` links was a runtime error. There
-  // is nothing to confirm yet, and the page that says so is also the page that offers the step.
+  // A transferred recording has no candidate until the tracker has read it; the page that says so
+  // is also the page that offers the step.
   const candidate = await loadCandidate(name).catch(absentOnly);
   if (!candidate) return <NoCandidate name={name} />;
   const {

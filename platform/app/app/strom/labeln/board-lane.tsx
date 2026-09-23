@@ -28,13 +28,8 @@ export type BoardLaneProps = {
   onNext: (ply?: number) => void;
 };
 
-/**
- * One board of the stream, painted with the brush of `components/board-paint.tsx`.
- *
- * `Space` acts on the square under the POINTER: picking three arbitrary cells out of 64 is a 2-D
- * pointing task the mouse wins, and arrow-walking a cursor there would cost ~4 presses each
- * (REVIEW S3). The arrows step BOARDS instead.
- */
+/** `Space` acts on the square under the POINTER: picking cells out of 64 is a pointing task the
+ *  mouse wins, and a cursor would cost ~4 presses each. The arrows step BOARDS instead. */
 export function BoardLane(props: BoardLaneProps) {
   const { name, sessionId, board, accept, reads, decided, coverage, actionsRef, onFlush, onStep, onNext } = props;
   const boardKey = `${board.session}:${board.stem}`;
@@ -45,10 +40,8 @@ export function BoardLane(props: BoardLaneProps) {
   const rows = (list: { square: string; label: string }[]): Correction[] =>
     list.map((r) => ({ session_id: sessionId, frame: board.stem, ...r }));
 
-  /**
-   * Write what the board says, then move on. Corrections are the training rows; a flag taken off
-   * has nothing to correct and goes to the review ledger as provenance.
-   */
+  /** Corrections are the training rows; a flag taken off has nothing to correct and goes to the
+   *  review ledger as provenance. */
   const commit = async (what: BoardPlan, ply?: number) => {
     const reviewed = what.rejected.map((square) => ({ square, label: paint.base[square] }));
     const prior = Object.fromEntries(

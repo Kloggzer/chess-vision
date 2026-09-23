@@ -1,6 +1,5 @@
-/** Die Sprossen der Kette, die JOBS sind — je ein Knopf; `confirm`/`labeln` sind Seiten des
- *  Menschen. Nichts davon startet von selbst (2026-08-18, "ich will die immer selbst starten").
- *  Rein und ohne `node:`, damit Kette und Seitenleiste (Client) dieselbe Liste lesen. */
+/** Die Sprossen der Kette, die JOBS sind — je ein Knopf, nichts startet von selbst; `confirm`/`labeln`
+ *  sind Seiten. Rein und ohne `node:`, damit Kette und Seitenleiste (Client) dieselbe Liste lesen. */
 export type JobStep = "phone-record" | "label" | "export" | "settle-scan" | "matte" | "temporal" | "model-read";
 export const JOB_STEPS = ["phone-record", "label", "export", "settle-scan", "matte", "temporal", "model-read"] as const satisfies readonly JobStep[];
 

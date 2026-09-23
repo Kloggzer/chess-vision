@@ -1,4 +1,4 @@
-/** Routen-Audits (2026-09-14, -16, -21, -22b): was die Routen im FEHLERFALL antworten. */
+/** Was die Routen im FEHLERFALL antworten. */
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -173,7 +173,7 @@ describe("the retract arm of POST /api/frame-verdict", () => {
     }
     const route = await readFile(path.join(app, "app", "api", "frame-verdict", "route.ts"), "utf8");
 
-    // Entfernt 2026-09-14: kein Aufrufer schickte je `retract`. Wer den Zweig zurueckholt, baut den Knopf mit.
+      // Kein Aufrufer schickte je `retract`. Wer den Zweig zurueckholt, baut den Knopf mit.
     if (callers.length === 0) {
       expect(route, "toter Zweig ist zurueck, ohne dass ihn jemand aufruft").not.toMatch(/retract/);
     }

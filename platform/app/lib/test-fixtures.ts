@@ -1,8 +1,5 @@
-/**
- * Datenwurzel und Aufnahme in der Form, die die PRODUKTION schreibt: mit den vier
- * `board*`-Schluesseln (Brett-Store, 2026-08-17) und mit `clock.fps`. Die alten Formen gibt es
- * nur auf ausdrueckliche Bestellung — `board: false`, `fps: null`.
- */
+/** Datenwurzel und Aufnahme in der Form, die die PRODUKTION schreibt. Die alten Formen nur auf
+ *  ausdrueckliche Bestellung — `board: false`, `fps: null`. */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,8 +15,8 @@ export function gemessen<T>(m: Measurement<T>): T {
 }
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-/** Eine Wurzel je Test, `CHESSLAB_DATA_DIR` gesetzt, und wieder weg — 45 von 55 Dateien liessen
- *  ihre Temp-Verzeichnisse stehen. Aufruf aus `beforeEach` oder aus dem Test selbst. */
+/** Eine Wurzel je Test, `CHESSLAB_DATA_DIR` gesetzt, und wieder weg. Aufruf aus `beforeEach` oder
+ *  aus dem Test selbst. */
 export async function tempDataRoot(prefix: string): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), `chesslab-${prefix}-`));
   process.env.CHESSLAB_DATA_DIR = root;
@@ -106,9 +103,6 @@ export async function writeLog(dir: string, rows: RowSpec[]): Promise<void> {
   await writeFile(path.join(dir, "log.jsonl"), logText(rows), "utf8");
 }
 
-/**
- * Fuer Proben, die den QUELLBAUM ablaufen (die vier Ratschen, Kodierung, Client-Grenze). Gemessen
- * je unter 200 ms allein — sie sind nicht langsam, sie werden unter Last ausgehungert, und der
- * 5-s-Vorgabewert ist fuer einen Baumlauf zu knapp. 30 s fangen ein echtes Haengen weiterhin.
- */
+/** Baumlaeufe sind allein unter 200 ms, werden unter Last aber ausgehungert — die 5-s-Vorgabe ist zu
+ *  knapp. 30 s fangen ein echtes Haengen weiterhin. */
 export const TREE_SCAN_TIMEOUT = 30_000;

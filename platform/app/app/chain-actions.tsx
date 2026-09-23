@@ -51,10 +51,7 @@ function stepHint(step: ChainStep, state: ChainState): string {
   return `${STEP.matte.hint}. Ein Druck rechnet ${Math.max(0, target - done)} Frames, Ziel ${target} von ${total} verdeckten${rest}.${orphans}`;
 }
 
-/**
- * The chain's next step as ONE control.
- * Disk knows what's missing; confirm/labeln are links, machine steps are buttons.
- */
+/** The chain's next step as ONE control: confirm/labeln are links, machine steps are buttons. */
 export function ChainActions({
   name,
   state,
@@ -222,13 +219,8 @@ export function ChainActions({
   );
 }
 
-/**
- * What the job has reached, in three readings that cost nothing to produce.
- *
- * The bar appears only with a real denominator (the recording's own duration from `session.yaml`);
- * otherwise the ply count and the tool's last line carry it. "0 s of 128 s" is information;
- * a spinner is not.
- */
+/** The bar appears only with a real denominator (the recording's duration from `session.yaml`);
+ *  otherwise the ply count and the tool's last line carry it. */
 function Working({ progress }: { progress: Progress | null }) {
   if (!progress)
     return <span className="text-muted-foreground">starting…</span>;
@@ -288,12 +280,8 @@ function FailureLine({ reason }: { reason: string }) {
   );
 }
 
-/**
- * The one failure the user can answer with a second press.
- *
- * `replay … label lens` refuses when no lens fit is accepted, which is correct for the rig camera
- * and permanent for the phone's — so the refusal, and only the refusal, offers the raw run.
- */
+/** `replay … label lens` refuses without an accepted lens fit — correct for the rig camera, permanent
+ *  for the phone's — so the refusal, and only it, offers the raw run. */
 function lensRefused(job: Job | null): boolean {
   return job?.state === "failed" && /lens/i.test(job.reason ?? "");
 }

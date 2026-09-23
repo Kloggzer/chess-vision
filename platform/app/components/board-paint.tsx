@@ -7,10 +7,6 @@ import { FILES, fenLabels } from "@/lib/fen";
 import { type BoardPlan, type Labels, type Row, cycleNext, planBoard, planRejectAll } from "@/lib/label/selection";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
-/**
- * Rectified board with 8x8 paint overlay and state machine.
- * Extracted so LABELN stream paints same board (CONCEPT.md 4.2).
- */
 export const SQUARES = Array.from({ length: 64 }, (_, i) => `${FILES[i % 8]}${8 - Math.floor(i / 8)}`);
 
 /**
@@ -132,11 +128,8 @@ export function useBoardPaint(input: PaintInput): PaintState {
     () => new Set(Object.keys(inherited).filter((square) => painted[square] === undefined)),
     [inherited, painted],
   );
-  /**
-   * Squares a HUMAN has ruled on. Everything else carries the FEN's word, which is a good label
-   * and NOT a verdict: "I painted occluded on e5" says nothing about the pawn on d4 except that
-   * nobody looked.
-   */
+  /** Squares a HUMAN has ruled on. Everything else carries the FEN's word — a good label, NOT a
+   *  verdict: painting e5 says nothing about d4 except that nobody looked. */
   const judged = useMemo(
     () => new Set(SQUARES.filter((sq) => decided[`${stem}|${sq}`] !== undefined || painted[sq] !== undefined)),
     [decided, painted, stem],
@@ -245,17 +238,14 @@ export type BoardSurfaceProps = {
   overlay?: React.ReactNode;
   /** Drawn ABOVE the grid — the matte review's pen, which has to swallow the grid's own clicks. */
   tool?: React.ReactNode;
-  /** No label chip on `empty` squares; the coverage number stays (User, 2026-08-19). */
+  /** No label chip on `empty` squares; the coverage number stays. */
   hideEmpty?: boolean;
   /** The square under the pointer: `Space` acts on it, so no cell cursor is needed (REVIEW S3). */
   onHover?: (square: string | null) => void;
 };
 
-/**
- * An occluder covers a CONTIGUOUS swath, so the primary gesture is a BRUSH: pointer-down and drag
- * marks every cell the pointer enters, the eraser (or the right button) puts the FEN label back.
- * A click without a drag cycles. Pointer bookkeeping over plain divs — no canvas.
- */
+/** An occluder covers a CONTIGUOUS swath, so the primary gesture is a BRUSH: drag marks every cell
+ *  the pointer enters, the eraser (or right button) puts the FEN label back, a plain click cycles. */
 export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay, tool, hideEmpty, onHover }: BoardSurfaceProps) {
   const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
   const flagged = useMemo(() => new Set(hits ?? []), [hits]);
@@ -302,10 +292,8 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
       <div className="absolute inset-0 grid grid-cols-8">
         {SQUARES.map((sq) => {
           const label = state?.labels[sq];
-          // What the lane flagged, before you touch anything — an outline, never a label: the
-          // model asks the question, the brush answers it. 4 px and a fill on untouched cells,
-          // because 2 px next to the cell borders was invisible ("ich sehe nicht was da markiert
-          // ist", 2026-08-10). A flag ON is solid, one taken off keeps a dashed ghost.
+          // An outline, never a label: the model asks, the brush answers. 4 px and a fill, because
+          // 2 px next to the cell borders was invisible. A flag taken off keeps a dashed ghost.
           const isFlagged = flagged.has(sq) || accept[sq] !== undefined;
           const on = state !== undefined && state.kept.has(sq);
           const outline = !isFlagged
@@ -315,9 +303,8 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
               : "outline outline-2 -outline-offset-2 outline-dashed outline-white/40";
           const cov = coverage?.[sq];
           const chip = label === undefined || (hideEmpty && label === "empty") ? null : label === LEGACY_LABEL ? "▨ alt" : label;
-          // Nothing tints a covered cell: the alpha overlay says it in its real shape and can be
-          // toggled off, while a solid square hid the very pixels the human came to judge ("ich
-          // kann nicht gut gucken", 2026-08-19). The measured number stays — the alpha has none.
+          // Nothing tints a covered cell: the alpha overlay shows the real shape and can be toggled
+          // off, a solid square hid the pixels the human came to judge.
           const tint = !state
             ? ""
             : label === LEGACY_LABEL
@@ -375,10 +362,7 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
   );
 }
 
-/**
- * What the states on the board mean, as swatches — asked once ("was bedeutet das blaue Kästchen?",
- * 2026-08-09), so the words live in the tooltip and the colour carries the row.
- */
+/** The board's states as swatches — the words live in the tooltip, the colour carries the row. */
 export function BoardLegend({ showPrefilled = false }: { showPrefilled?: boolean }) {
   const items: [string, string][] = [
     ["bg-amber-500/20", "▨ alt — eine Altzeile aus der Zeit, als occluded von Hand gemalt wurde"],

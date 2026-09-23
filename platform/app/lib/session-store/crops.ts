@@ -1,11 +1,5 @@
-/**
- * Cell crops and rectified boards, cut out of the session's stored board (`cutSource`).
- *
- * The review PNGs under `data/recordings/<name>/review/` are rectified but cover only the commit
- * bursts (60 of 1 729 stems on rec-20260808-003957), so they cannot serve the stream's frames.
- * `sharp` only decodes and encodes here; the sampling is `lib/warp.ts`, which has the projective
- * warp sharp lacks.
- */
+/** Cell crops and rectified boards, cut out of the session's stored board (`cutSource`). `sharp`
+ *  only decodes and encodes; the projective warp it lacks is `lib/warp.ts`. */
 import { readFile, stat } from "node:fs/promises";
 import { LRUCache } from "lru-cache";
 import sharp from "sharp";
@@ -15,12 +9,8 @@ import { recordingFile } from "@/lib/session-store/recordings";
 import { boardPath, boardToStored, loadSession, type Session } from "@/lib/session-store/session";
 import { type Mat3, type Raster, sampleBox, squareCropBox } from "@/lib/warp";
 
-/**
- * A decoded 1080p frame is 6 MB and its PNG costs ~0.25 s to inflate; a page of the bucket grid
- * asks for 60 crops out of ~22 frames AT ONCE. Gedeckelt wird nach BYTES, nicht nach Stueckzahl:
- * eine feste Zahl von 24 hielt je nach Aufloesung 50 bis 600 MB fest, und der Rechner trainiert
- * daneben — die Abstuerze hier waren Speicher, nicht GPU.
- */
+/** Capped by BYTES, not count: a fixed 24 rasters held 50 to 600 MB depending on resolution, and
+ *  the machine trains next to it — the crashes here were memory, not GPU. */
 const RASTER_BYTES_MAX = 256 * 1024 * 1024;
 const decoded = new LRUCache<string, Raster>({
   maxSize: RASTER_BYTES_MAX,
@@ -39,14 +29,8 @@ async function decode(path_: string): Promise<Raster> {
   return { data, width: info.width, height: info.height, channels: info.channels };
 }
 
-/**
- * The raster a cut reads: the session's STORED board, and nothing else.
- *
- * The board is the rectified frame under the row's own quad (`realgames.write_board`) — the same
- * raster `crop_square` cuts the training crop from, at 115 KB against the frame's 3.3 MB. That is
- * what makes "the label view shows the crop the model will get" structural. A row without one is a
- * broken export, not a fallback: no recording has held `frames/` since the board store (2026-08-17).
- */
+/** The session's STORED board and nothing else — the raster `crop_square` cuts the training crop
+ *  from, so the label view shows the crop the model gets. A row without one is a broken export. */
 async function cutSource(session: Session, name: string, stem: string): Promise<{ raster: Raster; h: Mat3 }> {
   const board = session.byStem.get(stem)?.board;
   if (!board) throw new Error(`${name}/${stem}: row carries no board — re-export the recording`);
@@ -64,9 +48,8 @@ async function cutSource(session: Session, name: string, stem: string): Promise<
   return { raster: await rasterOf(file), h: boardToStored(session, board) };
 }
 
-/** Der Stift ueberschreibt eine Datei; der Cache traegt die mtime, das hier ist der Sofort-Wurf.
- *  Ueber das PRAEFIX, weil der Schluessel `<pfad>|<mtime>` ist — nach dem Pfad allein traf das
- *  `delete` nie einen Eintrag und der Wurf war seit je ein Nulloperator. */
+/** Der Sofort-Wurf neben dem mtime-Schluessel. Ueber das PRAEFIX: der Schluessel ist
+ *  `<pfad>|<mtime>`, nach dem Pfad allein trifft `delete` nie einen Eintrag. */
 export function forgetRaster(file: string): void {
   for (const key of [...decoded.keys()]) if (key.startsWith(`${file}|`)) decoded.delete(key);
 }
@@ -86,23 +69,15 @@ function encode(rgb: Buffer, width: number, height: number): Promise<Buffer> {
   return sharp(rgb, { raw: { width, height, channels: 3 } }).webp({ quality: 92 }).toBuffer();
 }
 
-/**
- * One square out of one frame, at the board's OWN boundaries when the row carries them — that
- * is the nominal box, out of a board that is already straight. Same cut as `crop_square`
- * (labeling.py) — the label view has to show the crop the model will get.
- */
+/** One square at the board's OWN boundaries — same cut as `crop_square` (labeling.py), so the label
+ *  view shows the crop the model will get. */
 function cellRgb(session: Session, square: string, raster: Raster, h: Mat3, size: number) {
   const box = squareCropBox(square, session.boardSize, session.crop, session.whitePov);
   return sampleBox(raster, h, box, size, size);
 }
 
-/**
- * Fertige Zell-PNGs, LRU über Sitzungsgrenzen: die Audit-Sortierung streut eine Seite über ~50
- * VERSCHIEDENE Frames, der 24er-Raster-Cache thrashte zu 100 % und jede Zelle zahlte den vollen
- * Frame-Decode („der cache aufm server ist zu klein", 2026-08-15). mtime im Schlüssel hält einen
- * Re-Export ehrlich; gedeckelt wird nach BYTES, damit eine Seite grosser Crops nicht so viel
- * Speicher haelt wie tausend kleine.
- */
+/** Fertige Zell-Crops, LRU ueber Sitzungsgrenzen: eine Audit-Seite streut ueber ~50 Frames und der
+ *  Raster-Cache allein thrashte. Nach BYTES gedeckelt, mtime im Schluessel. */
 const CELL_PNGS_BYTES_MAX = 96 * 1024 * 1024;
 type CellPngs = LRUCache<string, Buffer>;
 const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngsLru?: CellPngs }).__chesslabCellPngsLru ??=
@@ -112,12 +87,9 @@ const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngsLru?: CellPngs })
 export async function cellPng(name: string, stem: string, square: string, size: number) {
   const session = await loadSession(name);
   const rel = session.byStem.get(stem)?.board?.rel;
-  // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Brett-Datei — ein Schlüssel nur
-  // über das Brett servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15), und
-  // `session boards` schreibt das Brett neu, ohne das Log anzufassen.
-  // Und `candidate.json`: `pad_side` und `board_size` schneiden die Box, stehen aber in KEINER der
-  // beiden anderen Dateien — ein neues Profil liess sie beide unberuehrt und der Cache servierte
-  // den Schnitt von vorher weiter.
+  // BEIDE mtimes und `candidate.json`: ein Re-Export aendert die CORNERS im Log, `session boards`
+  // das Brett ohne das Log, und `pad_side`/`board_size` stehen nur im Kandidaten — jede der drei
+  // Dateien allein liess den Cache den alten Schnitt servieren.
   const [srcM, logM, candM] = await Promise.all([
     rel ? stampOrMissing(boardPath(name, rel)) : null,
     stampOrMissing(recordingFile(name, "log")),
@@ -146,11 +118,8 @@ function field(session: Session, src: { raster: Raster; h: Mat3 }, size: number)
   return sampleBox(src.raster, src.h, box, size, size);
 }
 
-/**
- * SAM 3's alpha — or the hand-corrected one beside it — cut with the SAME quad as the board under
- * it: the matte IS that raster (`matte.alpha_sam3`) and was pulled straight with it, so anything
- * else would overlay it a border off.
- */
+/** Cut with the SAME quad as the board under it: the matte IS that raster and was pulled straight
+ *  with it, anything else would overlay it a border off. */
 export async function mattePng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
   const board = session.byStem.get(stem)?.board;
@@ -165,11 +134,8 @@ export async function mattePng(name: string, stem: string, size: number) {
   return encode(field(session, src, size), size, size);
 }
 
-/**
- * The same cell's CLEAN median over its ply interval — the "before/after" the human compares
- * against. Per-pixel median over up to `SAMPLES` frames of the interval: a hand crossing a few
- * of them cannot outvote the resting board, which is the whole point of a median.
- */
+/** Per-pixel median over up to `SAMPLES` frames of the ply interval: a hand crossing a few of them
+ *  cannot outvote the resting board. */
 const SAMPLES = 5;
 
 export async function medianPng(name: string, stem: string, square: string, size: number) {

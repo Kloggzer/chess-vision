@@ -4,13 +4,8 @@ import { readUseless, setUseless } from "@/lib/session-store/useless";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * Body: `{useless: boolean, reason?: string}` — the human's verdict, and its undo.
- *
- * A sibling of `/api/chain/[name]` rather than a step of it: this posts no job and runs no
- * command, it only silences (or restores) the chain, so the answer is the new chain state the
- * card re-renders from.
- */
+/** Body: `{useless: boolean, reason?: string}`. Posts no job, only silences or restores the chain,
+ *  so the answer is the new chain state. */
 export async function POST(request: Request, ctx: RouteContext<"/api/useless/[name]">) {
   const { name } = await ctx.params;
   try {

@@ -23,11 +23,8 @@ export type WallQueryBarProps = {
   onAsk: (filter: Filter, phase: string) => void;
 };
 
-/**
- * `Klassenwand`'s question, in the stream head: which class, how sure, which side of the move. It
- * cannot be answered in the browser — `StreamCell` carries no `probs` and must not (58 MB) — so
- * every control is a round trip to `/api/query` and the hit count is the server's own.
- */
+/** Unanswerable in the browser — `StreamCell` carries no `probs` and must not (58 MB) — so every
+ *  control is a round trip to `/api/query` and the hit count is the server's own. */
 export function WallQueryBar({ classes, filter, phase, cells, ms, busy, onAsk }: WallQueryBarProps) {
   // Blurred like the lane chips: the stream listens on `window` and a focused button eats the Enter.
   const pick = (event: { currentTarget: HTMLButtonElement }, next: Filter, nextPhase: string) => {

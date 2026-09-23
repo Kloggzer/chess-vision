@@ -12,11 +12,8 @@ export type Reference = {
 /** A game ends where a blank line is followed by a tag pair — the only place `[` opens a line. */
 const games = (text: string) => text.replace(/^﻿/, "").split(/\r?\n\s*\r?\n(?=\[)/);
 
-/**
- * The phone's PGN carries one game PER SEGMENT (`[SetUp "1"][FEN ...]` after a resync), and
- * chess.js reads exactly one — so `loadPgn` on the whole file threw on five recordings
- * (2026-09-06). The candidate covers the first segment only, so the first game is the reference.
- */
+/** The phone's PGN carries one game PER SEGMENT and chess.js reads exactly one; the candidate covers
+ *  the first segment only, so the first game is the reference. */
 export function parseReference(text: string): Reference {
   const [first, ...rest] = games(text);
   try {

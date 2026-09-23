@@ -1,8 +1,5 @@
-/**
- * Was in `localStorage` liegt, ist keine Zusage. Roh geparst im Render von
- * `app/confirm/compare.tsx` warf ein fremder Rest dort, und React riss die Seite mit — bei jedem
- * Laden neu. Ein unlesbarer Wert ist keine Einstellung, also die Vorgabe.
- */
+/** Was in `localStorage` liegt, ist keine Zusage: roh im Render geparst, riss ein fremder Rest die
+ *  Seite bei jedem Laden mit. Ein unlesbarer Wert heisst Vorgabe. */
 export function readSticky<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
   try {

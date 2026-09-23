@@ -5,11 +5,8 @@ import { open, readFile, stat } from "node:fs/promises";
 import type { Job } from "@/lib/chain/slot";
 import { absentOnly } from "@/lib/measurement";
 
-/**
- * Ein Log-Abschluss, nicht zwei. Ein gescheiterter Spawn feuert `error` UND danach `close`: das
- * zweite `end` schrieb in einen geschlossenen Strom, dessen unbehandelter `error` den Server
- * abriss — auf genau dem Weg, der "uv nicht auf PATH" melden soll.
- */
+/** Ein Abschluss, nicht zwei: ein gescheiterter Spawn feuert `error` UND `close`, und ein zweites
+ *  `end` in den geschlossenen Strom riss den Server ab. */
 export function logSink(log: string, first: string): { stream: WriteStream; end: (text: string) => void } {
   const stream = createWriteStream(log, { flags: "a" });
   // Eine volle Platte darf den Server nicht mitnehmen; der Job faellt ueber seinen Exit-Code auf.
@@ -30,10 +27,7 @@ export function refusalOf(log: string): string | null {
 /** Rich malt den Traceback in einen Kasten, also zaehlt nicht die letzte ZEILE des Logs. */
 const FRAME = /^[\s│╭╰└┌┐┘├┤─━╌·]*$/;
 
-/**
- * Die Ausnahme unter einem Python-Traceback. `exit 1` sagt nicht, WAS schiefging: `phone-record`
- * starb an einer OpenCV-Meldung, die im Log stand und den Ledger nie erreichte (2026-09-15).
- */
+/** Die Ausnahme unter einem Python-Traceback — `exit 1` sagt nicht, WAS schiefging. */
 function tracebackReason(lines: string[]): string | null {
   const start = lines.findLastIndex((l) => l.trimStart().startsWith("Traceback (most recent call last)"));
   if (start < 0) return null;
@@ -41,8 +35,7 @@ function tracebackReason(lines: string[]): string | null {
   return last === undefined ? null : last.replace(/^[\s│]+|[\s│]+$/g, "");
 }
 
-/** Only the CURRENT run's lines — on 2026-08-13 the card blamed a previous run's exception
- * because the whole file was read. Each run starts with `$ <command>`, the boundary. */
+/** Only the CURRENT run's lines: the log is appended across runs, each starting with `$ <command>`. */
 export function lastRunOf(text: string): string[] {
   const lines = text.split(/\r?\n/);
   const start = lines.map((l, i) => (l.startsWith("$ ") ? i : -1)).filter((i) => i >= 0).at(-1);

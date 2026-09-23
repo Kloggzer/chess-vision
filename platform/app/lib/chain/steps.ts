@@ -1,10 +1,7 @@
 import type { ChainStep } from "@/lib/chain/chain";
 
-/**
- * Every step in the words of what it does (`what`, beside the control) and what it leaves on disk
- * (`hint`, the tooltip). Its own module because `chain-actions.tsx` is `"use client"`: a server
- * component importing the table from there gets a client reference, and every page 500'd.
- */
+/** Its own module because `chain-actions.tsx` is `"use client"`: a server component importing the
+ *  table from there gets a client reference, and every page 500s. */
 export const STEP: Record<ChainStep, { label: string; what: string; hint: string }> = {
   "phone-record": {
     label: "Züge vom Handy übernehmen",

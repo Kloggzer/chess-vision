@@ -1,10 +1,5 @@
-/**
- * The two review queues, derived from the same disk state the cards read.
- *
- * A queue is not a new truth: it is `chainState` asked across every game and sorted, so a game
- * appears in exactly the queue whose step it is on and disappears the moment the step is done.
- * The split is pure so it can be tested without a data dir; only `queueRows` touches the disk.
- */
+/** The review queues are `chainState` asked across every game and sorted, not a new truth: a game
+ *  sits in exactly the queue of its step. Only `queueRows` touches the disk. */
 import type { ChainState, ChainStep } from "@/lib/chain/chain";
 import { adoptOffered, chainState } from "@/lib/chain/chain";
 import { countFrames, listGames, loadCandidate, recordedAt } from "@/lib/session-store/recordings";
@@ -35,13 +30,8 @@ export type Queues = {
   bare: QueueRow[];
 };
 
-/**
- * A bundle with no recording and no candidate — every control on its card is a dead end.
- *
- * Eighteen of them arrived from older transfers and filled `/` with identical rows saying
- * "nothing to label". They are still DATA (frames, maybe a PGN), so they are collapsed and
- * countable, never hidden and never removed.
- */
+/** A bundle with no recording and no candidate. Still DATA (frames, maybe a PGN), so collapsed and
+ *  countable, never hidden or removed. */
 export function isBare(row: Pick<QueueRow, "chain">): boolean {
   return row.chain.video === null && proposesCandidate(row.chain.step);
 }
@@ -53,12 +43,7 @@ export const proposesCandidate = (step: ChainStep | null): boolean => step === "
 export const newestFirst = (rows: QueueRow[]) =>
   [...rows].sort((a, b) => recordedAt(b.name).localeCompare(recordedAt(a.name)) || b.name.localeCompare(a.name));
 
-/**
- * Who waits on whom.
- *
- * Useless and archived games are out of every queue and out of the bare count: both flags mean
- * "not my work right now", and a queue that still lists them is what the flags exist to prevent.
- */
+/** Useless and archived games are out of every queue and out of the bare count. */
 export function splitQueues(rows: QueueRow[]): Queues {
   const live = newestFirst(rows.filter((r) => !r.chain.useless && !r.archived));
   return {
@@ -69,12 +54,7 @@ export function splitQueues(rows: QueueRow[]): Queues {
   };
 }
 
-/**
- * Review PNGs on disk, but only for a bundle that has nothing else.
- *
- * A readdir per card is wasted on games whose card already shows a video, a candidate and a
- * progress bar; on a bare bundle the frame count is the whole answer to "is this worth keeping".
- */
+/** Only for a bare bundle — there the frame count is the whole answer to "is this worth keeping". */
 export async function bareFrames(name: string, chain: ChainState): Promise<number> {
   if (chain.video !== null || chain.hasCandidate) return 0;
   return countFrames(name);

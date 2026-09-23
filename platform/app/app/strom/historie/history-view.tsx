@@ -13,11 +13,8 @@ import { changeText, revertsTo, type Change } from "@/lib/label/history";
 import { postJson as post } from "@/lib/answer";
 import { pageKey } from "@/lib/keys";
 
-/**
- * HISTORIE — jede geschriebene Zeile, jüngste zuerst, rückwärts blätterbar (CONCEPT.md 4.2.4).
- * Dieselben Griffe wie im Strom: Pinsel laden, Karte klicken, ⏎ schreibt die Seite. Neu ist der
- * Rechtsklick — er nimmt die Zeile zurück, statt eine neue Meinung darüber zu legen.
- */
+/** Neu gegenueber dem Strom ist der Rechtsklick — er nimmt die Zeile zurueck, statt eine neue
+ *  Meinung darueber zu legen. */
 const keyOf = (c: Change) => `${c.sessionId}|${c.frame}|${c.square}`;
 /** Die ZEILE, nicht die Zelle: dieselbe Zelle steht mehrfach in der Historie, und eine Marke auf
  *  der Zelle klebte sonst auf jedem ihrer Auftritte. */
@@ -36,9 +33,8 @@ export function HistoryView({ changes }: { changes: Change[] }) {
   const [cursor, setCursor] = useState(0);
   const [note, setNote] = useState<{ tone: "error" | "info"; text: string } | null>(null);
 
-  // Nach dem Neuladen stehen die Schreibungen als eigene Zeilen in der Liste; die Marke daneben
-  // wäre dann eine zweite Stimme über dasselbe. Im Render, nicht im Effekt (React: „adjusting
-  // state when props change").
+  // Nach dem Neuladen stehen die Schreibungen als eigene Zeilen in der Liste, die Marke waere eine
+  // zweite Stimme. Im Render, nicht im Effekt (React: „adjusting state when props change").
   if (seen !== changes) {
     setSeen(changes);
     setApplied({});
@@ -70,11 +66,8 @@ export function HistoryView({ changes }: { changes: Change[] }) {
       return next;
     });
 
-  /**
-   * Die Seite schreiben. Ein Übermalen ist eine gewöhnliche `corrections`-Zeile (last-wins), ein
-   * Rücknehmen der Grabstein aus 4.2.2 — mit dem Vorgänger als `label`, damit Python beim Slice
-   * genau dorthin zurückfällt, und im Ledger der Zeile, sonst bliebe die Zelle beurteilt.
-   */
+  /** Ein Uebermalen ist eine `corrections`-Zeile (last-wins), ein Ruecknehmen der Grabstein — mit dem
+   *  Vorgaenger als `label`, damit Python dorthin zurueckfaellt, und im Ledger der Zeile. */
   const write = useCallback(async () => {
     const byLedger = new Map<Ledger, Correction[]>();
     const add = (ledger: Ledger, row: Correction) =>

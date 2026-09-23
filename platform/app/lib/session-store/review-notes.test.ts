@@ -161,7 +161,7 @@ test("ein Widerruf laesst eine unlesbare Zeile stehen", async () => {
   expect(lines, "das unleserliche Urteil wurde beim Neuschreiben verschluckt").toEqual([unreadable, note("000002")]);
 });
 
-/** Review 2026-09-17: ein `\n` hinter dem halben Schwanz machte ihn zu Korruption MITTENDRIN. */
+/** Ein `\n` hinter dem halben Schwanz machte ihn zu Korruption MITTENDRIN. */
 async function withHalfTail(): Promise<{ file: string; half: string }> {
   const file = (await load()).reviewNotesPath();
   const half = '{"session_id":"rg-a","frame":"000003","verd';

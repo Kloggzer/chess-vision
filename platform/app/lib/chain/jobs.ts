@@ -1,8 +1,5 @@
-/**
- * Die Warteschlange der Kette: EIN Slot, mit Absicht — ein Replay-JVM haelt ~6 GB, ein zweiter Pack
- * daneben fuellte am 2026-08-08 32 GB. Hier wird eingereiht, gestoppt und das Ledger gelesen; den
- * Lauf macht `runners.ts`. Ein Fehler steht mit GRUND im Ledger — stiller Fallback ist der Defekt.
- */
+/** Die Warteschlange der Kette: EIN Slot, mit Absicht — ein Replay-JVM haelt ~6 GB, ein zweiter Pack
+ *  daneben fuellte 32 GB. Den Lauf macht `runners.ts`; ein Fehler steht mit GRUND im Ledger. */
 import { alive, releaseHeavyLock } from "@/lib/chain/heavy-lock";
 import { appendRow, readLedger } from "@/lib/chain/ledger";
 import { guard, runChesslab, runLabel, runPack, runPhoneRecord } from "@/lib/chain/runners";
@@ -10,20 +7,14 @@ import { type Job, queue, runningJob } from "@/lib/chain/slot";
 import { killTree } from "@/lib/chain/spawn";
 import { checkName } from "@/lib/session-store/recordings";
 
-/**
- * The heavy lock belongs to the SLOT, not to one job: `startStep` takes it on enqueue, and it drops
- * here once nothing is queued or running — per job it would unlock the machine while the next job
- * of the same chain is still working.
- */
+/** The heavy lock belongs to the SLOT, not to one job: per job it would unlock the machine while the
+ *  next job of the same chain is still working. */
 async function releaseWhenIdle(): Promise<void> {
   if (runningJob()) return;
   await releaseHeavyLock().catch(() => undefined);
 }
 
-/**
- * Queue the pack for a landed transfer. Returns immediately — the caller is an upload that must
- * not wait for a job measured in minutes.
- */
+/** Returns immediately — the caller is an upload that must not wait for a job measured in minutes. */
 export async function enqueuePack(name: string): Promise<Job> {
   const known = queue.jobs.get(name);
   if (known && (known.state === "queued" || known.state === "running")) return known;
@@ -40,7 +31,6 @@ export async function enqueueLabel(name: string, lens?: boolean): Promise<Job> {
   if (known && (known.state === "queued" || known.state === "running")) return known;
   const job: Job = { name, kind: "label", state: "queued", queuedAt: new Date().toISOString() };
   queue.jobs.set(name, job);
-  // lens: see lensFor
   queue.running = queue.running.then(() => guard(job, () => runLabel(job, lens))).then(releaseWhenIdle);
   return job;
 }
@@ -56,11 +46,8 @@ export async function enqueuePhoneRecord(name: string): Promise<Job> {
   return job;
 }
 
-/**
- * The chesslab steps of the chain, as jobs. Spawned, never imported — the file formats are the only
- * bridge to Python (`README.md`) — and in the SAME single-slot queue as the packs, because they are
- * the same machine's CPU.
- */
+/** Spawned, never imported — the file formats are the only bridge to Python — and in the SAME
+ *  single-slot queue as the packs, because they share the machine's CPU. */
 export async function enqueueChain(
   name: string,
   step: "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read",
@@ -77,11 +64,8 @@ export async function enqueueChain(
   return job;
 }
 
-/**
- * The boundary commit's own export row, not before `notBefore` (§4.1.1). A LEDGER row, no slot:
- * the picker starts it once the hold expires, so pause, heavy lock and 409 check still apply.
- * `skipped`, because `queued` would read as a corpse to `restarted()` and as busy on every card.
- */
+/** A LEDGER row, no slot: the picker starts it once the hold expires, so pause, heavy lock and 409
+ *  still apply. `skipped`, because `queued` would read as a corpse to `restarted()` and as busy. */
 export async function holdExport(name: string, holdMs: number): Promise<Job> {
   checkName(name, "game name");
   const notBefore = new Date(Date.now() + holdMs).toISOString();
@@ -97,11 +81,8 @@ export async function holdExport(name: string, holdMs: number): Promise<Job> {
   return job;
 }
 
-/**
- * `z` inside the window: take the held export back. False = there is nothing to take back, either
- * because the hold expired or because the export has since started — then the undo costs a
- * re-export and the UI has to say so instead of claiming nothing happened.
- */
+/** False once the hold expired or the export started — then the undo costs a re-export, and the UI
+ *  has to say so. */
 export async function releaseExportHold(name: string): Promise<{ dequeued: boolean; held: Job | null }> {
   checkName(name, "game name");
   const held = (await lastByStep()).get(`${name}|export`) ?? null;
@@ -115,10 +96,8 @@ export async function releaseExportHold(name: string): Promise<{ dequeued: boole
   return { dequeued: true, held };
 }
 
-/**
- * Stopp: end what is in the slot NOW — "alles stehen und liegen lassen" (2026-08-19). `alpha_worker`
- * flushes per frame and export/label rewrite from scratch, so the kill costs the frame in flight.
- */
+/** End what is in the slot NOW. `alpha_worker` flushes per frame and export/label rewrite from
+ *  scratch, so the kill costs the frame in flight. */
 export async function stopRunning(): Promise<{ stopped: string } | { error: string }> {
   const live = queue.live;
   if (!live?.child.pid) return { error: "kein Prozess läuft" };
@@ -127,11 +106,8 @@ export async function stopRunning(): Promise<{ stopped: string } | { error: stri
   return { stopped: live.name };
 }
 
-/**
- * A ledger row that claims to be working, from a process that no longer is. "Not in THIS
- * process's queue" turned every job of a SECOND server into a corpse; the pid is the honest test,
- * and rows written before the key existed keep the old rule.
- */
+/** "Not in THIS process's queue" turned every job of a SECOND server into a corpse; the pid is the
+ *  honest test, and rows from before the key keep the old rule. */
 function restarted(row: Job): boolean {
   if (row.state !== "running" && row.state !== "queued") return false;
   // A live child means the work is still happening whether or not its server survived it.

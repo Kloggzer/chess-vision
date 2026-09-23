@@ -1,10 +1,5 @@
-/**
- * D2 on `/corpus`: which sessions a model has read, and which run read them.
- *
- * A session with no `model-reads.jsonl` is NOT MEASURED — 42 of 43 on 2026-08-19, because a
- * corpus-wide run waits on a retrained model — so it is listed with `—` and never folded into a
- * zero. Without reads the `Modell ≠ FEN` lanes are empty, which is a question nobody asked.
- */
+/** Which sessions a model has read, and which run. A session with no `model-reads.jsonl` is NOT
+ *  MEASURED — listed with `—`, never folded into a zero. */
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir, RECORDING_FILES } from "@/lib/session-store/recordings";
@@ -63,7 +58,7 @@ export function summarize(entries: Provenance[]): ProvenanceSummary {
 }
 
 type Store = Map<string, { key: string; value: Provenance }>;
-/** Pinned like `jobs.ts:56` — the parse costs tens of MB and must survive a hot reload. */
+/** Pinned on `globalThis` — the parse costs tens of MB and must survive a hot reload. */
 const store: Store = ((globalThis as { __chesslabProvenance?: Store }).__chesslabProvenance ??= new Map());
 
 async function parseFile(name: string, file: string): Promise<Provenance> {

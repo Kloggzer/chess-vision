@@ -1,11 +1,6 @@
-/**
- * `/corpus` §7.1–7.2: what a built dataset holds, from its own `split.json` and its manifest.
- *
- * The per-session group-by is 241 195 rows on `real14-all-80-v1`, far past the `wc -l` budget, so it
- * goes through `$CHESSLAB_DATA_DIR/inbox/corpus-index/<dataset>.json` (§6.3, artefact 3), keyed by
- * the manifest's mtime. Deliberately OUTSIDE `data/datasets/`: a dataset is a snapshot, and nothing
- * this app writes may land inside one (docs/data-pipeline.md §8).
- */
+/** What a built dataset holds, from its own `split.json` and manifest. The per-session group-by goes
+ *  through an index keyed by the manifest's mtime, deliberately OUTSIDE `data/datasets/`: a dataset
+ *  is a snapshot, and nothing this app writes may land inside one. */
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
@@ -119,12 +114,8 @@ async function* withoutBom(lines: AsyncIterable<string> | Iterable<string>): Asy
   }
 }
 
-/**
- * One pass over manifest rows. Der ZEILENUMBRUCH entscheidet, wie in `lib/jsonl.ts` und
- * `chesslab.ioutil`: die halbe LETZTE Zeile faellt weg, eine kaputte MITTENDRIN ist
- * Beschaedigung und bleibt laut. Still zu ueberspringen hiess: der Index zaehlt zu wenig,
- * und niemand erfaehrt es.
- */
+/** Der ZEILENUMBRUCH entscheidet, wie in `lib/jsonl.ts` und `chesslab.ioutil`: die halbe LETZTE
+ *  Zeile faellt weg, eine kaputte MITTENDRIN bleibt laut — sonst zaehlt der Index still zu wenig. */
 export async function tallyLines(lines: AsyncIterable<string> | Iterable<string>): Promise<Tally> {
   const tally: Tally = { rows: 0, sessions: {}, coverage: null };
   let broken: string | null = null;
@@ -154,7 +145,7 @@ export async function tallyLines(lines: AsyncIterable<string> | Iterable<string>
 }
 
 type Memo = Map<string, CorpusIndex>;
-/** Pinned like `jobs.ts:56` — a hot reload must not cost another pass over 44 MB of manifest. */
+/** Pinned on `globalThis` — a hot reload must not cost another pass over 44 MB of manifest. */
 const memo: Memo = ((globalThis as { __chesslabCorpusIndex?: Memo }).__chesslabCorpusIndex ??= new Map());
 
 async function readIndex(file: string): Promise<CorpusIndex | null> {
@@ -200,12 +191,8 @@ export async function corpusIndex(dataset: string): Promise<CorpusIndex> {
 /** `rg-…` and its variants (`occ-rg-…`) are the recorded games; turntable, synth and phone are not. */
 export const isRealGame = (sessionId: string) => sessionId.includes("rg-");
 
-/**
- * A dataset session id may carry a variant prefix — `occ-rg-…` is the same recording as `rg-…`.
- *
- * `check_not_circular` matched literally and walked straight past that prefix (D2); the corpus view
- * must not repeat it, or it reports a session as missing that is sitting in the snapshot.
- */
+/** `occ-rg-…` is the same recording as `rg-…`. `check_not_circular` matched literally and walked
+ *  past that prefix; matching literally here would report a session missing that is in the snapshot. */
 export function sameSession(datasetSessionId: string, sessionId: string): boolean {
   return datasetSessionId === sessionId || datasetSessionId.endsWith(`-${sessionId}`);
 }

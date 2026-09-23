@@ -19,12 +19,8 @@ import {
 import type { FrameStem } from "@/lib/session-store/recordings";
 import type { MoveSquares, ReviewCard } from "@/lib/label/review-cards";
 
-/**
- * The commit picture and its pager, shared by the confirm page and the ZÜGE stream.
- *
- * Extracted unchanged when the stream landed (CONCEPT.md §4.1): the two surfaces ask the SAME
- * question of the same window, and a second copy of the overlay geometry is the copy that drifts.
- */
+/** Shared by the confirm page and the ZÜGE stream: a second copy of the overlay geometry is the
+ *  copy that drifts. */
 
 /** What a click on a picture opens full-screen. */
 export type Zoom = {
@@ -98,12 +94,9 @@ function ComparePair({
   );
 }
 
-/**
- * The claimed move(s), drawn ONTO the rectified board so the human answers yes/no by looking.
- * The board is the image's top [width] x [width] with a8 at the top-left — square on a bare
- * board, and the same 8x8 grid above the strip on an older 720x816 burst PNG.
- * A multi-commit draws every half of the sequence — the picture shows the end of all of them.
- */
+/** The claimed move(s), drawn ONTO the rectified board. The board is the image's top [width] x
+ *  [width], a8 top-left — square on a bare board, above the strip on an older 720x816 burst PNG.
+ *  A multi-commit draws every half; the picture shows the end of all of them. */
 function MoveOverlay({
   squares,
   width,

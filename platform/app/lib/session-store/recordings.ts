@@ -1,8 +1,4 @@
-/**
- * Filesystem access to `CHESSLAB_DATA_DIR` — the only bridge to the Python side is the format.
- *
- * Nothing here imports or shells out to chesslab (specs/53 entry.md, ownership registry).
- */
+/** Filesystem access to `CHESSLAB_DATA_DIR` — the only bridge to the Python side is the format. */
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
@@ -85,12 +81,8 @@ export const hasExport = (name: string): Promise<boolean> => exists(recordingFil
 /** Liegt eine `candidate.json`? Ein EACCES wirft — sonst ueberschriebe das Label-Werkzeug Bestaetigungen. */
 export const hasCandidateFile = (name: string): Promise<boolean> => exists(recordingFile(name, "candidate"));
 
-/**
- * Die Aufnahme muss schon dastehen, bevor ein Ledger neben sie geschrieben wird.
- *
- * `mkdir(recursive)` legte sie sonst aus einem Tippfehler in `session_id` an, und `listGames`
- * fuehrt jedes Verzeichnis als Aufnahme — mit Trainingseingabe darin.
- */
+/** `mkdir(recursive)` legte die Aufnahme sonst aus einem Tippfehler an, und `listGames` fuehrt jedes
+ *  Verzeichnis als Aufnahme. */
 export async function requireRecording(dir: string, session_id: string): Promise<void> {
   const ok = (await stat(dir).catch(absentOnly))?.isDirectory() ?? false;
   if (!ok) throw new Error(`keine Aufnahme ${session_id} auf dieser Maschine (${dir})`);
@@ -129,14 +121,8 @@ export async function peekCandidate(name: string): Promise<{ doc: Candidate | nu
   }
 }
 
-/**
- * SANs of `reference.pgn`'s mainline, or NULL when the game has no reference on disk.
- *
- * Absence is a legitimate state, not an error: a video can be tracked and labeled long before
- * anyone types its PGN, and several already are. Null means "nothing to compare against", and
- * the confirm view then puts every ply in front of the human instead of only the disagreeing
- * ones — which is the same review, just without the machine narrowing it down first.
- */
+/** NULL when the game has no reference — a legitimate state: the confirm view then puts every ply
+ *  in front of the human instead of only the disagreeing ones. */
 export async function truthSans(name: string): Promise<string[] | null> {
   return (await readReference(name))?.sans ?? null;
 }
@@ -159,19 +145,15 @@ export async function readReference(name: string): Promise<Reference | null> {
   }
 }
 
-/**
- * `labeled` = the burst the label verb writes under `review/`, `plain` = a `:desktop rectify`
- * board under `review-extra/`. The SIZE is read off the file rather than assumed: review frames
- * were 720x816 with the tracker's belief drawn under the board until 2026-08-16 and are the bare
- * square board since, and the move overlay has to land on the squares of both.
- */
+/** The SIZE is read off the file, not assumed: older review frames are 720x816 with the tracker's
+ *  belief under the board, newer ones the bare square board. */
 export type FrameStem = { stem: string; kind: "labeled" | "plain"; width: number; height: number };
 
 /** `AnnotatedFrames.REVIEW_SUFFIX` first, then what every run before 2026-08-17 wrote. */
 const REVIEW_EXTS = [".webp", ".png"];
 
-/** Width and height off the header. From a BUFFER: sharp given a path keeps the file mapped, and a
- *  mapped file cannot be replaced on Windows — 13 review boards a rebuild wrote went nowhere (2026-09-06). */
+/** From a BUFFER: sharp given a path keeps the file mapped, and a mapped file cannot be replaced on
+ *  Windows. */
 async function frameSize(file: string): Promise<{ width: number; height: number } | null> {
   const bytes = await readFile(file).catch(absentOnly);
   if (bytes === null) return null;
@@ -258,13 +240,8 @@ export function confirmedAgainst(doc: Pick<Candidate, "confirmed_at" | "confirme
 /** Die Seite zeigte eine andere `reference.pgn` als die, gegen die jetzt geurteilt wuerde. */
 export class ReferenceMoved extends Error {}
 
-/**
- * Stamp `confirmed` / `confirmed_at` / `reviewed_plies` / `confirmed_reference` and NOTHING else.
- *
- * Byte-preserving on every other key: a plain parse would print the file's `0.0` back as `0`,
- * so numbers are carried through as raw source text. Write is tmp + rename, like
- * `realgames.write_confirmation` — a half-written label is worse than none.
- */
+/** Stamp the confirmation keys and NOTHING else: other keys are carried as raw source text, since a
+ *  plain parse prints `0.0` back as `0`. Write is tmp + rename, like `realgames.write_confirmation`. */
 export async function writeConfirmation(name: string, kept: number[], drop: number[] = [],
   shownReference?: string | null): Promise<number[]> {
   const file = recordingFile(name, "candidate");
@@ -300,13 +277,9 @@ async function confirmUnlocked(name: string, file: string, kept: number[], drop:
     ? lcsReport(truth, candidate.moves.map((m) => m.san))
     : { matched: [] as [number, number][], invented: all };
   const inventedSet = new Set(invented);
-  // A matched ply is not automatically a TRUE one. The LCS compares SAN sequences, and a
-  // transposition makes it match a move to the same move played later: `2026-08-13-19-34-23`'s
-  // replay committed `Nf6` where the board actually showed `e5`, and the LCS matched that `Nf6` to
-  // the reference's own — four plies later. The position it stamps on its commit window never
-  // existed, so the human must be able to strike it.
-  // Gestrichenes bleibt gestrichen: `drop` wurde nur angewendet und nie gespeichert, also holte
-  // der naechste Aufruf ohne Liste die Plies zurueck — und `/api/zuege` schickt nie eine.
+  // A matched ply is not automatically TRUE: on a transposition the SAN LCS matches a move to the
+  // same move played later, so the human must be able to strike it. Struck stays struck — `drop` is
+  // persisted, `/api/zuege` never resends it.
   const struck = [...new Set([...(candidate.struck_plies ?? []), ...drop])].sort((a, b) => a - b);
   const dropped = new Set(struck);
   const plies = reviewedPlies(candidate.moves, matched, kept.filter((j) => inventedSet.has(j))).filter(

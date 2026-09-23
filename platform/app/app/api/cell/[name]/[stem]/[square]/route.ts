@@ -35,9 +35,8 @@ export async function GET(
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
-    // "Nicht da" ist 404, alles andere ist unser Fehler. Pauschal 404 machte aus einer korrupten
-    // `log.jsonl`, einem ungeraden Brett und einem `sharp`-Fehler dieselbe Antwort wie aus einem
-    // fehlenden Frame — und das `<img>` zeigt beides als kaputtes Bild.
+    // "Nicht da" ist 404, alles andere 500: eine korrupte `log.jsonl` oder ein `sharp`-Fehler ist
+    // kein fehlender Frame.
     return Response.json({ error: String(error) }, { status: isMissing(error) ? 404 : 500 });
   }
 }

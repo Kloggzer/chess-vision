@@ -1,13 +1,6 @@
-/**
- * The LABELN stream (CONCEPT.md 4.2): every board of every session, ONE ordered list.
- *
- * Sessions run sequentially, newest recording first, chronological inside — a hand moves
- * gradually, so painting in time order is one continuous gesture instead of a shuffle, and
- * `lib/session-store/crops.ts` keeps 24 decoded rasters that interleaving would thrash on every board.
- *
- * Every item carries the same ordinal `pos`, which is what makes a lane a FILTER: switching one
- * searches this order instead of resetting it (`lib/label/lanes.ts` `keepPosition`).
- */
+/** Every board of every session, ONE ordered list: newest recording first, chronological inside —
+ *  `crops.ts` keeps 24 decoded rasters that interleaving would thrash. Every item carries the same
+ *  ordinal `pos`, which is what makes a lane a FILTER. */
 import { judgedKeys, recentVerdicts, type Ledger } from "@/lib/session-store/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
 import { listGames, recordedAt } from "@/lib/session-store/recordings";
@@ -138,16 +131,11 @@ export type LabelStream = {
   positionsUnmeasured: string[];
   /** Per session, `stem|square -> label` from BOTH ledgers — what must not be asked again. */
   decided: Record<string, string>[];
-  /** How far `model-read` reaches: the boards a model has read. One session of 43 on
-   *  2026-08-19 — a corpus-wide run waits on a retrained model. */
   reads: { boards: number };
   /** Boards in the stream corpus-wide, and how many carry a verdict (CONCEPT.md 6.2). */
   progress: { boards: number; done: number };
-  /**
-   * Per session, `stem -> {square: coverage}` — SAM's measurement, carried per square so a board
-   * and a crop can both print it. A stem missing from the map has no alpha at all, which is a
-   * different statement from "nothing is covered" and reads as `—`. Squares at 0 are dropped.
-   */
+  /** Per session, `stem -> {square: coverage}`. A stem missing from the map has no alpha at all —
+   *  not "nothing is covered" — and reads as `—`. Squares at 0 are dropped. */
   coverage: Record<string, Record<string, number> | undefined>[];
   /** Per session, `stem -> Grund`, wo SAM ABGELEHNT hat. Eine Absage ist keine Messung: es liegt
    *  kein Alpha da, also bleibt das Frame eine offene Frage (CLAUDE.md, dieselbe Falle). */
@@ -365,11 +353,8 @@ const CONTROL_MAX = 180;
 const RECENT_MAX = 300;
 const SQUARES = 64;
 
-/**
- * FNV-1a over a frame stem. The draw has to come out the same on every load of the same ledger, or
- * the list would resize under the cursor while the user commits (`lib/label/lanes.ts` `openCells`) — so
- * the spread comes from a hash of the data, never from `Math.random`.
- */
+/** FNV-1a over a frame stem, never `Math.random`: the draw has to come out the same on every load,
+ *  or the list resizes under the cursor while the user commits. */
 function hash(key: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193);
@@ -388,13 +373,8 @@ function freeSquare(stem: string, judged: Map<string, string>): string | null {
   return null;
 }
 
-/**
- * The control sample: settled frames (the exporter saw no hand), one square each, one per equal
- * slice of the recording. It is drawn from the UNJUDGED cells, and that is the point — the k-fold
- * audit owes an estimate of the error rate where nobody has ruled yet (CONCEPT.md 4.2), and a cell
- * with a verdict is measured, not estimated. Excluding them keeps the sample unbiased for that
- * population AND lets it renew: the old blind stride redrew the same 2 336 cells until they retired.
- */
+/** Drawn from the UNJUDGED settled cells on purpose: the audit owes an error rate where nobody has
+ *  ruled yet, and excluding verdicts lets the sample renew instead of redrawing the same cells. */
 function controlCells(
   index: number,
   stems: readonly SessionRow[],

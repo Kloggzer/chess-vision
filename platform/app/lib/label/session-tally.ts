@@ -1,4 +1,4 @@
-/** In-memory only: one board with twelve flags = one board, not twelve (fixed old header bug). */
+/** In-memory only: one board with twelve flags = one board, not twelve. */
 import type { Correction, Ledger } from "@/lib/session-store/corrections";
 
 export type Tally = {

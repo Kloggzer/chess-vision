@@ -1,7 +1,5 @@
-/** Was die Brett-Vorschau als Verdeckung zeigt: die Matte der Matte-Lane, sonst nichts.
- *
- *  Der Rillen-Sensor ist raus — er nannte nur 53,8 % der Matte-Hand und sah aus wie die ganze.
- *  Ein Frame ohne Matte ist UNGEMESSEN, nicht handfrei (`docs/offene-entscheidungen.md`). */
+/** Die Brett-Vorschau zeigt nur die Matte: der Rillen-Sensor nannte 53,8 % der Matte-Hand und sah
+ *  aus wie die ganze. Ein Frame ohne Matte ist UNGEMESSEN, nicht handfrei. */
 import { PIECE_VISIBLE_MAX } from "@/lib/classes";
 
 export type MatteOverlay = {

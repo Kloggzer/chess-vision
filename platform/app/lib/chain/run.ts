@@ -27,8 +27,8 @@ export async function startStep(name: string, step: string, lens?: boolean,
     return { error: "kein Modell gewählt — CHESSLAB_MODEL_READ_RUN auf ein Run-Verzeichnis setzen, das NICHT auf dieser Session trainiert hat", state, status: 409 };
   }
 
-  // Refused, not queued: a press is a decision about what the panel shows RIGHT NOW, and a job
-  // that starts minutes later, unwatched, is how three SAM workers ended up on one GPU (2026-08-19).
+  // Refused, not queued: a press is a decision about what the panel shows RIGHT NOW — a job starting
+  // minutes later, unwatched, put three SAM workers on one GPU.
   const running = runningJob();
   if (running) {
     return { error: `es läuft schon ${running.kind ?? "ein Job"} ${running.name} — erst Stopp drücken oder abwarten`, state, status: 409 };

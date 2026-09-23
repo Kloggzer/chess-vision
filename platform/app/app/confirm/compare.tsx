@@ -12,11 +12,8 @@ import type { FrameStem } from "@/lib/session-store/recordings";
 import type { MoveSquares } from "@/lib/label/review-cards";
 import { readSticky } from "@/lib/label/sticky";
 
-/**
- * Vorher gegen Nachher — die Kamera steht fest, also ist der Unterschied zweier Frames GENAU der
- * Zug. Wer nur das Bild danach sieht, liest Holz; wer beide übereinander sieht, sieht die Figur
- * springen. Das Fenster wählt, WIE die beiden übereinandergelegt werden (CONCEPT.md 4.1).
- */
+/** Die Kamera steht fest, also ist der Unterschied zweier Frames GENAU der Zug. Das Fenster waehlt,
+ *  WIE die beiden uebereinandergelegt werden. */
 type CompareMode = "off" | "fade" | "blink" | "diff";
 
 export type CompareView = { mode: CompareMode; boost: boolean; loupe: boolean };

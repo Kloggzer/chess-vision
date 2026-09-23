@@ -56,7 +56,7 @@ const meanOf = async (png: Buffer) => {
   return data.reduce((n, v) => n + v, 0) / data.length;
 };
 
-// The `frames/` fallback is gone (2026-08-20): a row without a board used to serve a silent 404.
+// The `frames/` fallback is gone: a row without a board used to serve a silent 404.
 test("a row with no board names the recording and the stem", async () => {
   await write({ ...ROW, board: false });
   await expect(cellPng("g", "000110", "e4", 64)).rejects.toThrow(/g\/000110: row carries no board/);
@@ -108,7 +108,7 @@ test("a rewritten board is cut from its new pixels, not from the decoded old one
   expect(after, "BUG: rasterOf caches by path, so the fresh cache key gets stale pixels").toBeGreaterThan(192);
 });
 
-// 2026-09-23: jeder `stat`-Fehler galt als „fehlt" oder mtime 0 — ein EACCES schickte in einen Re-Export.
+// Jeder `stat`-Fehler galt als „fehlt" oder mtime 0 — ein EACCES schickte in einen Re-Export.
 test("ein EACCES am Brett ist kein fehlendes Brett", async () => {
   await write(ROW);
   fail.on = (op, file) => (op === "stat" && file.endsWith(path.join("boards", "000110.webp")) ? "EACCES" : null);

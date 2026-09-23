@@ -1,11 +1,6 @@
-/**
- * Board geometry, mirrored from `src/chesslab/calibration.py` — the ONLY thing shared with the
- * Python side is the arithmetic, and `warp.test.ts` pins it against a profile that side wrote.
- *
- * The quad is `[a8, h8, h1, a1]` in image pixels; `margin` says how far outside the playing
- * field those points sit (`compute_homography`). Everything here maps BOARD -> IMAGE, because
- * a warp samples the source for every destination pixel.
- */
+/** Board geometry, mirrored from `src/chesslab/calibration.py` — `warp.test.ts` pins it against a
+ *  profile that side wrote. The quad is `[a8, h8, h1, a1]`; everything maps BOARD -> IMAGE, because
+ *  a warp samples the source for every destination pixel. */
 export type Mat3 = number[];
 
 /** Board-space corners of the marker quad — `compute_homography`'s `dst`, per-corner margins. */
@@ -117,12 +112,9 @@ const meshAxis = (axis: unknown): axis is number[] =>
 const boundedAxis = (axis: unknown, limit: number): axis is number[] =>
   Array.isArray(axis) && axis.length === 9 && axis.every((v) => Number.isFinite(v) && Math.abs(v) < limit);
 
-/**
- * `grid_lines` (a sidecar's or a session row's) -> the strongest stage it carries: curved, tilted,
- * scalar, or nothing. Additive by construction, so a malformed pair costs exactly one stage and a
- * bad file can never take a page down. Twins: `mesh_from_lines` (calibration.py), `meshOrNull`
- * (LabeledVideoPack.kt).
- */
+/** The strongest stage `grid_lines` carries: curved, tilted, scalar, or nothing. A malformed pair
+ *  costs exactly one stage, never the page. Twins: `mesh_from_lines` (calibration.py), `meshOrNull`
+ *  (LabeledVideoPack.kt). */
 export function meshFromLines(lines: unknown): GridMesh | undefined {
   const l = lines as Partial<GridMesh> | null | undefined;
   if (!l || !meshAxis(l.x) || !meshAxis(l.y)) return undefined;
@@ -154,12 +146,9 @@ function trendReplaced(values: number[]): number[] {
   return values.map((v, k) => (Math.abs(v - (m * k + b)) > CURV_TREND_LIMIT ? m * k + b : v));
 }
 
-/**
- * Curvature is optics and optics are smooth across parallel lines — a line breaking out of the
- * others' Theil-Sen trend was measured on whatever stood ON it and takes the trend's value.
- * Twins: `calibration.smooth_mesh_curvature`, `smoothMeshCurvature` (CropBox.kt), all three pinned
- * by `curvature_trend_parity.json`.
- */
+/** A line breaking out of the others' Theil-Sen curvature trend was measured on a piece, not optics,
+ *  and takes the trend's value. Twins: `calibration.smooth_mesh_curvature`, `smoothMeshCurvature`
+ *  (CropBox.kt), pinned by `curvature_trend_parity.json`. */
 export function smoothMeshCurvature<T extends GridMesh>(mesh: T): T {
   if (!mesh.cx || !mesh.cy) return mesh;
   return { ...mesh, cx: trendReplaced(mesh.cx), cy: trendReplaced(mesh.cy) };
@@ -177,12 +166,9 @@ function lineAt(mesh: GridMesh, axis: "x" | "y", k: number, t: number): number {
   return o[k] + (tilt ? tilt[k] * d : 0) + (curv ? curv[k] * d * d : 0);
 }
 
-/**
- * The point of the MEASURED board that belongs to the ideal one at `(u, v)` — field fractions both
- * ways. A cell's two bounding lines blend linearly and the axes are coupled, so the pair is solved
- * by [MESH_POINT_ITERATIONS] simultaneous evaluations. A mesh without tilts is carried as tilt 0:
- * its offsets alone are still a correction. Twins: `calibration.mesh_point`, `meshPoint` (Kotlin).
- */
+/** The MEASURED board point for the ideal `(u, v)`. The axes are coupled, so the pair is solved by
+ *  [MESH_POINT_ITERATIONS] simultaneous evaluations; no tilts means tilt 0. Twins:
+ *  `calibration.mesh_point`, `meshPoint` (Kotlin). */
 export function meshPoint(u: number, v: number, mesh: GridMesh): [number, number] {
   const cu = Math.max(0, Math.min(7, Math.floor(u * 8)));
   const cv = Math.max(0, Math.min(7, Math.floor(v * 8)));
@@ -261,12 +247,8 @@ export function sampleBoxMesh(
 
 export type Raster = { data: Buffer | Uint8Array; width: number; height: number; channels: number };
 
-/**
- * Sample an axis-aligned BOARD-space box out of the raw frame through `h` (board -> image).
- *
- * Bilinear, edge-clamped; out-of-frame reads come back black. One destination pixel is one
- * source lookup — a wrong crop only mis-frames the human's picture, never the training data.
- */
+/** Bilinear, edge-clamped; out-of-frame reads come back black. A wrong crop only mis-frames the
+ *  human's picture, never the training data. */
 export function sampleBox(
   src: Raster,
   h: Mat3,

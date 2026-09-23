@@ -16,9 +16,7 @@ export async function GET(
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
-    // Wie `api/frame`: "nicht da" ist 404, alles andere unser Fehler. Pauschal 404 machte aus einem
-    // unlesbaren Alpha dieselbe Antwort wie aus einem fehlenden, und die Lane zeigt beides als
-    // "keine Matte" — der Mensch sucht dann eine Messung, die es gibt und die kaputt ist.
+    // "nicht da" ist 404, alles andere 500: sonst zeigt die Lane ein kaputtes Alpha als "keine Matte".
     return new Response(String(error), { status: isMissing(error) ? 404 : 500 });
   }
 }

@@ -46,12 +46,9 @@ export type CellLaneProps = {
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 
-/**
- * OHNE Pinsel heißt der Klick weiter „unsicher" — er schreibt nichts, die Zelle kommt wieder;
- * `MODEL` schreibt das Wort des Modells. `MATTE` ist keine dritte Farbe, sondern eine ZWEITE
- * ACHSE: Label und Coverage sind unabhängig, also darf eine Zelle korrigiert UND zur Neumessung
- * gemeldet sein — genau das Paar, das `slice_session` erwartet (dirty + benannte Zelle).
- */
+/** OHNE Pinsel schreibt der Klick nichts, die Zelle kommt wieder; `MODEL` schreibt das Modellwort.
+ *  `MATTE` ist keine dritte Farbe, sondern eine ZWEITE ACHSE: eine Zelle darf korrigiert UND zur
+ *  Neumessung gemeldet sein — genau das Paar, das `slice_session` erwartet. */
 const UNSURE = "";
 const MODEL = "modell";
 const MATTE = DIRTY_BRUSH;
@@ -74,12 +71,8 @@ function handMark(hand: FrameHand | null, square: string) {
 /** What one cell of the page carries before it is written: a class, or one of the two non-classes. */
 type Picks = Record<number, string>;
 
-/**
- * A cell lane, rendered as the bucket grid the buckets already were (REVIEW S10). A page is one
- * keypress, grouped BY SQUARE — a handful of squares at a few moments each, not six scattered
- * crops of the same one. The palette loads a BRUSH like the board's: a click paints the armed
- * class, and one Enter writes the page.
- */
+/** A page is one keypress, grouped BY SQUARE. The palette loads a BRUSH like the board's: a click
+ *  paints the armed class, and one Enter writes the page. */
 export function CellLane(props: CellLaneProps) {
   const { cells, sessions, decided, coverage, frameHands, handScanned, at, onAt, reported, onDirty, onDirtyCells,
     onUnusable, showDone, actionsRef, onFlush } = props;
@@ -106,15 +99,13 @@ export function CellLane(props: CellLaneProps) {
     (c: LaneCell) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`],
     [decided],
   );
-  /** Felder, die diese Aufnahme durchgehend anders nennt — dort ist die Vorbelegung falsch.
-   *  Gemessen 2026-09-17: 65 Zellen trugen so den getauschten Namen (b8/c8, f1/g1). */
+  /** Felder, die diese Aufnahme durchgehend anders nennt — dort ist die Vorbelegung falsch. */
   const standing = useMemo(
     () => new Map(Object.entries(decided).map(([s, d]) => [Number(s), standingSquares(d)])),
     [decided],
   );
-  /** ⏎ bestaetigt die Seite, wie sie dasteht (Nutzer, 2026-09-17: "alles andere ist ein extra
-   *  schritt"). Diese Felder werden darum GEZEIGT, nicht zurueckgehalten — eine Wache, die dem
-   *  Menschen nur Klicks abverlangt, wird umgangen und schuetzt dann gar nichts. */
+  /** ⏎ bestaetigt die Seite, wie sie dasteht; diese Felder werden darum GEZEIGT, nicht zurueckgehalten —
+   *  eine Wache, die nur Klicks abverlangt, wird umgangen und schuetzt dann gar nichts. */
   const contested = useCallback(
     (c: LaneCell) => {
       const seen = standing.get(c.session)?.get(c.square);
@@ -136,16 +127,14 @@ export function CellLane(props: CellLaneProps) {
   const pages = Math.max(1, book.length);
   const safePage = Math.min(page, pages - 1);
   const slice = useMemo(() => book[safePage] ?? [], [book, safePage]);
-  /**
-   * Die Behauptung dieser Seite. Wechselt sie, hält eine Sperre den Strom an: im Rhythmus klickt
-   * man sonst die alte Antwort auf die neue Frage, und das schreibt Labels, die niemand meinte.
-   */
+  /** Wechselt die Behauptung, haelt eine Sperre den Strom an: im Rhythmus klickt man sonst die alte
+   *  Antwort auf die neue Frage. */
   const claim = [...new Set(slice.map((c) => c.fen_label))].join(" · ") || "—";
   const [seen, setSeen] = useState(claim);
   const shifted = claim !== seen;
 
-  // Die nächste Seite wird vorgewärmt, während geurteilt wird: die Crops entstehen serverseitig,
-  // und der Umblätter-Moment war die spürbare Wartezeit (User, 2026-08-15). 1-h-Cache trägt sie.
+  // Die naechste Seite wird vorgewaermt: die Crops entstehen serverseitig, der Umblaetter-Moment war
+  // die spuerbare Wartezeit.
   useEffect(() => {
     const next = book[safePage + 1] ?? [];
     for (const c of next) {
@@ -207,18 +196,13 @@ export function CellLane(props: CellLaneProps) {
     [contested, slice],
   );
 
-  /**
-   * Enter writes the page: what the brush painted, the exceptions the model won, and for every
-   * untouched cell the lane's own default. Unsicher schreibt NICHTS — ohne Ledger-Zeile kommt die
-   * Zelle bei der nächsten Sitzung wieder, genau die versprochene spätere Aufbereitung.
-   */
+  /** Enter writes the brush's picks, the exceptions the model won, and the lane default for every
+   *  untouched cell. Unsicher schreibt NICHTS, die Zelle kommt in der naechsten Sitzung wieder. */
   const accept = useCallback(async () => {
     if (slice.length === 0 || shifted) return;
-    // Eine schon beurteilte Zelle, die niemand angefasst hat, schreibt NICHTS: die Vorbelegung
-    // wuerde sonst eine frueher gemalte Korrektur mit dem FEN-Wort ueberschreiben, sobald man die
-    // Seite nur noch einmal ansieht.
-    // Eine unbrauchbare Zelle bekommt KEINE Klassenzeile — sie ist beantwortet, nur nicht mit
-    // einem Label. Sonst schriebe die Vorbelegung genau das Label, das der Mensch verneint hat.
+    // Eine beurteilte, unberuehrte Zelle schreibt NICHTS: die Vorbelegung ueberschriebe sonst eine
+    // fruehere Korrektur. Eine unbrauchbare bekommt KEINE Klassenzeile — sonst schriebe die
+    // Vorbelegung genau das Label, das der Mensch verneint hat.
     const junk = slice.filter((c) => useless.has(keyOf(c)));
     const live = slice.filter((c) => !useless.has(keyOf(c)));
     const taken = live.filter((c) => pick[slice.indexOf(c)] === undefined && verdictOf(c) === undefined);
@@ -243,9 +227,8 @@ export function CellLane(props: CellLaneProps) {
       },
     ];
     const wanted = slice.filter((c) => remeasure.has(keyOf(c)));
-    // Alle drei Schreiber zugleich, aber die Seite raeumt erst, wenn JEDER bestaetigt hat: der
-    // Zettel „neu messen" und das Unbrauchbar-Ledger sind eigene menschliche Urteile, und ein
-    // fehlgeschlagener von ihnen ging mit der Karte still unter (2026-09-22).
+    // Die Seite raeumt erst, wenn JEDER Schreiber bestaetigt hat: Zettel und Unbrauchbar-Ledger sind
+    // eigene menschliche Urteile und duerfen nicht still mit der Karte untergehen.
     const written = await pageWritten([
       () => (wanted.length > 0 ? onDirtyCells(wanted) : Promise.resolve(true)),
       () => (junk.length > 0 ? onUnusable(junk) : Promise.resolve(true)),
@@ -267,11 +250,8 @@ export function CellLane(props: CellLaneProps) {
     clear();
   }, [slice]);
 
-  /**
-   * Die letzte Seite noch einmal ansehen — auch die schon geschriebenen Zellen. Geschriebenes
-   * bleibt geschrieben (zurücknehmen tut `z`), aber seit der Pinsel die Seite VOLL schreibt hatte
-   * der Knopf sonst nie etwas zurückzuholen und sah tot aus (User, 2026-08-17).
-   */
+  /** Die letzte Seite noch einmal, samt geschriebener Zellen. Geschriebenes bleibt geschrieben —
+   *  zuruecknehmen tut `z`. */
   const back = useCallback(() => {
     const last = trail[trail.length - 1];
     if (last) {
@@ -386,7 +366,6 @@ export function CellLane(props: CellLaneProps) {
   return (
     <div className="space-y-3">
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
-        {/* Die Behauptung der Seite, GROSS — pro Karte danach suchen war die Beschwerde (2026-08-15). */}
         <span className="bg-background rounded border px-2 py-0.5 font-mono text-lg font-bold">
           FEN {claims.fen.join(" · ") || "—"}
         </span>

@@ -164,11 +164,8 @@ function JobLine({
   );
 }
 
-/**
- * Polls while it is open. Five seconds is chosen against the thing being watched: a transfer runs
- * for minutes and a pack for longer, so a faster poll would only cost the machine that is building
- * the pack.
- */
+/** Five seconds: a transfer runs for minutes and a pack longer, so a faster poll only costs the
+ *  machine that builds the pack. */
 export function TransferBoard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [starting, setStarting] = useState<string | null>(null);

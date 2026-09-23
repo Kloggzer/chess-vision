@@ -36,8 +36,7 @@ export type GameInfo = {
   lastJob: Job | null;
 };
 
-/** Eine Aufnahme als Karte, fuer `/` und `/game/<name>` gleich gelesen — vorher zwei Kopien, und
- *  nur eine sah den Archiv-Stempel der Pipeline. BRETTER zuerst, Zellen danach (CONCEPT.md 6.2). */
+/** Eine Aufnahme als Karte, fuer `/` und `/game/<name>` gleich gelesen. BRETTER zuerst, Zellen danach. */
 export async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: GameInfo; census: ReadCensus }> {
   const [meta, archived, candidate, chain, pgn] = await Promise.all([
     loadMeta(name),

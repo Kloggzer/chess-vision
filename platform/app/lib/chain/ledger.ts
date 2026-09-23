@@ -14,9 +14,8 @@ export function jobsDir(): string {
 
 /** The ledger line alone — a row that names no slot (`holdExport`) never enters the queue. */
 export async function appendRow(job: Job): Promise<void> {
-  // Einer nach dem anderen: `appendRows` prueft erst den Schwanz und haengt DANACH an, und die
-  // `running`-Zeile geht als `void record(...)` los. Gleichzeitig geschrieben landete sie hinter
-  // der `done`-Zeile — nach einem Neustart las `restarted()` den fertigen Schritt als Leiche.
+  // Einer nach dem anderen: `appendRows` prueft erst den Schwanz und haengt DANACH an. Gleichzeitig
+  // landete die `running`-Zeile hinter `done`, und `restarted()` las den Schritt als Leiche.
   const mine = queue.ledger.then(async () => {
     await mkdir(jobsDir(), { recursive: true });
     // `pid` is what lets a SECOND server tell "a job died with its process" from "another process

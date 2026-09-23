@@ -36,18 +36,13 @@ const BUCKETS: Bucket[] = [
   { label: "leer", write: "empty", ledger: "corrections" },
 ];
 
-/**
- * The phone mode (CONCEPT.md §4.3): one crop, four big buckets, a swipe per verdict.
- *
- * It inherits the two properties that killed the tinder band without them — grouping BY SQUARE and
- * EVENT COLLAPSE. A resting hand produces forty identical cards otherwise, and the answer to forty
- * identical cards is one long press, not forty taps.
- */
+/** One crop, four buckets, a swipe per verdict — grouped BY SQUARE with EVENT COLLAPSE: a resting
+ *  hand makes forty identical cards, and their answer is one long press, not forty taps. */
 export function MobileSort({ cells, sessions, decided, showDone, tally, actionsRef, onFlush, onUndo, onThrow }: MobileSortProps) {
   const [done, setDone] = useState<ReadonlySet<string>>(new Set<string>());
   const [palette, setPalette] = useState(false);
   const [board, setBoard] = useState(false);
-  // Same as the grid's: a card whose crop 404s must not be judged as a dark square (2026-09-07).
+  // Same as the grid's: a card whose crop 404s must not be judged as a dark square.
   const [broken, setBroken] = useState<ReadonlySet<string>>(new Set<string>());
   const touch = useRef<{ x: number; y: number } | null>(null);
   const held = useRef(false);

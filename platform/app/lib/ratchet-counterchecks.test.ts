@@ -41,7 +41,7 @@ test("ein uebersprungener Test fuehrt die Route nie aus", () => {
 test("z", () => {});`)).toEqual(["api/echt"]);
 });
 
-// 2026-09-22: gezaehlt wurde die Schreibweise des Imports, nicht ob der Rumpf je LAEUFT.
+// Gezaehlt wurde die Schreibweise des Imports, nicht ob der Rumpf je LAEUFT.
 test("ein `describe` ohne einen einzigen laufenden Test deckt keine Route", () => {
   expect(routeImportsIn(`${imp("api/echt")}
 describe("x", () => { test.skip("y", () => {}); it.todo("z"); });`)).toEqual([]);
@@ -152,7 +152,7 @@ test("ein geschluckter Lesefehler im Kommentar oder in einer Zeichenkette zaehlt
   expect(measurementDoorsIn("const hilfe = `for (const o of jsonlRows(t)) {}`;")).toBe(0);
 });
 
-// Wortgleich die Stellen vor `60c1d559` (2026-09-23), an denen menschliche Urteile hingen.
+// Wortgleich die Stellen vor `60c1d559`, an denen menschliche Urteile hingen.
 test("eine erfundene Antwort auf `stat`/`open` zaehlt, auch als Ja/Nein", () => {
   const planted = [
     "export const stampOf = (file: string): Promise<Stamp> =>\n  stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => null);",

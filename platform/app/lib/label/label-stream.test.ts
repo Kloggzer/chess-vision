@@ -135,7 +135,7 @@ test("eine geleerte Matte ist eine MESSUNG, keine fehlende — das Brett bleibt 
   expect(openBoards(await loadLabelStream(), "all")).toHaveLength(1);
 });
 
-// Die Naht `measured: false` -> `null` -> `—`; bis 2026-09-21 machte ein `.catch` jeden Lesefehler zur leeren Messung.
+// Die Naht `measured: false` -> `null` -> `—`: ein Lesefehler ist keine leere Messung.
 test("kein Bericht heisst `null`, nicht die leere Liste — die Lane sagt es dann auch", async () => {
   await fixture(2);
   const stream = await loadLabelStream();

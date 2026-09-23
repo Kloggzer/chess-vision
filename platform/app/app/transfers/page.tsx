@@ -6,14 +6,8 @@ import { TransferBoard } from "./board";
 
 export const dynamic = "force-dynamic";
 
-/**
- * The addresses the phone can reach this machine on.
- *
- * Shown because discovery is allowed to fail: a router with client isolation, a guest VLAN or a
- * firewall rule that was never added all end the same way, and then the user needs the one thing
- * the phone cannot guess. Loopback is filtered — an address that only this machine can reach is
- * worse than none on this page.
- */
+/** Shown because discovery may fail (client isolation, guest VLAN, firewall) and then the user needs
+ *  the one thing the phone cannot guess. Loopback is filtered out. */
 function lanAddresses(): string[] {
   return Object.values(networkInterfaces())
     .flatMap((entries) => entries ?? [])

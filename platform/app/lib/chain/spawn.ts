@@ -8,11 +8,8 @@ import { repoDir, uvBinary } from "@/lib/chain/cli-args";
  */
 const quoteArg = (value: string): string => (/[\s"^&|<>]/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value);
 
-/**
- * Spawn a tool, including a Windows `.bat`. Node REFUSES `spawn("x.bat")` since 18.20 / 20.12
- * (CVE-2024-27980) with a SYNCHRONOUS EINVAL — on 2026-08-13 not one pack or label job had ever
- * started, while every one of them looked like it was working.
- */
+/** Node REFUSES `spawn("x.bat")` since 18.20 / 20.12 (CVE-2024-27980) with a SYNCHRONOUS EINVAL —
+ *  jobs looked like they were working while none had started. */
 export function spawnTool(binary: string, args: string[], cwd: string) {
   if (process.platform !== "win32" || !/\.(bat|cmd)$/i.test(binary)) {
     return spawn(binary, args, { cwd, windowsHide: true });
@@ -25,10 +22,8 @@ export function spawnTool(binary: string, args: string[], cwd: string) {
   });
 }
 
-/**
- * Kill the whole tree, not our child: the chain is `uv` → `chesslab.exe` → python, so a `.kill()`
- * on the shim leaves the worker on the GPU — measured 2026-08-19, three SAM 3 processes at once.
- */
+/** Kill the whole tree: the chain is `uv` → `chesslab.exe` → python, so `.kill()` on the shim leaves
+ *  the worker on the GPU. */
 export function killTree(pid: number): Promise<void> {
   if (process.platform !== "win32") {
     try {

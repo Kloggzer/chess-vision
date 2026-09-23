@@ -344,7 +344,7 @@ describe("Herkunftsstempel", () => {
     expect(state.reason).toMatch(/p4-128/);
   });
 
-  // Jede Stempel-Haelfte faengt einen Re-Export, den die andere durchlaesst (Mutation 2026-09-21).
+  // Jede Stempel-Haelfte faengt einen Re-Export, den die andere durchlaesst.
   it("gleiche Groesse, verschobene Mtime: der Lauf ist veraltet", async () => {
     await exported();
     const s = await stat(game("log.jsonl"));
@@ -436,7 +436,7 @@ describe("Matte-Herkunft", () => {
   });
 });
 
-// Seit 2026-09-23 stempelt `pass.json` auch matte.jsonl und die Scan-Eingaben (H6, `temporal_matte.pass_inputs`).
+// `pass.json` stempelt auch matte.jsonl und die Scan-Eingaben (`temporal_matte.pass_inputs`).
 describe("Temporal-Sprosse und ihre Eingaben", () => {
   const passFile = () => path.join(data, "reports", "temporal-mattes", NAME, "pass.json");
   const profile = () => path.join(data, "calibration", "p.yaml");

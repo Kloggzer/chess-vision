@@ -109,9 +109,8 @@ test("the census counts DISTINCT frames — a recut leaves the same stem twice",
   const { matteCensus } = await import("@/lib/session-store/matte");
   const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
   await writeFile(path.join(dir, "log.jsonl"), pile(3), "utf8");
-  // rg-2026-08-14-14-32-33 on disk: 93 lines, 66 stems, 27 of them twice. Counting lines says
-  // 93/66 — "done" by accident, and on a half-matted session it hides the frames still missing.
-  // `skipped` zaehlt seit 2026-09-09 nicht mehr mit: SAM hat abgelehnt, es liegt kein Alpha da.
+  // Stems, not lines: a recut writes stems twice, and counting lines hides the frames still missing.
+  // `skipped` zaehlt nicht mit: SAM hat abgelehnt, es liegt kein Alpha da.
   await write([
     JSON.stringify({ frame: "f0", coverage: { a1: 0.9 } }),
     JSON.stringify({ frame: "f1", skipped: "zone too big" }),
@@ -187,9 +186,8 @@ test("a matte for a frame the export no longer picks does not count as done", as
   const { matteCensus } = await import("@/lib/session-store/matte");
   const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
   await writeFile(path.join(dir, "log.jsonl"), pile(3), "utf8");
-  // Genau der Zustand der sechs ungescannten Sessions nach einem Re-Export: die alten Zeilen
-  // zeigen auf Stems, die der neue Plan nicht mehr waehlt. Sie meldeten die Session als erledigt,
-  // waehrend der ganze Stapel unberuehrt dalag (2026-09-09).
+  // Nach einem Re-Export zeigen die alten Zeilen auf Stems, die der neue Plan nicht mehr waehlt —
+  // sie duerfen die Session nicht als erledigt melden.
   await write([
     JSON.stringify({ frame: "verwaist-1", coverage: { a1: 0.9 } }),
     JSON.stringify({ frame: "verwaist-2", coverage: { a1: 0.9 } }),

@@ -12,9 +12,8 @@ export type PositionFlag = {
   fen_label: string;
   /** Abstand zum gesetzten Brett des Intervalls (`labeling.SETTLE_LIMIT` ist die Schwelle). */
   dev: number;
-  /** Was die Matte für dieses Feld gemessen hat — unter der Sichtbarkeitsgrenze, sonst kein Flag.
-   *  `null` heisst UNGEMESSEN: `timing`- und `temporal`-Zeilen tragen keine Matte, und eine 0
-   *  laese sich in der Lane als "die Matte sagt frei" (wie `lib/reports/hand-flags.ts` es haelt). */
+  /** Was die Matte fuer dieses Feld gemessen hat. `null` heisst UNGEMESSEN: `timing`- und
+   *  `temporal`-Zeilen tragen keine Matte, und eine 0 laese sich als "die Matte sagt frei". */
   matte_cov: number | null;
   /** `changed` = das Bild ist ein anderes; `unreadable` = zu wenig Feld war überhaupt zu sehen. */
   reason: string;
@@ -54,9 +53,7 @@ function parse(lines: Record<string, unknown>[]): PositionFlagsValue {
       square: o.square,
       fen_label: String(o.fen_label ?? ""),
       dev: o.dev,
-      // `null` heisst UNGEMESSEN, wie `lib/reports/hand-flags.ts` es daneben schon haelt: `timing_flags`
-      // und `candidate_flags` schreiben es ausdruecklich so, und eine 0 laese sich in der Lane
-      // als "die Matte sagt frei". `cov` ist die Schreibweise vor 2026-09-16.
+      // `null` heisst UNGEMESSEN (siehe `matte_cov` oben). `cov` ist die aeltere Schreibweise.
       matte_cov: typeof o.matte_cov === "number" ? o.matte_cov
         : typeof o.cov === "number" ? o.cov : null,
       reason: String(o.reason ?? "changed"),

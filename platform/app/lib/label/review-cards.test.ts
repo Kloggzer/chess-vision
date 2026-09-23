@@ -147,10 +147,8 @@ test("every card names the picture its move started from", () => {
     missedSans: new Set(["e5"]),
   });
 
-  // The PREVIOUS commit, not two frames back: the card's own window reaches 133-2, which is still
-  // mid-move. At the previous commit the position this move started from is standing still. The
-  // FIRST card gets one only where the review set reaches before the opening commit — here it
-  // starts exactly on it, so there is honestly nothing earlier to show.
+  // The PREVIOUS commit, not two frames back (still mid-move). The FIRST card gets one only where the
+  // review set reaches before the opening commit — here it starts on it, so there is nothing earlier.
   expect(cards.map((c) => c.before?.stem ?? null)).toEqual([
     null,
     "000133",
@@ -233,9 +231,8 @@ test("a pre-pair-fix row is one collapsed card, not a group", () => {
 });
 
 test("a card shows the burst its own commit was decided from, not the next one's", () => {
-  // 14-32-33 as it really is: the phone writes five frames ~20 before each commit. Cutting the
-  // window at `frame - 2` left commit 238 with only 296-300 — the NEXT commit's burst, by which
-  // time black had replied, and the card looked like a double move.
+  // The phone writes five frames ~20 before each commit; cutting at `frame - 2` left commit 238 with
+  // the NEXT commit's burst, and the card looked like a double move.
   const moves: ReviewMove[] = [
     {
       ply: 2,

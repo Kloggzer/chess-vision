@@ -1,16 +1,6 @@
-/**
- * The phone's inbox — a recording arrives over the LAN in the exact shape the USB path produced.
- *
- * The bridge is the LAYOUT, nothing else: what lands here is `filesDir/` off the phone, so a
- * transferred session is byte-for-byte the tree that `adb ... tar cf - files` used to write
- * (`data/recordings/<name>/files/{sessions,games}/...`). Everything downstream — `training-video-pack`,
- * the confirm views, `chesslab slice` — keeps reading what it already read.
- *
- * Transfers are RESUMABLE because the payload is a QHD video: the 2026-08-13 session was 1.0 GB,
- * and a phone that walks out of Wi-Fi mid-upload must not restart it. Every file grows in its own
- * `.partial` inside a staging directory; only a complete, size-checked tree is moved into
- * `recordings/`, so a consumer never sees a half-written session.
- */
+/** The phone's inbox: a transferred session is byte-for-byte the tree `adb ... tar cf - files` wrote,
+ *  so everything downstream reads what it already read. Every file grows in its own `.partial`; only
+ *  a complete, size-checked tree moves into `recordings/`. */
 import { createWriteStream } from "node:fs";
 import { appendFile, mkdir, readFile, readdir, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
@@ -55,24 +45,14 @@ function ledgerPath(): string {
   return path.join(inboxDir(), "transfers.jsonl");
 }
 
-/**
- * `20260813-193423` -> `2026-08-13-19-34-23`.
- *
- * The recording's own id is the phone's (`collect.py::generate_session_id`), the directory name is
- * what `data/recordings/` has always used. Both survive: the id names the session subtree, the
- * dashed form names the game directory, exactly as the USB copies did.
- */
+/** `20260813-193423` -> `2026-08-13-19-34-23`: the phone's id names the session subtree, the dashed
+ *  form the game directory, exactly as the USB copies did. */
 export function transferName(sessionId: string): string {
   const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/.exec(sessionId);
   return m ? `${m[1]}-${m[2]}-${m[3]}-${m[4]}-${m[5]}-${m[6]}` : checkName(sessionId, "session id");
 }
 
-/**
- * A relative path from the phone, proved to stay inside the tree.
- *
- * The client is an app on the same Wi-Fi, i.e. anything that reached the port. Every segment goes
- * through the same check the rest of the app uses, so a path can neither walk up nor turn absolute.
- */
+/** The client is anything that reached the port: no segment may walk up or turn absolute. */
 export function checkRelPath(value: string): string {
   const parts = value.split("/");
   if (parts.length < 2 || parts.length > 4) throw new Error(`bad path depth: ${value}`);
@@ -102,11 +82,8 @@ export function targetDir(name: string): string {
   return path.join(dataDir(), "recordings", checkName(name, "transfer name"), "files");
 }
 
-/**
- * The recording of the bundle's NEWEST session, else the mirrored copy — the job and the chain
- * both ask here: an older session's video is not this session's, and no button may be offered
- * that the job then refuses.
- */
+/** The NEWEST session's recording, else the mirrored copy. The job and the chain both ask here, so no
+ *  button is offered that the job then refuses. */
 export async function videoInput(name: string): Promise<{ video: string; sessionId: string } | { reason: string }> {
   const files = targetDir(checkName(name, "transfer name"));
   const sessionsRoot = path.join(files, "sessions");
@@ -139,14 +116,8 @@ async function present(file: string): Promise<boolean> {
   return (await stat(file).catch(absentOnly)) !== null;
 }
 
-/**
- * How much of each declared file this machine already holds.
- *
- * The final tree counts as well as the staging one: a session copied over USB, or transferred once
- * already, must not cost a second gigabyte over Wi-Fi. A file only counts when its size MATCHES the
- * declaration — a shorter file is a resume point, a longer one is a different file and the transfer
- * restarts it.
- */
+/** The final tree counts too, so a session already here costs no second gigabyte. A file counts only
+ *  at its declared size: shorter is a resume point, longer is a different file and restarts. */
 export async function declare(manifest: Manifest): Promise<{ name: string; have: Record<string, number>; chunk: number }> {
   const name = transferName(manifest.sessionId);
   const staging = stagingDir(name);
@@ -160,11 +131,8 @@ export async function declare(manifest: Manifest): Promise<{ name: string; have:
   return { name, have, chunk: CHUNK_BYTES };
 }
 
-/**
- * Where a resumed file continues — 0 when the staged bytes OVERSHOOT the declaration.
- * A partial longer than its file is not a resume point but a dead end: the phone seeks past the
- * end, sends nothing, and `complete` refuses the session on every retry, forever.
- */
+/** 0 when the staged bytes OVERSHOOT the declaration: the phone would seek past the end, send
+ *  nothing, and `complete` would refuse the session on every retry. */
 async function resumePoint(partial: string, bytes: number): Promise<number> {
   const have = await sizeOrAbsent(partial);
   if (have === null || have <= bytes) return have ?? 0;
@@ -200,13 +168,8 @@ export async function appendChunk(
   });
 }
 
-/**
- * Seal the transfer: every declared file at its declared size, `.partial` dropped, tree moved.
- *
- * An existing target is never written into. A session that is already on this machine is a
- * DUPLICATE, and the copy stays in the inbox under its own name — the user's rule is to park, not
- * to delete, and silently merging two trees would produce a session nobody can account for.
- */
+/** An existing target is never written into: a duplicate stays in the inbox under its own name —
+ *  park, don't merge two trees nobody can account for. */
 export async function complete(name: string): Promise<TransferRow> {
   const manifest = await loadManifest(name);
   const staging = stagingDir(name);
@@ -215,9 +178,8 @@ export async function complete(name: string): Promise<TransferRow> {
     const landed = await sizeOrAbsent(path.join(targetDir(name), file.path));
     if (landed === file.bytes) continue;
     const partial = path.join(staging, file.path + ".partial");
-    // Auch die fertige Datei zaehlt: der erste Abschluss benennt jedes `.partial` um, ein
-    // Wiederholungsversuch fand danach nichts und meldete "unvollstaendig" — 409 fuer immer,
-    // und das Handy laedt alles neu hoch.
+    // Auch die fertige Datei zaehlt: ein Wiederholungsversuch nach dem Umbenennen meldete sonst
+    // "unvollstaendig", 409 fuer immer.
     const have = await sizeOrAbsent(partial);
     const done = have === file.bytes ? have : await sizeOrAbsent(path.join(staging, file.path));
     if (done !== file.bytes) missing.push({ path: file.path, have: have ?? 0, want: file.bytes });
@@ -251,22 +213,16 @@ export async function complete(name: string): Promise<TransferRow> {
 }
 
 export async function transfers(limit = 50): Promise<TransferRow[]> {
-  // Nur das FEHLEN der Datei ist harmlos. Eine kaputte Zeile MITTENDRIN still zu
-  // ueberspringen verschwiege einen Transfer, den jemand wirklich angestossen hat —
-  // und ein `catch` um das ganze Lesen machte daraus "gar keine Transfers".
+  // Nur das FEHLEN der Datei ist harmlos; eine kaputte Zeile mittendrin wirft, statt einen Transfer
+  // zu verschweigen.
   const text = (await readFile(ledgerPath(), "utf8").catch(absentOnly)) ?? "";
   const read = readJsonl(text);
   if (read.corrupt > 0) throw new Error(`${read.corrupt} kaputte Zeile(n) im Transfer-Ledger`);
   return (read.rows as unknown as TransferRow[]).slice(-limit).reverse();
 }
 
-/**
- * The shared secret, in the file the user can read off the transfers page.
- *
- * Generated on first use rather than demanded up front: an unset token would either lock the phone
- * out of a feature that is supposed to need no attention, or — the worse half — tempt the endpoint
- * into accepting anonymous writes. `CHESSLAB_INGEST_TOKEN` overrides it for a scripted setup.
- */
+/** Generated on first use: an unset token would lock the phone out, or tempt the endpoint into
+ *  anonymous writes. `CHESSLAB_INGEST_TOKEN` overrides it. */
 export async function ingestToken(): Promise<string> {
   const fromEnv = process.env.CHESSLAB_INGEST_TOKEN;
   if (fromEnv) return fromEnv;
@@ -278,8 +234,7 @@ export async function ingestToken(): Promise<string> {
   const token = randomBytes(8).toString("hex");
   await mkdir(inboxDir(), { recursive: true });
   // `wx`: wer zuerst schreibt, gewinnt. Lesen-dann-Schreiben liess zwei gleichzeitige Aufrufer je
-  // einen Token erzeugen, der zweite ueberschrieb den ersten — das Handy hielt dann einen, den
-  // die Transfers-Seite nicht mehr zeigt.
+  // einen Token praegen, und das Handy hielt einen, den die Seite nicht zeigt.
   try {
     await writeFile(file, token + "\n", { encoding: "utf8", flag: "wx" });
     return token;
@@ -294,14 +249,8 @@ export async function authorized(request: Request): Promise<boolean> {
   return offered.length > 0 && offered === (await ingestToken());
 }
 
-/**
- * Staging trees that were declared but never completed — what the transfers page calls "in flight".
- *
- * A tree with no `.partial` left is NOT in flight: it is either a parked duplicate (a `held`
- * transfer keeps its copy here on purpose) or a finished one whose files have been renamed. Both
- * showed as "in flight" forever on the first live run, which makes the one number on that page that
- * has to mean something mean nothing.
- */
+/** Declared but never completed. A tree with no `.partial` left is NOT in flight: a parked duplicate
+ *  or a finished one. */
 export async function pending(): Promise<{ name: string; bytes: number; files: number }[]> {
   const entries = (await readdir(inboxDir(), { withFileTypes: true }).catch(absentOnly)) ?? [];
   const names = entries.filter((e) => e.isDirectory() && e.name !== "jobs").map((e) => e.name);

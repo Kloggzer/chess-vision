@@ -25,11 +25,8 @@ export type MatteGridProps = {
   onClean: (key: string) => void;
 };
 
-/**
- * Das Raster ist die Regel, die Einzelansicht die Ausnahme: SAMs Schnitt stimmt meistens, also
- * kostet er einen Blick und keinen Klick. Markiert wird, was NICHT passt — ⏎ schreibt die Seite,
- * `matte-ok` fuer Unmarkiertes, `matte-bad` fuer den Rest; Rechtsklick leert das Alpha ("∅ leer").
- */
+/** SAMs Schnitt stimmt meistens, also kostet er einen Blick und keinen Klick. ⏎ schreibt `matte-ok`
+ *  fuer Unmarkiertes, `matte-bad` fuer Markiertes; Rechtsklick leert das Alpha. */
 export function MatteGrid({ frames, sessions, marked, clean, alpha, onToggle, onOpen, onClean }: MatteGridProps) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">

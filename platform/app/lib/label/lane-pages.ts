@@ -1,7 +1,4 @@
-/**
- * Eine Seite, EINE Behauptung. Feste 50er-Scheiben fielen über die Klassengrenze, und
- * `cell-lane.tsx` fing das erst nachträglich mit einer Sperre ab. Hier fällt der Schnitt vorher.
- */
+/** Eine Seite, EINE Behauptung: der Schnitt faellt an der Klassengrenze, nicht alle 50 Karten. */
 import type { LaneCell } from "@/lib/label/lanes";
 
 export function pagesByClaim(cells: readonly LaneCell[], size: number): LaneCell[][] {

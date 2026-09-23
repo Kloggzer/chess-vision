@@ -52,11 +52,8 @@ const KEYS: [string, string][] = [
   ["u", "letzte geschriebene Seite zurücknehmen"],
 ];
 
-/**
- * Eine Frage pro Frame: schneidet die Maske die Hand richtig aus. Zehn auf einmal, weil SAMs
- * Schnitt meistens stimmt — markiert wird die Ausnahme (User, 2026-09-07). Ob die STELLUNG stimmt,
- * wird hier nicht mehr gefragt: das ist eine Zellfrage und liegt in der Strittig-Lane.
- */
+/** Eine Frage pro Frame: schneidet die Maske die Hand richtig aus. Zehn auf einmal, weil SAMs Schnitt
+ *  meistens stimmt — markiert wird die Ausnahme. Die STELLUNG ist eine Zellfrage der Strittig-Lane. */
 export function MatteReview({ stream }: { stream: VerifyStream }) {
   const [loaded, setLoaded] = useState(stream);
   const [more, setMore] = useState(true);
@@ -81,11 +78,8 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     [answered, loaded.frames],
   );
 
-  /**
-   * Endlos statt F5: laeuft der Vorrat leer, holt der Client den naechsten Schnitt. `skip` sind
-   * die Frames, die er haelt und die der Server noch als offen fuehrt — Beurteiltes ist dort
-   * schon raus, also wuerde es sonst doppelt uebersprungen.
-   */
+  /** Laeuft der Vorrat leer, holt der Client den naechsten Schnitt. `skip` nennt nur, was der Server
+   *  noch als offen fuehrt — Beurteiltes ist dort schon raus. */
   useEffect(() => {
     if (!more || loading.current || open.length >= REFILL_AT) return;
     loading.current = true;
@@ -226,9 +220,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
     [judgeOne, loaded.sessions, open],
   );
 
-  // Seitenweise, nicht ersetzend (`lib/label/matte-select.ts`): `setMarked(allMarked())` verlor die
-  // Marken jeder anderen Seite, und "alle" liess sich nicht mehr abraeumen, sobald eine Karte
-  // vorgemerkt leer war.
+  // Seitenweise, nicht ersetzend: `setMarked(allMarked())` verlor die Marken jeder anderen Seite.
   const pageKeys = useMemo(() => slice.map(verifyFrameKey), [slice]);
   const allOn = pageAllMarked(pageKeys, marked, clean);
   const toggleAll = useCallback(

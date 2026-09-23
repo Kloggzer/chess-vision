@@ -292,7 +292,7 @@ test("ein Lesefehler am Log wird durchgereicht", async () => {
   await expect(storedSessions(BUNDLE)).rejects.toThrow(/EACCES/);
 });
 
-// 2026-09-23: `jsonlRows` warf die Diagnose weg, eine kaputte Zeile MITTENDRIN verschwand samt Label.
+// `jsonlRows` warf die Diagnose weg, eine kaputte Zeile MITTENDRIN verschwand samt Label.
 test("eine kaputte Zeile MITTENDRIN wirft, statt ihr Label still zu verlieren", async () => {
   await writeRaw(`${JSON.stringify(row(0))}\n{"frame": "fra\n${JSON.stringify(row(1))}\n`);
   await expect(storedSessions(BUNDLE)).rejects.toThrow(/beschaedigte Zeile/);

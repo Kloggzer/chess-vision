@@ -28,9 +28,8 @@ function backupName(stamp: Date): string {
 export async function flagFrame(name: string, stem: string, unusable: boolean): Promise<FrameFlag> {
   checkName(stem, "frame");
   const file = path.join(sessionDir(name), "log.jsonl");
-  // Riegel um lesen-aendern-schreiben auf der GANZEN Datei: zwei Urteile kurz hintereinander lasen
-  // denselben Text, das erste Flag war nach dem zweiten Schreiben weg — und die Suche nach einem
-  // freien Sicherungsnamen lief in dasselbe Fenster und starb mit EEXIST.
+  // Riegel um lesen-aendern-schreiben auf der GANZEN Datei: sonst loescht das zweite Urteil das
+  // erste, und die Suche nach einem freien Sicherungsnamen stirbt mit EEXIST.
   return serialize(file, () => flagUnlocked(name, stem, unusable, file));
 }
 
@@ -40,9 +39,8 @@ async function flagUnlocked(
   // Stempel VOR dem Lesen: danach genommen, deckte er einen Schreiber mitten im Lesen nicht.
   const stamp = await stampOf(file);
   const text = await readFile(file, "utf8");
-  // Der ZEILENUMBRUCH entscheidet (`lib/jsonl.ts`): endet die Datei mittendrin, stroemt der Export
-  // gerade hinein, und das Zurueckschreiben haengte seinen Umbruch hinter die halbe Zeile — aus
-  // einem erwartbaren Schwanz wurde dauerhafte Beschaedigung.
+  // Endet die Datei mittendrin, stroemt der Export gerade hinein; zurueckgeschrieben wuerde aus dem
+  // erwartbaren Schwanz dauerhafte Beschaedigung.
   if (text !== "" && !text.endsWith("\n")) throw new Error(`${name}/log.jsonl endet mitten in einer Zeile`);
   // Ohne `stripBom` warf Zeile 1 hier, und das Flag war auf einer PowerShell-geschriebenen
   // log.jsonl gar nicht setzbar. Zurueckgeschrieben wird dann ohne BOM — wie Python es liest.

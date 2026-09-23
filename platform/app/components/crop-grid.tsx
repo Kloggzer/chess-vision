@@ -3,13 +3,8 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
-/**
- * Crop grid extracted so LABELN stream renders same widget (CONCEPT.md 3.2).
- * Cell grid and board reach different work; folding leaves unsure cells unreachable.
- */
 
-/** One page: 5 Zeilen × 10 Spalten auf dem 16:9-Monitor, ohne Scrollen — die ganze Seite in einem
- *  Blick ist der Punkt der Eine-Behauptung-pro-Seite-Audits (User, 2026-08-15). */
+/** 5 Zeilen × 10 Spalten auf dem 16:9-Monitor, ohne Scrollen — die ganze Seite in einem Blick. */
 export const PAGE = 50;
 
 /** Fetched at 2x so the crop stays sharp on a phone's 3x display — detail IS the decision here. */
@@ -45,8 +40,8 @@ export type CropGridProps = {
   wrong?: Set<number>;
   /** Rechtsklick, wo eine Lane ihm eine zweite Antwort gibt (Audit: „das Modell hat recht"). */
   onContextPick?: (index: number) => void;
-  /** Wischen wie mit dem Brett-Pinsel: SETZT jede berührte Zelle — oder LÖSCHT, wenn der Wisch
-   *  auf einer schon so markierten Zelle beginnt (der Radierer des Pinsels, 2026-08-15). */
+  /** Wischen wie mit dem Brett-Pinsel: SETZT jede beruehrte Zelle — oder LOESCHT, wenn der Wisch
+   *  auf einer schon so markierten Zelle beginnt. */
   onSweep?: (index: number, mode: "left" | "right", erase: boolean) => void;
   /** Was „schon so markiert" heißt, wo die Marke mehr als an/aus ist — der Pinsel kennt seine Farbe. */
   erasing?: (index: number, mode: "left" | "right") => boolean;
@@ -60,13 +55,8 @@ export type CropGridProps = {
   onDirty?: (index: number) => void;
 };
 
-/**
- * Eat the ONE context menu a right-drag ends with, wherever the pointer happens to be.
- *
- * The grid swallows its own, but a wisch that leaves it entirely fires the menu on whatever element
- * it was released over — and a browser menu opening mid-brush is exactly what it feels like.
- * Capture phase, once, and self-removing so a later honest right-click still works.
- */
+/** Eat the ONE context menu a right-drag ends with: a wisch that leaves the grid fires it on whatever
+ *  it was released over. Capture phase, once, self-removing. */
 function swallowNextContextMenu(): void {
   const eat = (event: Event) => {
     event.preventDefault();
@@ -110,8 +100,7 @@ export function CropGrid(props: CropGridProps) {
   const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean; erase: boolean } | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(10);
-  // A 404 crop rendered as an empty box on the dark card, indistinguishable from a genuinely dark
-  // square (2026-09-07). Keyed by URL, so a re-export retries instead of staying broken forever.
+  // A 404 crop looked like a genuinely dark square. Keyed by URL, so a re-export retries.
   const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
   // The column count is the BROWSER's answer, not ours: `auto-fill` decides it from the width.
   useEffect(() => {
@@ -127,8 +116,7 @@ export function CropGrid(props: CropGridProps) {
   useEffect(() => onColumns?.(cols), [cols, onColumns]);
   return (
     <div
-      // 104 px is the smallest crop a thumb can hit: ten fixed columns are ~34 px on a 390 px
-      // phone ("nahezu unmöglich zu bedienen", 2026-08-13). Tailwind cannot read a constant here.
+      // 104 px is the smallest crop a thumb can hit. Tailwind cannot read a constant here.
       className="grid select-none grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-1.5 2xl:grid-cols-10"
       // Auch auf der FLÄCHE, nicht nur auf den Zellen: ein Rechts-Wisch, der in einer Lücke oder
       // neben dem Raster endet, liess sonst das Browser-Menü aufspringen — mitten im Pinseln.
@@ -284,8 +272,7 @@ export function CropGrid(props: CropGridProps) {
               </span>
             ) : null}
           </div>
-          {/* Unter dem Bild, nie darauf: die Pixel SIND die Entscheidung („einfacher wäre es wenn
-              ich das bild ganz sehe und unter der card dann die echten namen", 2026-08-15). */}
+          {/* Unter dem Bild, nie darauf: die Pixel SIND die Entscheidung. */}
           <div className="px-1 py-0.5 font-mono text-[11px] leading-tight">
             {cell.caption}
             {cell.note ? (

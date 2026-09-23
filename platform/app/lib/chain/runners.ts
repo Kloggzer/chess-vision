@@ -50,7 +50,7 @@ async function runDesktop(binary: string, args: string[], running: Job, log: str
     try {
       child = spawnTool(binary, args, cwd);
     } catch (error) {
-      // A job that cannot even start must say so — this is the exact failure that hid all day.
+      // A job that cannot even start must say so.
       sink.end(`\nspawn threw: ${error instanceof Error ? error.message : String(error)}\n`);
       resolve(-1);
       return;
@@ -184,9 +184,8 @@ export async function runLabel(job: Job, lens?: boolean): Promise<void> {
     state: end.state,
     code,
     candidate: madeCandidate ? job.name : undefined,
-    // The tool's own last words, not just a path: "see the log" is what a user reads instead of
-    // the sentence that would have told them what to do. Ein GESTOPPTER Lauf hat keine — sein
-    // Log bricht mitten im Satz ab, und `exit -1` daneben las sich als Werkzeugfehler.
+    // The tool's own last words, not just a path. Ein GESTOPPTER Lauf hat keine — sein Log bricht
+    // mitten im Satz ab, und `exit -1` las sich als Werkzeugfehler.
     reason: end.stopped ? STOPPED : madeCandidate ? undefined : `${await lastWords(log)} (exit ${code}, ${log})`,
     finishedAt: new Date().toISOString(),
   });
@@ -242,11 +241,8 @@ async function runRetime(name: string, running: Job, log: string): Promise<numbe
   return appended(retimeArgs(name), running, log);
 }
 
-/**
- * Die Karten der Strittig-Lane neu rechnen, am Ende von `model-read`: der naechste Schritt ist
- * `labeln`, dort muessen sie liegen. Korpusweit, abgeleitet, Sekunden. Sein Exit-Code zaehlt
- * NICHT als der des Schritts — eine fehlende Matte darf `model-read` nicht rot faerben.
- */
+/** Die Karten der Strittig-Lane neu rechnen, am Ende von `model-read`. Sein Exit-Code zaehlt NICHT
+ *  als der des Schritts — eine fehlende Matte darf `model-read` nicht rot faerben. */
 function runPositionFlags(running: Job, log: string): Promise<number> {
   return appended(positionFlagsArgs(), running, log);
 }
@@ -285,11 +281,9 @@ export async function runChesslab(job: Job, step: ChesslabStep): Promise<void> {
   const verb = VERB[step];
   const binary = uvBinary();
   const names = [job.name, ...(job.also ?? [])];
-  // The same target the overnight `--all` is given, counted against the rows already there: one
-  // press costs at most those frames, not the hour a 394-frame pile would be.
-  // `reportedOpen`, nicht `reported`: eine Meldung auf einen Frame, den dieser Export nicht mehr
-  // fuehrt, ist unerreichbar — `--reported` liefe ins Leere und die Aufnahme bekaeme nie ihren
-  // Stapel. `--wanted` ist der dritte Modus: ausdruecklich geschickt, aber nicht `occluded`.
+  // One press costs at most the overnight target, not the whole pile. `reportedOpen`, nicht
+  // `reported`: eine Meldung auf einen Frame, den dieser Export nicht fuehrt, ist unerreichbar.
+  // `--wanted` ist der dritte Modus: ausdruecklich geschickt, aber nicht `occluded`.
   const census = step === "matte" ? await matteCensus(job.name) : null;
   const args = chesslabArgs(step, names, {
     model: modelReadRun(),
@@ -306,8 +300,6 @@ export async function runChesslab(job: Job, step: ChesslabStep): Promise<void> {
   };
   await record(running);
 
-  // Dieselbe Senke wie der Desktop-Zweig, nur aus dem Repo heraus: die Kopie hier trug denselben
-  // Doppel-`end` und ausserdem keinen Fang fuer den synchronen Spawn-Wurf.
   const code = await runDesktop(binary, args, running, log, repoDir());
 
   // Gelaufen ist gelaufen, aber nicht gelungen: der Exit fiel hier auf den Boden, und die

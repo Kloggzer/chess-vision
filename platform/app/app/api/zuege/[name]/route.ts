@@ -6,15 +6,9 @@ import { EXPORT_HOLD_MS } from "@/lib/label/zuege";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * The ZÜGE stream's game boundary, in the three shapes it can take (CONCEPT.md §4.1.1).
- *
- * `commit` writes the buffered keeps AND enqueues the export it owns, held for 90 s; `undo` is `z`
- * across that boundary — it rewrites `reviewed_plies` and takes the held row back, and says
- * plainly when it could not, because then a session directory exists and only a re-export fixes
- * it; `reexport` is the button that sentence carries. `kept` stays what it always was: indices
- * into the candidate's own move list, turned into plies by the server.
- */
+/** `commit` writes the keeps AND enqueues the export, held for 90 s; `undo` takes the held row back
+ *  and says plainly when it could not — then only a re-export fixes it; `reexport` is that button.
+ *  `kept` are indices into the candidate's move list, turned into plies by the server. */
 export async function POST(request: Request, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;
   try {
@@ -22,9 +16,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
     const kept = (Array.isArray(body.kept) ? body.kept.filter((v) => Number.isInteger(v)) : []) as number[];
 
     if (body.action === "reexport") return await reexport(name);
-    // `x` on a game whose boundary already committed: the hold has to go, but NOTHING may be
-    // written into `candidate.json` — stamping a recording the human just rejected is what §4.1
-    // forbids `x` to do.
+    // `x` after the boundary committed: the hold has to go, but NOTHING may be written into
+    // `candidate.json` for a recording the human just rejected.
     if (body.action === "release") return Response.json(await releaseExportHold(name));
     if (body.action === "undo") {
       const plies = await writeConfirmation(name, kept);

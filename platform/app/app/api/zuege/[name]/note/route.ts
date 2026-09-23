@@ -4,13 +4,8 @@ import { sessionId } from "@/lib/session-store/session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * "Das Intervall taugt nichts" on one card (§8c).
- *
- * A verdict about the PICTURE, never about the move: the ply stays keepable and nothing here
- * touches `candidate.json`. It lands in `review-notes.jsonl`, which no Python reads — the session
- * id is derived from the recording's name so a URL cannot name a foreign session.
- */
+/** A verdict about the PICTURE, never the move: nothing here touches `candidate.json`. The session
+ *  id is derived from the recording's name, so a URL cannot name a foreign session. */
 export async function POST(request: Request, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;
   try {

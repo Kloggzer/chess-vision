@@ -103,7 +103,7 @@ test("release removes OUR lock and never a foreign one", async () => {
   expect(existsSync(heavyLockPath())).toBe(true);
 });
 
-// Pythons `locks._claim` legt die Datei per `O_EXCL` LEER an; unlesbar galt als verwaist (drei SAM-Worker, 2026-08-19).
+// Pythons `locks._claim` legt die Datei per `O_EXCL` LEER an; unlesbar ist also nicht verwaist.
 describe.each([
   ["die leer angelegte Datei im O_EXCL-Fenster", ""],
   ["eine halb geschriebene Zeile", '{"pid": 4242, "job": "ma'],

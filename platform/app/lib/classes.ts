@@ -10,11 +10,8 @@ export const IDENTITY_CLASSES = [
   "bP", "bN", "bB", "bR", "bQ", "bK",
 ] as const;
 
-/**
- * Painted by hand until 2026-08-18 and carried by 31 271 rows of `corrections.jsonl`. They stay
- * readable and are rendered as history; nothing writes another one, because occlusion is measured
- * (`matte.jsonl` -> `coverage`) instead of asked.
- */
+/** Hand-painted until 2026-08-18: still readable and rendered as history, but nothing writes another
+ *  one — occlusion is measured (`matte.jsonl` -> `coverage`), not asked. */
 export const LEGACY_LABEL = "occluded";
 
 export const isIdentity = (label: string): boolean =>

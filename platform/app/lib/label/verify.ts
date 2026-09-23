@@ -1,8 +1,5 @@
-/**
- * The matte review's read model: every frame that HAS an alpha, with the ONE thing that page asks
- * about it — does SAM's mask cut the hand right. Whether the board still shows the interval's
- * position is a CELL question and lives in the Strittig lane (`position-flags.jsonl`), 2026-09-07.
- */
+/** The matte review's read model: every frame that HAS an alpha, and the ONE question — does SAM's
+ *  mask cut the hand right. Whether the position still holds is a cell question of the Strittig lane. */
 import { liveGames } from "@/lib/label/label-stream";
 import { coveredSquares } from "@/lib/classes";
 import { type AlphaState, alphaState, fixedAlphas, loadMatte, matteStamp } from "@/lib/session-store/matte";
@@ -60,11 +57,8 @@ export function reopened(review: FrameReview, mergedAt: string | undefined): boo
   return mergedAt !== undefined && (review.matteAt === undefined || review.matteAt < mergedAt);
 }
 
-/**
- * `skip` zaehlt OFFENE Frames, nicht Seiten: die Lane laedt nach, statt den Nutzer nach 20 Seiten
- * neu laden zu lassen. Beurteiltes faellt hier ohnehin raus, also schiebt der Client nur den
- * Rest weiter, den er schon haelt.
- */
+/** `skip` zaehlt OFFENE Frames, nicht Seiten: Beurteiltes faellt hier ohnehin raus, also schiebt der
+ *  Client nur den Rest weiter, den er schon haelt. */
 export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
   const sessions: VerifySession[] = [];
   const frames: VerifyFrame[] = [];
@@ -79,9 +73,8 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
     try {
       session = await loadSession(name);
     } catch (e) {
-      // ENOENT heisst "der Export lief nie" und die Aufnahme zaehlt nirgends mit. Jeder ANDERE
-      // Fehler (kaputte Zeile, fehlende `clock.fps`) nahm sie hier lautlos aus `progress` — der
-      // Nenner der Kopfzeile stand dann ueber einer anderen Grundgesamtheit, ohne es zu sagen.
+      // ENOENT heisst "der Export lief nie". Jeder ANDERE Fehler nahm die Aufnahme sonst lautlos aus
+      // `progress`, und der Nenner stand ueber einer anderen Grundgesamtheit.
       if ((e as { code?: string })?.code !== "ENOENT") throw e;
       continue;
     }
@@ -103,8 +96,7 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
       if (!claimsAnything(alpha.coverage)) continue;
       total += 1;
       const review = reviews.get(row.stem) ?? {};
-      // `matte`, nicht mehr `position`: die Stellungsfrage ist 2026-09-07 in die Strittig-Lane
-      // gezogen, also schliesst nur noch ein Urteil ueber die MASKE einen Frame ab.
+      // Nur ein Urteil ueber die MASKE schliesst einen Frame ab; die Stellung fragt die Strittig-Lane.
       if (review.matte !== undefined && !reopened(review, alpha.mergedAt)) {
         done += 1;
         continue;
@@ -129,9 +121,8 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
     mine.sort((a, b) => Number(a.reason !== undefined) - Number(b.reason !== undefined));
     const from = Math.max(0, skip - open);
     open += mine.length;
-    // Counting runs over EVERY session, only the page stops at VERIFY_PAGE. The break used to sit
-    // in this loop, so "357/560 · 64 %" was the progress of whatever fitted on page one — measured
-    // 2026-08-19 the corpus held 1292 alphas, and the headline claimed 64 % where it was 28 %.
+    // Counting runs over EVERY session, only the page stops at VERIFY_PAGE — a break in this loop
+    // made the headline the progress of page one.
     if (from >= mine.length || frames.length >= VERIFY_PAGE) continue;
     const index = sessions.length;
     sessions.push({ name, sessionId: id });

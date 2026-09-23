@@ -1,11 +1,6 @@
-/**
- * `data/recordings/<name>/corrections.jsonl` — the shared schema of specs/53 entry.md and the
- * ONLY bridge to the Python side. Append-only is correct: `labeling.load_corrections` dedups on
- * `(session_id, frame, square)` with LAST LINE WINNING, so an undo is a superseding row.
- *
- * The rows stay GLOBAL training input (CLAUDE.md) — only the file moved next to the recording it
- * judges, which is why the writer validates instead of trusting the client.
- */
+/** `corrections.jsonl` — the ONLY bridge to the Python side. Append-only is correct:
+ *  `labeling.load_corrections` dedups on `(session_id, frame, square)` with LAST LINE WINNING, so an
+ *  undo is a superseding row. The rows are GLOBAL training input, so the writer validates. */
 import { readFile } from "node:fs/promises";
 import { appendRows } from "@/lib/atomic";
 import path from "node:path";
@@ -27,11 +22,10 @@ type CorrectionRow = Correction & { ts: string };
 
 const SQUARE = /^[a-h][1-8]$/;
 
-/** `corrections` = GLOBAL TRAINING INPUT; `reviewed` = provenance only (Python skips it), written
- *  per recording by three UI paths — the file exists again since 2026-08-20. */
+/** `corrections` = GLOBAL TRAINING INPUT; `reviewed` = provenance only (Python skips it). */
 export type Ledger = "corrections" | "reviewed";
 
-/** Per RECORDING since 2026-08-20 — `name` is the directory, never the `rg-` prefixed id. */
+/** Per RECORDING — `name` is the directory, never the `rg-` prefixed id. */
 function ledgerPath(name: string, ledger: Ledger = "corrections"): string {
   return path.join(gameDir(name), `${ledger}.jsonl`);
 }
@@ -85,10 +79,7 @@ type Standing = { label: string; ts: string };
 /** One session's verdicts, keyed `frame|square` — the whole ledger, split by session once. */
 type BySession = Map<string, Map<string, Standing>>;
 
-/**
- * Eine geschriebene Zeile MIT dem Wert, der vor ihr stand. Die Historie liest daraus ihr „alt →
- * neu"; aus der Last-wins-Karte allein ist das nicht zu holen, die hat den Vorgänger weggeworfen.
- */
+/** Eine Zeile MIT dem Wert davor — die Last-wins-Karte hat den Vorgaenger weggeworfen. */
 export type LedgerChange = {
   session_id: string;
   frame: string;
@@ -104,12 +95,8 @@ export type LedgerChange = {
 
 type Parsed = { bySession: BySession; changes: LedgerChange[] };
 type LedgerCache = Map<string, { key: string; value: Parsed }>;
-/**
- * Pinned on `globalThis` like `lib/chain/slot.ts`'s `queue`, mtime-keyed like `loadModelReads`. `/`
- * asked for this file once per game and split all of it every time — 36 full parses of a growing
- * ledger for one page. Der Name traegt die FORM des Werts: der Cache ueberlebt einen Hot-Reload, also las die neue
- * Funktion sonst die alten Zeilen als halb leere Objekte.
- */
+/** Mtime-keyed on `globalThis`. Der Name traegt die FORM des Werts: der Cache ueberlebt einen
+ *  Hot-Reload, und neuer Code laese die alten Eintraege sonst als halb leere Objekte. */
 const ledgers: LedgerCache = ((globalThis as { __chesslabLedgersV2?: LedgerCache }).__chesslabLedgersV2 ??= new Map());
 
 async function ledgerRows(name: string, ledger: Ledger): Promise<Parsed> {
@@ -169,19 +156,15 @@ export async function decidedKeys(name: string, ledger: Ledger = "corrections"):
 
 export type Recent = { frame: string; square: string; label: string; ledger: Ledger; ts: string };
 
-/**
- * Die zuletzt beurteilten Zellen dieser Aufnahme, jüngste zuerst — der Rückweg zu dem, was man
- * eben bestätigt hat. Beide Ledger in EINER Liste, denn wer nachkorrigiert, weiß nicht, welches
- * die Zeile geschrieben hat; bei gleichem Schlüssel gewinnt die spätere Zeile.
- */
+/** Beide Ledger in EINER Liste, juengste zuerst: wer nachkorrigiert, weiss nicht, welches die Zeile
+ *  geschrieben hat. */
 export async function recentVerdicts(name: string, limit: number): Promise<Recent[]> {
   const id = sessionId(name);
   const out = new Map<string, Recent>();
   for (const ledger of ["reviewed", "corrections"] as const) {
     for (const [key, v] of (await ledgerRows(name, ledger)).bySession.get(id) ?? []) {
-      // Die Korrektur gewinnt IMMER, wie in `judgedKeys` — sie laeuft als zweites Ledger. Der
-      // Zeitvergleich liess eine neuere `reviewed`-Zeile gewinnen, und die Lane zeigte dann ein
-      // Label, das Python nie benutzt.
+      // Die Korrektur gewinnt IMMER, wie in `judgedKeys` — ein Zeitvergleich liesse eine neuere
+      // `reviewed`-Zeile gewinnen, deren Label Python nie benutzt.
       const [frame, square] = key.split("|");
       out.set(key, { frame, square, label: v.label, ledger, ts: v.ts });
     }

@@ -5,7 +5,6 @@ import { MatteReview } from "./review";
 
 export const dynamic = "force-dynamic";
 
-/** Eine Frage pro Frame: stimmt die Stellung. Das Alpha ist bestätigt und wird nur noch gemalt. */
 export default async function MattePage() {
   const stream = await loadVerifyStream();
   return (

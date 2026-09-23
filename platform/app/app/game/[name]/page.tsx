@@ -14,13 +14,8 @@ import { sessionDir, sessionId } from "@/lib/session-store/session";
 
 export const dynamic = "force-dynamic";
 
-/**
- * `/game/<name>` — one recording, everything (CONCEPT.md §3.1). The daily loop never opens it; `.`
- * in a stream does, in a new tab, when a card raises a question the stream cannot answer.
- *
- * It is the ONE page that may be slow: the exact `cellsDone` costs a parse of this game's model
- * reads, which is precisely what the list surfaces refuse to pay and what a debug surface is for.
- */
+/** One recording, everything. The ONE page that may be slow: the exact `cellsDone` parses this game's
+ *  model reads, which the list surfaces refuse to pay. */
 export default async function GamePage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;
   if (!(await listGames()).includes(name)) notFound();
