@@ -106,7 +106,7 @@ internal fun gameRecordFor(
     sessionDir: File,
     options: List<String>,
 ): File? {
-    options.stringOption("game")?.let { return File(it.replace('~', ' ')) }
+    options.stringOption("game")?.let { return it.fileArg() }
     val games = sessionDir.parentFile?.parentFile?.resolve("games") ?: return null
     return games
         .listFiles { f: File -> f.isFile && f.name.endsWith(".json") && f.name != "index.json" }

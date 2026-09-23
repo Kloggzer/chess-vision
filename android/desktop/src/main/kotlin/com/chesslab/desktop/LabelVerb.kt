@@ -76,8 +76,7 @@ internal fun replayPlanFor(
         if (options.frames) {
             // Beside the candidate (or where one would live), not under tmp/: the decisive frames
             // are review material, and review material lives with the game it reviews.
-            val name = options.name ?: requireNotNull(video) { "frames needs a video file" }.nameWithoutExtension
-            File(File(RECORDINGS_DIR, name), "frames-decisive")
+            File(requireNotNull(recordingDirOf(options, video)) { "frames needs a video file" }, "frames-decisive")
         } else {
             null
         }
@@ -158,7 +157,7 @@ private fun reportGeometry(scan: ScannedGeometry) {
 internal fun candidateFileFor(
     video: File,
     options: ReplayOptions,
-): File = File(File(RECORDINGS_DIR, options.name ?: video.nameWithoutExtension), "candidate.json")
+): File = File(requireNotNull(recordingDirOf(options, video)), "candidate.json")
 
 /** The LABEL's stored quad, so a score run replays through the same geometry as the label did. */
 internal fun quadFromCandidate(candidate: File): FloatArray {
@@ -361,6 +360,12 @@ internal fun cropJson(geometry: BoardGeometry): JsonObject =
 
 /** Candidates live under `data/` (gitignored), where the Python labeler put them. */
 internal const val RECORDINGS_DIR = "../../data/recordings"
+
+/** `name=`, else the video's stem; null only when neither is known (a live camera). */
+internal fun recordingDirOf(
+    options: ReplayOptions,
+    video: File?,
+): File? = (options.name ?: video?.nameWithoutExtension)?.let { File(RECORDINGS_DIR, it) }
 
 internal const val DATA_DIR = "../../data"
 

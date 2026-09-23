@@ -27,13 +27,7 @@ import java.io.File
 fun undistortVideo(args: List<String>) {
     val video = File(args.getOrNull(0) ?: error("usage: undistort <video> <outDir> [every=N]"))
     val outDir = File(args.getOrNull(1) ?: error("usage: undistort <video> <outDir> [every=N]"))
-    val every =
-        args
-            .drop(2)
-            .firstOrNull { it.startsWith("every=") }
-            ?.removePrefix("every=")
-            ?.toIntOrNull()
-            ?: DEFAULT_EVERY
+    val every = args.drop(2).intOption("every", DEFAULT_EVERY)
     // `frames=<file>` — one source index per line, which is how a consumer that already PLANNED a
     // frame set asks for exactly it. Undistorting a whole video at every=3 to serve a session that
     // wants 1 700 of its frames costs gigabytes of PNG for nothing.
@@ -123,7 +117,7 @@ private fun writeEach(
 
 /** `frames=<file>`: the source indices to write, one per line. Null when the option is absent. */
 internal fun frameList(args: List<String>): Set<Int>? {
-    val path = args.firstOrNull { it.startsWith("frames=") }?.removePrefix("frames=") ?: return null
+    val path = args.stringOption("frames") ?: return null
     val file = File(path)
     check(file.isFile) { "no such frame list: ${file.absolutePath}" }
     val wanted = file.readLines().mapNotNull { it.trim().toIntOrNull() }.toSet()

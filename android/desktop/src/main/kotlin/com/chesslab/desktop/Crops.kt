@@ -45,8 +45,8 @@ fun cropsOfVideo(args: List<String>) {
     val video = File(args.getOrNull(0) ?: error("usage: crops <video> <outDir> [frames=<f>|every=N] [out=WxH]"))
     val outDir = File(args.getOrNull(1) ?: error("usage: crops <video> <outDir> [frames=<f>|every=N] [out=WxH]"))
     val rest = args.drop(2)
-    val every = rest.firstOrNull { it.startsWith("every=") }?.removePrefix("every=")?.toIntOrNull() ?: CROPS_EVERY
-    val out = rest.firstOrNull { it.startsWith("out=") }?.removePrefix("out=")?.split("x")
+    val every = rest.intOption("every", CROPS_EVERY)
+    val out = rest.stringOption("out")?.split("x")
     val wanted = frameList(rest)
     check(video.isFile) { "no such video: ${video.absolutePath}" }
     outDir.mkdirs()
@@ -103,11 +103,11 @@ private const val PROBE_ARGS = 5
  *  mesh beside it as `cell-mesh.png`. */
 fun probeCrop(args: List<String>) {
     require(args.size >= PROBE_ARGS) { "usage: probe-crop <log.jsonl> <framesDir> <stem> <square> <outDir>" }
-    val log = File(args[0].replace('~', ' '))
-    val framesDir = File(args[1].replace('~', ' '))
+    val log = args[0].fileArg()
+    val framesDir = args[1].fileArg()
     val stem = args[2]
     val square = args[3]
-    val outDir = File(args[4].replace('~', ' ')).apply { mkdirs() }
+    val outDir = args[4].fileArg().apply { mkdirs() }
     val row = Jsonl.rows(log).first { File(it.getValue("frame").jsonPrimitive.content).nameWithoutExtension == stem }
     val logged =
         row
@@ -202,15 +202,15 @@ private fun putRgbCrop(
 @Suppress("LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth", "LoopWithTooManyJumpStatements")
 fun packTurntableVideo(args: List<String>) {
     // Gradle's `--args` tokenizes on spaces. `~` is the portable spelling for spaces in paths.
-    val video = File((args.getOrNull(0) ?: packUsage()).replace('~', ' '))
+    val video = (args.getOrNull(0) ?: packUsage()).fileArg()
     // Gradle's `--args` tokenizes on spaces. The CLI therefore accepts `_` as the portable
     // spelling of a FEN field separator, while the metadata always records the canonical FEN.
     val fen = (args.getOrNull(1) ?: packUsage()).replace('_', ' ')
     val outDir = File(args.getOrNull(2) ?: packUsage())
     val rest = args.drop(3)
-    val every = rest.optionInt("every", TURN_TABLE_EVERY)
-    val maxFrames = rest.optionInt("max", TURN_TABLE_MAX_FRAMES)
-    val id = rest.option("id") ?: video.nameWithoutExtension
+    val every = rest.intOption("every", TURN_TABLE_EVERY)
+    val maxFrames = rest.intOption("max", TURN_TABLE_MAX_FRAMES)
+    val id = rest.stringOption("id") ?: video.nameWithoutExtension
     require(video.isFile) { "no such video: ${video.absolutePath}" }
     require(every >= 1 && maxFrames >= 1) { "every and max must both be at least 1" }
     require(!outDir.exists()) { "refusing to overwrite existing pack: ${outDir.absolutePath}" }
@@ -293,13 +293,6 @@ fun packTurntableVideo(args: List<String>) {
             "(board missed $noBoard, grid-hand rejected $hand) -> ${outDir.absolutePath}",
     )
 }
-
-private fun List<String>.option(name: String): String? = firstOrNull { it.startsWith("$name=") }?.removePrefix("$name=")
-
-private fun List<String>.optionInt(
-    name: String,
-    fallback: Int,
-): Int = option(name)?.toIntOrNull() ?: fallback
 
 private fun packUsage(): Nothing = error("usage: turntable-pack <video> <fen> <outDir> [every=N] [max=N] [id=name]")
 

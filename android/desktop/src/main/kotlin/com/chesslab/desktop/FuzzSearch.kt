@@ -200,7 +200,7 @@ private val WACHEN_ACHSEN = listOf("veto:shadow", "veto:occlusion", "veto:change
 internal fun fuzzVerb(args: List<String>) {
     val trials = args.getOrNull(0)?.toIntOrNull() ?: DEFAULT_TRIALS
     val seed = args.getOrNull(1)?.toLongOrNull() ?: 1L
-    val out = args.firstOrNull { it.startsWith("out=") }?.removePrefix("out=")
+    val out = args.stringOption("out")
     val started = System.nanoTime()
     val (found, frames) = fuzzSearch(trials, seed) { if (it % PROGRESS_EVERY == 0) println("... $it/$trials") }
     val seconds = (System.nanoTime() - started) / 1e9

@@ -33,8 +33,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.charset.StandardCharsets.UTF_8
-import java.security.MessageDigest
 import kotlin.math.abs
 
 private const val LABELED_EVERY = 8
@@ -133,8 +131,8 @@ fun packLabeledVideo(args: List<String>) {
     val log = args[1].fileArg()
     val corrections = args[2].fileArg()
     val outDir = args[3].fileArg()
-    val every = args.optionInt("every", LABELED_EVERY)
-    val id = args.option("id") ?: log.parentFile.name
+    val every = args.intOption("every", LABELED_EVERY)
+    val id = args.stringOption("id") ?: log.parentFile.name
     require(video.isFile && log.isFile && corrections.isFile) { "video, log and corrections must exist" }
     require(!outDir.exists()) { "refusing to overwrite existing pack: ${outDir.absolutePath}" }
 
@@ -146,8 +144,7 @@ fun packLabeledVideo(args: List<String>) {
     outDir.mkdirs()
     val manifest = File(outDir, "manifest.jsonl")
     val partial = File(outDir, "packed_images.u8.partial")
-    val paths = StringBuilder("[")
-    val digest = MessageDigest.getInstance("SHA-256")
+    val index = PackIndex()
     var crops = 0
     var acceptedFrames = 0
     var handFrames = 0
@@ -181,29 +178,14 @@ fun packLabeledVideo(args: List<String>) {
                             if (label == "occluded") continue
                             val crop = cropSquare(warped, square, geometry)
                             try {
-                                val packed = resizeForPacking(crop)
-                                try {
-                                    val data = ByteArray(PACK_CROP_BYTES)
-                                    packed.get(0, 0, data)
-                                    bgrToRgbInPlace(data)
-                                    imageOut.write(data)
-                                } finally {
-                                    packed.release()
-                                }
+                                writePackedCrop(crop, imageOut)
                             } finally {
                                 crop.release()
                             }
                             val stem = row.frameStem()
                             val path = "mm://$id/$stem/$square"
                             rowsOut.append(manifestRow(path, id, stem, square, label)).append('\n')
-                            if (paths.length > 1) paths.append(',')
-                            paths.append('"').append(json(path)).append('"')
-                            digest.update(path.toByteArray(UTF_8))
-                            digest.update(byteArrayOf(0))
-                            digest.update(label.toByteArray(UTF_8))
-                            digest.update(byteArrayOf(0))
-                            digest.update("[$PACK_CROP_SIDE, $PACK_CROP_SIDE]".toByteArray(UTF_8))
-                            digest.update(byteArrayOf('\n'.code.toByte()))
+                            index.add(path, label)
                             crops++
                         }
                         acceptedFrames++
@@ -216,14 +198,13 @@ fun packLabeledVideo(args: List<String>) {
     }
     val image = File(outDir, "packed_images.u8")
     check(partial.renameTo(image)) { "could not finalize ${image.absolutePath}" }
-    paths.append(']')
     File(outDir, "packed_meta.json").writeText(
         "{\"n\":$crops,\"h\":$PACK_CROP_SIDE,\"w\":$PACK_CROP_SIDE," +
             "\"source\":\"${json(video.absolutePath)}\",\"session_id\":\"${json(id)}\"," +
             "\"every\":$every,\"accepted_frames\":$acceptedFrames," +
             "\"grid_hand_rejected\":$handFrames," +
             "\"occluded_frames_excluded\":${occludedFrames.size}," +
-            "\"digest\":\"${digestHex(digest)}\",\"paths\":$paths}\n",
+            "\"digest\":\"${index.hex()}\",\"paths\":${index.pathsJson()}}\n",
     )
     println("packed $crops labeled 13-class crops from $acceptedFrames clean frames -> ${outDir.absolutePath}")
 }
@@ -241,8 +222,8 @@ fun packOcclusionVideo(args: List<String>) {
     val log = args[1].fileArg()
     val corrections = args[2].fileArg()
     val outDir = args[3].fileArg()
-    val session = args.option("session") ?: log.parentFile.name
-    val id = args.option("id") ?: "occ-$session"
+    val session = args.stringOption("session") ?: log.parentFile.name
+    val id = args.stringOption("id") ?: "occ-$session"
     require(video.isFile && log.isFile && corrections.isFile) { "video, log and corrections must exist" }
     require(!outDir.exists()) { "refusing to overwrite existing pack: ${outDir.absolutePath}" }
 
@@ -265,8 +246,7 @@ fun packOcclusionVideo(args: List<String>) {
 
     outDir.mkdirs()
     val partial = File(outDir, "packed_images.u8.partial")
-    val digest = MessageDigest.getInstance("SHA-256")
-    val paths = StringBuilder("[")
+    val index = PackIndex()
     var crops = 0
     var decoded = 0
     File(outDir, "manifest.jsonl").bufferedWriter().use { rowsOut ->
@@ -287,23 +267,13 @@ fun packOcclusionVideo(args: List<String>) {
                         for (square in targets.getValue(stem)) {
                             val crop = cropSquare(warped, square, geometry)
                             try {
-                                val packed = resizeForPacking(crop)
-                                try {
-                                    val data = ByteArray(PACK_CROP_BYTES)
-                                    packed.get(0, 0, data)
-                                    bgrToRgbInPlace(data)
-                                    imageOut.write(data)
-                                } finally {
-                                    packed.release()
-                                }
+                                writePackedCrop(crop, imageOut)
                             } finally {
                                 crop.release()
                             }
                             val path = "mm://$id/$stem/$square"
                             rowsOut.append(manifestRow(path, id, stem, square, "occluded")).append('\n')
-                            if (paths.length > 1) paths.append(',')
-                            paths.append('"').append(json(path)).append('"')
-                            updateDigest(digest, path, "occluded")
+                            index.add(path, "occluded")
                             crops++
                         }
                     } finally {
@@ -315,12 +285,11 @@ fun packOcclusionVideo(args: List<String>) {
     }
     val image = File(outDir, "packed_images.u8")
     check(partial.renameTo(image)) { "could not finalize ${image.absolutePath}" }
-    paths.append(']')
     File(outDir, "packed_meta.json").writeText(
         "{\"n\":$crops,\"h\":$PACK_CROP_SIDE,\"w\":$PACK_CROP_SIDE," +
             "\"source\":\"${json(video.absolutePath)}\",\"session_id\":\"${json(id)}\"," +
             "\"source_session_id\":\"${json(session)}\",\"label\":\"occluded\"," +
-            "\"digest\":\"${digestHex(digest)}\",\"paths\":$paths}\n",
+            "\"digest\":\"${index.hex()}\",\"paths\":${index.pathsJson()}}\n",
     )
     println("packed $crops manually labelled occluded crops -> ${outDir.absolutePath}")
 }
@@ -338,8 +307,8 @@ fun packLabeledSession(args: List<String>) {
     val sessionDir = args[0].fileArg()
     val outDir = args[1].fileArg()
     val log = File(sessionDir, "log.jsonl")
-    val id = args.option("id") ?: sessionDir.name
-    val correctionFile = args.option("corrections")?.fileArg()
+    val id = args.stringOption("id") ?: sessionDir.name
+    val correctionFile = args.stringOption("corrections")?.fileArg()
     require(log.isFile) { "missing log: ${log.absolutePath}" }
     require(correctionFile == null || correctionFile.isFile) { "missing corrections file: $correctionFile" }
     require(!outDir.exists()) { "refusing to overwrite existing pack: ${outDir.absolutePath}" }
@@ -357,8 +326,7 @@ fun packLabeledSession(args: List<String>) {
     val fit = storedQuadFit(sessionDir)
     outDir.mkdirs()
     val partial = File(outDir, "packed_images.u8.partial")
-    val digest = MessageDigest.getInstance("SHA-256")
-    val paths = StringBuilder("[")
+    val index = PackIndex()
     var crops = 0
     var acceptedFrames = 0
     var handFrames = 0
@@ -387,7 +355,7 @@ fun packLabeledSession(args: List<String>) {
                             handFrames++
                             continue
                         }
-                        crops += writeLabeledFrame(imageOut, rowsOut, paths, digest, id, row, warped, geometry, overrides)
+                        crops += writeLabeledFrame(imageOut, rowsOut, index, id, row, warped, geometry, overrides)
                         acceptedFrames++
                         if (fitted != null) fittedFrames++
                         if (fitted?.mesh != null) meshFrames++
@@ -403,7 +371,6 @@ fun packLabeledSession(args: List<String>) {
     require(acceptedFrames > 0) { "all ${rows.size} stored frames were rejected as occluded" }
     val image = File(outDir, "packed_images.u8")
     check(partial.renameTo(image)) { "could not finalize ${image.absolutePath}" }
-    paths.append(']')
     File(outDir, "packed_meta.json").writeText(
         "{\"n\":$crops,\"h\":$PACK_CROP_SIDE,\"w\":$PACK_CROP_SIDE," +
             "\"source\":\"${json(sessionDir.absolutePath)}\",\"session_id\":\"${json(id)}\"," +
@@ -413,7 +380,7 @@ fun packLabeledSession(args: List<String>) {
             "\"quad_source\":\"${if (fittedFrames > 0) "grid-fit" else "marker"}\"," +
             "\"fitted_frames\":$fittedFrames,\"marker_frames\":${acceptedFrames - fittedFrames}," +
             "\"mesh_frames\":$meshFrames," +
-            "\"digest\":\"${digestHex(digest)}\",\"paths\":$paths}\n",
+            "\"digest\":\"${index.hex()}\",\"paths\":${index.pathsJson()}}\n",
     )
     println(
         "packed $crops labeled 13-class crops from $acceptedFrames stored frames " +
@@ -434,8 +401,7 @@ private fun selectStoredRows(
 private fun writeLabeledFrame(
     imageOut: FileOutputStream,
     rowsOut: Appendable,
-    paths: StringBuilder,
-    digest: MessageDigest,
+    index: PackIndex,
     id: String,
     row: JsonObject,
     warped: org.opencv.core.Mat,
@@ -454,39 +420,16 @@ private fun writeLabeledFrame(
         if (label == "occluded") continue
         val crop = cropSquare(warped, square, geometry)
         try {
-            val packed = resizeForPacking(crop)
-            try {
-                val data = ByteArray(PACK_CROP_BYTES)
-                packed.get(0, 0, data)
-                bgrToRgbInPlace(data)
-                imageOut.write(data)
-            } finally {
-                packed.release()
-            }
+            writePackedCrop(crop, imageOut)
         } finally {
             crop.release()
         }
         val path = "mm://$id/$stem/$square"
         rowsOut.append(manifestRow(path, id, stem, square, label)).append('\n')
-        if (paths.length > 1) paths.append(',')
-        paths.append('"').append(json(path)).append('"')
-        updateDigest(digest, path, label)
+        index.add(path, label)
         written++
     }
     return written
-}
-
-private fun updateDigest(
-    digest: MessageDigest,
-    path: String,
-    label: String,
-) {
-    digest.update(path.toByteArray(UTF_8))
-    digest.update(byteArrayOf(0))
-    digest.update(label.toByteArray(UTF_8))
-    digest.update(byteArrayOf(0))
-    digest.update("[$PACK_CROP_SIDE, $PACK_CROP_SIDE]".toByteArray(UTF_8))
-    digest.update(byteArrayOf('\n'.code.toByte()))
 }
 
 private fun selectRows(
@@ -554,15 +497,6 @@ private fun manifestRow(
     "{\"path\":\"${json(path)}\",\"session_id\":\"${json(id)}\",\"frame\":\"$frame\"," +
         "\"square\":\"$square\",\"label\":\"$label\",\"out_size\":[$PACK_CROP_SIDE,$PACK_CROP_SIDE]," +
         "\"pad_side\":0.05}"
-
-private fun List<String>.option(name: String): String? = firstOrNull { it.startsWith("$name=") }?.substringAfter('=')
-
-private fun List<String>.optionInt(
-    name: String,
-    fallback: Int,
-): Int = option(name)?.toIntOrNull() ?: fallback
-
-private fun String.fileArg(): File = File(replace('~', ' '))
 
 private fun labeledUsage(): Nothing =
     error("usage: labeled-video-pack <video> <log.jsonl> <corrections.jsonl> <outDir> [every=N] [id=name]")

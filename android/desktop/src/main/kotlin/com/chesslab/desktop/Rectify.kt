@@ -30,8 +30,8 @@ fun rectifyVideo(args: List<String>) {
     val video = File(args.getOrNull(0) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N] [lens]"))
     val outDir = File(args.getOrNull(1) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N] [lens]"))
     val rest = args.drop(2)
-    val every = rest.firstOrNull { it.startsWith("every=") }?.removePrefix("every=")?.toIntOrNull() ?: DEFAULT_EVERY
-    val size = rest.firstOrNull { it.startsWith("size=") }?.removePrefix("size=")?.toIntOrNull()
+    val every = rest.intOption("every", DEFAULT_EVERY)
+    val size = rest.stringOption("size")?.toIntOrNull()
     val wanted = frameList(rest)
     check(video.isFile) { "no such video: ${video.absolutePath}" }
     require(every >= 1) { "every= must be at least 1, got $every" }

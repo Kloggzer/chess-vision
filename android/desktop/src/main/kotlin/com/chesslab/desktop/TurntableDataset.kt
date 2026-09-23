@@ -20,11 +20,11 @@ fun assembleTurntableDataset(args: List<String>) {
     require(args.size >= 4) {
         "usage: turntable-dataset <outDir> <testPack> <valPack> <trainPack> [trainPack...]"
     }
-    val outDir = args[0].asFileArg()
-    val test = args[1].asFileArg()
-    val validation = args[2].asFileArg()
-    val emptyRatio = args.firstOrNull { it.startsWith("emptyRatio=") }?.substringAfter('=')?.toDouble()
-    val training = args.drop(3).filterNot { '=' in it }.map(String::asFileArg)
+    val outDir = args[0].fileArg()
+    val test = args[1].fileArg()
+    val validation = args[2].fileArg()
+    val emptyRatio = args.stringOption("emptyRatio")?.toDouble()
+    val training = args.drop(3).filterNot { '=' in it }.map(String::fileArg)
     require(!outDir.exists()) { "refusing to overwrite existing dataset: ${outDir.absolutePath}" }
     val packs = training.map { Pack(it, "train") } + Pack(validation, "val") + Pack(test, "test")
     require(packs.map { it.session }.distinct().size == packs.size) { "every pack must have a unique session_id" }
@@ -154,5 +154,3 @@ private fun writeDatasetYaml(
             "session_ids:\n" + packs.joinToString("") { "  - ${it.session}\n" },
     )
 }
-
-private fun String.asFileArg(): File = File(replace('~', ' '))

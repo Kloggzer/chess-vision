@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.desktop.testutil.assertPackConsistent
 import com.chesslab.geometry.margins4
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.measuredBoardSize
@@ -43,6 +44,15 @@ class LabeledSessionPackTest {
         assertEquals(2, meta.getValue("fitted_frames").jsonPrimitive.int)
         assertEquals(0, meta.getValue("marker_frames").jsonPrimitive.int)
         assertEquals(2, meta.getValue("accepted_frames").jsonPrimitive.int)
+    }
+
+    @Test
+    fun `a session pack keeps bytes, manifest and meta in step`() {
+        val out = File(dir, "consistent")
+
+        packLabeledSession(listOf(session(fitted = listOf("0000")).absolutePath, out.absolutePath, "id=phone-fixture"))
+
+        assertEquals(2 * 64, assertPackConsistent(out, dir, "session"))
     }
 
     /** No file: exactly the pack that ran before the fit existed, and other pixels for it. */

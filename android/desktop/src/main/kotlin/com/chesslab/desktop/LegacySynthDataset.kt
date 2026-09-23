@@ -8,8 +8,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.charset.StandardCharsets.UTF_8
-import java.security.MessageDigest
 import java.util.Locale
 
 private val LEGACY_CLASSES =
@@ -25,10 +23,10 @@ private val LEGACY_CLASSES =
 @Suppress("LongMethod", "NestedBlockDepth")
 fun buildLegacySynthDataset(args: List<String>) {
     require(args.size >= 3) { legacyUsage() }
-    val root = File(args[0].replace('~', ' '))
-    val sourceManifest = File(args[1].replace('~', ' '))
-    val outDir = File(args[2].replace('~', ' '))
-    val prefix = args.firstOrNull { it.startsWith("prefix=") }?.substringAfter('=') ?: "pretrain-synth__"
+    val root = args[0].fileArg()
+    val sourceManifest = args[1].fileArg()
+    val outDir = args[2].fileArg()
+    val prefix = args.stringOption("prefix") ?: "pretrain-synth__"
     require(root.isDirectory && sourceManifest.isFile) { "legacy root and manifest must exist" }
     require(!outDir.exists()) { "refusing to overwrite existing dataset: ${outDir.absolutePath}" }
 
@@ -48,8 +46,7 @@ fun buildLegacySynthDataset(args: List<String>) {
     val training = ordered.dropLast(2).toSet()
     outDir.mkdirs()
 
-    val digest = MessageDigest.getInstance("SHA-256")
-    val paths = StringBuilder("[")
+    val index = PackIndex()
     val counts = mutableMapOf<String, Int>()
     val roleCounts = mutableMapOf("train" to 0, "val" to 0, "test" to 0)
     var total = 0
@@ -68,15 +65,7 @@ fun buildLegacySynthDataset(args: List<String>) {
                     val image = Imgcodecs.imread(input.absolutePath)
                     require(!image.empty()) { "could not decode ${input.absolutePath}" }
                     try {
-                        val packed = resizeForPacking(image)
-                        try {
-                            val data = ByteArray(PACK_CROP_BYTES)
-                            packed.get(0, 0, data)
-                            bgrToRgbInPlace(data)
-                            imageOut.write(data)
-                        } finally {
-                            packed.release()
-                        }
+                        writePackedCrop(image, imageOut)
                     } finally {
                         image.release()
                     }
@@ -84,9 +73,7 @@ fun buildLegacySynthDataset(args: List<String>) {
                     val square = row.getValue("square").jsonPrimitive.content
                     val path = "mm://$session/$frame/$square"
                     rowsOut.append(legacyManifestRow(path, session, frame, square, label)).append('\n')
-                    if (paths.length > 1) paths.append(',')
-                    paths.append('"').append(json(path)).append('"')
-                    updateLegacyDigest(digest, path, label)
+                    index.add(path, label)
                     if (role == "train") counts[label] = counts.getOrDefault(label, 0) + 1
                     roleCounts[role] = roleCounts.getValue(role) + 1
                     total++
@@ -98,10 +85,9 @@ fun buildLegacySynthDataset(args: List<String>) {
     val partial = File(outDir, "packed_images.u8.partial")
     val packedFile = File(outDir, "packed_images.u8")
     check(partial.renameTo(packedFile)) { "could not finalize ${packedFile.absolutePath}" }
-    paths.append(']')
     File(outDir, "packed_meta.json").writeText(
         "{\"n\":$total,\"h\":$PACK_CROP_SIDE,\"w\":$PACK_CROP_SIDE," +
-            "\"digest\":\"${digestHex(digest)}\",\"paths\":$paths}\n",
+            "\"digest\":\"${index.hex()}\",\"paths\":${index.pathsJson()}}\n",
     )
     writeLegacySplit(outDir, training.sorted(), validation, test, roleCounts, counts)
     File(outDir, "dataset.yaml").writeText(
@@ -143,19 +129,6 @@ private fun legacyManifestRow(
     "{\"path\":\"${json(path)}\",\"session_id\":\"${json(session)}\",\"frame\":\"${json(frame)}\"," +
         "\"square\":\"$square\",\"label\":\"$label\",\"out_size\":[$PACK_CROP_SIDE,$PACK_CROP_SIDE]," +
         "\"pad_side\":0.05}"
-
-private fun updateLegacyDigest(
-    digest: MessageDigest,
-    path: String,
-    label: String,
-) {
-    digest.update(path.toByteArray(UTF_8))
-    digest.update(byteArrayOf(0))
-    digest.update(label.toByteArray(UTF_8))
-    digest.update(byteArrayOf(0))
-    digest.update("[$PACK_CROP_SIDE, $PACK_CROP_SIDE]".toByteArray(UTF_8))
-    digest.update(byteArrayOf('\n'.code.toByte()))
-}
 
 private fun writeLegacySplit(
     outDir: File,

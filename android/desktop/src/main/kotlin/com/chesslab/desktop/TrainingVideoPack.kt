@@ -93,9 +93,9 @@ internal class VideoPositionGate {
  */
 fun packTrainingVideo(args: List<String>) {
     require(args.size >= 3) { trainingVideoUsage() }
-    val video = File(args[0].replace('~', ' '))
-    val gameFile = File(args[1].replace('~', ' '))
-    val outDir = File(args[2].replace('~', ' '))
+    val video = args[0].fileArg()
+    val gameFile = args[1].fileArg()
+    val outDir = args[2].fileArg()
     val options = args.drop(3)
     val every = options.intOption("every", DEFAULT_SAMPLE_EVERY)
     val stableNeeded = options.intOption("stable", DEFAULT_STABLE_SAMPLES)
@@ -284,14 +284,14 @@ private class TrainingVideoCapture(
         occludedProposals.close(video, sampled)
         val recordedTrackerFps = trackerFps?.toString() ?: "\"full\""
         File(outDir, "summary.json").writeText(
-            "{\"source\":\"${escape(video.absolutePath)}\",\"sampled_frames\":$sampled," +
+            "{\"source\":\"${json(video.absolutePath)}\",\"sampled_frames\":$sampled," +
                 "\"accepted_frames\":${accepted.frames},\"accepted_crops\":${accepted.crops}," +
                 "\"quarantine_frames\":${quarantine.frames},\"quarantine_crops\":${quarantine.crops}," +
                 "\"occluded_proposal_frames\":${occludedProposals.frames}," +
                 "\"occluded_proposal_crops\":${occludedProposals.crops}," +
                 "\"tracker_fps\":$recordedTrackerFps,\"every\":$every,\"stable\":$stableNeeded," +
                 "\"ply_source\":\"${if (timeline != null) "log_timestamps" else "fen_match"}\"," +
-                "\"model\":\"${escape(model)}\",\"decision_source\":\"windows_kotlin_tracker\"}\n",
+                "\"model\":\"${json(model)}\",\"decision_source\":\"windows_kotlin_tracker\"}\n",
         )
         println(
             "tracker extraction: ${accepted.frames} accepted boards + ${quarantine.frames} quarantined boards + " +
@@ -430,11 +430,11 @@ private class VideoPackSink(
             val reviewFields =
                 reviewReason
                     ?.let {
-                        ",\"proposed_label\":\"${escape(proposedLabel)}\",\"review_status\":\"quarantine\"," +
-                            "\"review_reason\":\"${escape(it)}\""
+                        ",\"proposed_label\":\"${json(proposedLabel)}\",\"review_status\":\"quarantine\"," +
+                            "\"review_reason\":\"${json(it)}\""
                     }.orEmpty()
             manifest.append(
-                "{\"path\":\"${escape(path)}\",\"session_id\":\"${escape(id)}\"," +
+                "{\"path\":\"${json(path)}\",\"session_id\":\"${json(id)}\"," +
                     "\"frame\":\"$stem\",\"square\":\"$square\",\"label\":\"$label\"," +
                     "\"out_size\":[$PACK_SIDE,$PACK_SIDE],\"pad_side\":0.05$reviewFields}\n",
             )
@@ -456,8 +456,8 @@ private class VideoPackSink(
         check(partial.renameTo(image)) { "could not finalize ${image.absolutePath}" }
         val digestHex = digest.digest().joinToString("") { "%02x".format(it) }
         File(dir, "packed_meta.json").writeText(
-            "{\"n\":$crops,\"h\":$PACK_SIDE,\"w\":$PACK_SIDE,\"source\":\"${escape(source.absolutePath)}\"," +
-                "\"session_id\":\"${escape(id)}\",\"sampled_frames\":$sampled,\"accepted_frames\":$frames," +
+            "{\"n\":$crops,\"h\":$PACK_SIDE,\"w\":$PACK_SIDE,\"source\":\"${json(source.absolutePath)}\"," +
+                "\"session_id\":\"${json(id)}\",\"sampled_frames\":$sampled,\"accepted_frames\":$frames," +
                 "\"digest\":\"$digestHex\"}\n",
         )
     }
@@ -479,18 +479,7 @@ private fun BufferedWriter.row(
     append("{\"frame\":$frame,\"time_ms\":${"%.3f".format(java.util.Locale.ROOT, timeMs)},\"outcome\":\"$outcome\"$motionField$extras}\n")
 }
 
-private fun jsonArray(values: List<String>): String = values.joinToString(",", "[", "]") { "\"${escape(it)}\"" }
-
-private fun escape(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
-
-internal fun List<String>.stringOption(name: String): String? = firstOrNull { it.startsWith("$name=") }?.substringAfter('=')
-
-private fun List<String>.intOption(
-    name: String,
-    fallback: Int,
-): Int = stringOption(name)?.toIntOrNull() ?: fallback
-
-internal fun List<String>.doubleOption(name: String): Double? = stringOption(name)?.toDoubleOrNull()?.takeIf { it > 0.0 }
+private fun jsonArray(values: List<String>): String = values.joinToString(",", "[", "]") { "\"${json(it)}\"" }
 
 private fun trainingVideoUsage(): Nothing =
     error(

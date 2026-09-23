@@ -361,8 +361,9 @@ internal fun chooseQuad(
     return scan.copy(corners = corners) to note
 }
 
-/** The phone's own quad at the session's start — `log.jsonl`'s first photo row carries it. */
-private fun loggedQuad(sessionDir: File): FloatArray? {
+/** The phone's own quad at the session's start — `log.jsonl`'s first photo row carries it. The
+ *  replay's third quad source too: measured 6 to 25 plies from the scan's (specs/52). */
+internal fun loggedQuad(sessionDir: File): FloatArray? {
     val log = File(sessionDir, "log.jsonl").takeIf { it.isFile } ?: return null
     val first = Jsonl.rows(log).firstOrNull() ?: return null
     return runCatching {
