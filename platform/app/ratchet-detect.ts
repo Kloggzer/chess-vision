@@ -50,7 +50,7 @@ function endOfString(text: string, start: number): number {
 }
 
 /** Kommentare zu Leerraum, Zeichenketten und Zeilenumbrueche bleiben stehen. */
-export function withoutComments(text: string): string {
+function withoutComments(text: string): string {
   let out = "";
   for (const s of spans(text)) {
     const piece = text.slice(s.from, s.to);

@@ -1,3 +1,4 @@
+import { Contested } from "@/lib/atomic";
 import { flagFrame } from "@/lib/frame-flag";
 import { appendReviewNotes, validateNote } from "@/lib/review-notes";
 import { recordingName } from "@/lib/session";
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
     const rows = [validateNote({ session_id, frame, verdict: "matte-wanted", reason: "Labeln-Strom" })];
     return Response.json({ written: await appendReviewNotes(rows) });
   } catch (error) {
+    if (error instanceof Contested) return Response.json({ error: error.message }, { status: 409 });
     return Response.json({ error: String(error) }, { status: 400 });
   }
 }

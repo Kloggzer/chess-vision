@@ -13,12 +13,9 @@ export type Measurement<T> =
   | { readonly measured: false }
   | { readonly measured: true; readonly value: T };
 
-export const MISSING: Measurement<never> = { measured: false };
+const MISSING: Measurement<never> = { measured: false };
 
-export const measurementOf = <T>(value: T): Measurement<T> => ({ measured: true, value });
-
-/** Der Wert, oder der Ersatz fuer den Fall, dass nie gemessen wurde — an EINER Stelle benannt. */
-export const valueOr = <T>(m: Measurement<T>, fallback: T): T => (m.measured ? m.value : fallback);
+const measurementOf = <T>(value: T): Measurement<T> => ({ measured: true, value });
 
 /** Nur ENOENT heisst „nicht da". Jeder andere Fehler gehoert dem Aufrufer — als `null` gemeldet
  *  sieht eine Stoerung aus wie eine fehlende Datei. Als `.catch(absentOnly)` hinter jedes Lesen. */

@@ -91,7 +91,7 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
         <Fact label="reference.pgn">{game.pgnPlies === null ? "keine" : `${game.pgnPlies} Halbzüge`}</Fact>
         <Fact label="Aufnahme">{game.chain.video ?? "keine im Bundle"}</Fact>
         <Fact label="Session">
-          {game.chain.hasSession ? "exportiert" : "nicht exportiert"}
+          {game.chain.hasSession ? "exportiert" : game.chain.outdated.export ? "Export abgebrochen" : "nicht exportiert"}
           {game.chain.hasSession ? <SessionDelete className="ml-3" sessionId={sessionId(name)} /> : null}
         </Fact>
         <Fact label="Bretter">
@@ -107,6 +107,12 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
             ? `${census.model ?? "Modell unbekannt"} · ${census.writtenAt ?? "ohne Datum"}`
             : "— nicht gemessen: model-reads.jsonl fehlt"}
         </Fact>
+        {game.chain.passInputsUnknown ? (
+          <Fact label="Temporal-Pass">
+            Stand unbekannt — der Lauf ist älter als sein Matte-Stempel; ob seither SAM-Zeilen dazukamen, sieht die Kette
+            erst nach einem neuen Pass
+          </Fact>
+        ) : null}
         {game.chain.videoBroken ? <Fact label="Video">{game.chain.videoBroken}</Fact> : null}
       </section>
 

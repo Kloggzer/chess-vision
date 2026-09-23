@@ -106,12 +106,12 @@ function ComparePair({
  */
 function MoveOverlay({
   squares,
-  width = 720,
-  height = 816,
+  width,
+  height,
 }: {
   squares: MoveSquares[];
-  width?: number;
-  height?: number;
+  width: number;
+  height: number;
 }) {
   /** One marker per overlay instance — several cards draw arrows on the same page. React's id
    *  carries punctuation that has no business inside a `url(#…)`, so only the letters survive. */
@@ -220,8 +220,6 @@ export function FrameSeries({
 }) {
   const [hover, setHover] = useState(false);
   const entry = card.stems[at] ?? null;
-  const width = entry?.width ?? 720;
-  const height = entry?.height ?? 816;
   const squares = card.plies.flatMap((p) => (p.squares ? [p.squares] : []));
   if (!entry)
     return (
@@ -229,6 +227,8 @@ export function FrameSeries({
         Kein Bild auf der Platte für dieses Fenster.
       </p>
     );
+  // Gemessen von `listFrameStems` — keine Vorgabe: eine geratene Groesse legt die Pfeile daneben.
+  const { width, height } = entry;
   const offset = Number(entry.stem) - card.frame;
   const compared = card.before !== null && view.mode !== "off";
   const picture = (

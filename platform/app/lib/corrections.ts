@@ -81,7 +81,7 @@ export async function appendCorrections(rows: Correction[], ledger: Ledger = "co
 }
 
 /** Was auf einer Zelle steht, mit dem Zeitpunkt — ohne ihn ist „zuletzt beurteilt" nicht zu ordnen. */
-export type Standing = { label: string; ts: string };
+type Standing = { label: string; ts: string };
 /** One session's verdicts, keyed `frame|square` — the whole ledger, split by session once. */
 type BySession = Map<string, Map<string, Standing>>;
 
@@ -107,7 +107,7 @@ type LedgerCache = Map<string, { key: string; value: Parsed }>;
 /**
  * Pinned on `globalThis` like `lib/jobs.ts`'s `queue`, mtime-keyed like `loadModelReads`. `/`
  * asked for this file once per game and split all of it every time — 36 full parses of a growing
- * ledger for one page (REVIEW.md S12). Der Name traegt die FORM des Werts: der Cache ueberlebt einen Hot-Reload, also las die neue
+ * ledger for one page. Der Name traegt die FORM des Werts: der Cache ueberlebt einen Hot-Reload, also las die neue
  * Funktion sonst die alten Zeilen als halb leere Objekte.
  */
 const ledgers: LedgerCache = ((globalThis as { __chesslabLedgersV2?: LedgerCache }).__chesslabLedgersV2 ??= new Map());

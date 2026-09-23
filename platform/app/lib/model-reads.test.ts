@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { acceptLabel, boardProgress, boardProgressOf, DISAGREE, loadModelReads, matches, readCensus } from "@/lib/model-reads";
+import { boardProgress, boardProgressOf, loadModelReads, readCensus } from "@/lib/model-reads";
+import { acceptLabel, DISAGREE, matches } from "@/lib/query";
 import { gemessen, tempDataRoot } from "@/lib/test-fixtures";
 
 /** The producer's own shape (`occluded_model.read_session`), header line included. */

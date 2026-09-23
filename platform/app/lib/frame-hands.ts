@@ -12,7 +12,7 @@ export type FrameHand = {
   grid: string[];
 };
 
-export type FrameHandsValue = {
+type FrameHandsValue = {
   /** `session_id|stem -> Hand`. Ein fehlender Schluessel heisst nur fuer eine GESCANNTE Session
    *  "keine Hand" — `scannedSessions` sagt, welche das sind. */
   rows: Map<string, FrameHand>;

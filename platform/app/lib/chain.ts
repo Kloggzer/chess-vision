@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import { open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { gameDir } from "@/lib/data";
+import { type Candidate, confirmedAgainst, gameDir, referenceDigest } from "@/lib/data";
 import { dataDir } from "@/lib/data";
 import { readJsonl, stripBom } from "@/lib/jsonl";
 import { type MatteCensus, matteCensus, matteSources } from "@/lib/matte";
@@ -46,6 +46,10 @@ export type ChainState = {
   mattes: MatteCensus;
   /** `session temporal-pass` ran to its end: `data/reports/temporal-mattes/<name>/pass.json`. */
   hasTemporalPass: boolean;
+  /** Der Pass gilt, traegt aber kein `_inputs`: ob seither SAM-Zeilen dazukamen, weiss niemand. */
+  passInputsUnknown?: boolean;
+  /** Bestaetigt, aber ohne Stempel, gegen welche `reference.pgn` — die Bestaetigung gilt weiter. */
+  confirmRefUnknown?: boolean;
   hasModelReads: boolean;
   /** Sprossen, deren Datei zwar daliegt, deren `_source` aber nicht mehr zur `log.jsonl` passt,
    *  je mit dem Satz, der sagt warum. */
@@ -84,19 +88,21 @@ async function videoOf(name: string): Promise<string | null> {
  * mirrored bundle keeps the PHONE's own commit log under that very name — `frame` rows, no `board`
  * — which read as an export and skipped the export rung outright (Phase 00, `2026-08-30-14-33-02`).
  */
-async function exportedSession(name: string): Promise<{ exported: boolean; settled: boolean }> {
+async function exportedSession(name: string): Promise<{ exported: boolean; settled: boolean; interrupted: boolean }> {
+  // `realgames.mark_export`: Bretter schon neu, Log noch alt — was darauf weiterlaeuft, mischt Generationen.
+  if (await exists(path.join(sessionDir(name), ".export-running"))) return { exported: false, settled: false, interrupted: true };
   const text = await readFile(path.join(sessionDir(name), "log.jsonl"), "utf8").catch(absentOnly);
   // Hier wird NICHT geworfen, anders als in `loadSession` auf derselben Datei: die Kette ist die
   // Seite, die den naechsten Knopf zeigt, und eine kaputte Zeile darf die ganze Aufnahmeliste
   // nicht 500en (dieselbe Entscheidung wie beim `candidate.json`-Parse unten).
   const rows = readJsonl(text ?? "").rows as { board?: unknown; ply?: unknown; settle_dev?: unknown }[];
-  if (rows.length === 0 || !("board" in rows[0])) return { exported: false, settled: false };
+  if (rows.length === 0 || !("board" in rows[0])) return { exported: false, settled: false, interrupted: false };
   const perPly = new Map<unknown, number>();
   for (const row of rows) if (row.board) perPly.set(row.ply, (perPly.get(row.ply) ?? 0) + 1);
   // Ein Intervall unter `realgames.SETTLE_MIN_FRAMES` kann der Scan gar nicht bewerten; die
   // Sprosse darauf offen zu halten hiesse, winzige Aufnahmen fuer immer auf einen Knopf zu setzen.
   const measurable = Math.max(0, ...perPly.values()) >= 5;
-  return { exported: true, settled: !measurable || rows.some((row) => row.settle_dev !== undefined) };
+  return { exported: true, settled: !measurable || rows.some((row) => row.settle_dev !== undefined), interrupted: false };
 }
 
 /** The stamp both producers write: `${ms}:${bytes}`, the shape `lib/session.ts` caches on. */
@@ -187,10 +193,10 @@ async function phonePgn(name: string): Promise<string | null> {
 export async function chainState(name: string): Promise<ChainState> {
   const dir = gameDir(name);
   const passFile = path.join(dataDir(), "reports", "temporal-mattes", name, "pass.json");
-  const [video, offeredPgn, hasReference, hasPhoneRecord, candidateText, session, mattes, matteStamps, passSource, readsSource, logStamp, useless] = await Promise.all([
+  const [video, offeredPgn, referenceBytes, hasPhoneRecord, candidateText, session, mattes, matteStamps, passRun, readsSource, logStamp, useless] = await Promise.all([
     videoOf(name),
     phonePgn(name),
-    exists(path.join(dir, "reference.pgn")),
+    readFile(path.join(dir, "reference.pgn")).catch(absentOnly),
     phoneRecord(name),
     readFile(path.join(dir, "candidate.json"), "utf8").catch(absentOnly),
     exportedSession(name),
@@ -198,25 +204,30 @@ export async function chainState(name: string): Promise<ChainState> {
     matteSources(name),
     // Eine halb geschriebene Datei 500te die ganze Aufnahmeliste — der PARSE darf scheitern,
     // das LESEN nicht: ein unlesbares `pass.json` ist kein ungelaufener Sensor.
-    readFile(passFile, "utf8").catch(absentOnly).then(sourceOf),
+    readFile(passFile, "utf8").catch(absentOnly).then(passOf),
     headerOf(path.join(dir, "model-reads.jsonl")),
     stampOf(path.join(sessionDir(name), "log.jsonl")),
     uselessFlag(name),
   ]);
   // Eine halb geschriebene `candidate.json` ist "noch nicht bestaetigt", kein Grund, die ganze
   // Queue-Seite zu leeren — sie entsteht waehrend `writeConfirmation` schreibt.
-  const confirmed = candidateText !== null
-    && ((): boolean => {
-      try {
-        return (JSON.parse(candidateText) as { confirmed?: boolean }).confirmed === true;
-      } catch {
-        return false;
-      }
-    })();
+  const doc = candidateText === null ? null : ((): Candidate | null => {
+    try {
+      return JSON.parse(candidateText) as Candidate;
+    } catch {
+      return null;
+    }
+  })();
+  const confirmed = doc?.confirmed === true;
+  const hasReference = referenceBytes !== null;
+  const against = confirmed ? confirmedAgainst(doc!, hasReference ? referenceDigest(referenceBytes) : null) : null;
   // Die Umgebungsvariable ist die Wahl des Menschen (`jobs.modelReadRun`); ohne sie hat niemand
   // ein Modell benannt, gegen das sich ein fertiger Lauf vergleichen liesse.
   const model = process.env.CHESSLAB_MODEL_READ_RUN?.trim() || null;
-  const freshPass = passSource !== null && stillCurrent(passSource, logStamp, null);
+  const passSource = passRun?.source ?? null;
+  const moved = passRun?.inputs ? await inputsMoved(name, passRun.inputs) : null;
+  const passLogCurrent = passSource !== null && stillCurrent(passSource, logStamp, null);
+  const freshPass = passLogCurrent && moved === null;
   const freshReads = readsSource !== null && stillCurrent(readsSource, logStamp, model);
   const otherModel = model !== null && readsSource?.model !== undefined
     && path.basename(readsSource.model) !== path.basename(model);
@@ -224,8 +235,10 @@ export async function chainState(name: string): Promise<ChainState> {
   // danach mit den NEUEN Ecken — gemessen 13 von 24 Aufnahmen. Nichts erinnerte daran.
   const staleMatte = matteStamps.some((stamp) => !sameLog(stamp, logStamp));
   const outdated: Partial<Record<ChainStep, string>> = {
+    ...(against === "moved" ? { confirm: REFERENCE_MOVED } : {}),
+    ...(session.interrupted ? { export: EXPORT_INTERRUPTED } : {}),
     ...(staleMatte ? { matte: RECUT } : {}),
-    ...(passSource !== null && !freshPass ? { temporal: STALE } : {}),
+    ...(passSource !== null && !freshPass ? { temporal: passLogCurrent ? moved! : STALE } : {}),
     ...(readsSource !== null && !freshReads
       ? { "model-read": otherModel ? `die Lesarten stammen von ${path.basename(readsSource!.model!)}, gelesen wird mit ${path.basename(model!)}` : STALE }
       : {}),
@@ -247,6 +260,8 @@ export async function chainState(name: string): Promise<ChainState> {
     hasSettle: session.settled,
     mattes,
     hasTemporalPass: freshPass,
+    passInputsUnknown: freshPass && !passRun?.inputs,
+    confirmRefUnknown: against === "unknown",
     hasModelReads: freshReads,
     outdated,
     useless,
@@ -254,18 +269,56 @@ export async function chainState(name: string): Promise<ChainState> {
   return { ...state, ...nextStep(state) };
 }
 
+/** Was der Pass ausser dem Log las (`temporal_matte.pass_inputs`): `matte.jsonl` und die Scan-Eingaben. */
+type PassInputs = { matte?: string | null; scan?: [string, number | null, number | null][] };
+
 /** `null` heisst hier „nichts zu holen": keine Datei, oder eine, die gerade geschrieben wird. */
-function sourceOf(text: string | null): Provenance | null {
+function passOf(text: string | null): { source: Provenance; inputs: PassInputs | null } | null {
   if (text === null) return null;
   try {
-    return (JSON.parse(text) as { _source?: Provenance })._source ?? {};
+    const head = JSON.parse(text) as { _source?: Provenance; _inputs?: PassInputs };
+    return { source: head._source ?? {}, inputs: head._inputs ?? null };
   } catch {
     return null;
   }
 }
 
+function sameFile(stamped: string | null | undefined, current: string | null): boolean {
+  return stamped == null || current === null ? (stamped ?? null) === current : sameLog(stamped, current);
+}
+
+/** Welche Scan-Eingabe die Kette selbst nachstempelt; Bretter nur Python (`provenance.check`),
+ *  jedes Brett-Schreiben schreibt auch das Log. `log.jsonl` prueft schon `_source`. */
+function scanInputPath(name: string, rel: string): string | null {
+  if (rel === "session.yaml") return path.join(sessionDir(name), rel);
+  if (rel.startsWith("profile:")) return path.join(dataDir(), "calibration", `${rel.slice("profile:".length)}.yaml`);
+  return null;
+}
+
+/** Der Satz, warum der Pass nicht mehr zu seinen Eingaben passt — `null`, wenn er es tut. */
+async function inputsMoved(name: string, inputs: PassInputs): Promise<string | null> {
+  if ("matte" in inputs && !sameFile(inputs.matte, await stampOf(path.join(sessionDir(name), "matte.jsonl")))) {
+    return MATTE_MOVED;
+  }
+  for (const [rel, size, ns] of inputs.scan ?? []) {
+    const file = scanInputPath(name, rel);
+    if (file === null) continue;
+    const stamped = size === null || ns === null ? null : `${Math.floor(ns / 1e6)}:${size}`;
+    if (!sameFile(stamped, await stampOf(file))) return INPUT_MOVED;
+  }
+  return null;
+}
+
 /** Was die Sprosse wieder aufgemacht hat — der eine Fall, den reine Dateiexistenz nie sieht. */
 const STALE = "der Lauf stammt von vor dem letzten Export — seine Zahlen gehoeren zu anderen Brettern";
+
+const MATTE_MOVED = "seit dem Lauf hat sich die matte.jsonl geaendert — Frames, auf denen SAM nichts fand, hat kein Upsert gesehen";
+
+const INPUT_MOVED = "seit dem Lauf haben sich Profil oder session.yaml geaendert — sein Scan gehoert zu anderer Geometrie";
+
+const REFERENCE_MOVED = "die Referenz wurde nach der Bestaetigung ersetzt — die Zuege sind gegen eine andere Partie beurteilt";
+
+const EXPORT_INTERRUPTED = "ein Export wurde abgebrochen (`.export-running`) — Bretter und Log stammen aus verschiedenen Laeufen, erst ein neuer Export gibt die Folgeschritte frei";
 
 /** Die Matte hat einen eigenen Satz: hier hilft kein zweiter SAM-Lauf, sondern die Arithmetik. */
 const RECUT = "die Alphas wurden vor dem letzten Export geschnitten — `chesslab occluders recut-coverage` rechnet ihre Coverage gegen die heutige Geometrie neu";
@@ -288,6 +341,8 @@ export function nextStep(state: Omit<ChainState, "step" | "reason">): { step: Ch
       : because("label", "zu dieser Aufnahme gibt es noch keine Zugfolge");
   }
   if (!state.confirmed) return because("confirm", "die vorgeschlagenen Zuege hat noch niemand bestaetigt, und der Export liest nur bestaetigte");
+  // Die Bestaetigung bleibt stehen; nur die Sprosse geht auf, bis ein Mensch gegen die neue urteilt.
+  if (state.outdated.confirm !== undefined) return { step: "confirm", reason: state.outdated.confirm };
   if (!state.hasSession) return because("export", "die bestaetigten Zuege sind noch nicht zu Brettbildern geschnitten");
   // Producer-Reihenfolge, nicht Kosmetik: ohne `settle_dev` legt `position-flags` nichts aus, und
   // eine leere Strittig-Lane sieht aus wie "alles unstrittig" statt wie "nie gemessen".
@@ -323,7 +378,14 @@ export async function adoptPgn(name: string): Promise<{ adopted: string } | { re
   if (await exists(target)) return { reason: "reference.pgn already exists — nothing was overwritten" };
   const source = await phonePgn(name);
   if (!source) return { reason: "the transfer carries no .pgn — the phone never finished a game for it" };
-  await writeFile(target, await readFile(source, "utf8"), "utf8");
+  // Exklusiv: zwischen der Pruefung oben und hier kann ein Upload landen, und den ueberschrieb
+  // ein blankes `writeFile` ohne Sicherung. EEXIST heisst: ein Mensch war schneller.
+  try {
+    await writeFile(target, await readFile(source, "utf8"), { encoding: "utf8", flag: "wx" });
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "EEXIST") throw e;
+    return { reason: "reference.pgn appeared while adopting — nothing was overwritten" };
+  }
   return { adopted: path.basename(source) };
 }
 

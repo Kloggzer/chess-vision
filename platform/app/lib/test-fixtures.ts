@@ -9,7 +9,7 @@ import path from "node:path";
 import { onTestFinished } from "vitest";
 import type { Measurement } from "@/lib/measurement";
 
-export const BOARD_SIZE = 928;
+const BOARD_SIZE = 928;
 
 /** Der Wert einer Messung, die gelaufen SEIN MUSS — sonst prueft der Test die leere Antwort. */
 export function gemessen<T>(m: Measurement<T>): T {

@@ -7,21 +7,18 @@ import path from "node:path";
 import { checkName, gameDir } from "@/lib/data";
 import {
   type ModelRead,
-  matches,
-  acceptLabel,
   readKey,
   topRead,
-  DISAGREE,
 } from "@/lib/query";
 import { loadMeasurement, type Measurement } from "@/lib/measurement";
 
-export { acceptLabel, DISAGREE, matches, readKey, topRead };
+export { readKey, topRead };
 export type { ModelRead };
 
 /** The header line. `model` is `null` only on a file whose first line was never written. */
 type ReadHeader = { model: string | null; classes: string[]; writtenAt: string | null };
 
-export type ModelReadsValue = { rows: ModelRead[]; header: ReadHeader };
+type ModelReadsValue = { rows: ModelRead[]; header: ReadHeader };
 /** `measured: false` = no model has read this session — not measured, which is not nothing. */
 export type ModelReads = Measurement<ModelReadsValue>;
 
@@ -39,7 +36,7 @@ function readsPath(name: string): string {
   return path.join(gameDir(checkName(name, "game name")), "model-reads.jsonl");
 }
 
-/** Mtime-keyed to avoid re-parsing the corpus per hot reload (REVIEW.md S12). */
+/** Mtime-keyed to avoid re-parsing the corpus per hot reload. */
 export function loadModelReads(name: string): Promise<ModelReads> {
   return loadMeasurement(readsPath(name), parse);
 }

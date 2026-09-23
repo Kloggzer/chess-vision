@@ -5,14 +5,17 @@ import { chainState, referenceOrigin } from "@/lib/chain";
 import { Badge } from "@/components/ui/badge";
 import { ReferenceChip } from "@/components/reference-chip";
 import {
+  confirmedAgainst,
   gameDir,
   listFrameStems,
   loadCandidate,
   readReference,
+  referenceDigest,
 } from "@/lib/data";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { lcsReport } from "@/lib/lcs";
+import { absentOnly } from "@/lib/measurement";
 import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
 import { ConfirmReview } from "./cards";
 import { ReferenceEditor } from "./reference-editor";
@@ -48,17 +51,17 @@ export default async function ConfirmPage({
   // A transferred recording has no candidate until the tracker has read it — 29 of them arrived
   // over the LAN on 2026-08-13 and every one of their `confirm` links was a runtime error. There
   // is nothing to confirm yet, and the page that says so is also the page that offers the step.
-  const candidate = await loadCandidate(name).catch(() => null);
+  const candidate = await loadCandidate(name).catch(absentOnly);
   if (!candidate) return <NoCandidate name={name} />;
   const [reference, origin] = await Promise.all([
     readReference(name),
     referenceOrigin(name),
   ]);
-  const referenceText = await readFile(
-    path.join(gameDir(name), "reference.pgn"),
-    "utf8",
-  ).catch(() => "");
+  const referenceBytes = await readFile(path.join(gameDir(name), "reference.pgn")).catch(absentOnly);
+  const referenceText = referenceBytes?.toString("utf8") ?? "";
+  const referenceMd5 = referenceBytes === null ? null : referenceDigest(referenceBytes);
   const truth = reference?.sans ?? null;
+  const against = candidate.confirmed ? confirmedAgainst(candidate, referenceMd5) : null;
   const moves = candidate.moves;
   // Without a `reference.pgn` there is nothing to match against, so EVERY ply is the human's to
   // judge — the same review, minus the machine narrowing it down first.
@@ -113,6 +116,13 @@ export default async function ConfirmPage({
             bereits bestätigt {candidate.confirmed_at}
           </span>
         ) : null}
+        {against === "moved" ? (
+          <Badge variant="destructive" title="confirmed_reference weicht von reference.pgn ab">
+            gegen eine andere Referenz bestätigt
+          </Badge>
+        ) : against === "unknown" ? (
+          <span className="text-muted-foreground">Referenzstand unbekannt</span>
+        ) : null}
       </PageTitle>
       <p className="text-muted-foreground text-xs tabular-nums">
         {truth ? (
@@ -148,6 +158,7 @@ export default async function ConfirmPage({
         name={name}
         reviewedPlies={candidate.reviewed_plies ?? []}
         struckPlies={candidate.struck_plies ?? []}
+        referenceMd5={referenceMd5}
       />
 
       <ReferenceEditor name={name} text={referenceText} />

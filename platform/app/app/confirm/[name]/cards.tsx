@@ -22,6 +22,7 @@ export function ConfirmReview({
   gallery,
   reviewedPlies,
   struckPlies,
+  referenceMd5,
 }: {
   name: string;
   /** The plies that disagree with the reference — one card per commit frame, with a verdict. */
@@ -32,6 +33,8 @@ export function ConfirmReview({
    *  und `writeConfirmation` ersetzt `reviewed_plies` — das menschliche Urteil war weg. */
   reviewedPlies: number[];
   struckPlies: number[];
+  /** md5 der angezeigten `reference.pgn` (null = keine) — die Route weist ab, wenn sie inzwischen ersetzt ist. */
+  referenceMd5: string | null;
 }) {
   const [kept, setKept] = useState<Record<number, boolean>>(() => keptCards(cards, reviewedPlies));
   /** Gallery cards the human struck: the LCS matched the SAN, the board says the move is wrong. */
@@ -55,6 +58,7 @@ export function ConfirmReview({
         drop: gallery
           .filter((c) => dropped[c.id])
           .flatMap((c) => c.plies.map((p) => p.ply)),
+        reference_md5: referenceMd5,
       }),
     });
     const body = await res.json();

@@ -3,6 +3,7 @@
  *
  * Nothing here imports or shells out to chesslab (specs/53 entry.md, ownership registry).
  */
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -26,6 +27,8 @@ export type Candidate = {
   name: string;
   confirmed?: boolean;
   confirmed_at?: string;
+  /** Gegen welche `reference.pgn` bestaetigt wurde; `at` bindet den Stempel an genau diese Bestaetigung. */
+  confirmed_reference?: ConfirmedReference;
   created_at?: string;
   reviewed_plies?: number[];
   /** Plies, die ein Mensch gestrichen hat, weil die LCS eine SAN traf und keine Stellung. */
@@ -192,22 +195,40 @@ export async function framePng(name: string, stem: string): Promise<Buffer> {
   return readFile(file);
 }
 
+/** `md5` null = bestaetigt, als es keine Referenz gab. */
+export type ConfirmedReference = { md5: string | null; at: string };
+
+export const referenceDigest = (bytes: Buffer): string => createHash("md5").update(bytes).digest("hex");
+
+/** `unknown`: kein Stempel, oder einer, den eine spaetere Bestaetigung ohne Stempel stehen liess. */
+export function confirmedAgainst(doc: Pick<Candidate, "confirmed_at" | "confirmed_reference">,
+  current: string | null): "same" | "moved" | "unknown" {
+  const ref = doc.confirmed_reference;
+  if (!ref || typeof ref !== "object" || ref.at !== doc.confirmed_at) return "unknown";
+  return ref.md5 === current ? "same" : "moved";
+}
+
+/** Die Seite zeigte eine andere `reference.pgn` als die, gegen die jetzt geurteilt wuerde. */
+export class ReferenceMoved extends Error {}
+
 /**
- * Stamp `confirmed` / `confirmed_at` / `reviewed_plies` and NOTHING else.
+ * Stamp `confirmed` / `confirmed_at` / `reviewed_plies` / `confirmed_reference` and NOTHING else.
  *
  * Byte-preserving on every other key: a plain parse would print the file's `0.0` back as `0`,
  * so numbers are carried through as raw source text. Write is tmp + rename, like
  * `realgames.write_confirmation` — a half-written label is worse than none.
  */
-export async function writeConfirmation(name: string, kept: number[], drop: number[] = []): Promise<number[]> {
+export async function writeConfirmation(name: string, kept: number[], drop: number[] = [],
+  shownReference?: string | null): Promise<number[]> {
   const file = path.join(gameDir(name), "candidate.json");
   // Lesen-rechnen-ersetzen: ohne Riegel lasen zwei Streichungen denselben Stand und die zweite
   // vereinigte sich mit einer Liste ohne die erste — `struck_plies` verlor ein MENSCHLICHES
   // Urteil. Der Riegel sieht nur diesen Prozess, der Stempel darunter auch jeden anderen.
-  return serialize(file, () => confirmUnlocked(name, file, kept, drop));
+  return serialize(file, () => confirmUnlocked(name, file, kept, drop, shownReference));
 }
 
-async function confirmUnlocked(name: string, file: string, kept: number[], drop: number[]): Promise<number[]> {
+async function confirmUnlocked(name: string, file: string, kept: number[], drop: number[],
+  shownReference: string | null | undefined): Promise<number[]> {
   const stamp = await stampOf(file);
   const text = await readFile(file, "utf8");
   const doc = JSON.parse(text, function (_key, value, context?: { source?: string }) {
@@ -217,7 +238,14 @@ async function confirmUnlocked(name: string, file: string, kept: number[], drop:
   }) as Record<string, unknown>;
 
   const candidate = JSON.parse(text) as Candidate;
-  const truth = await truthSans(name);
+  // EIN Lesen fuer Urteil und Stempel: zweimal gelesen koennte dazwischen eine andere landen.
+  const refBytes = await readFile(path.join(gameDir(name), "reference.pgn")).catch(absentOnly);
+  const refMd5 = refBytes === null ? null : referenceDigest(refBytes);
+  // `shownReference`: md5 der angezeigten Referenz (null = keine); `undefined` = alter Client.
+  if (shownReference !== undefined && shownReference !== refMd5) {
+    throw new ReferenceMoved(`${name}: Referenz wurde waehrend der Pruefung ersetzt, Seite neu laden`);
+  }
+  const truth = refBytes === null ? null : (parseReference(refBytes.toString("utf8")).sans ?? null);
   // No reference game: nothing is "matched", so the human's keeps ARE the reviewed plies. With
   // one, the client may only decide the unmatched ones — the matched set is not its to change.
   const all = candidate.moves.map((_, i) => i);
@@ -241,6 +269,7 @@ async function confirmUnlocked(name: string, file: string, kept: number[], drop:
   doc.confirmed = true;
   doc.confirmed_at = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   doc.reviewed_plies = plies;
+  doc.confirmed_reference = { md5: refMd5, at: doc.confirmed_at as string };
   if (struck.length > 0) doc.struck_plies = struck;
 
   await writeFileAtomicGuarded(file, JSON.stringify(doc, null, 2) + "\n", stamp,

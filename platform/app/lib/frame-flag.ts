@@ -1,11 +1,12 @@
 /**
  * Das `unusable`-Flag auf einer `log.jsonl`-Zeile, wie `chesslab session flag --unusable`, nur aus
- * dem Browser. Sicherung, dann tmp+rename wie `sessions._write_log`: `data/` ist unwiederbringlich.
+ * dem Browser. Sicherung, dann BEWACHTES tmp+rename wie `sessions._write_log`: ein Export zwischen
+ * Lesen und Schreiben ist `Contested` (Route: 409), nie ueberbuegelt — `data/` ist unwiederbringlich.
  */
 import { constants } from "node:fs";
-import { copyFile, readFile } from "node:fs/promises";
+import { copyFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
-import { writeFileAtomic } from "@/lib/atomic";
+import { Contested, stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
 import { checkName } from "@/lib/data";
 import { stripBom } from "@/lib/jsonl";
 import { stampOrMissing } from "@/lib/measurement";
@@ -36,6 +37,8 @@ export async function flagFrame(name: string, stem: string, unusable: boolean): 
 async function flagUnlocked(
   name: string, stem: string, unusable: boolean, file: string,
 ): Promise<FrameFlag> {
+  // Stempel VOR dem Lesen: danach genommen, deckte er einen Schreiber mitten im Lesen nicht.
+  const stamp = await stampOf(file);
   const text = await readFile(file, "utf8");
   // Der ZEILENUMBRUCH entscheidet (`lib/jsonl.ts`): endet die Datei mittendrin, stroemt der Export
   // gerade hinein, und das Zurueckschreiben haengte seinen Umbruch hinter die halbe Zeile — aus
@@ -64,7 +67,15 @@ async function flagUnlocked(
     if (!taken) break;
     backup = `${base}-${n}`;
   }
-  await copyFile(file, path.join(sessionDir(name), backup), constants.COPYFILE_EXCL);
-  await writeFileAtomic(file, lines.filter((l) => l.trim()).join("\n") + "\n");
+  const kept = path.join(sessionDir(name), backup);
+  await copyFile(file, kept, constants.COPYFILE_EXCL);
+  try {
+    await writeFileAtomicGuarded(file, lines.filter((l) => l.trim()).join("\n") + "\n", stamp,
+      `${name}/log.jsonl wurde waehrend des Urteils neu geschrieben (Export oder Trim?) — ` +
+      "Urteil NICHT gesetzt, Lane neu laden und nochmal versuchen");
+  } catch (e) {
+    if (e instanceof Contested) await rm(kept, { force: true }).catch(() => {});
+    throw e;
+  }
   return { stem, unusable, backup };
 }

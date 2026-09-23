@@ -315,6 +315,11 @@ async function appendRow(job: Job): Promise<void> {
   return mine;
 }
 
+/** Ein fertiger Lauf NEBEN dem Slot (`adopt-dirty`): nur Endzustaende, sonst laese `restarted` ihn als Leiche. */
+export async function recordOffSlot(job: Job & { state: "done" | "failed" }): Promise<void> {
+  await appendRow(job);
+}
+
 async function record(job: Job): Promise<void> {
   queue.jobs.set(job.name, job);
   await appendRow(job);

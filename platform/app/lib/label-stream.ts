@@ -77,7 +77,7 @@ export type StreamCell = {
 };
 
 /** Eine Zelle der `Hand?`-Lane: was das Modell fuer verdeckt haelt, was die Matte dazu misst. */
-export type StreamHandCell = {
+type StreamHandCell = {
   session: number;
   pos: number;
   stem: string;
@@ -109,7 +109,7 @@ type StreamAuditCell = {
 };
 
 /** Eine schon beurteilte Zelle, wie „Fertige zeigen" sie zurueckholt. */
-export type StreamRecent = {
+type StreamRecent = {
   session: number;
   pos: number;
   stem: string;

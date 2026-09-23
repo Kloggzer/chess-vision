@@ -535,14 +535,6 @@ export function reachesPool(board: StreamBoard, coverage: Record<string, Record<
   return board.settleMeasured === true || board.dirtyReason === "occluded";
 }
 
-/**
- * What the lane still asks for, against the ledger AS LOADED.
- *
- * The server's snapshot and not the live overlay: an item answered in this sitting must keep its
- * place until the next load, or the list would resize under the cursor on every commit and `z`
- * would land somewhere else than it took the row from.
- */
-
 /** Jedes strittige Frame des Korpus, beurteilt oder nicht — der Nenner der Lane. */
 export function laneFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
   return id === "frames" ? stream.boards.filter(frameCandidate) : [];

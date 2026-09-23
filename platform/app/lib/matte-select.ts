@@ -4,7 +4,7 @@
  */
 
 /** Die Schluessel der Seite, die „alle" ueberhaupt markieren darf: vorgemerkt Leeres bleibt leer. */
-export function pageMarks(page: readonly string[], clean: ReadonlySet<string>): string[] {
+function pageMarks(page: readonly string[], clean: ReadonlySet<string>): string[] {
   return page.filter((key) => !clean.has(key));
 }
 

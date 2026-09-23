@@ -23,7 +23,6 @@
 5 lib/jobs.ts  # Job-LOGS fuer die Anzeige, keine Messung: ein halber Log ist der laufende Prozess
 2 lib/progress.ts  # session.yaml und der Log-SCHWANZ; beide melden `null`, nicht 0
 1 lib/queues.ts  # fehlende candidate.json heisst "noch nicht kandidiert" und wird so gerendert
-2 app/confirm/[name]/page.tsx  # fehlende candidate.json/PGN sind eigene Zustaende der Seite
 1 app/game/[name]/page.tsx  # fehlende candidate.json ist ein eigener Zustand der Seite; die PGN wirft seit 2026-09-22
 1 app/page.tsx  # dito
 # Eingeloest 2026-09-22: die sieben Stellen der Erweiterung stehen auf `absentOnly` - nur ENOENT

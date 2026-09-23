@@ -9,7 +9,7 @@ import { dataDir } from "@/lib/data";
 import { authorized } from "@/lib/ingest";
 import { absentOnly } from "@/lib/measurement";
 
-export type Gap = {
+type Gap = {
   piece: string;
   square_color: string;
   band: string;
@@ -20,12 +20,12 @@ export type Gap = {
 
 /** Ein Vorschlag: `lo`/`hi` sind das Band, gegen das die App live misst und ggf. umhaengt;
  *  `seen_lo`/`seen_hi` die p5/p95 DIESES Feldes — ob es das Band je erreicht hat. */
-export type Placement = {
+type Placement = {
   square: string; piece: string; band: string; lo: number; hi: number;
   seen_lo?: number; seen_hi?: number;
 };
 
-export type Shot = {
+type Shot = {
   id: string;
   reason: string;
   place: Placement[];

@@ -1,7 +1,7 @@
 /**
  * `/corpus` §7.5: the eval artefacts under `data/reports/perf/`, rendered from whole files.
  *
- * The hard rule (REVIEW.md S1): a model name and an eval result that were not in the SAME file must
+ * The hard rule: a model name and an eval result that were not in the SAME file must
  * never appear on one line. Every run below therefore carries the file it came from, and a file that
  * names no pack is grouped as exactly that instead of being attached to a plausible one.
  */
