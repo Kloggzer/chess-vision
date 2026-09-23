@@ -8,10 +8,11 @@ import { expect, test } from "vitest";
 
 const ROOT = path.join(__dirname, "..");
 
-/** Kern <- session-store <- {ingest, reports} <- label <- corpus <- chain. Gleiche Zahl heisst
- *  Geschwister: die duerfen einander NICHT importieren. Ein neuer Ordner muss hier eingetragen werden. */
+/** Kern <- py <- session-store <- {ingest, reports} <- label <- corpus <- chain. Gleiche Zahl heisst
+ *  Geschwister: die duerfen einander NICHT importieren. Ein neuer Ordner muss hier eingetragen werden.
+ *  `py` (der Python-Worker) liegt direkt ueber dem Kern: jede Schicht darf Python fragen. */
 const RANK: Record<string, number> = {
-  kern: 0, "session-store": 1, ingest: 2, reports: 2, label: 3, corpus: 4, chain: 5,
+  kern: 0, py: 1, "session-store": 2, ingest: 3, reports: 3, label: 4, corpus: 5, chain: 6,
 };
 
 type Graph = Map<string, string[]>;
@@ -101,7 +102,7 @@ function cycles(graph: Graph): string[][] {
   return out;
 }
 
-test("lib/ importiert nur abwaerts: Kern <- session-store <- {ingest, reports} <- label <- corpus <- chain", () => {
+test("lib/ importiert nur abwaerts: Kern <- py <- session-store <- {ingest, reports} <- label <- corpus <- chain", () => {
   expect(wrongWay(libGraph()), "Funktion an den tieferen Ort ziehen, Typ in den gemeinsamen").toEqual([]);
 });
 

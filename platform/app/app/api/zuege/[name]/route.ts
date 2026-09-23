@@ -1,4 +1,5 @@
 import { claimHeavyLock, releaseHeavyLock } from "@/lib/chain/heavy-lock";
+import { PyWorkerDown } from "@/lib/py/worker";
 import { writeConfirmation } from "@/lib/session-store/recordings";
 import { enqueueChain, holdExport, releaseExportHold } from "@/lib/chain/jobs";
 import { EXPORT_HOLD_MS } from "@/lib/label/zuege";
@@ -30,6 +31,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
     const held = await holdExport(name, EXPORT_HOLD_MS);
     return Response.json({ reviewed_plies: plies, notBefore: held.notBefore, holdMs: EXPORT_HOLD_MS });
   } catch (error) {
+    if (error instanceof PyWorkerDown) return Response.json({ error: error.message }, { status: 500 });
     return Response.json({ error: String(error) }, { status: 400 });
   }
 }

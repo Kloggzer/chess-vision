@@ -1,10 +1,9 @@
-/** Der Stempel rechnet ueber die ROHEN Bytes wie `realgames.write_confirmation`, und der Confirm-POST
- *  urteilt gegen die gezeigte Referenz. Der md5 steht wortgleich in
+/** Der Stempel rechnet ueber die ROHEN Bytes (`realgames.write_confirmation`, seit 2026-09-23 auch fuer
+ *  die Seite), und der Confirm-POST urteilt gegen die gezeigte Referenz. Der md5 steht wortgleich in
  *  `tests/test_bug_hunt_20260923_confirm_stamp.py`. */
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, test, vi } from "vitest";
-import { Contested } from "@/lib/atomic";
+import { expect, test } from "vitest";
 import { keptCards } from "@/lib/label/confirm-kept";
 import { loadCandidate, referenceDigest, writeConfirmation } from "@/lib/session-store/recordings";
 import { buildReviewCards } from "@/lib/label/review-cards";
@@ -12,21 +11,6 @@ import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const NAME = "g";
 
-let afterCandidateRead: (() => Promise<void>) | null = null;
-vi.mock("node:fs/promises", async () => {
-  const real = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-  const readFile = (async (file: Parameters<typeof real.readFile>[0], options?: unknown) => {
-    const got = await real.readFile(file, options as never);
-    const once = afterCandidateRead;
-    if (once && options === "utf8" && String(file).endsWith("candidate.json")) {
-      afterCandidateRead = null;
-      await once();
-    }
-    return got;
-  }) as typeof real.readFile;
-  const mocked = { ...real, readFile };
-  return { ...mocked, default: mocked };
-});
 // BOM und CRLF: wer normalisiert statt die rohen Bytes zu hashen, rechnet hier etwas anderes.
 const PGN = Buffer.from('﻿[Event "W2"]\r\n\r\n1. e4 e5 *\r\n', "utf8");
 const PGN_MD5 = "5c6da1fbf57ec1d48056dff3958c2080";
@@ -161,12 +145,5 @@ test("zwei gleichzeitige Streichungen verlieren keine — Gestrichenes bleibt ge
   expect((await candidateOf(dir)).struck_plies).toEqual([1, 3]);
 });
 
-test("ein fremder Schreiber zwischen Lesen und Umhaengen wird nicht ueberrannt", async () => {
-  const dir = await three("confirm-foreign");
-  const file = path.join(dir, "candidate.json");
-  await writeFile(path.join(dir, "reference.pgn"), "1. e4 e5 2. Nf3 *\n", "utf8");
-  const foreign = { ...(await candidateOf(dir)), note: "von aussen geschrieben" };
-  afterCandidateRead = () => writeFile(file, JSON.stringify(foreign), "utf8");
-  await expect(writeConfirmation(NAME, [0])).rejects.toThrow(Contested);
-  expect((await candidateOf(dir)).note).toBe("von aussen geschrieben");
-});
+// Ein fremder Schreiber zwischen Lesen und Umhaengen: der Riegel sitzt seit 2026-09-23 in Python
+// (`tests/test_confirm_verdict.py`), die Uebersetzung in `Contested` prueft `lib/py/worker.test.ts`.

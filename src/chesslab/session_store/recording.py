@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import chess.pgn
 
@@ -35,58 +39,99 @@ def load_candidate(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def read_reference(name: str) -> tuple[list[str], str]:
-    """SANs of `reference.pgn`'s mainline, replayed so the SAN spelling matches python-chess,
-    plus the md5 of the SAME bytes — the one `write_confirmation` must stamp."""
-    import hashlib
-    import io
+@dataclass(frozen=True)
+class Reference:
+    """The first game's mainline (`None` when it cannot be read, `problem` says why), plus the
+    games after it: the phone writes a continuation after every seam, the candidate covers the first."""
 
-    path = reference_path(name)
-    if not path.exists():
-        raise FileNotFoundError(f"no reference game: {path}")
-    data = path.read_bytes()
-    game = chess.pgn.read_game(io.StringIO(data.decode("utf-8"), newline=None))
+    sans: list[str] | None
+    problem: str | None
+    more: int
+
+
+def parse_reference(text: str) -> Reference:
+    """`reference.pgn` as the confirm view and `realgames confirm` both read it."""
+    stream = io.StringIO(text.removeprefix("\ufeff"), newline=None)
+    game = chess.pgn.read_game(stream)
+    more = 0
+    while chess.pgn.skip_game(stream):
+        more += 1
     if game is None:
-        raise ValueError(f"{path}: no game in PGN")
+        return Reference([], None, more)
+    if game.errors:
+        return Reference(None, str(game.errors[0]).splitlines()[0], more)
     board = game.board()
     sans = []
     for move in game.mainline_moves():
         sans.append(board.san(move))
         board.push(move)
-    return sans, hashlib.md5(data).hexdigest()
+    return Reference(sans, None, more)
+
+
+def read_reference_bytes(name: str) -> bytes | None:
+    """The raw bytes — their md5 is the stamp a confirmation is judged against. `None` only when absent."""
+    try:
+        return reference_path(name).read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def read_reference(name: str) -> tuple[list[str], str]:
+    """SANs of `reference.pgn`'s mainline, replayed so the SAN spelling matches python-chess,
+    plus the md5 of the SAME bytes — the one `write_confirmation` must stamp."""
+    path = reference_path(name)
+    data = read_reference_bytes(name)
+    if data is None:
+        raise FileNotFoundError(f"no reference game: {path}")
+    ref = parse_reference(data.decode("utf-8"))
+    if ref.sans is None:
+        raise ValueError(f"{path}: {ref.problem}")
+    return ref.sans, hashlib.md5(data).hexdigest()
+
+
+class ReferenceMoved(ValueError):
+    """The verdict was made against another `reference.pgn` than the one on disk now (web: 409)."""
+
+
+class VerdictContested(ValueError):
+    """`candidate.json` was written by someone else meanwhile — replacing it would drop that verdict."""
+
+
+#: `reference_md5` default of `write_confirmation`: judge against whatever lies there now.
+UNCHECKED = "unchecked"
 
 
 def write_confirmation(name: str, candidate: dict, plies: list[int], *,
-                       reference_md5: str | None = None) -> Path:
-    """Stamp the confirmation keys, `confirmed_reference` in `lib/data.ts::writeConfirmation`'s form.
+                       reference_md5: str | None = UNCHECKED, struck: list[int] | None = None) -> Path:
+    """Stamp the confirmation keys; `reference_md5=None` means the verdict saw NO reference.
 
     Guarded: a file that no longer equals the caller's `candidate` was written by someone else
     (a `/confirm` during the prompt), and replacing it would drop that verdict.
     """
-    import hashlib
-
     from ..ioutil import Contested, write_json_guarded
 
     path = candidate_path(name)
     stamp = stamp_of(path)
     what = f"{name}: candidate.json wurde waehrend der Bestaetigung geschrieben — nichts ersetzt, neu bestaetigen"
     if load_candidate(name) != candidate:
-        raise ValueError(what)
-    ref = reference_path(name)
-    md5 = hashlib.md5(ref.read_bytes()).hexdigest() if ref.exists() else None
+        raise VerdictContested(what)
+    data = read_reference_bytes(name)
+    md5 = None if data is None else hashlib.md5(data).hexdigest()
     # Das Urteil fiel gegen die Bytes, die `read_reference` las; eine waehrend der Rueckfrage
     # ersetzte Datei bekaeme sonst ihren md5 an ein Urteil ueber die alte.
-    if reference_md5 is not None and md5 != reference_md5:
-        raise ValueError(f"{name}: reference.pgn wurde waehrend der Bestaetigung ersetzt — "
-                         "nichts geschrieben, neu bestaetigen")
+    if reference_md5 != UNCHECKED and md5 != reference_md5:
+        raise ReferenceMoved(f"{name}: reference.pgn wurde waehrend der Bestaetigung ersetzt — "
+                             "nichts geschrieben, neu bestaetigen")
     candidate["confirmed"] = True
     candidate["confirmed_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     candidate["reviewed_plies"] = plies
     candidate["confirmed_reference"] = {"md5": md5, "at": candidate["confirmed_at"]}
+    if struck:
+        candidate["struck_plies"] = struck
     try:
         write_json_guarded(path, candidate, stamp, what=what)
     except Contested as exc:
-        raise ValueError(str(exc)) from exc
+        raise VerdictContested(str(exc)) from exc
     return path
 
 
@@ -113,14 +158,25 @@ def reference_is_the_phones_own(name: str) -> bool:
     Then `confirm` compares the tracker's replay against the tracker's live run — same algorithm,
     same video. It catches a divergence between the two, never a move both got wrong.
     """
-    import hashlib
+    return reference_origin(name) == "phone"
 
-    ref = reference_path(name)
+
+def reference_origin(name: str) -> Literal["none", "phone", "outside"]:
+    """Where `reference.pgn` came from, by digest against every `files/games/*.pgn`.
+
+    Only a MISSING file or folder is an answer: `glob` swallowed an EACCES on the folder, and the
+    phone's own PGN then passed as a human's notation.
+    """
+    data = read_reference_bytes(name)
+    if data is None:
+        return "none"
     games = game_dir(name) / "files" / "games"
-    if not ref.exists() or not games.is_dir():
-        return False
-    digest = hashlib.md5(ref.read_bytes()).hexdigest()
-    return any(hashlib.md5(p.read_bytes()).hexdigest() == digest for p in games.glob("*.pgn"))
+    try:
+        pgns = sorted(p for p in games.iterdir() if p.name.endswith(".pgn"))
+    except FileNotFoundError:
+        return "outside"
+    digest = hashlib.md5(data).hexdigest()
+    return "phone" if any(hashlib.md5(p.read_bytes()).hexdigest() == digest for p in pgns) else "outside"
 
 
 def video_fps(candidate: dict) -> float:

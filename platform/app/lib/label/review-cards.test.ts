@@ -4,6 +4,7 @@ import {
   buildReviewCards,
   type ReviewMove,
 } from "@/lib/label/review-cards";
+import { squaresOf } from "@/lib/label/review-read";
 import type { FrameStem } from "@/lib/session-store/recordings";
 
 const stems = (...ns: number[]): FrameStem[] =>
@@ -72,12 +73,12 @@ const SINGLES: ReviewMove[] = [
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-test("plies sharing a commit frame become ONE card with one frame series", () => {
+test("plies sharing a commit frame become ONE card with one frame series", async () => {
   const cards = buildReviewCards({
     moves: BRIDGE,
     indices: [0, 1, 2, 3],
     stems: stems(334, 335, 400, 455, 456, 500, 541),
-    startFen: START,
+    squares: await squaresOf(BRIDGE, START),
   });
 
   expect(cards.map((c) => c.plies.map((p) => p.san))).toEqual([
@@ -94,24 +95,24 @@ test("plies sharing a commit frame become ONE card with one frame series", () =>
   expect(bridge.carriesFrames).toBe(true);
 });
 
-test("the bridge keeps only the ply that owns the interval — the halves drop as before", () => {
+test("the bridge keeps only the ply that owns the interval — the halves drop as before", async () => {
   const [, bridge] = buildReviewCards({
     moves: BRIDGE,
     indices: [0, 1, 2, 3],
     stems: stems(455),
-    startFen: START,
+    squares: await squaresOf(BRIDGE, START),
   });
   expect(bridge.keep).toEqual([2]);
   expect(bridge.plies.map((p) => p.index)).toEqual([1, 2]);
   expect(bridge.id).toBe(1);
 });
 
-test("both halves of the bridge get their own arrow off the tracker's own chain", () => {
+test("both halves of the bridge get their own arrow off the tracker's own chain", async () => {
   const [bridge] = buildReviewCards({
     moves: BRIDGE,
     indices: [1, 2],
     stems: stems(455),
-    startFen: START,
+    squares: await squaresOf(BRIDGE, START),
   });
   expect(bridge.plies.map((p) => p.squares)).toEqual([
     { from: "e2", to: "e4" },
@@ -119,12 +120,12 @@ test("both halves of the bridge get their own arrow off the tracker's own chain"
   ]);
 });
 
-test("single-ply commits stay one card each", () => {
+test("single-ply commits stay one card each", async () => {
   const cards = buildReviewCards({
     moves: SINGLES,
     indices: [0, 1, 2],
     stems: stems(133, 200, 245, 300, 395),
-    startFen: START,
+    squares: await squaresOf(SINGLES, START),
     missedSans: new Set(["e5"]),
   });
 
@@ -138,12 +139,12 @@ test("single-ply commits stay one card each", () => {
   expect(cards[2].keep).toEqual([2]);
 });
 
-test("every card names the picture its move started from", () => {
+test("every card names the picture its move started from", async () => {
   const cards = buildReviewCards({
     moves: SINGLES,
     indices: [0, 1, 2],
     stems: stems(133, 200, 245, 300, 395),
-    startFen: START,
+    squares: await squaresOf(SINGLES, START),
     missedSans: new Set(["e5"]),
   });
 
@@ -160,12 +161,12 @@ test("every card names the picture its move started from", () => {
   }
 });
 
-test("a frame-mate the reference already matched shows up as context, not as a second card", () => {
+test("a frame-mate the reference already matched shows up as context, not as a second card", async () => {
   const cards = buildReviewCards({
     moves: BRIDGE,
     indices: [1],
     stems: stems(455),
-    startFen: START,
+    squares: await squaresOf(BRIDGE, START),
   });
   expect(cards).toHaveLength(1);
   expect(cards[0].group).toEqual(["e4", "Nf6"]);
@@ -174,7 +175,7 @@ test("a frame-mate the reference already matched shows up as context, not as a s
   expect(cards[0].keep).toEqual([1]);
 });
 
-test("a game that matches its reference still has every commit series to look at", () => {
+test("a game that matches its reference still has every commit series to look at", async () => {
   const gallery = buildGalleryCards({
     moves: SINGLES,
     matched: [
@@ -183,7 +184,7 @@ test("a game that matches its reference still has every commit series to look at
       [2, 2],
     ],
     stems: stems(133, 200, 245, 300, 395),
-    startFen: START,
+    squares: await squaresOf(SINGLES, START),
   });
 
   expect(
@@ -204,7 +205,7 @@ test("a game that matches its reference still has every commit series to look at
   expect(gallery[0].plies[0].squares).toEqual({ from: "e2", to: "e4" });
 });
 
-test("the gallery groups a matched multi-commit exactly like a review card", () => {
+test("the gallery groups a matched multi-commit exactly like a review card", async () => {
   const gallery = buildGalleryCards({
     moves: BRIDGE,
     matched: [
@@ -212,25 +213,25 @@ test("the gallery groups a matched multi-commit exactly like a review card", () 
       [0, 1],
     ],
     stems: stems(455, 456, 541),
-    startFen: START,
+    squares: await squaresOf(BRIDGE, START),
   });
   expect(gallery).toHaveLength(1);
   expect(gallery[0].plies.map((p) => p.san)).toEqual(["e4", "Nf6"]);
   expect(gallery[0].stems.map((s) => Number(s.stem))).toEqual([455, 456]);
 });
 
-test("a pre-pair-fix row is one collapsed card, not a group", () => {
+test("a pre-pair-fix row is one collapsed card, not a group", async () => {
   const [collapsed] = buildReviewCards({
     moves: BRIDGE,
     indices: [0],
     stems: stems(335),
-    startFen: START,
+    squares: await squaresOf(BRIDGE, START),
   });
   expect(collapsed.plies[0].squares).toBeNull();
   expect(collapsed.collapsed).toBe(true);
 });
 
-test("a card shows the burst its own commit was decided from, not the next one's", () => {
+test("a card shows the burst its own commit was decided from, not the next one's", async () => {
   // The phone writes five frames ~20 before each commit; cutting at `frame - 2` left commit 238 with
   // the NEXT commit's burst, and the card looked like a double move.
   const moves: ReviewMove[] = [
@@ -262,7 +263,7 @@ test("a card shows the burst its own commit was decided from, not the next one's
     moves,
     indices: [0, 1, 2],
     stems: stems(142, 146, 216, 220, 296, 300),
-    startFen: START,
+    squares: await squaresOf(moves, START),
   });
 
   expect(nf3.frame).toBe(238);
@@ -271,7 +272,7 @@ test("a card shows the burst its own commit was decided from, not the next one's
 });
 
 /** 16-20-19: ply 7 committed at 291, plies 8+9 at 295 — the position after 7 never stood still. */
-test("a card says how long its position stood, and the last one does not know", () => {
+test("a card says how long its position stood, and the last one does not know", async () => {
   const moves: ReviewMove[] = [
     { ply: 7, san: "Nxe5", frame: 291, fen_after: BRIDGE[3].fen_after },
     { ply: 8, san: "Nxe5", frame: 295 },
@@ -285,7 +286,7 @@ test("a card says how long its position stood, and the last one does not know", 
   expect(cards.map((c) => c.held)).toEqual([4, null]);
 });
 
-test("a retimed move opens on its review picture, not on the frame the position entered", () => {
+test("a retimed move opens on its review picture, not on the frame the position entered", async () => {
   const moves: ReviewMove[] = [
     { ply: 1, san: "e4", frame: 100, frame_review: 130 },
     { ply: 2, san: "e5", frame: 200, frame_review: 240 },
@@ -302,7 +303,7 @@ test("a retimed move opens on its review picture, not on the frame the position 
   expect(cards[1].before?.stem).toBe("000130");
 });
 
-test("a retimed card shows only its own frames, never the previous position's tail", () => {
+test("a retimed card shows only its own frames, never the previous position's tail", async () => {
   const moves: ReviewMove[] = [
     { ply: 1, san: "Rc6+", frame: 100, frame_review: 300 },
     { ply: 2, san: "Kg7", frame: 340, frame_review: 700 },

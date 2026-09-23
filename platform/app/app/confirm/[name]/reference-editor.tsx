@@ -37,7 +37,7 @@ export function ReferenceEditor({
     <details className="border-border rounded-lg border px-3 py-2">
       <summary
         className="cursor-pointer text-sm font-medium"
-        title="reference.pgn dieser Aufnahme; chess.js prüft die Züge, bevor sie gespeichert werden"
+        title="reference.pgn dieser Aufnahme; python-chess prüft die Züge, bevor sie gespeichert werden"
       >
         Referenz korrigieren — die Züge, die wirklich gespielt wurden
       </summary>

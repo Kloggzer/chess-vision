@@ -3,7 +3,6 @@ import path from "node:path";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it, test, vi } from "vitest";
 import { listFrameStems, readReference, requireRecording, truthSans, writeConfirmation } from "@/lib/session-store/recordings";
-import { lcsReport } from "@/lib/lcs";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 type Op = "stat" | "readFile" | "readdir" | "open";
@@ -56,13 +55,6 @@ beforeEach(async () => {
   await writeFile(path.join(dir, "reference.pgn"), PGN, "utf8");
   file = path.join(dir, "candidate.json");
   await writeFile(file, CANDIDATE + "\n", "utf8");
-});
-
-test("lcs mirrors the python/kotlin semantics", () => {
-  const { matched, invented, missed } = lcsReport(["a", "b", "c", "d"], ["a", "x", "c"]);
-  expect(matched.length).toBe(2);
-  expect(invented).toEqual([1]);
-  expect(missed).toEqual([1, 3]);
 });
 
 test("the confirm POST writes only the three keys", async () => {

@@ -1,10 +1,8 @@
 /** One card per frame (not ply); plies on same frame collapse with shared picture. Wire: index stays intact. */
-import { Chess } from "chess.js";
-
-import { lcsReport, type LcsReport } from "@/lib/lcs";
+import type { LcsReport, MoveSquares } from "@/lib/py/ops";
 import type { FrameStem } from "@/lib/session-store/recordings";
 
-export type MoveSquares = { from: string; to: string };
+export type { MoveSquares };
 
 export type ReviewMove = {
   ply: number;
@@ -64,35 +62,21 @@ export const SHORT_HOLD = 15;
 /** How far a retimed card's own frames reach around its picture — `retime.REVIEW_CONTEXT` plus one. */
 const REVIEW_SPREAD = 3;
 
-function moveSquares(
-  fenBefore: string | undefined,
-  san: string,
-): MoveSquares | null {
-  if (!fenBefore) return null;
-  try {
-    const chess = new Chess(fenBefore);
-    const move = chess.move(san);
-    return { from: move.from, to: move.to };
-  } catch {
-    return null;
-  }
-}
-
 /** Matched plies as read-only entries: same grouping/windows, but no verdict. */
 export function buildGalleryCards({
   moves,
   matched,
   stems,
-  startFen,
+  squares,
 }: {
   moves: ReviewMove[];
   /** `lcsReport().matched` — `[truth index, candidate index]`. */
   matched: [number, number][];
   stems: FrameStem[];
-  startFen?: string;
+  squares?: (MoveSquares | null)[];
 }): ReviewCard[] {
   const indices = matched.map(([, j]) => j).sort((a, b) => a - b);
-  return buildReviewCards({ moves, indices, stems, startFen });
+  return buildReviewCards({ moves, indices, stems, squares });
 }
 
 function ownsFrames(moves: ReviewMove[], i: number): boolean {
@@ -128,13 +112,14 @@ export function buildReviewCards({
   moves,
   indices,
   stems,
-  startFen,
+  squares = [],
   missedSans = new Set<string>(),
 }: {
   moves: ReviewMove[];
   indices: number[];
   stems: FrameStem[];
-  startFen?: string;
+  /** `review-read.squaresOf(moves)`, index-gleich; fehlt ein Eintrag, zeigt die Karte keinen Pfeil. */
+  squares?: (MoveSquares | null)[];
   missedSans?: ReadonlySet<string>;
 }): ReviewCard[] {
   // The previous group's commit, carried across the map: that is where the position this card's
@@ -174,10 +159,7 @@ export function buildReviewCards({
       index,
       ply: moves[index].ply,
       san: moves[index].san,
-      squares: moveSquares(
-        index === 0 ? startFen : moves[index - 1].fen_after,
-        moves[index].san,
-      ),
+      squares: squares[index] ?? null,
     }));
     const owning = members.filter((i) => ownsFrames(moves, i));
     const deciders = new Set(members.map((i) => moves[i].decider ?? null));
@@ -204,22 +186,3 @@ export function buildReviewCards({
 }
 
 export type Review = LcsReport & { cards: ReviewCard[]; gallery: ReviewCard[] };
-
-/** LCS gegen die Wahrheit, daraus Karten und Galerie — `/confirm` und der ZUEGE-Strom bauen sie
- *  gleich (CONCEPT.md §10.3). Ohne Wahrheit ist JEDER Halbzug des Menschen, nichts fehlt. */
-export function reviewOf({ moves, truth, stems, startFen }: {
-  moves: ReviewMove[];
-  truth: string[] | null;
-  stems: FrameStem[];
-  startFen?: string;
-}): Review {
-  const { matched, invented, missed } = truth
-    ? lcsReport(truth, moves.map((m) => m.san))
-    : { matched: [] as [number, number][], invented: moves.map((_, i) => i), missed: [] };
-  const missedSans = new Set(missed.map((i) => truth?.[i] ?? ""));
-  return {
-    matched, invented, missed,
-    cards: buildReviewCards({ moves, indices: invented, stems, startFen, missedSans }),
-    gallery: buildGalleryCards({ moves, matched, stems, startFen }),
-  };
-}

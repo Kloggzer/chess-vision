@@ -1,0 +1,85 @@
+"""What the web app asks Python instead of rebuilding it (`docs/web-ruft-python.md`).
+
+Every op only calls a function that already exists; `chesslab web-worker` serves them. Ops that
+touch a recording take `root`, the web app's `CHESSLAB_DATA_DIR`, so one worker serves any root.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import os
+import sys
+from collections.abc import Callable, Iterator
+from pathlib import Path
+
+import chess
+
+from . import config
+from .realgames import confirm as rg_confirm
+from .session_store import recording
+
+
+@contextlib.contextmanager
+def _rooted(root: str) -> Iterator[None]:
+    before = config.DATA
+    config.DATA = config.Paths(root=Path(root))
+    try:
+        yield
+    finally:
+        config.DATA = before
+
+
+def ping() -> dict:
+    """`torch` says whether anything on the way pulled it in — the worker must stay light."""
+    return {"pid": os.getpid(), "torch": "torch" in sys.modules}
+
+
+def lcs_report(truth: list[str], cand: list[str]) -> dict:
+    matched, invented, missed = rg_confirm.lcs_report(truth, cand)
+    return {"matched": [list(p) for p in matched], "invented": invented, "missed": missed}
+
+
+def reviewed_plies(moves: list[dict], matched: list[list[int]], kept: list[int]) -> list[int]:
+    return rg_confirm.reviewed_plies(moves, [tuple(p) for p in matched], kept)
+
+
+def parse_reference(text: str) -> dict:
+    ref = recording.parse_reference(text)
+    return {"sans": ref.sans, "problem": ref.problem, "more": ref.more}
+
+
+def _squares(fen: str | None, san: str) -> dict | None:
+    if not fen:
+        return None
+    try:
+        move = chess.Board(fen).parse_san(san)
+    except ValueError:
+        return None
+    return {"from": chess.square_name(move.from_square), "to": chess.square_name(move.to_square)}
+
+
+def move_squares(plies: list[list]) -> list[dict | None]:
+    """`[fen_before, san]` pairs -> the squares the arrow is drawn between, `None` when unplayable."""
+    return [_squares(fen, san) for fen, san in plies]
+
+
+def reference_origin(root: str, name: str) -> str:
+    with _rooted(root):
+        return recording.reference_origin(name)
+
+
+def confirm(root: str, name: str, kept: list[int], drop: list[int],
+            shown_reference: str | None = recording.UNCHECKED) -> list[int]:
+    with _rooted(root):
+        return rg_confirm.confirm_kept(name, kept, drop, shown_reference=shown_reference)
+
+
+OPS: dict[str, Callable[..., object]] = {
+    "ping": ping,
+    "lcs_report": lcs_report,
+    "reviewed_plies": reviewed_plies,
+    "parse_reference": parse_reference,
+    "move_squares": move_squares,
+    "reference_origin": reference_origin,
+    "confirm": confirm,
+}

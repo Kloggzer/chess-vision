@@ -1,4 +1,5 @@
 import { Contested } from "@/lib/atomic";
+import { PyWorkerDown } from "@/lib/py/worker";
 import { ReferenceRefused, saveReference } from "@/lib/session-store/reference";
 
 /** Upload `reference.pgn`; ersetzt nur mit `?replace=1`. Die Schutzregeln stehen in `saveReference`. */
@@ -11,6 +12,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
     if (error instanceof Contested || error instanceof ReferenceRefused) {
       return Response.json({ error: error.message }, { status: 409 });
     }
+    if (error instanceof PyWorkerDown) return Response.json({ error: error.message }, { status: 500 });
     return Response.json({ error: String(error) }, { status: 400 });
   }
 }

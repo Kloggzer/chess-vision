@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import hashlib
+from collections.abc import Callable, Sequence
 
 from ..session_store.recording import (
+    UNCHECKED,
+    ReferenceMoved,
     game_dir,
     load_candidate,
+    parse_reference,
     read_reference,
+    read_reference_bytes,
     reference_is_the_phones_own,
     write_confirmation,
 )
@@ -112,3 +117,26 @@ def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) 
         "kept": kept,
         "reviewed": plies,
     }
+
+
+def confirm_kept(name: str, kept: Sequence[int], drop: Sequence[int] = (), *,
+                 shown_reference: str | None = UNCHECKED) -> list[int]:
+    """The web's verdict: `kept` = unmatched candidate INDICES kept, `drop` = PLIES struck from the
+    matched set (a transposition matches SANs, not positions); struck stays struck, `/api/zuege`
+    never resends `drop`. `shown_reference`: md5 the page showed, `None` = it showed none.
+    """
+    candidate = load_candidate(name)
+    data = read_reference_bytes(name)
+    md5 = None if data is None else hashlib.md5(data).hexdigest()
+    if shown_reference != UNCHECKED and shown_reference != md5:
+        raise ReferenceMoved(f"{name}: Referenz wurde waehrend der Pruefung ersetzt, Seite neu laden")
+    truth = None if data is None else parse_reference(data.decode("utf-8")).sans
+    moves = candidate["moves"]
+    # Ohne lesbare Referenz ist nichts "matched": dann SIND die Behaltenen das Urteil.
+    matched, invented, _ = (lcs_report(truth, [m["san"] for m in moves]) if truth is not None
+                            else ([], list(range(len(moves))), []))
+    open_ = set(invented)
+    struck = sorted(set(candidate.get("struck_plies") or []) | set(drop))
+    plies = [p for p in reviewed_plies(moves, matched, [j for j in kept if j in open_]) if p not in struck]
+    write_confirmation(name, candidate, plies, reference_md5=md5, struck=struck)
+    return plies

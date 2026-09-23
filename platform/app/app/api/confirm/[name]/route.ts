@@ -1,3 +1,4 @@
+import { PyWorkerDown } from "@/lib/py/worker";
 import { ReferenceMoved, writeConfirmation } from "@/lib/session-store/recordings";
 
 /** The human's verdict: which unmatched candidate plies survive. The plies list is recomputed
@@ -16,6 +17,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
     return Response.json({ confirmed: true, reviewed_plies: plies });
   } catch (error) {
     if (error instanceof ReferenceMoved) return Response.json({ error: error.message }, { status: 409 });
+    if (error instanceof PyWorkerDown) return Response.json({ error: error.message }, { status: 500 });
     return Response.json({ error: String(error) }, { status: 400 });
   }
 }

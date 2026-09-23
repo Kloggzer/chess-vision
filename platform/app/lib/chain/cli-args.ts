@@ -1,12 +1,11 @@
 /** Welche Werkzeuge die Kette startet und mit welcher Zeile — ohne Platte und ohne Prozess, damit
  *  `jobs.test.ts` (cli-parity) jede Zeile gegen `src/chesslab/cli/` halten kann. */
 import path from "node:path";
-import { checkName, dataDir } from "@/lib/session-store/recordings";
+import { repoDir } from "@/lib/py/worker";
+import { checkName } from "@/lib/session-store/recordings";
 import { matteTarget } from "@/lib/session-store/matte";
 
-export function repoDir(): string {
-  return process.env.CHESSLAB_REPO_DIR ?? path.dirname(dataDir());
-}
+export { repoDir };
 
 /** The installed distribution, not Gradle: a job queue must not depend on a Gradle daemon that may
  *  be busy with the user's own build. */

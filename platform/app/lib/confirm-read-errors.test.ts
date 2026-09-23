@@ -69,9 +69,9 @@ test("/confirm/<name>: ein Lesefehler auf reference.pgn gibt dem Editor keine le
   const dir = await confirmedSession("cre-ref-eacces");
   const pgn = path.join(dir, "reference.pgn");
   await writeFile(pgn, "1. e4 e5 *\n", "utf8");
-  // Erst der Editor-Lesevorgang faellt: `readReference` und `referenceOrigin` lesen vor ihm.
+  // Erst der Editor-Lesevorgang faellt: `readReference` liest vor ihm (`referenceOrigin` in Python).
   let reads = 0;
-  fail.on = (file) => (path.resolve(file) === path.resolve(pgn) && ++reads === 3 ? "EACCES" : null);
+  fail.on = (file) => (path.resolve(file) === path.resolve(pgn) && ++reads === 2 ? "EACCES" : null);
   await expect(confirmPage()).rejects.toThrow(/EACCES/);
 }, PAGE_TIMEOUT);
 

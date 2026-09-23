@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, test, vi } from "vitest";
 import { POST } from "@/app/api/pgn/[name]/route";
 import { stampOf } from "@/lib/atomic";
 import { tempDataRoot } from "@/lib/test-fixtures";
-import { parseReference } from "./pgn";
+import { parseReference } from "@/lib/py/ops";
 
 type Op = "stat" | "readFile" | "readdir" | "open";
 const fail = vi.hoisted(() => ({ on: null as null | ((op: Op, file: string) => string | null) }));
@@ -32,28 +32,28 @@ beforeEach(() => {
 
 const HEAD = '[Event "chesslab"]\n[Result "*"]\n\n';
 
-test("a one-game file is its mainline", () => {
-  expect(parseReference(`${HEAD}1. e4 e5 2. Nf3 *\n`)).toEqual({ sans: ["e4", "e5", "Nf3"], problem: null, more: 0 });
+test("a one-game file is its mainline", async () => {
+  expect(await parseReference(`${HEAD}1. e4 e5 2. Nf3 *\n`)).toEqual({ sans: ["e4", "e5", "Nf3"], problem: null, more: 0 });
 });
 
 /** 2026-08-30-16-20-19: the phone wrote the continuation after a seam as a second game. */
-test("the first game is the reference, the continuation is counted", () => {
+test("the first game is the reference, the continuation is counted", async () => {
   const text =
     `${HEAD}1. d4 d5 2. e4 *\n\n` +
     '[Event "chesslab"]\n[Result "0-1"]\n[SetUp "1"]\n[FEN "rnbqkbnr/ppp1pppp/8/3p4/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 2"]\n\n' +
     "2... e5 {position rebuilt by cnn_pair} 3. Nf3 0-1\n";
-  expect(parseReference(text)).toEqual({ sans: ["d4", "d5", "e4"], problem: null, more: 1 });
+  expect(await parseReference(text)).toEqual({ sans: ["d4", "d5", "e4"], problem: null, more: 1 });
 });
 
 /** 2026-08-12-11-19-00: the phone's own record plays d5 twice — unreadable, and it says so. */
-test("an illegal mainline is a problem, not a crash", () => {
-  const out = parseReference(`${HEAD}1. e4 d5 2. Nc3 Nf6 3. d4 d5 *\n`);
+test("an illegal mainline is a problem, not a crash", async () => {
+  const out = await parseReference(`${HEAD}1. e4 d5 2. Nc3 Nf6 3. d4 d5 *\n`);
   expect(out.sans).toBeNull();
   expect(out.problem).toMatch(/d5/);
 });
 
-test("a corrected reference replaces the wrong move and stays readable", () => {
-  const ref = parseReference('[Event "chesslab"]\n\n1. e4 e5 2. d4 d5 3. Nf3 Nc6 4. Nxe5 Nxe5 *\n');
+test("a corrected reference replaces the wrong move and stays readable", async () => {
+  const ref = await parseReference('[Event "chesslab"]\n\n1. e4 e5 2. d4 d5 3. Nf3 Nc6 4. Nxe5 Nxe5 *\n');
   expect(ref.problem).toBeNull();
   expect(ref.sans?.slice(6)).toEqual(["Nxe5", "Nxe5"]);
 });

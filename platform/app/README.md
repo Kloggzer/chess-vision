@@ -127,6 +127,11 @@ transferred phone game's `.pgn` in as `reference.pgn` — never over an existing
 The two chesslab steps are spawned as a CLI (`uv`, or `CHESSLAB_UV`), never imported: the file
 formats stay the only bridge. They share the packs' single-slot queue — same machine, same CPU.
 
+Questions a request waits on go to ONE warm Python per server, `chesslab web-worker` (JSON lines,
+`lib/py/worker.ts`), started from `<repo>/.venv` or `CHESSLAB_PYTHON` — the web app asks Python
+instead of rebuilding it (`docs/web-ruft-python.md`). A dead worker is a 500 with its reason, never a
+silent TS fallback.
+
 While a job runs the card polls `GET /api/chain/<name>/progress` every two seconds and shows what
 the tool has actually reached: its position in the recording (against `video_duration_ns` from the
 phone's `session.yaml`), the number of COMMITTED plies, and its last line of output. No denominator,

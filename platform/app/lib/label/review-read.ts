@@ -1,12 +1,41 @@
-import { reviewOf, type Review } from "@/lib/label/review-cards";
+import { buildGalleryCards, buildReviewCards, type Review, type ReviewMove } from "@/lib/label/review-cards";
+import { lcsReport, moveSquares, type MoveSquares } from "@/lib/py/ops";
 import type { StreamGame } from "@/lib/label/zuege";
 import {
   confirmedAgainst, listFrameStems, loadCandidate, readReference, readReferenceBytes, referenceDigest,
-  type Candidate,
+  type Candidate, type FrameStem,
 } from "@/lib/session-store/recordings";
 import { referenceOrigin, type ReferenceOrigin } from "@/lib/session-store/reference";
 import { badIntervals } from "@/lib/session-store/review-notes";
 import { sessionId } from "@/lib/session-store/session";
+
+/** Die Pfeilfelder JEDES Halbzugs, aus der Kette des Trackers selbst (`fen_after` des vorigen) —
+ *  python-chess im Worker, dieselbe Lesart wie `realgames confirm`. */
+export function squaresOf(moves: ReviewMove[], startFen?: string): Promise<(MoveSquares | null)[]> {
+  return moveSquares(moves.map((m, i) => [(i === 0 ? startFen : moves[i - 1].fen_after) ?? null, m.san]));
+}
+
+/** LCS gegen die Wahrheit, daraus Karten und Galerie — `/confirm` und der ZUEGE-Strom bauen sie
+ *  gleich (CONCEPT.md §10.3). Ohne Wahrheit ist JEDER Halbzug des Menschen, nichts fehlt. */
+async function reviewOf({ moves, truth, stems, startFen }: {
+  moves: ReviewMove[];
+  truth: string[] | null;
+  stems: FrameStem[];
+  startFen?: string;
+}): Promise<Review> {
+  const [{ matched, invented, missed }, squares] = await Promise.all([
+    truth
+      ? lcsReport(truth, moves.map((m) => m.san))
+      : { matched: [] as [number, number][], invented: moves.map((_, i) => i), missed: [] },
+    squaresOf(moves, startFen),
+  ]);
+  const missedSans = new Set(missed.map((i) => truth?.[i] ?? ""));
+  return {
+    matched, invented, missed,
+    cards: buildReviewCards({ moves, indices: invented, stems, squares, missedSans }),
+    gallery: buildGalleryCards({ moves, matched, stems, squares }),
+  };
+}
 
 export type ConfirmRead = Review & {
   reference: Awaited<ReturnType<typeof readReference>>;
@@ -29,7 +58,7 @@ export async function confirmReview(name: string, candidate: Candidate): Promise
   // show the position AFTER this ply (`lib/label/review-cards.ts`).
   const stems = await listFrameStems(name);
   return {
-    ...reviewOf({ moves: candidate.moves, truth, stems, startFen: candidate.start_fen }),
+    ...(await reviewOf({ moves: candidate.moves, truth, stems, startFen: candidate.start_fen })),
     reference,
     origin,
     truth,
@@ -46,7 +75,7 @@ export async function streamGame(row: { name: string; title: string | null }): P
   const [reference, origin] = await Promise.all([readReference(row.name), referenceOrigin(row.name)]);
   const truth = origin === "phone" ? null : (reference?.sans ?? null);
   const stems = await listFrameStems(row.name);
-  const { cards, gallery } = reviewOf({ moves: candidate.moves, truth, stems, startFen: candidate.start_fen });
+  const { cards, gallery } = await reviewOf({ moves: candidate.moves, truth, stems, startFen: candidate.start_fen });
   return {
     name: row.name,
     title: row.title,

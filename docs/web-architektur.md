@@ -17,7 +17,7 @@ schrieb, baute sich den Pfad selbst, und zwei Seiten/Routen gingen direkt an `no
 | Kern | `lib/*.ts` | Politik und reine Helfer: `atomic`, `jsonl`, `measurement`, `serialize`, `warp`, `fen`, `classes`, `lcs`, `pgn`, `query`, ... |
 
 Abhaengigkeiten laufen abwaerts, festgeschrieben seit Runde 3 (`lib/service-deps.test.ts`):
-**Kern <- session-store <- {ingest, reports} <- label <- corpus <- chain <- app.** Ein Modul
+**Kern <- py (Python-Worker, `docs/web-ruft-python.md`) <- session-store <- {ingest, reports} <- label <- corpus <- chain <- app.** Ein Modul
 importiert aus seinem eigenen Ordner oder aus einer tieferen Schicht; `ingest` und `reports` sind
 Geschwister und kennen einander nicht; `lib/` importiert nichts aus `app/`/`components/`; ein
 neuer Ordner unter `lib/` braucht eine Schicht. Derselbe Waechter verbietet Importzyklen in `lib/`,

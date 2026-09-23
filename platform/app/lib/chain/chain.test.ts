@@ -607,21 +607,8 @@ describe("Lesefehler sind keine Abwesenheit", () => {
     await expect(chainState("g")).rejects.toThrow(/EACCES/);
   });
 
-  test("ein EACCES auf reference.pgn ist nicht „keine Referenz\"", async () => {
-    await mkdir(g("files", "games"), { recursive: true });
-    await writeFile(g("reference.pgn"), "1. e4 e5 *\n", "utf8");
-    await writeFile(g("files", "games", "a.pgn"), "1. e4 e5 *\n", "utf8");
-    failOn("readFile", "reference.pgn");
-    await expect(referenceOrigin("g")).rejects.toThrow(/EACCES/);
-  });
-
-  test("ein EACCES auf files/games macht das Handy-PGN nicht zur menschlichen Referenz", async () => {
-    await mkdir(g("files", "games"), { recursive: true });
-    await writeFile(g("reference.pgn"), "1. e4 e5 *\n", "utf8");
-    await writeFile(g("files", "games", "a.pgn"), "1. e4 e5 *\n", "utf8");
-    failOn("readdir", path.join("files", "games"));
-    await expect(referenceOrigin("g")).rejects.toThrow(/EACCES/);
-  });
+  // `referenceOrigin` liest seit 2026-09-23 in Python: seine beiden EACCES-Faelle stehen in
+  // `tests/test_confirm_verdict.py` (`test_an_unreadable_*`, `test_an_unlistable_*`).
 });
 
 describe("adoptPgn", () => {

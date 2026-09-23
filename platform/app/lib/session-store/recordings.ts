@@ -1,13 +1,13 @@
-/** Filesystem access to `CHESSLAB_DATA_DIR` — the only bridge to the Python side is the format. */
+/** Filesystem access to `CHESSLAB_DATA_DIR`; what Python already computes is asked of `lib/py/`. */
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
+import { Contested } from "@/lib/atomic";
 import { absentOnly, exists } from "@/lib/measurement";
+import { parseReference, type Reference } from "@/lib/py/ops";
+import { PyOpFailed, pyCall } from "@/lib/py/worker";
 import { serialize } from "@/lib/serialize";
-import { lcsReport, reviewedPlies } from "@/lib/lcs";
-import { parseReference, type Reference } from "@/lib/pgn";
 
 type Move = {
   ply: number;
@@ -135,14 +135,10 @@ export const readReferenceBytes = (name: string): Promise<Buffer | null> =>
 
 /** `reference.pgn` as read — null without the file; with one, `problem` says why `sans` can be null. */
 export async function readReference(name: string): Promise<Reference | null> {
-  try {
-    return parseReference(await readFile(referencePath(name), "utf8"));
-  } catch (e) {
-    // NUR ENOENT ist "keine Referenz". Jeder andere Fehler ist eine Datei, die da ist und nicht
-    // gelesen wurde — als `null` gemeldet wurde daraus "kein PGN", und `problem` blieb leer.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return null;
-  }
+  // NUR ENOENT ist "keine Referenz". Jeder andere Fehler ist eine Datei, die da ist und nicht
+  // gelesen wurde — als `null` gemeldet wurde daraus "kein PGN", und `problem` blieb leer.
+  const text = await readFile(referencePath(name), "utf8").catch(absentOnly);
+  return text === null ? null : parseReference(text);
 }
 
 /** The SIZE is read off the file, not assumed: older review frames are 720x816 with the tracker's
@@ -240,59 +236,18 @@ export function confirmedAgainst(doc: Pick<Candidate, "confirmed_at" | "confirme
 /** Die Seite zeigte eine andere `reference.pgn` als die, gegen die jetzt geurteilt wuerde. */
 export class ReferenceMoved extends Error {}
 
-/** Stamp the confirmation keys and NOTHING else: other keys are carried as raw source text, since a
- *  plain parse prints `0.0` back as `0`. Write is tmp + rename, like `realgames.write_confirmation`. */
+/** Das Urteil des Menschen, gerechnet und geschrieben von `realgames.confirm.confirm_kept` — mit dessen
+ *  Riegeln. `shownReference`: md5 der angezeigten Referenz (null = keine); `undefined` = alter Client. */
 export async function writeConfirmation(name: string, kept: number[], drop: number[] = [],
   shownReference?: string | null): Promise<number[]> {
   const file = recordingFile(name, "candidate");
-  // Lesen-rechnen-ersetzen: ohne Riegel lasen zwei Streichungen denselben Stand und die zweite
-  // vereinigte sich mit einer Liste ohne die erste — `struck_plies` verlor ein MENSCHLICHES
-  // Urteil. Der Riegel sieht nur diesen Prozess, der Stempel darunter auch jeden anderen.
-  return serialize(file, () => confirmUnlocked(name, file, kept, drop, shownReference));
-}
-
-async function confirmUnlocked(name: string, file: string, kept: number[], drop: number[],
-  shownReference: string | null | undefined): Promise<number[]> {
-  const stamp = await stampOf(file);
-  const text = await readFile(file, "utf8");
-  const doc = JSON.parse(text, function (_key, value, context?: { source?: string }) {
-    return typeof value === "number" && context?.source
-      ? (JSON as unknown as { rawJSON(t: string): unknown }).rawJSON(context.source)
-      : value;
-  }) as Record<string, unknown>;
-
-  const candidate = JSON.parse(text) as Candidate;
-  // EIN Lesen fuer Urteil und Stempel: zweimal gelesen koennte dazwischen eine andere landen.
-  const refBytes = await readReferenceBytes(name);
-  const refMd5 = refBytes === null ? null : referenceDigest(refBytes);
-  // `shownReference`: md5 der angezeigten Referenz (null = keine); `undefined` = alter Client.
-  if (shownReference !== undefined && shownReference !== refMd5) {
-    throw new ReferenceMoved(`${name}: Referenz wurde waehrend der Pruefung ersetzt, Seite neu laden`);
-  }
-  const truth = refBytes === null ? null : (parseReference(refBytes.toString("utf8")).sans ?? null);
-  // No reference game: nothing is "matched", so the human's keeps ARE the reviewed plies. With
-  // one, the client may only decide the unmatched ones — the matched set is not its to change.
-  const all = candidate.moves.map((_, i) => i);
-  const { matched, invented } = truth
-    ? lcsReport(truth, candidate.moves.map((m) => m.san))
-    : { matched: [] as [number, number][], invented: all };
-  const inventedSet = new Set(invented);
-  // A matched ply is not automatically TRUE: on a transposition the SAN LCS matches a move to the
-  // same move played later, so the human must be able to strike it. Struck stays struck — `drop` is
-  // persisted, `/api/zuege` never resends it.
-  const struck = [...new Set([...(candidate.struck_plies ?? []), ...drop])].sort((a, b) => a - b);
-  const dropped = new Set(struck);
-  const plies = reviewedPlies(candidate.moves, matched, kept.filter((j) => inventedSet.has(j))).filter(
-    (ply) => !dropped.has(ply),
-  );
-
-  doc.confirmed = true;
-  doc.confirmed_at = new Date().toISOString().replace(/\.\d+Z$/, "Z");
-  doc.reviewed_plies = plies;
-  doc.confirmed_reference = { md5: refMd5, at: doc.confirmed_at as string };
-  if (struck.length > 0) doc.struck_plies = struck;
-
-  await writeFileAtomicGuarded(file, JSON.stringify(doc, null, 2) + "\n", stamp,
-    `${name}: candidate.json wurde waehrend der Bestaetigung von aussen geschrieben`);
-  return plies;
+  const shown = shownReference === undefined ? {} : { shown_reference: shownReference };
+  // Ohne Riegel lasen zwei Streichungen denselben Stand, und `struck_plies` verlor ein MENSCHLICHES
+  // Urteil. Der Riegel reiht DIESEN Prozess, Pythons Stempel lehnt jeden anderen Schreiber ab.
+  return serialize(file, () =>
+    pyCall<number[]>("confirm", { root: dataDir(), name, kept, drop, ...shown }).catch((e: unknown) => {
+      if (e instanceof PyOpFailed && e.kind === "ReferenceMoved") throw new ReferenceMoved(e.detail);
+      if (e instanceof PyOpFailed && e.kind === "VerdictContested") throw new Contested(e.detail);
+      throw e;
+    }));
 }

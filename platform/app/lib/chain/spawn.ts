@@ -1,6 +1,9 @@
 /** Prozesse starten und beenden — ein Weg fuer `.bat` wie fuer `uv`, und Stopp trifft den ganzen Baum. */
 import { spawn } from "node:child_process";
 import { repoDir, uvBinary } from "@/lib/chain/cli-args";
+import { killTree } from "@/lib/py/worker";
+
+export { killTree };
 
 /**
  * Windows quoting for one argument of a `cmd /s /c "..."` line: `windowsVerbatimArguments` hands the
@@ -19,24 +22,6 @@ export function spawnTool(binary: string, args: string[], cwd: string) {
     cwd,
     windowsHide: true,
     windowsVerbatimArguments: true,
-  });
-}
-
-/** Kill the whole tree: the chain is `uv` → `chesslab.exe` → python, so `.kill()` on the shim leaves
- *  the worker on the GPU. */
-export function killTree(pid: number): Promise<void> {
-  if (process.platform !== "win32") {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      /* already gone */
-    }
-    return Promise.resolve();
-  }
-  return new Promise<void>((resolve) => {
-    const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
-    killer.on("error", () => resolve());
-    killer.on("close", () => resolve());
   });
 }
 

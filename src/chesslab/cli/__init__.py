@@ -1,6 +1,6 @@
 """Typer entrypoint. One CLI `chesslab`; each stage adds its own subcommands.
 
-Every sub-app lives in its own module; importing `dataset` and `train` registers the root verbs.
+Every sub-app lives in its own module; importing `dataset`, `train` and `web_worker` registers the root verbs.
 """
 
 from __future__ import annotations
@@ -8,7 +8,11 @@ from __future__ import annotations
 import logging
 import sys
 
-from . import dataset, train  # noqa: F401 - in this order: they register the root verbs on `app`
+from . import (  # noqa: F401 - in this order: they register the root verbs on `app`
+    dataset,
+    train,
+    web_worker,
+)
 from ._app import app
 from .calibrate import calibrate_app
 from .capture import capture_app
