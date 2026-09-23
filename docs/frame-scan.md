@@ -1,192 +1,160 @@
-# Frame-Scan — erst messen, dann auswählen
+# Frame-Auswahl — erst messen, dann wählen; die Zelle entscheidet
 
-Warum der Export nicht mehr plant und danach flaggt, sondern jeden Frame misst und danach wählt.
-Code: `chesslab/framescan.py`. Der Occluder-Alpha darauf: `docs/session-mattes.md`. Seit
-2026-08-22 entscheidet die Klasse hier nicht mehr über ein Label, sondern nur noch darüber, was
-SAM zuerst mattet — das Urteil fällt pro Zelle (`docs/position-check.md`).
+Welche Frames einer Aufnahme ein Label tragen, und wie viele davon ein Datensatz mitnimmt. Code:
+`chesslab/framescan.py` (Scan, `classify`), `realgames.settle_for_ply` (Messung),
+`labeling.slice_session` (Tor), `position_flags.py` (Karten), `dataset_build.keep_per_position`
+(Abtastung). Die Alpha darauf: `docs/session-mattes.md`. Wann eine Stellung stand:
+`docs/retime.md`.
 
-## Der Bruch
+## 1. Erst messen, dann wählen
 
-`plan_rows` verteilte 8 Frames gleichmäßig über das ruhige Fenster einer Stellung, danach flaggten
-Rillen-Read und `skin_patch` einen Teil davon als `dirty`. Ein geflaggter Slot fiel einfach aus.
+Der alte Export verteilte 8 Frames gleichmäßig über das ruhige Fenster einer Stellung und flaggte
+danach — ein geflaggter Slot fiel einfach aus. Es fehlte nie an sauberen Frames, sie waren falsch
+einsortiert (800 Bretter, 20 Sessions, 2026-08-18): **132 von 575** rillen-sauberen Frames zeigten
+eine Person, **340 von 651** verworfenen keine (pauschal 1 s um jeden Commit gesperrt).
 
-Gemessen am 2026-08-18 über den ganzen Korpus (469 Stellungen, 14.429 Bretter):
+Seitdem scannt `framescan.py` jeden dritten Frame (0,1 s bei 30 fps), bevor irgendetwas gewählt
+wird. Der Decode kostet `max(index)`, nicht `len(rows)` — mehr Kandidaten zu prüfen ist fast
+gratis, darauf beruht der Umbau. Ergebnis auf 67 Stellungen von `rg-2026-08-08-00-39-57`:
+**91 %** der Stellungen behalten ihre 8 sauberen Bretter (vorher korpusweit 20 %). Fehlt der
+Scan, zieht der Export ihn selbst (`ensure_scan`); scheitert er, bricht der Export ab. `--no-scan`
+plant ausdrücklich nach Margin-Fenstern — der Notausgang, gemessen mit 23 % Händen im Korpus.
 
-| Regel | Stellungen mit ≥ 8 sauberen | ohne einen einzigen | Median | Summe |
-|---|---|---|---|---|
-| Fenster + Sensoren (alt) | 93 (20 %) | 67 | 5 | 3.063 |
-| Rillen + RT-DETR (neu) | **434 (93 %)** | 14 | **18** | 8.759 |
+### Die Sensoren
 
-Es fehlte nie an sauberen Frames. Sie waren falsch einsortiert — und zwar in beide Richtungen,
-gemessen an 800 Brettern aus 20 Sessions:
-
-- **132 von 575** rillen-sauberen Frames zeigen eine Person. 23 % Hände liefen in den Korpus.
-- **340 von 651** als `dirty` verworfenen Frames zeigen keine. Sie fielen nur, weil pauschal 1 s um
-  jeden Commit gesperrt war — die Hand ist dort längst weg.
-
-## Die Sensoren
-
-Bis 2026-08-22 zählten drei, weil sie **verschieden** scheitern. Seitdem entscheidet der
-destillierte Hand-Gate allein (`docs/hand-gate.md`), und die Rillen bleiben nur noch, weil sie die
-**Felder benennen** — als Handstimme tragen sie nichts mehr bei.
-
-| Sensor | Kosten | Rolle heute |
+| Sensor | Kosten | Rolle |
 |---|---|---|
-| **Hand-Gate** (`hand_gate`) | **2,1 ms** | entscheidet, ob eine Hand auf dem Brett liegt |
-| Rillen (`grid_occlusion.hand_squares`) | 13,6 ms | benennt die Felder (`hand_squares`), stimmt nicht mit |
-| ~~RT-DETR r18~~ | ~~24,6 ms~~ | entfernt |
-| ~~`skin_patch`~~ | ~~6,8 ms~~ | entfernt |
+| **Hand-Gate** (`hand_gate`) | **2,1 ms** | entscheidet allein, ob eine Hand auf dem Brett liegt (`docs/session-mattes.md` §4) |
+| Rillen (`grid_occlusion.hand_squares`) | 13,6 ms | **benennt** nur die Felder, stimmt nicht mit |
 
-Gemessen gegen SAM auf **vier komplett zurückgehaltenen Sessions** (1 783 Bretter, 865 mit Hand):
+Gegen SAM auf vier komplett zurückgehaltenen Sessions (1 783 Bretter, 865 mit Hand): Gate Recall
+**0,9988**, Präzision **0,9920**; die drei alten Sensoren zusammen 0,9618 / 0,9509. Bei Schwelle
+**0,50** fängt der Gate alle 865 und verwirft 10 von 918 sauberen Brettern (bei 0,60: 1 verpasst,
+7 Fehlalarme). Die Rillen retten als Handstimme null Frames und kosten 36 Fehlalarme.
 
-| | Recall | Präzision |
+- **RT-DETR und `skin_patch` sind entfernt** (2026-08-22). Grounding DINO davor: 405 ms je Frame,
+  und bei 512 px flaggte es jedes saubere Brett — nicht verkleinerbar.
+- **Alte Scans tragen kein `gate`;** `occupied` liest sie nach der alten Regel, sonst gälte ein
+  ganzer Korpus über Nacht als handfrei. Dort gilt RT-DETR `person` ≥ `PERSON_THR` 0,20: saubere
+  Bretter liegen bei 0,11–0,13, Hände bei 0,30–0,95, bei 0,10 flaggt jedes saubere Brett.
+- **Risiko:** der Gate ist auf DIESEM Aufbau kalibriert. Wer eine neue Kamera anfährt, misst ihn
+  auf einer Session gegen SAM, bevor er dem Scan glaubt.
+
+## 2. Die vier Gründe — der Zeuge ist das Brett, nicht die Hand
+
+`framescan.classify` gibt jedem Frame einen Grund:
+
+| Grund | Woran erkannt | FEN gültig? |
 |---|---|---|
-| **Hand-Gate** | **0,9988** | **0,9920** |
-| die drei alten zusammen | 0,9618 | 0,9509 |
+| `clean` | kein Sensor sieht etwas, Brett wie beim Commit | ja — der p8-Bestand in `boards/` |
+| `occluded` | Hand über einem **unveränderten** Brett | **ja** — das Occlusion-Material |
+| `stale` | die Felder des nächsten Zuges haben sich geändert | nein |
+| `changed` | wenige andere Zellen dauerhaft anders (Kipper) | nein |
 
-Der Gate findet **33 Hände**, die alle drei übersehen. Umgekehrt retten sie **einen** Frame — und
-der lag beim Gate auf 0,516 gegen die Schwelle 0,60, also knapp darunter statt unsichtbar. Die
-Schwelle auf **0,50** gesenkt fängt er alle 865 und verwirft 10 von 918 sauberen Brettern; RT-DETR
-kostet 24,6 ms je Frame, um denselben Frame ein zweites Mal zu finden. Die Rillen retten als
-Handstimme **null** und kosten 36 Fehlalarme.
+Alles außer `clean` liegt in `dirty/`, jede Zeile mit `dirty_reason`. Die Labels gelten so lange,
+wie die Stellung noch so aussieht wie die, für die der Commit bürgt. Zwei verworfene Entwürfe:
 
-| Schwelle | Recall | verpasst | Fehlalarm |
+- **Die Hand als Zeuge** (Griff rückwärts vom Commit suchen): ein zappelnder Spieler kostete die
+  ganze Stellung (ply 49 von 00-39-57: alle 50 Frames verworfen), und ein Handschlag ist kein Zug.
+- **Alle 64 Zellen als Zeuge:** flaggte 55 % der ruhigen Frames, Änderungspunkt im Median bei
+  33 % des Intervalls, median 7 abweichende Zellen auf e1, d1, f1, c2, g1 — der Schatten des
+  vorgebeugten Spielers auf der Grundreihe. Ein Zug ändert **zwei** Felder.
+
+**Die gezielte Frage:** nur `next_touches` (die Felder des nächsten Zuges aus der bestätigten
+PGN) entscheidet `stale`. Änderungspunkt dann p50 **89 %** statt 33 %; frühe Fälle sind der
+Vorlauf des Bildes vor dem Commit (bis 4,6 s). Für den Kipper gilt `MAX_CHANGED_CELLS = 4` — mehr
+gleichzeitig driftende Zellen sind Licht — und eine Abweichung zählt nur, wenn sie **bis zum
+Intervallende bleibt** (`_persistent`, Schnittmenge seit 2026-09-14; ein Ärmel kommt zurück).
+
+Die 8 Bretter je Stellung stammen aus deren sauberem Fenster (Median 1,7 s). Sie existieren, damit
+jede Stellung gleich schwer wiegt, nicht für zeitliche Vielfalt. Ein Posen-Dedup der
+`occluded`-Frames wurde gemessen und verworfen: nur 23 % gespart, weil `pick_spread` ohnehin streut.
+
+## 3. Stellungs-Prüfung: die Zelle entscheidet, nicht das Frame (2026-08-22)
+
+Mit `settle_dev` in der Log-Zeile und einer Matte daneben steuert die Frame-Klasse nur noch, was
+SAM zuerst mattet. Geurteilt wird **pro Zelle** gegen die gesetzte Stellung des eigenen
+Ply-Intervalls:
+
+| Coverage | Abweichung | Urteil | Was passiert |
 |---|---|---|---|
-| 0,60 | 0,9988 | 1 | 7 (0,8 %) |
-| **0,50** | **1,0000** | **0** | **10 (1,1 %)** |
-| 0,40 | 1,0000 | 0 | 22 (2,4 %) |
+| > `MATTE_DIRTY` (0,15) | egal | verdeckt | FEN-Label bleibt, `coverage` nimmt die Zelle aus dem Klassifikations-Loss — kein Kärtchen |
+| ≤ 0,15, `settle_seen` ≥ 0,5 | < `SETTLE_LIMIT` (45) | unverändert | FEN-Label gilt, Zelle geht in den Pool |
+| ≤ 0,15, `settle_seen` ≥ 0,5 | ≥ 45 | strittig | Karte auf der `Strittig`-Lane |
+| ≤ 0,15, `settle_seen` < 0,5 | nicht messbar | strittig | dito — weder vergleichbar noch vom Loss ausgenommen |
 
-Alte Scans tragen kein `gate`; `occupied` liest sie weiter nach der alten Regel, sonst gälte ein
-ganzer Korpus über Nacht als handfrei.
+Der sichtbar ziehende Bauer (a2 leer, a3 besetzt, FEN sagt noch a2) ist damit zwei Karten und kein
+verworfenes Frame; `stale`- und `changed`-Frames werden Zelle für Zelle gerettet. Auf
+`2026-08-16-20-41-33` brachte das **+1 939 Zellen** in den Pool bei 276 Karten auf 169 Frames.
 
-**Bekanntes Risiko:** der Gate ist auf DIESEM Aufbau kalibriert. Ein neuer Aufbau kann ihn
-verschieben, ohne dass es auffällt — RT-DETR hätte das gemerkt. Wer eine neue Kamera anfährt,
-misst den Gate gegen SAM auf einer Session, bevor er dem Scan glaubt.
+**Nur gemattete Frames sind so messbar.** Am 2026-09-22 trugen 27 Aufnahmen 13 577 Log-Frames
+gegen 8 554 gemattete (63,0 %). Ein fehlendes Alpha heißt nicht sichtbar, sondern ungemessen.
 
-### Warum RT-DETR und nicht Grounding DINO
+### Was gemessen wird
 
-| Modell | je Frame | Treffer (24 Bretter) | Falschflaggen |
+- **Die Referenz ist alpha-gefiltert:** pixelweiser Median nur über Boards des Intervalls, deren
+  Alpha nirgends mehr als `SETTLE_CLEAR_MAX` (0,02) behauptet — eine Hand im Median wäre die
+  Stellung.
+- **Abweichung nur auf sichtbaren Pixeln, beide Seiten genivelliert:**
+  `mean|(Zelle − ⌀Zelle) − (Referenz − ⌀Referenz)|` über `alpha < 128`. Ein Schatten verschiebt die
+  Helligkeit, eine Figur die Struktur; roh flaggte der Spielerschatten auf 20-41-33 ply 7 drei
+  unberührte Felder.
+- **`settle_seen`** steht neben `settle_dev`: der sichtbare Anteil je Zelle. Auf einem Fünftel
+  gemessen ist nicht „unverändert", sondern ungesehen.
+- **Reihenfolge:** `session settle-scan` schreibt `settle_dev`/`settle_seen`, erst dann hat
+  `realgames position-flags` etwas; ungemessen zeigt die Lane `—`, nicht `0`.
+
+### Die Schwelle 45 (seit 2026-09-09)
+
+15 war gegen den Rillen-Sensor geeicht, nicht gegen das Bild: sie verwarf 2 999 Zellen, die die
+Coverage nicht ohnehin maskiert, vier Fünftel davon unter 35 und gewöhnliches Material. Über 45
+waren 24 von 24 Stichproben Hände auf Feldern, die der FEN als Figur führt. Wer sie senkt, flutet
+die Lane.
+
+### Die Prüfung des Commit-Fensters
+
+Der Zug, der ein Intervall eröffnet, MUSS zwischen der Referenz des Vorgängers und der eigenen auf
+genau den Feldern aus `changed_squares` sichtbar sein — sonst hängt der FEN an Pixeln, die ihn nie
+gezeigt haben. Der einzige Test über eine Intervallgrenze hinweg; `realgames.interval_moves`
+schreibt ihn nach `interval-check.jsonl`. Über 177 Nachbar-Paare aus drei Sessions ist der Zug in
+161 sichtbar. Die übrigen sind nicht automatisch falsche Commits; die Zeile sagt `seen: false`,
+der Mensch entscheidet.
+
+### Die bekannte Blindstelle
+
+Das Brett hat einen Lichtverlauf (h3 bei 156, a7 bei 20 auf 20-41-33): ein schwarzer Bauer auf
+fast schwarzem Feld bewegt den Wert nur um ~1,5, bleibt also unter `SETTLE_LIMIT` (und unter
+`framescan.CHANGE_THR`), und die Zelle geht mit altem Label durch. `interval-check.jsonl` misst das
+pro Ply. Schließen heißt, die Abweichung am Eigenkontrast der Zelle zu normieren, nicht die
+Schwelle zu senken.
+
+## 4. Abtastung: wie viele Bretter je Stellung
+
+Der Engpass sind **Stellungen**, nicht Crops. Nachgezählt 2026-09-22 über alle
+`data/recordings/*/log.jsonl`: 27 Aufnahmen, 13 577 Brettzeilen, **850 Stellungen, 16,0 Aufnahmen
+je Stellung** — und der Tracker nimmt alle 0,1 s auf, die zehnte Aufnahme je Sekunde ist eine
+Kopie der ersten.
+
+Gemessen (vier Folds, gleicher Seed und Pack, damals 246 Stellungen auf 9 386 Brettern):
+
+| Variante | Bretter | Stellungen | macro |
 |---|---|---|---|
-| Grounding DINO @800 px | 405 ms | 24 | 0 |
-| Grounding DINO @512 px | 192 ms | 23 | **23** |
-| **RT-DETR r18** | **24,6 ms** | 23 | **0** |
-| DETR R50 | 29,9 ms | 18 | 0 |
-| YOLOS-tiny | 20,3 ms | 23 | 11 |
+| voll, 0,1 s | 9 386 | 246 | 0,7119 |
+| Zeitraster 2,4 s | 400 | **147** | 0,7452 |
+| 4 je Stellung | 980 | 246 | 0,7802 |
+| **16 je Stellung** | 3 415 | 246 | **0,7898** |
 
-- **DINO lässt sich nicht verkleinern.** Bei 512 px flaggt es jedes saubere Brett; die 405 ms sind
-  der Preis, nicht ein Parameter. Batching bringt 12 % (445 → 389 ms bei 8), bei 16 kippt es.
-- **Die Schwelle 0,20 ist gemessen, nicht geraten.** Saubere Bretter liegen flach bei `person`
-  0,11–0,13, Hände bei 0,30–0,95. Bei 0,10 flaggt jedes saubere Brett.
-- **Nur `person` trägt.** Dasselbe Modell findet auf einem sauberen Brett `mouse` 0,35, `cup` 0,34,
-  `clock` 0,31 — das sind die Figuren. Eine „alles außer Schach"-Regel ist unbrauchbar.
-- **Der Ausschnitt ist egal, der Rand nicht.** Ein Bounding-Box-Schnitt des Quads liefert dieselben
-  Urteile wie das gewarpte Brett (0,11 vs 0,13). Mit 10 % Rand flaggt es *alles* (12/12 sauber),
-  mit 25 % nur die Randhände (9/12, 0 Fehlalarme) — nicht monoton, also nicht verlässlich. Der
-  Scan warpt ohnehin für die Zell-Signatur, also bleibt es beim Brett.
-- **`skin_patch` bleibt.** Er beansprucht korpusweit nur 58 Frames allein — und **alle 58 sind
-  echte Hände**, Finger am Brettrand, denen RT-DETR 0,09–0,19 gibt.
+- **Stratifizieren nach Stellung wirkt** (macro 0,77–0,79 gegen 0,712) — der einzige Abstand über
+  der Seed-Streuung (`tests/test_per_position.py`).
+- **Ein reines Zeitraster verliert Stellungen:** bei 2,4 s fielen 99 von 246 weg.
+- **Danach ist die Brettzahl fast egal;** der p/d/s-Sweep (40 Läufe, 2026-08-17) fand keine Achse,
+  die sich von der Basis trennt — p4 mit 28 426 Zeilen lag auf dem Median über der Basis mit
+  462 935. Nur der Stride `s` lag konsistent unten.
+- **Verworfen:** innerhalb einer Stellung die optisch verschiedensten Bretter wählen (k-center über
+  einen Farb-Deskriptor) — 2 von 4 Folds gewonnen, zweimal. Code entfernt.
 
-## Die vier Gründe
-
-Ein Frame ist nicht „dirty", er hat einen Grund (`framescan.classify`):
-
-| Grund | Woran erkannt | FEN gültig? | Wofür brauchbar |
-|---|---|---|---|
-| `clean` | kein Sensor sieht etwas, Brett wie beim Commit | ja | der p8-Bestand |
-| `occluded` | Hand über einem **unveränderten** Brett | **ja** | Occlusion-Labels |
-| `stale` | die Felder des nächsten Zuges haben sich geändert | nein | nur als Bild |
-| `changed` | wenige andere Zellen dauerhaft anders (Kipper) | nein | nur als Bild |
-
-**Der Zeuge ist das Brett, nicht die Hand.** Die Labels gelten genau so lange, wie die Stellung
-noch so aussieht wie die, für die der Commit bürgt. Eine Hand über einem unveränderten Brett ist
-ein Spieler, der hineingreift — kein Spieler, der gezogen hat.
-
-### Warum nicht die Hand
-
-Der erste Entwurf suchte den Griff rückwärts vom Commit und erklärte alles ab dort für ungültig.
-Zwei Messungen haben ihn erledigt:
-
-- **Ein zappelnder Spieler kostet die ganze Stellung.** Auf ply 49 von 00-39-57 liegt die Hand in
-  35 von 50 Frames mit kurzen Lücken; die Rückwärtssuche kettete durch bis zum Segmentanfang und
-  verwarf alle 50.
-- **Ein Handschlag ist kein Zug.** Eine Hand mitten im Intervall, nach der wieder Ruhe einkehrt,
-  lässt die Stellung in Ruhe — sie darf `occluded` bleiben, sonst verliert man das beste Material.
-- Der `measure_settle`-Onset als Frame-Sperre war ebenso zu grob: er verwirft den ganzen Frame,
-  wo `unknown_for` längst die betroffenen **Felder** benennt.
-
-### Warum nicht alle 64 Zellen
-
-Der zweite Entwurf verglich das ganze Brett mit dem Kopf des Intervalls. Das flaggte 55 % aller
-ruhigen Frames, mit einem Änderungspunkt im Median bei **33 %** des Intervalls — viel zu früh für
-einen Zug. Die abweichenden Zellen verrieten warum:
-
-| | Median abweichender Zellen | häufigste Felder |
-|---|---|---|
-| alle 64 Zellen | 7 | e1, d1, f1, c2, g1, e2, h1 |
-
-Das ist die Grundreihe vor dem Spieler: er beugt sich vor und wirft Schatten. Ein Zug ändert
-**zwei** Felder, kein Dutzend.
-
-### Die gezielte Frage
-
-`known_segments` liefert `next_touches` — die Felder, die der nächste Zug anfasst, aus der
-bestätigten PGN. Nur dort wird auf `stale` geprüft. Das verschiebt den Änderungspunkt dorthin, wo
-der Zug wirklich passiert:
-
-| Zeuge | Änderungspunkt p10 | p50 | p90 |
-|---|---|---|---|
-| alle 64 Zellen | 13 % | 33 % | 47 % |
-| **nur `next_touches`** | 38 % | **89 %** | 93 % |
-
-Die frühen Fälle bei p10 sind kein Fehler, sondern der dokumentierte Vorlauf: das Bild eilt dem
-Commit um bis zu 4,6 s voraus (`measure_settle`).
-
-Für die umgefallene Figur bleibt der Test über die übrigen Zellen, aber mit Deckel:
-`MAX_CHANGED_CELLS = 4`. Mehr gleichzeitig driftende Zellen sind Licht oder Schatten, kein Kipper.
-Eine Abweichung zählt außerdem nur, wenn sie **bis zum Intervallende bleibt** — was zurückkommt,
-ist ein Ärmel, der vorbeizieht.
-
-### Was die drei Entwürfe gebracht haben
-
-67 Stellungen von `rg-2026-08-08-00-39-57`, gleiche Sensoren, nur die Klassifizierung getauscht:
-
-| Entwurf | 8 saubere | ohne eine | saubere Bretter | Ablage: `occluded` / Rest |
-|---|---|---|---|---|
-| Fenster um den Commit (alt) | 20 %* | 67 von 469* | 3.063* | — |
-| Hand + settle-Onset | 75 % | 9 | 428 | 256 / 280 |
-| Brett, alle 64 Zellen | 82 % | 4 | 469 | 83 / 453 |
-| **Brett, nur `next_touches`** | **91 %** | **1** | **515** | **394 / 142** |
-
-<sub>* korpusweit gemessen, die übrigen Zeilen auf dieser einen Session.</sub>
-
-Die zweite Spalte von rechts ist die wichtigere: `occluded` heißt echte Hand über **bekannter**
-Stellung, und nur daraus lassen sich Occlusion-Labels ableiten. Der letzte Schritt hat davon fast
-das Fünffache geliefert.
-
-### Was die 8 Bretter NICHT sind
-
-Sie sind nicht über die Stellung verteilt, sondern über deren sauberes Fenster: 56 % der
-Stellungen liefern ihre acht aus unter 2 s (Median 1,7 s). Das ist kein Mangel — innerhalb einer
-Stellung steht das Brett still, die acht unterscheiden sich ohnehin nur in Rauschen und Licht.
-Sie existieren, damit jede Stellung gleich schwer wiegt, nicht für zeitliche Vielfalt.
-
-### Kein Posen-Dedup
-
-Naheliegend wäre, zwei Frames derselben Hand als einen zu zählen (IoU über den Rillen-Feldern, wie
-es der alte `matte.scan_session` tat). Gemessen auf 00-39-57: von 394 gewählten `occluded`-Frames
-blieben 303 übrig — 23 %, also 0,3 h SAM-3-Zeit. Zu wenig für den Aufwand, weil `pick_spread` die
-Auswahl ohnehin über das Intervall streut und eine Hand sich in einer Sekunde stark verändert.
-
-## Kosten
-
-Ein Vorwärtsdurchlauf je Video, jeder dritte Frame (0,1 s bei 30 fps):
-
-| Posten | Rechnung |
-|---|---|
-| Decode, 20 Videos | 140.632 Frames × 3,3 ms ≈ 8 min |
-| Sensoren | ~47.000 × 45 ms ≈ 35 min |
-| Speichern (nur Gewähltes) | ~7.500 × 218 ms ≈ 27 min |
-
-Der Decode kostet `max(index)`, nicht `len(rows)` — `Recording.frames()` liest jeden Frame von 0
-bis zum letzten gewünschten. Mehr Kandidaten zu prüfen ist deshalb fast gratis, und genau darauf
-beruht der ganze Umbau.
+**Die Regel:** die Abtastung folgt der Änderungsrate der Quelle. Spiel-Session: die Stellung,
+`--per-position 4` bis `8`. Drehteller: der Winkel, Stride 8 (≈ 3,4 Grad bei 0,429 Grad je Frame;
+`docs/occluder-plates.md`). Mehr Frames pro Sekunde bringen nichts — Licht ist auf dem 0,1-s-Raster
+vollständig erfasst, und Hände (Einzelsprung Faktor 25 über dem Median) trifft ein Zeitraster nur
+zufällig.

@@ -1,178 +1,179 @@
-# Das Klassenschema — von 2 über 14 zurück auf 13 + Coverage
+# Das Klassenschema — 13 Klassen + Coverage, und wie der Verlust sie gewichtet
 
-Die Zahl der Klassen hat sich viermal geändert, und jedes Mal blieb die vorige Fassung irgendwo
-stehen. Dieses Dokument sagt, was heute je Oberfläche gilt und woran man ein Schema erkennt.
-Das *Warum* der letzten Änderung steht in `docs/occluder-plates.md`, die Messreihe dahinter
-unten unter „Die fünf Trainingsrunden".
+Was heute je Oberfläche gilt, woran man ein Schema erkennt, und wie Coverage und Klassengewichte
+in den Verlust eingehen. Warum `occluded` ein Ausgang und keine Klasse ist:
+`docs/occluder-plates.md`.
 
-## Chronik
+## 1. Chronik in fünf Zeilen
 
-Nicht die Konstante in `config.py` ist die Chronik — `CLASSES` trug die 14 seit dem ersten Commit.
-Was sich änderte, ist das Schema, in dem *trainiert und ausgeliefert* wurde.
+- **2026-07-26, 2 Klassen** (`empty`/`occupied`): der Tracker fragt Belegung, nicht Identität.
+- **2026-07-31, 13** (`pieces13`): `IDENTITY_CLASSES` = `CLASSES` minus `occluded`. Der Pool trug
+  null `occluded`-Zeilen, und ein untrainierter 14. Logit kann ein Argmax trotzdem gewinnen.
+- **2026-08-09, 14** (`pieces`): `occl14-80` — die 14. Klasse funktioniert, zahlt sich nicht aus
+  (§4).
+- **2026-08-18, 13 + Coverage**: `occluded` verlässt den Softmax und wird Regressionsziel,
+  gemessen per Alpha-Matte statt gemalt.
+- **2026-08-20**: das 2-Klassen-Schema ist in Python und Kotlin **ersatzlos gelöscht**.
 
-| Datum | Commit | Schema | Was passierte |
-|---|---|---|---|
-| 2026-07-26 | `5bd0b917` | **2** (`empty`/`occupied`) | `OCCUPANCY_CLASSES` + `to_occupancy_class`. Der Tracker fragt Belegung, nicht Identität; ein winziges Modell ganz auf die eine Frage. Whole-Board-Accuracy 0,03 → 0,94. |
-| 2026-07-30 | `44af3a67` | 2 | Erste Belegungsmodelle aufs Handy (`shipped`, `v4-128`, `v6-80`). |
-| 2026-07-31 | `9bcbd471` | **13** (`pieces13`) | `IDENTITY_CLASSES`, abgeleitet aus `CLASSES` minus `occluded` — nie ein zweites Literal. Grund: der Crop-Pool trug null `occluded`-Zeilen, ein untrainierter 14. Logit kann ein Argmax trotzdem gewinnen. |
-| 2026-08-01 | `f331c867` | 13 | `id35-80` aufs Handy — das 13-Klassen-Identitätsmodell. |
-| 2026-08-09 | `28481551` | **14** (`pieces`) | `occl14-80`: die 14. Klasse existiert, funktioniert und zahlt sich (noch) nicht aus. |
-| 2026-08-13 | `000fb745` | 14 | `real14-80` wird Default auf dem Handy — erstmals ist `pOccluded` überhaupt ungleich 0, und damit sind Hand-Veto, Recovery-Gate und Count-Discount zum ersten Mal scharf. |
-| 2026-08-18 | `1f2df751` | **13 + Coverage** | `occluded` verlässt den Softmax und wird Regressionsziel: ein zweiter Ausgang, ein kontinuierlicher Anteil, gemessen per Alpha-Matte statt gemalt. |
-| 2026-08-20 | — | 13 + Coverage | Das 2-Klassen-Schema wird **ersatzlos gelöscht**, auf beiden Seiten: `config.OCCUPANCY_CLASSES` und `to_occupancy_class` in Python, `OCCUPANCY_CLASSES` und `classesHaveIdentity` in Kotlin. `--classes` kennt nur noch `pieces13` und `pieces`. Aus dem APK fliegen sechs Modelle (`shipped`, `v4-128`, `v6-80`, `bn35/50/100-80`) plus `occl14-80`; übrig bleiben zwei. |
-
-## Was heute gilt
+## 2. Was heute gilt
 
 ### Python — 13 Klassen + ein Sigmoid
 
-- `config.CLASSES` (14) bleibt der Kanon, aus dem `IDENTITY_CLASSES` (13) abgeleitet wird
-  (`src/chesslab/config.py:18`, `:37`). Die 14 stehen dort für alte Datensätze, nicht für neue Läufe.
-- **Es gibt nur noch zwei Modi**: `dataset_build.CLASS_MODES = ("pieces13", "pieces")`
-  (`src/chesslab/dataset_build.py:50`). `class_list_for` wirft bei allem anderen — das
-  2-Klassen-`occupancy` ist am 2026-08-20 samt `to_occupancy_class` gelöscht worden.
-- `dataset build` **defaultet auf `pieces13`** (`src/chesslab/cli.py:1041`,
-  `src/chesslab/dataset_build.py:427`). `collapse_labels` **verwirft** vorhandene `occluded`-Zeilen,
-  statt sie einzusortieren — sie sind weder leer noch besetzt.
-- `train` **defaultet auf `--head occlusion`** (`src/chesslab/cli.py:1250`), und seit 2026-08-20
-  auch die Funktionssignatur (`train.py:112`) — der frühere Widerspruch zwischen CLI und
-  Direktaufruf ist weg.
-- Das Modell gibt `len(classes) + 1` Werte aus: **13 Softmax-Logits plus ein unabhängiges Sigmoid**
-  für die Coverage (`src/chesslab/training/occlusion.py:22`). Das ist nicht dasselbe wie 14 Klassen.
-- `PIECE_VISIBLE_MAX = 0.15` (`src/chesslab/training/occlusion.py:14`): darüber maskiert
-  `OcclusionLoss` den Crop aus dem Klassifikationsterm. Derselbe Wert heißt in `labeling.py`
-  `MATTE_DIRTY` und in der Web-UI `PIECE_VISIBLE_MAX` — drei Namen, eine Zahl.
-- `export` schreibt `coverage_output: true` in die `config.json`, wenn `head == "occlusion"`
-  (`src/chesslab/training/evaluate.py:238`). Deklariert, nicht geraten: wer `classes.size` Logits von
-  einem Graphen liest, der einen breiter ist, softmaxt die Coverage in jede Wahrscheinlichkeit hinein.
+- `config.CLASSES` (14) bleibt der Kanon, aus dem `IDENTITY_CLASSES` (13) abgeleitet wird; die 14
+  stehen dort für alte Datensätze.
+- **Zwei Modi**: `dataset_build.CLASS_MODES = ("pieces13", "pieces")`. `dataset build` defaultet
+  auf `pieces13`; `collapse_labels` **verwirft** vorhandene `occluded`-Zeilen, statt sie
+  einzusortieren. Kein Crop wird dabei umgelabelt.
+- `train` defaultet auf `--head occlusion`. Das Modell gibt `len(classes) + 1` Werte aus: **13
+  Softmax-Logits plus ein unabhängiges Sigmoid** für die Coverage — nicht dasselbe wie 14 Klassen.
+- `PIECE_VISIBLE_MAX = 0.15`: darüber maskiert `OcclusionLoss` den Crop aus dem
+  Klassifikationsterm. Dieselbe Zahl heißt in `labeling.py` `MATTE_DIRTY` und in der Web-UI
+  `PIECE_VISIBLE_MAX`.
+- `export` schreibt `coverage_output: true`, wenn `head == "occlusion"`. Deklariert, nicht geraten:
+  wer `classes.size` Logits von einem breiteren Graphen liest, softmaxt die Coverage in jede
+  Wahrscheinlichkeit hinein.
 
-### Web-UI — 13 malbare Klassen, `occluded` nur noch lesend
+### Web-UI — 13 malbare Klassen
 
-`platform/app/lib/classes.ts` spiegelt Python: `IDENTITY_CLASSES` sind die einzigen Labels, die ein
-Mensch noch schreibt. `LEGACY_LABEL = "occluded"` bleibt **lesbar** für die 31 271 Zeilen in
-`corrections.jsonl`, die bis 2026-08-18 von Hand gemalt wurden, und wird als Historie gerendert.
-**Nachgezaehlt 2026-09-22** (`grep -c` ueber alle `data/recordings/*/corrections.jsonl` und
-`data/sessions_archive/*/corrections.jsonl`): es liegen **18 563 Korrekturzeilen** auf der Platte
-und **keine einzige** mit `occluded` — die 31 271 standen in der globalen
-`data/manifests/corrections.jsonl`, die es nicht mehr gibt. `LEGACY_LABEL` hat heute nichts mehr
-zu lesen; der Konstante schadet das nicht, die BEGRUENDUNG traegt aber nicht mehr.
-Geschrieben wird keine weitere. `/corpus` kann beide Schemata anzeigen und entscheidet per
-`classScheme()` (`platform/app/lib/corpus.ts`, Zeile 69 am 2026-09-22 — Symbol zitieren, nicht Zeile) anhand von `dataset.yaml`, sonst anhand der
-Klassenliste.
+`platform/app/lib/classes.ts` spiegelt Python. `LEGACY_LABEL = "occluded"` bleibt lesbar, hat aber
+nichts mehr zu lesen: unter `data/recordings/*/` und `data/sessions_archive/*/` liegen 18 563
+Korrekturzeilen, keine mit `occluded` (2026-09-22). `/corpus` wählt das Schema per `classScheme()`
+(`platform/app/lib/corpus.ts`) aus `dataset.yaml`, sonst aus der Klassenliste.
 
 ### Handy — sieben Modelle, alle mit Coverage und gemessenem Gate
 
-**Hier laufen die Oberflächen auseinander, und das ist der Punkt, den vor diesem Dokument nichts
-festgehalten hat.** Die Kotlin-*Leseseite* kann Coverage: `ModelSpec.coverageOutput` und
-`outputWidth = classes.size + (coverageOutput ? 1 : 0)`
-(`android/tracker-runtime/.../cnn/ModelSpec.kt:73`, `:79`; Default-Modell in
-`CnnModelAssets.kt:37`, die Bündelliste in `:40`), und `observationFromProbs` holt `pOccluded`
-entweder aus der `occluded`-Klasse, aus der Extraspalte oder — wenn es beides nicht gibt — aus
-`0.0` (`android/core-cnn/.../cnn/Observations.kt:34`).
+Die Leseseite: `ModelSpec.coverageOutput`, `outputWidth = classes.size + (coverageOutput ? 1 : 0)`;
+`observationFromProbs` holt `pOccluded` aus der `occluded`-Klasse, aus der Extraspalte oder — gibt
+es beides nicht — `0.0`. Stand 2026-09-22 (`BUNDLED_MODELS`, Werte aus den `config.json`):
 
-**Nachgezogen, Stand 2026-09-14:** im APK liegen ACHT `p4*`-Modelle, Default `p4a-80-clahe`, und
-**alle acht** deklarieren `coverage_output` — 13 Klassen-Logits plus eine unabhaengige
-Coverage-Sigmoide in Spalte 13. `real14-80` und `id35-80` sind seit 2026-08-30 raus; der Absatz
-darunter beschreibt den Zustand, der dazu gefuehrt hat.
+| Modell | `coverage_gate` |
+|---|---|
+| `p4a-80-clahe` (Default) | **0,25** |
+| `p4a-128` / `p4afull-128` | 0,35 |
+| `p4a-80` | 0,15 |
+| `p4-128` / `p4-80` / `p4full-128` | 0,05 |
 
-**Nachgezaehlt 2026-09-22** (`ls android/app/src/main/assets/cnn_model/` und `BUNDLED_MODELS` in
-`CnnModelAssets.kt`): es sind **SIEBEN**, nicht acht. Und die Schwelle fehlt nicht mehr — jedes
-der sieben traegt ein gemessenes `coverage_gate` in seiner `config.json` (Werte aus den Dateien
-gelesen), `ModelSpecTest` ist deshalb gruen. Der Stand der Wahrheit ist `docs/occlusion-gate.md`.
+Alle sieben: 13 Klassen, `coverage_output`, `pOccluded` aus der Sigmoide in Spalte 13. Der Stand
+der Wahrheit für die Schwellen ist `docs/occlusion-gate.md`.
 
-| Modell | Klassen | `coverage_output` | `coverage_gate` (2026-09-22) | `pOccluded` kommt aus |
-|---|---|---|---|---|
-| `p4a-80-clahe` (Default) | 13 | ja | **0,25** | Sigmoide Spalte 13 |
-| `p4a-128` / `p4afull-128` | 13 | ja | **0,35** | Sigmoide Spalte 13 |
-| `p4a-80` | 13 | ja | **0,15** | Sigmoide Spalte 13 |
-| `p4-128` / `p4-80` / `p4full-128` | 13 | ja | **0,05** | Sigmoide Spalte 13 |
-
-Die Bruecke ist gebaut und die Schwelle steht. *Der Satz von 2026-09-14 — „keines der acht traegt
-ein gemessenes `coverage_gate`, alle erben 0,5, `ModelSpecTest` laeuft rot" — gilt nicht mehr.*
-
-*Historisch, der Zustand vor dem Umstieg:*
-
-Die Bruchstelle ist der **Export**, nicht die Leseseite: `comp13-occ-bn-lr1e2-bs512` unter
-`data/models/` trägt `"head": "occlusion"`, wurde aber nie als ONNX mit `coverage_output`
-exportiert und ins APK gelegt (die neun weiteren Occlusion-Läufe liegen in `data/_delete/models/`,
-zusammengefasst in `docs/retired-runs.md`). Beide Enden können es, die Brücke fehlt. Der Weg
-dahin: einen Occlusion-Lauf mit `chesslab export` ausgeben und `model.onnx` + `config.json` unter
-`android/app/src/main/assets/cnn_model/<name>/` einhängen; die Vertragstests dafür stehen bereits
-(`OnnxSquareClassifierContractTest.refusesAGraphNarrowerThanTheDeclaredCoverageWidth`) — sie
-feuern nur nie, weil kein solches Modell gebündelt ist.
-
-Solange kein Occlusion-Kopf exportiert und gebündelt ist, gilt der Eintrag in `CLAUDE.md` weiter:
-das Hand-Veto muss sich auf den **modellfreien** Arm (`gridOccluded`) verlassen. Und die offene
-Klage aus `TODO.md` — `real14-80` ist bei `occluded` zu aggressiv — beschreibt genau die Klasse,
-die Python inzwischen abgeschafft hat.
-
-## Der Korpus-Zensus, der die 13 erzwang (`specs/29`, 2026-07-31)
-
-`data/manifests/squares.jsonl`, alle Zeilen:
-
-`empty 42 848 · wP 3 055 · bP 2 982 · bR 807 · wR 716 · wB 694 · bB 670 · bN 561 · wN 511 ·
-wK 441 · bK 441 · bQ 378 · wQ 360` — **null `occluded`**.
-
-Aufgenommen wurde nur bei freiem Brett, also gab es die Klasse im Pool nicht. Ein 14-Klassen-Lauf
-hätte eine Klasse ohne ein einziges Trainingsbeispiel getragen, deren Logit ein Argmax auf
-ungewöhnlicher Eingabe trotzdem gewinnen kann — und ungewöhnliche Eingabe unter einer Hand ist genau
-der Fall, um den es geht. Daher die Zeile 2026-07-31 oben.
-
-## Die fünf Trainingsrunden (`specs/53` Phase 04, 2026-08-09, über Nacht)
-
-Vorlauf: der Nutzer labelte 2 114 `occluded`-Zellen (473 auf 003957, 1 641 auf 115912; 3 199
-Rohzeilen, last-line-wins). Beide Sessions neu geschnitten — damit existierte `occluded` erstmals im
-Crop-Pool. Path A, gegen den Champion `occ-v10bn35-13c-hn` **im selben Lauf** gemessen.
-
-| # | Trainingskorpus | occluded | Misses | Phantome | Margin p99.9/max |
-|---|---|---|---:|---:|---|
-| 1 | donor + rg (50 % rg), 14c, **from scratch** | 2 114 | — | — | `val_acc` 0,08 — unbrauchbar |
-| 2 | donor + rg (50 % rg), 14c, Warmstart, lr 1e-3 / 3e-4 | 2 114 | 0 / 0 | **133 / 105** | 0,64 / 0,52 |
-| 3 | donor + rg (50 % rg), **13c-Kontrolle** | verworfen | **165** | 0 | 0,39 |
-| 4 | donor + rg **auf 5,3 % gedeckelt** | 2 114 | 1 | **2** | 0,155 |
-| 5 | donor + **nur die `occluded`-Zeilen** (1,8 %) | 2 114 | 8 | **0** | **0,028 / 0,087** |
-| — | Champion `occ-v10bn35-13c-hn` (Referenz, gleicher Lauf) | — | 3 | 0 | 0,065 / 0,328 |
-
-Drei Befunde, gemessen:
-
-1. **Ein 14-Klassen-Kopf trainiert nicht from scratch** in 15 Epochen (`val_acc` 0,08). `--resume`
-   vom Champion ist Pflicht; der Resume-Pfad behandelt den Klassenzahl-Wechsel by design
-   (276 Tensoren übernommen, 2 übersprungen).
-2. **Die Ursache ist Domänen-Dominanz, nicht die neue Klasse.** Die zwei exportierten Sessions
-   stellten 63 354 von 127 162 Trainingszeilen — **50 %**, jede 2–3× größer als die größte
-   Donor-Session. Runde 3 isoliert die Variable: derselbe Korpus macht bei 13 Klassen 165 Misses und
-   **null** Phantome, bei 14 Klassen 105–133 Phantome. Deckeln auf 5,3 % → 2 Phantome; nur die
-   `occluded`-Zeilen (1,8 %) → **null**, mit der besten Margin, die hier je gemessen wurde.
-   Eine Geometrie-Hypothese wurde zuerst geprüft und **widerlegt**: `session scan` liest nach
-   `autofix` 3,16 / 2,97 px Median, innerhalb des 3,0–5,8-px-Bandes des guten Korpus.
-3. **`pOccluded` lebte.** Mit `occl14-80` druckt das Ledger auf rec-20260807 **772×** ein
-   `occl=` ungleich null — zum ersten Mal hatten die fünf Sicherungen überhaupt einen Sensor.
-
-**Regel daraus:** eine neue Session ist eine **Ergänzung**, nie die Masse; `--source-manifest` mit
-per-cell-Vorabdeckel ist das Werkzeug. Und: das Modell **ging nicht aufs Handy** — das Kriterium war
-25/0/0 auf rec-20260807 unter dichter Auswertung, und der dichte Arm wurde auf beiden Videos
-schlechter (rec-20260807 14/11/6 → 17/8/12; 115912 229 Plies/0 erfunden → 106). Die specs/52-These
-(„ein Sensor für ‚da ist eine Hand im Bild' würde genau die Reads sperren, die das ruhige Video
-brechen") ist damit **in dieser Form widerlegt** — die Sicherungen feuern, die Phantome kommen
-trotzdem.
-
-## Ein Schema erkennen
+## 3. Ein Schema erkennen
 
 Zwei Felder in der `config.json` eines Laufs reichen:
 
-- `classes` mit 14 Einträgen inkl. `occluded` → altes 14er-Schema, `occluded` ist eine Klasse.
-- `classes` mit 13 Einträgen **und** `coverage_output: true` → heutiges Schema, der Graph ist 14
-  Spalten breit, die 14. ist ein Sigmoid.
-- `classes` mit 13 Einträgen **ohne** `coverage_output` → 13er-Identitätsmodell, blind für Verdeckung.
-- `classes` = `["empty","occupied"]` → 2er-Belegung. Nur noch in Altbeständen: seit 2026-08-20
-  kann dieses Schema nicht mehr gebaut werden, und kein Modell im APK trägt es.
+- `classes` mit 14 Einträgen inkl. `occluded` → altes 14er-Schema.
+- 13 Einträge **und** `coverage_output: true` → heutiges Schema, 14 Spalten, die 14. ein Sigmoid.
+- 13 Einträge **ohne** `coverage_output` → 13er-Identitätsmodell, blind für Verdeckung.
+- `["empty","occupied"]` → 2er-Belegung, nur noch in Altbeständen.
 
-13 + Coverage und 14 Klassen sind **beide 14 Spalten breit**. Die Spaltenzahl unterscheidet sie
-nicht; nur `coverage_output` tut es (`ModelSpecTest.kt:185`).
+13 + Coverage und 14 Klassen sind **beide 14 Spalten breit**; nur `coverage_output` unterscheidet
+sie (`ModelSpecTest`).
 
-## Die Falle: Coverage 0.0 heißt nicht „frei"
+## 4. Warum die 14. Klasse nicht ausgeliefert wurde (2026-08-09)
 
-`torch_data.py:422` liest `row.get("coverage", 0.0)`. Ein Crop aus einer Session, die nie gemattet
-wurde, trainiert also als Coverage 0,0 — ununterscheidbar von einem tatsächlich freien Feld. Wer
-gemattete und ungemattete Sessions in **einen** Occlusion-Lauf mischt, bringt dem Kopf bei, dass es
-Hände nicht gibt. Coverage ist nur für gemattete Sessions eine Messung; überall sonst ist sie ein
-Default.
+Fünf Trainingsrunden, gegen den Champion im selben Lauf. Befunde:
+
+- **Ein 14-Klassen-Kopf trainiert nicht from scratch** (15 Epochen, `val_acc` 0,08); `--resume`
+  vom Champion ist Pflicht.
+- **Die Phantome kamen aus Domänen-Dominanz, nicht aus der neuen Klasse.** Zwei neue Sessions
+  stellten 50 % der Trainingszeilen. Derselbe Korpus bei 13 Klassen: 165 Misses, null Phantome;
+  bei 14: 105–133 Phantome. Auf 5,3 % gedeckelt: 2; nur die `occluded`-Zeilen (1,8 %): null.
+- **Regel:** eine neue Session ist eine **Ergänzung**, nie die Masse (`--source-manifest` mit
+  per-cell-Vorabdeckel). Das Modell ging trotzdem nicht aufs Handy — der dichte Arm wurde auf
+  beiden Videos schlechter.
+
+## 5. Coverage im Verlust
+
+### Die Falle: fehlende Coverage heißt nicht „frei“
+
+`training/torch_data.py` (`coverage_of`) liest eine fehlende `coverage` als 0,0. Ein Crop aus einer
+nie gematteten Session trainiert also als freies Feld. Wer gemattete und ungemattete Sessions in
+**einen** Occlusion-Lauf mischt, bringt dem Kopf bei, dass es Hände nicht gibt.
+
+### Ab wann das Modell die Figur nicht mehr liest (gemessen 2026-09-16)
+
+Die 0,15 ist gegen den **Rillen-Sensor** geeicht, nicht gegen das Bild. `augval-eager-s42`
+(80 px) gegen `real13-mix-v6-80`, val + test nach dem eigenen `split-pin.json`, 84 608 Zellen,
+Figurengenauigkeit auf besetzten Feldern je Coverage-Band:
+
+| Coverage | Zellen | `piece_acc` | normiert |
+|---|---:|---:|---:|
+| 0,00–0,02 | 31 929 | 0,9296 | 1,000 |
+| 0,02–0,15 | 106–147 je Band | 0,84–0,87 | 0,90–0,93 |
+| **0,15–0,25** | 163 | **0,7423** | 0,799 |
+| **0,25–0,40** | 273 | **0,6667** | 0,717 |
+| **0,40–0,60** | 302 | **0,3113** | 0,335 |
+| 0,60–0,80 | 262 | 0,0382 | 0,041 |
+| 0,80–1,00 | 1 195 | 0,0075 | 0,008 |
+
+- **Die harte Kante bei 0,15 wirft Signal weg** — dort liest das Modell noch 74 %.
+- **Ab etwa 0,6 liegt es systematisch falsch**, unter Zufall. Dort gehört eine Null hin.
+- Vorbehalte: das Modell wurde MIT der 0,15-Maske trainiert (rechts davon reine Generalisierung);
+  die Bänder 0,02–0,15 sind dünn und nicht monoton; `PackedBoardDataset` verwirft unvollständige
+  Bretter und damit bevorzugt verdeckte. **Immer val UND test messen** und den Split des Laufs
+  nehmen — nur-val ergab eine zu optimistische Grundlinie (0,973).
+
+### `--coverage-weight soft`
+
+```
+w(c) = 1 − (3s² − 2s³),   s = min((c + 0,01) / 0,60,  1)
+```
+
+`COVERAGE_ZERO_AT` und `COVERAGE_SHIFT` in `training/occlusion.py`. Die Kurve liegt unter jedem
+Band mit genug Zellen und innerhalb des Intervalls der zwei dünnen
+(`tests/test_coverage_weight.py`).
+Der Linksversatz bricht die Waagerechte der S-Kurve bei c = 0, wo die Messung schon fällt; die
+Stauchung auf 0,6 hält sie unter der Messung (ungestaucht gäbe sie bei 0,5 halbes Gewicht, wo das
+Modell auf 33 % steht).
+
+- **Verworfen: `zero_at = 0,46`** (unter jedem Punktschätzer). Es nimmt auch unter 0,15 Gewicht weg
+  und liegt insgesamt unter `hard` (0,99x) — optimiert gegen einen Messpunkt aus 106 Zellen.
+  Entscheidung A (Nutzer, 2026-09-16): 1,01x Masse, gezielt **10 354 teilverdeckte Zellen** mehr.
+- **Vorgabe bleibt `hard`**, bitgleich zur alten Regel. `soft` ist eine Rezept-Änderung, ein Lauf
+  damit ist mit dem Archiv nicht vergleichbar.
+- **Die Metrik wandert NICHT mit**: `classification_eligible`, `val_visible_piece_acc` und
+  `CHECKPOINT_WEIGHTS` bleiben auf der harten 0,15, sonst wird jeder Arm auf seiner eigenen
+  Zellmenge benotet.
+- **Dunkelheit bleibt ein harter Ausschluss**; gewichtet wird nur die Verdeckung.
+- `config.json` nennt unter `soft` keine `visible_max`-Kante, die der Lauf nie hatte.
+
+### Die Coverage-Drift (gemessen 2026-09-16)
+
+Die gespeicherte `coverage` ist ein Schnappschuss vom Matten. Ein Re-Export (`fit-stored`,
+Straightening, `carry_repaired_geometry`) verschiebt die Ecken; `crop_square` schneidet danach mit
+den neuen, die Zahl bleibt stehen.
+
+- **13 von 24 Aufnahmen** trugen eine nicht mehr reproduzierbare Coverage; 0,10 % der Zellen
+  überquerten `PIECE_VISIBLE_MAX`, fast alle auf der **Grundreihe** und als Totalkipper
+  0,000 → 1,000 — eine Hand im Bild, die mit dem Label der Figur im Verlust bleibt.
+- `chesslab occluders recut-coverage --all` rechnet aus den Alphas neu, mit heutiger Geometrie.
+  **SAM läuft nicht**, Minuten für den Korpus. `alpha: fixed`-Zeilen (menschliche Zahlen) und
+  Zeilen ohne Coverage (SAMs Absagen) bleiben unangetastet. **Nach jedem Re-Export fällig**; bei
+  `soft` geht die Drift in jedes Gewicht ein, nicht nur an der Schwelle.
+- `scripts/audit_disk_damage.py` zählt die Drift, ohne etwas anzufassen.
+
+## 6. Klassengewichte: dieselbe Zellmenge wie der Verlust (seit 2026-09-22)
+
+`train.visible_class_counts` zählt über `occlusion.classification_eligible` — genau die Zellmenge,
+die `OcclusionLoss` gewichtet (Coverage **und** `brightness >= CELL_DARK_MIN`). Vorher zählte
+`train.py` nur die Coverage (`tests/test_bug_hunt_20260922f_gewichte.py` war ohne den Fix rot).
+
+- **Warum aus den sichtbaren Zeilen:** Verdeckung trifft Weiß 11–15 %, Schwarz 2–6 % (gespielt wird
+  von Weiß); Gewichte aus allen Zeilen lagen bis zu 8 % daneben.
+- **Was die Dunkelmaske dazu beiträgt**, auf `real13-mix-v7-128` und dem reparierten `-80`:
+  1,83 % weitere Zeilen, größter Einzelfehler **+2,80 % (bN)**, alle schwarzen Klassen vorher
+  unterbewertet, Spreizung 11,58x → 11,43x. Schwarz auf dunklem Feld ist zu 6,70 % dunkel, Weiß
+  auf dunklem 1,49 %; dunkle Felder 3,96 % gegen helle 0,61 %, ferne Bretthälfte 3,15 % gegen
+  1,39 %.
+- **Der Bruch:** ab 2026-09-22 sind `effective_class_weights` eines `--head occlusion`-Laufs auf
+  einem Satz MIT `brightness`-Spalte nicht mehr mit dem Archiv vergleichbar. Alte Packs ohne die
+  Spalte rechnen unverändert (jede Zelle gilt als hell).
+- **`brightness` fehlte in einer Slice-Generation**: `real13-mix-v7-80` trug die Spalte für alle 138
+  Kompositen nicht (376 640 Zeilen, 38,5 %) und ist seit 2026-09-22 repariert;
+  `real13-mix-v6-80-clahe` fehlte sie zu 44,8 % (2026-09-21). Ein fehlendes `brightness` gilt als
+  255 — ungemessen, nicht dunkel. Wer es mit `or 0.0` liest, wirft die Kompositen geschlossen ins
+  dunkelste Band.
+- **Der ausgelieferte Champion `p4a-80-clahe`** sitzt auf dem alten Gewichtsstand und einem Satz,
+  dessen Dunkelmaske zu 44,8 % wirkungslos war. Gegen einen neuen Lauf gestellt vergleicht man zwei
+  Rezepte, nicht zwei Modelle.
+- Sechs Auswerter unter `scripts/` zählen seit `f7e3d85d` über `classification_eligible`;
+  `mine_hard_coverage.py` bleibt bewusst auf `coverage`.

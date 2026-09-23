@@ -217,7 +217,7 @@ Derived things live outside and can be rebuilt.
 | `data/reports/` | machine output: `split.json`, `augment.yaml`, `hard_empty*.jsonl`, `audit-flags*`, `correction-violations.jsonl`, `perf/` |
 | `data/labels/` | `review-notes.jsonl` and `_history/` — the verdicts that belong to no single recording |
 | `data/inbox/` | the web app's runtime state |
-| `data/_delete/` | retired material — moved, never deleted; the user deletes it themselves (`data/_delete/README.md`, [`docs/retired-runs.md`](docs/retired-runs.md)) |
+| `data/_delete/` | retired material — moved, never deleted; the user deletes it themselves (`data/_delete/README.md`, [`docs/evaluation.md`](docs/evaluation.md)) |
 
 A recording's **id** keeps the `rg-` prefix its directory dropped — the id is the join key in
 every manifest row, and `sessions.session_dir()` is the one place that maps one to the other.

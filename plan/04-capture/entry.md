@@ -22,13 +22,13 @@ und `Recording.frames` benutzt und die Kandidaten-Maschinerie auslaesst.
 **Die Achse, auf die es ankommt.** Ueber alle 24 Aufnahmen mit `corners` liegt die Verkuerzung der
 hinteren Brettkante zwischen 0,955 und 1,025 (1,0 = senkrecht von oben), Median 0,986 — der Korpus
 hat **eine Kamerapose und eine Hoehe**. Die gemessene Fehlermechanik (Springer liest sich als Turm,
-68 % der Restfehler aus 12 von 280 Verweil-Episoden, `docs/plan-98/00-plan.md`) ist
+68 % der Restfehler aus 12 von 280 Verweil-Episoden, `docs/evaluation.md`) ist
 deshalb die **Eigendrehung der Figur**, nicht der Kamerawinkel. Ertrag in dieser Reihenfolge:
 **Ausrichtung, Hoehe, Licht, Stellung**.
 
 Dass Rotation traegt, ist gemessen: **+0,0245 gepaart ueber sieben Seeds, 7/7, p = 0,0078**
-(`docs/plan-98/00-plan.md`, „Ergebnis der Abnahme"). **Nicht verwechseln** mit
-`docs/model-improvement-2026-08-26.md` (Ergebnisteil) (`rot90 −0,046`): das war 80 px, ohne Flip, ohne
+(`docs/evaluation.md`, „Ergebnis der Abnahme"). **Nicht verwechseln** mit
+`docs/evaluation.md` (Ergebnisteil) (`rot90 −0,046`): das war 80 px, ohne Flip, ohne
 Brettkopf, anderer Datensatz.
 
 ## Phasen

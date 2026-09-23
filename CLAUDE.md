@@ -18,7 +18,7 @@
   is not retroactive; parking does not prune the pool.
 - **Temporal pass:** `session temporal-pass` sits between `matte` and `model-read`. SAM is the base;
   the sensor only ADOPTS frames SAM never cut and UPSERTS whole frames — never a cell-level merge
-  (user, 2026-09-11). `docs/sensor-audit.md`.
+  (user, 2026-09-11). `docs/session-mattes.md`.
 - **Board store:** a session keeps `boards/*.webp` (rectified frame under its own quad), the raster
   BOTH `crop_square` and `/api/cell` cut from. The row carries `board_size`/`board_border`; a reader
   that assumes its own scale cuts up to 59 px off. Boards are written STRAIGHT
@@ -45,7 +45,7 @@
   declare `coverage_output` (13 logits + independent coverage sigmoid in column 13). Then
   `TrackerService` switches the model-free arm OFF (`gridArmFor`); the desktop replay runs both.
   The regression set cannot judge this axis (24 occluded frames of 11 001) —
-  `docs/baseline-occlusion-off.md`.
+  `docs/regression-reference.md`.
 - **Thresholds ride in the model, not the engine:** `coverage_gate`, `temperature` and
   `prior_lambda` in the model's `config.json`, read by `ModelSpec`. Gate chosen at **lambda = 3,
   because phantoms are the veto** (user, 2026-09-14) — lambda is a decision, not a measurement;
@@ -69,7 +69,7 @@
 
 ### 0. Frame selection
 - **Measure first, pick after.** `framescan.py` scans every 3rd frame (hand gate + grooves) before
-  `classify` rules per frame. `docs/frame-scan.md`, `docs/hand-gate.md`.
+  `classify` rules per frame. `docs/frame-scan.md`, `docs/session-mattes.md`.
 - **The board is the witness, not the hand.** A hand over an unchanged board is `occluded` and KEEPS
   its FEN. Only `next_touches` decides `stale`.
 - **`boards/` is the clean stock, `dirty/` the pile**, each row with `dirty_reason`.
@@ -77,10 +77,10 @@
   were exported under the old rule.
 - **The CELL decides, not the frame:** with `settle_dev` and a matte, a cell over
   `PIECE_VISIBLE_MAX` keeps its FEN label, a visible one is checked against the settled board, a
-  departing one becomes a `Strittig` card (`docs/position-check.md`).
+  departing one becomes a `Strittig` card (`docs/frame-scan.md`).
 - **Settle threshold is 45, not 15** (since 2026-09-09). Lowering it floods the lane. The settle
   gate is blind in the dark corner; fix by normalising to the cell's own contrast, not the threshold
-  (`docs/position-check.md`).
+  (`docs/frame-scan.md`).
 
 ### 0.1 Crop sizes: 128 belongs to `board_size` 928, not to the pool
 - `data/crops/<tag>/` at 128 px is for the HUMAN (labeling); `packed_images.u8` at target size is
@@ -101,12 +101,12 @@
   `conf_wrong` and class weights count only `classification_eligible` cells (coverage AND
   `brightness < CELL_DARK_MIN`). Arms with differently cut val sets are not comparable on
   `piece_acc`; compare via `val_visible_piece_acc` and `chesslab eval --dataset <shared>`
-  (`docs/model-improvement-2026-08-26.md`). Since 2026-09-22 `effective_class_weights` of an
-  occlusion run on a pack WITH `brightness` differ from the archive (`docs/klassengewichte-2026-09-21.md`).
+  (`docs/evaluation.md`). Since 2026-09-22 `effective_class_weights` of an
+  occlusion run on a pack WITH `brightness` differ from the archive (`docs/class-scheme.md`).
   `scripts/mine_hard_coverage.py` cuts on coverage alone on purpose.
 - **0,15 is calibrated against the groove sensor, not the image:** the model still reads 74 % at
   0,15–0,25 and falls under chance only from 0,6. `train --coverage-weight soft` follows the curve;
-  **default stays `hard`**, and the METRIC always stays on 0,15 (`docs/coverage-weight-2026-09-16.md`).
+  **default stays `hard`**, and the METRIC always stays on 0,15 (`docs/class-scheme.md`).
 - **Stored `coverage` drifts against its crops** after a re-export.
   2026-09-21 tragen **27** Aufnahmeverzeichnisse eine `matte.jsonl` (backups under `_pre-scan-20260906/` excluded;
   `tests/test_claude_numbers.py` holds this number against the disk). Run
@@ -125,7 +125,7 @@
 - **Hard-negative mining on training data finds almost only occluded cells** (98,6 %, masked out of
   the loss). Mine only on unseen material: `scripts/mine_hard_empty.py --dataset <name> [--fresh]`.
 - **Choose val by CLASS COVERAGE, not image quality:** `2026-09-06-21-29-35` carries zero white
-  knights, so `macro_recall`/`score` are noise on four classes. `docs/val-choice-2026-09-10.md`.
+  knights, so `macro_recall`/`score` are noise on four classes. `docs/evaluation.md`.
 - **Compare sharpness only within a resolution class** (4K / 1440p / 1080p differ 3x).
 - **Reproducibility:** splits are not deterministic from params — **always use `split.json`**.
 - **Geometry fix (2026-07-31):** old crops were 3–6 px off; old Path-A numbers are void.
@@ -136,7 +136,7 @@
   not automatically current: `_rewritten_since_pack` checks crop fingerprints (not for `mm://` rows
   or old packs) — after a re-slice, throw the recording's packs away anyway. `--from-packs` refuses
   packs older than a later human verdict; `train`/`eval` report `verdict_conflicts`
-  (`--strict-verdicts` aborts). `docs/session-packs.md`, `docs/offene-entscheidungen.md`.
+  (`--strict-verdicts` aborts). `docs/packs.md`, `docs/offene-entscheidungen.md`.
 
 ### 3. Android & Build
 - **Inference:** ~16 ms per frame (small model). Execution provider AUTO is correct; leave it.
@@ -157,11 +157,11 @@
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules). Emulator via
   `scripts/android-emulator.ps1` (never `installEmulator`, devices are shared).
-- **Coverage:** not currently measured; calls and traps in `docs/test-coverage-2026-09-14.md`.
-- **References:** `docs/alarm-path.md`, `docs/occlusion-gate.md`, `docs/emission-correlation.md`;
+- **Coverage:** not currently measured; calls and traps in `docs/quality-tooling.md`.
+- **References:** `docs/tracker-flow.md`, `docs/occlusion-gate.md`, `docs/tracker-flow.md`;
   regression reference **396/3/0 at 8 desync episodes** (`docs/regression-reference.md`; count
   episodes, not `ALARM latched` lines).
-- **Power:** `docs/battery.md`. Whoever touches the frame rate must move `motionThr` with it
+- **Power:** `docs/android-performance.md`. Whoever touches the frame rate must move `motionThr` with it
   (`TrackerService.engineConfig()` scales `x 30 / fps`).
 - **Producer order:** `session settle-scan` writes `settle_dev` before `realgames position-flags`
   can lay anything out; an unmeasured cell shows `—`, not `0`. The chain has it as a rung between
@@ -176,9 +176,9 @@
   `lib/atomic.ts`, and Kotlin `io/Jsonl.kt`. Never split lines or `appendFile` yourself.
 - **Ratchets only shrink:** `tests/json_doors.txt`, `tests/jsonl_readers.txt`,
   `platform/app/jsonl-readers.txt`, `write-doors.txt`, `route-coverage.txt` (0 of 29 routes
-  untested) and the comment budgets. `docs/ratschen-und-treuhand.md`.
+  untested) and the comment budgets. `docs/quality-tooling.md`.
 - **Replay cache keys on graph AND `config.json`.** Whoever runs an A/B checks the runtime — a warm
-  cache looks like a clean "no difference" (`docs/obs-cache-architektur-2026-09-20.md`).
+  cache looks like a clean "no difference" (`docs/desktop-replay.md`).
 - **Temperature is read:** `calibratedConfThr` translates `cnnConfThr` through each model's T;
   `priorOnTempered` makes `prior_lambda` mean what it says (history: `docs/regression-reference.md`).
 
@@ -186,18 +186,18 @@
 - **`--num-workers 2`, not 8** (`config.DEFAULT_NUM_WORKERS` is still 8). Two are cold-safe; more
   only hold memory. The worker count is not a free switch — loss is not bit-identical across counts.
 - **Always `--batch-aug`:** augmentation as one GPU batch op, 66x cheaper. Statistically the same
-  recipe, not bit-identical (`docs/batch-aug.md`).
-- **CLAHE belongs in the pack, not the loader** (`chesslab dataset bake`, `docs/pack-bake.md`). Serving
+  recipe, not bit-identical (`docs/training-speed.md`).
+- **CLAHE belongs in the pack, not the loader** (`chesslab dataset bake`, `docs/packs.md`). Serving
   sees raw camera frames and must compute it itself.
 - **Since session packs the floor is the DISK:** the step waits 55–77 % on data; more workers do not
-  help (`docs/batch-aug.md`).
+  help (`docs/training-speed.md`).
 - **The recipe that is fastest:** `--batch-aug --compile-batch-aug --compile-model --fused-adamw`,
   workers 2 (~30 -> ~11,5 s per epoch). The compile and fused switches stay **default OFF**: the
   stack has Triton since `cf4cba1b`, but `--fused-adamw` moves parameters by ~2e-7 and switching
-  silently makes runs incomparable with the archive (`docs/training-stack-spike.md`). The step is
+  silently makes runs incomparable with the archive (`docs/training-speed.md`). The step is
   launch-bound, not compute-bound; the exact fixed-cost numbers do not reproduce — re-measure on a
   quiet machine before quoting (`docs/offene-entscheidungen.md`).
-- **Quality:** no measurable difference across three seeds (`docs/compiled-batch-aug.md`).
+- **Quality:** no measurable difference across three seeds (`docs/training-speed.md`).
 - **`best` taugt nicht zum Vergleich:** it is the max over 60 noisy draws. Compare the mean of the
   last 10–20 epochs, paired per seed. Noise is 94 % model, 6 % val — a bigger val does not help.
 - **A finished run can block in teardown** (ROCm/Windows): `cli.py` leaves with `os._exit`. A sweep

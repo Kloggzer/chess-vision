@@ -118,7 +118,7 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 - **`board_acc` ist `piece_acc`^32 und ignoriert Verdeckung** (54 % Deckel). Reihenfolge:
   `visible_board_acc`, dann eine Toleranzvariante („höchstens eine Zelle falsch"), dann erst
   `CHECKPOINT_WEIGHTS`. Trainingscode — abstimmen.
-- **Jedes A/B braucht drei Seeds** (`docs/seed-noise-floor.md`); s3 und Composite haben eigene,
+- **Jedes A/B braucht drei Seeds** (`docs/evaluation.md`); s3 und Composite haben eigene,
   ungemessene Grenzen; `val_conf_auroc` ist als Entscheider unbrauchbar.
 - **Stored-Sessions v2:** 6 Packs mit Grid-Fit-Quad neu gepackt, 637 Hard-Empties geparkt. Offen:
   Dataset `real14-all-80-v2` bauen (Resolver muss die `-80-v2`-Verzeichnisse ziehen) und Retrain.
@@ -174,7 +174,7 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   `CaptureSetupContent(...)` mit reinen Parametern.
 - **Schema 5** (2026-09-04) setzt die Tracker-Knöpfe auf dem Handy einmal zurück; `boardSize` misst
   sich neu. Beim nächsten Start prüfen.
-- **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21): `docs/tipps-auf-zuruf-entwurf.md`. Stufe 1 (Tipp auf
+- **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21): `docs/game-review.md`. Stufe 1 (Tipp auf
   Knopfdruck, gesprochen und geschrieben) kostet fast nichts; Speech-to-Text gibt es nirgends. Drei
   Entscheidungen beim Nutzer: wie viel ein Tipp verraet, Kontingent pro Partie oder Phase, und ob ein
   Tipp die Engine hochfahren darf, wenn `gateBlock` sie gerade geopfert hat.

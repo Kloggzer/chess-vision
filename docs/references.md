@@ -1,19 +1,14 @@
 # References — where our claims come from
 
-> The bibliography for the decisions this project encodes in code. A code comment names an
-> anchor in this file; the entry here carries the exact title, the authors, the year and the
-> identifier. A reference lives in exactly one place, and this is it.
+> The bibliography for the decisions this project encodes in code. A code comment names an anchor
+> here; the entry carries title, authors, year and identifier. A reference lives in exactly one
+> place, and this is it. Spec numbers (`specs/NN`) map via `docs/specs-index.md`.
 >
-> `specs/` is retired: full text is in git at `fd9c1908`, the arc is in
-> `docs/how-we-got-here.md`, and the number -> title map is in `docs/specs-index.md`.
+> **Every entry was retrieved and confirmed on 2026-07-31.** Each says whether only the abstract or
+> also the body was read. Nothing is cited from memory — fetch the source before adding an entry.
 >
-> **Every entry below was retrieved and confirmed on 2026-07-31.** Where only the abstract was
-> readable, the entry says so. Where a paper's body was read, the entry says which section.
-> Nothing is cited from memory. If you add an entry, fetch the source first — a wrong reference
-> outlives the person who wrote it, and this repo would carry it forever.
->
-> §13 lists the decisions that turned out to have **no** published basis. That list is a
-> finding, not a gap to be filled with the nearest plausible paper.
+> §11 lists the decisions that have **no** published basis. That list is a finding, not a gap to be
+> filled with the nearest plausible paper.
 
 ---
 
@@ -23,81 +18,49 @@
 **Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift**
 Sergey Ioffe, Christian Szegedy · 2015 · [arXiv:1502.03167](https://arxiv.org/abs/1502.03167)
 
-The original. The abstract claims BN allows higher learning rates and less careful
-initialization, acts as a regularizer, and reaches a given accuracy in 14x fewer training steps.
-What this project takes from it: nothing but the definition. The mechanism it proposes (internal
-covariate shift) is disputed by [Santurkar 2018](#santurkar-2018), and its accuracy claims have
-not reproduced here — see `specs/25-normalization-endgame/STATUS.md`.
-*Abstract only.*
+The definition of BN, nothing more: its stated mechanism is disputed by
+[Santurkar 2018](#santurkar-2018). *Abstract only.*
 
 <a id="wu-2018"></a>
 **Group Normalization**
 Yuxin Wu, Kaiming He · 2018 · [arXiv:1803.08494](https://arxiv.org/abs/1803.08494)
 
-GN divides channels into groups and computes mean and variance within each group, so its
-statistic does not depend on the batch dimension. The abstract reports 10.6 % lower error than
-BN at batch size 2, and comparable accuracy at ordinary batch sizes.
-What this project takes from it: `training/model.py:_norm_layer` and `_convert_bn_to_gn`.
-GN ships. Note what the paper does *not* claim and this project measured separately: GN's
-per-sample statistic cannot be folded into the preceding convolution, which is the export cost
-documented in `PrimitiveBatchNorm2d`'s docstring, and its per-sample nature turned out to be
-load-bearing on this data (`specs/26-cheaper-at-the-same-quality`).
-On the group count: the body sets G=32 by default and reports GN performing reasonably well for
-every G studied, from 64 down to 2 (Table 3, roughly 0.6 pp spread). At G=1 GN is layer
-normalization; at one channel per group it is instance normalization.
-*Abstract, plus the body's §Table 3 discussion of G via the ar5iv HTML.*
+Per-group statistics, independent of the batch dimension. The body sets G=32 by default and
+reports GN insensitive to G from 64 down to 2 (Table 3, ~0.6 pp spread). GN's per-sample statistic
+cannot be folded into the preceding convolution — the export cost that ended GN here.
+*Abstract, plus the Table 3 discussion via ar5iv.*
 
 <a id="bjorck-2018"></a>
 **Understanding Batch Normalization**
 Johan Bjorck, Carla Gomes, Bart Selman, Kilian Q. Weinberger · 2018 ·
 [arXiv:1806.02375](https://arxiv.org/abs/1806.02375)
 
-The abstract states that BN primarily enables training with larger learning rates, and that this
-is the cause of the faster convergence and better generalization attributed to it; without
-normalization, large gradient updates drive divergence and uncontrolled activation growth, which
-is what bounds the usable learning rate.
-**This is the paper that puts a question mark on every BN-vs-GN comparison in this repo.** All of
-them ran at `lr 3e-4`, a rate inherited from the GroupNorm recipe (§11, and
-`specs/31-cite-what-we-rely-on/STATUS.md`). If the paper is right, that setting removes the
-benefit being measured. It does not overturn the GroupNorm decision — it means the decision was
-never tested at the rate BN would need.
-*Abstract only.*
+BN's main benefit is that it permits **larger learning rates**. Why every BN-vs-GN comparison at
+the inherited `lr 3e-4` (§11) tested BN without its benefit. *Abstract only.*
 
 <a id="santurkar-2018"></a>
 **How Does Batch Normalization Help Optimization?**
 Shibani Santurkar, Dimitris Tsipras, Andrew Ilyas, Aleksander Madry · 2018 ·
 [arXiv:1805.11604](https://arxiv.org/abs/1805.11604)
 
-The abstract argues that distributional stability of layer inputs has little to do with BN's
-success, and that BN instead makes the optimization landscape significantly smoother, giving more
-predictive and stable gradients.
-Relevance here: it is why `[ioffe-2015]`'s stated mechanism is not repeated as fact anywhere in
-this codebase, and why "BN reduces internal covariate shift" is not a reason to prefer it.
-*Abstract only.*
+BN smooths the optimization landscape; input-distribution stability has little to do with it.
+"BN reduces internal covariate shift" is therefore not a reason used here. *Abstract only.*
 
 <a id="ulyanov-2016"></a>
 **Instance Normalization: The Missing Ingredient for Fast Stylization**
 Dmitry Ulyanov, Andrea Vedaldi, Victor Lempitsky · 2016 ·
 [arXiv:1607.08022](https://arxiv.org/abs/1607.08022)
 
-Normalizing each sample independently, introduced for style transfer.
-Relevance here is purely mechanical and downstream: ONNX has no GroupNorm operator, so the
-exporter decomposes GN into `InstanceNormalization` nodes. The 46 `InstanceNormalization` nodes
-that NNAPI and QNN break on are this operator. The project does not use instance normalization by
-choice; it inherits the op as GroupNorm's export form.
-*Abstract only.*
+Relevant only mechanically: ONNX has no GroupNorm operator, so GN exports as
+`InstanceNormalization` nodes — the nodes NNAPI and QNN break on. *Abstract only.*
 
 <a id="brock-2021"></a>
 **High-Performance Large-Scale Image Recognition Without Normalization**
 Andrew Brock, Soham De, Samuel L. Smith, Karen Simonyan · 2021 ·
 [arXiv:2102.06171](https://arxiv.org/abs/2102.06171)
 
-Normalizer-free networks with adaptive gradient clipping. The abstract names BN's cost as its
-dependence on batch size and the interaction between examples, and reports that earlier
-normalizer-free ResNets were often unstable at large learning rates or under strong augmentation.
-Relevance here: `--norm none` exists and was measured (`specs/25` phase 02 — 99 graph nodes at
-267 phantoms). That run used no adaptive gradient clipping, so it is **not** a test of this
-paper's method, and the result should not be read as one.
+Normalizer-free networks with adaptive gradient clipping. `--norm none` was measured here
+(`specs/25`) **without** that clipping, so it is not a test of this paper's method.
 *Abstract only.*
 
 <a id="li-2016"></a>
@@ -105,25 +68,17 @@ paper's method, and the result should not be read as one.
 Yanghao Li, Naiyan Wang, Jianping Shi, Jiaying Liu, Xiaodi Hou · 2016 ·
 [arXiv:1603.04779](https://arxiv.org/abs/1603.04779)
 
-AdaBN: adapt to a new domain by re-estimating the statistics in every BN layer, leaving all
-learned parameters untouched. The abstract calls it parameter-free and reports state-of-the-art
-domain-adaptation results.
-What this project takes from it: `scripts/adabn_recalibrate.py`, which re-estimates
-`running_mean`/`running_var` at one deployment resolution. Note the difference in the setting —
-the paper adapts across *domains*, this script adapts across *input resolutions* of one domain.
-That is an extension of the idea, not something the paper measured.
-*Abstract only.*
+AdaBN: re-estimate every BN layer's statistics for the new domain, parameters untouched.
+`scripts/adabn_recalibrate.py` applies it across *input resolutions* of one domain — an extension
+the paper did not measure. *Abstract only.*
 
 <a id="chang-2019"></a>
 **Domain-Specific Batch Normalization for Unsupervised Domain Adaptation**
 Woong-Gi Chang, Tackgeun You, Seonguk Seo, Suha Kwak, Bohyung Han · 2019 ·
 [arXiv:1906.03950](https://arxiv.org/abs/1906.03950)
 
-DSBN: separate BN layers per domain, all other parameters shared.
-What this project takes from it: the DSBN run in `specs/25-normalization-endgame` (one BN branch
-per training scale). Same caveat as AdaBN — the paper's domains are datasets, ours are input
-resolutions.
-*Abstract only.*
+DSBN: one BN branch per domain, all else shared. Used here per training scale (`specs/25`); same
+caveat as AdaBN — our domains are resolutions. *Abstract only.*
 
 ---
 
@@ -133,111 +88,71 @@ resolutions.
 **Decoupled Weight Decay Regularization**
 Ilya Loshchilov, Frank Hutter · 2017 · [arXiv:1711.05101](https://arxiv.org/abs/1711.05101)
 
-AdamW. The abstract states that L2 regularization and weight decay are equivalent for SGD but not
-for adaptive methods such as Adam, that many Adam implementations conflate them, and that
-decoupling them substantially improves Adam's generalization.
-What this project takes from it: `torch.optim.AdamW` in `training/train.py`. Note that the
-project passes **no** `weight_decay` argument, so it runs at PyTorch's default — the paper's
-subject is a hyper-parameter this repo has never chosen (§11).
-*Abstract only.*
+AdamW: decoupling weight decay from the gradient update improves Adam's generalization. The
+project uses `torch.optim.AdamW` but never sets `weight_decay` (§11). *Abstract only.*
 
 <a id="loshchilov-2016"></a>
 **SGDR: Stochastic Gradient Descent with Warm Restarts**
 Ilya Loshchilov, Frank Hutter · 2016 · [arXiv:1608.03983](https://arxiv.org/abs/1608.03983)
 
-The source of the cosine schedule. The abstract describes only the warm-restart technique; the
-cosine form is Equation 5 of the body:
-`η_t = η_min + ½(η_max − η_min)(1 + cos(π · T_cur / T_i))`, where `T_i` is the total number of
-epochs of the current restart period and `T_cur` counts epochs since the last restart.
-PyTorch's `CosineAnnealingLR` documentation cites this paper and states that `T_max` is the
-maximum number of epochs in a cycle, and that the implementation anneals **without** restarts.
-**The consequence for this repo:** `training/train.py` passes `T_max=epochs`, so `T_i` *is* the
-run length. A 60-epoch and a 200-epoch run are different optimisation trajectories, not the same
-run observed for longer, and a plateau in the last epochs may be the cosine floor rather than
-convergence. Nothing in the paper is violated by this — it is simply what `T_max` means.
-*Body read (Eq. 5) via the ar5iv HTML; PyTorch documentation read separately.*
+The cosine schedule (Eq. 5): `η_t = η_min + ½(η_max − η_min)(1 + cos(π · T_cur / T_i))`.
+PyTorch's `CosineAnnealingLR` cites it and anneals without restarts over `T_max`. **Consequence:**
+`train.py` passes `T_max=epochs`, so a 60- and a 200-epoch run are different trajectories, not the
+same run observed longer, and a late plateau may be the cosine floor rather than convergence.
+*Body read (Eq. 5) via ar5iv; PyTorch documentation read separately.*
 
 <a id="he-2018"></a>
 **Bag of Tricks for Image Classification with Convolutional Neural Networks**
 Tong He, Zhi Zhang, Hang Zhang, Zhongyue Zhang, Junyuan Xie, Mu Li · 2018 ·
 [arXiv:1812.01187](https://arxiv.org/abs/1812.01187)
 
-Section 5.1 gives the cosine schedule in the form most implementations use,
-`η_t = ½(1 + cos(π t / T)) η`, and is explicit that **T is the total number of batches** of the
-run. It contrasts this with step decay and describes the shape: slow at the start, near-linear in
-the middle, slow again at the end.
-Relevance here: the second, independent confirmation that the schedule is defined relative to a
-run length fixed in advance. The abstract does not mention cosine decay at all.
-*Body read (§5.1) via the ar5iv HTML.*
+§5.1: cosine decay with **T = total batches of the run** — second confirmation that the schedule
+is tied to a run length fixed in advance. *Body read (§5.1) via ar5iv.*
 
 <a id="smith-2015"></a>
 **Cyclical Learning Rates for Training Neural Networks**
 Leslie N. Smith · 2015 · [arXiv:1506.01186](https://arxiv.org/abs/1506.01186)
 
-The origin of the **LR range test**: the abstract describes estimating the boundary values by
-linearly increasing the learning rate over a few epochs and watching where accuracy stops
-improving.
-This project has never run one. It is the cheapest available answer to "is `3e-4` the right rate
-for this recipe" and it costs a few epochs, not a sweep — see
-`specs/31-cite-what-we-rely-on/STATUS.md`.
-*Abstract only.*
+The **LR range test**: raise the rate linearly over a few epochs, watch where accuracy stops
+improving. Never run here; the cheapest answer to whether `3e-4` is right. *Abstract only.*
 
 <a id="smith-2018"></a>
 **A disciplined approach to neural network hyper-parameters: Part 1 -- learning rate, batch size,
 momentum, and weight decay**
 Leslie N. Smith · 2018 · [arXiv:1803.09820](https://arxiv.org/abs/1803.09820)
 
-The abstract covers how to raise and lower learning rate and momentum to speed up training, and
-states that the optimal weight decay is tightly coupled to the learning rate and momentum.
-**Retrieval note for the next person: this paper has no HTML rendering on arXiv — the abs page
-serves the abstract and the PDF only, and the PDF does not fetch as text with the tools available
-here.** Everything above is from the abstract. Any specific recipe attributed to this paper
-(one-cycle, particular numbers) has *not* been verified here.
+Optimal weight decay is tightly coupled to learning rate and momentum. arXiv has no HTML for it and
+the PDF did not fetch as text: any recipe attributed to it (one-cycle, numbers) is **unverified**
+here. *Abstract only.*
 
 <a id="defazio-2024"></a>
 **The Road Less Scheduled**
 Aaron Defazio, Xingyu Alice Yang, Harsh Mehta, Konstantin Mishchenko, Ahmed Khaled,
 Ashok Cutkosky · 2024 · [arXiv:2405.15682](https://arxiv.org/abs/2405.15682)
 
-Schedule-Free methods, which need no stopping time `T` specified in advance and add no
-hyper-parameter beyond a momentum optimizer's own. Schedule-Free AdamW won the self-tuning track
-of the MLCommons 2024 AlgoPerf challenge.
-Relevance here: this is the direct answer to the `T_max=epochs` coupling in `[loshchilov-2016]` —
-a schedule-free run has no run length baked into its trajectory. Not adopted; see
-`[henheik-2025]` before adopting it.
-*Abstract only.*
+Schedule-Free methods: no stopping time `T` in advance — the direct answer to the `T_max=epochs`
+coupling. Not adopted; read [henheik-2025](#henheik-2025) first. *Abstract only.*
 
 <a id="defazio-2023"></a>
 **Learning-Rate-Free Learning by D-Adaptation**
 Aaron Defazio, Konstantin Mishchenko · 2023 · [arXiv:2301.07733](https://arxiv.org/abs/2301.07733)
 
-Sets the learning rate automatically, achieving the optimal asymptotic rate for convex Lipschitz
-problems with no line search; the abstract reports it matching hand-tuned rates on more than a
-dozen problems.
+Sets the learning rate automatically; matches hand-tuned rates on a dozen problems.
 *Abstract only.*
 
 <a id="mishchenko-2023"></a>
 **Prodigy: An Expeditiously Adaptive Parameter-Free Learner**
 Konstantin Mishchenko, Aaron Defazio · 2023 · [arXiv:2306.06101](https://arxiv.org/abs/2306.06101)
 
-Improves D-Adaptation's estimate of the distance to the solution; the abstract reports test
-accuracy close to hand-tuned Adam without a specified learning rate.
-*Abstract only.*
+Improves D-Adaptation; close to hand-tuned Adam without a set rate. *Abstract only.*
 
 <a id="henheik-2025"></a>
 **Revisiting Learning Rate Control**
 Micha Henheik, Theresa Eimer, Marius Lindauer · 2 July 2025 ·
 [arXiv:2507.01724](https://arxiv.org/abs/2507.01724)
 
-Compares learning-rate control approaches — multi-fidelity hyper-parameter optimization, fixed
-schedules, and hyper-parameter-free methods. The abstract's conclusion is that these methods often
-do very well on selected tasks but **are not reliable across settings**, and that hyper-parameter
-optimization becomes less effective as model and task complexity grow.
-This is the caveat that keeps `[defazio-2024]`, `[defazio-2023]` and `[mishchenko-2023]` in the
-"worth trying, measure it here" category rather than the "known better" one. Read it as: no
-method in this section can be adopted on its published reputation; on this corpus the veto metric
-decides, as always.
-*Abstract only.*
+Learning-rate control methods do well on selected tasks but **are not reliable across settings**.
+Keeps the three methods above in "measure it here", not "known better". *Abstract only.*
 
 <a id="micikevicius-2017"></a>
 **Mixed Precision Training**
@@ -245,13 +160,8 @@ Paulius Micikevicius, Sharan Narang, Jonah Alben, Gregory Diamos, Erich Elsen, D
 Boris Ginsburg, Michael Houston, Oleksii Kuchaiev, Ganesh Venkatesh, Hao Wu · 2017 ·
 [arXiv:1710.03740](https://arxiv.org/abs/1710.03740)
 
-Half-precision training with an fp32 master copy of the weights and **loss scaling** to keep small
-gradients representable; roughly 2x less memory.
-What this project takes from it: `torch.amp.GradScaler` in `training/train.py` (`--no-amp`
-disables it). The related trap this project hit independently — a variance reduction in fp16
-overflowing to `+inf` — is documented in `model.py:PrimitiveBatchNorm2d.forward`, and is the same
-class of problem the paper's fp32 master copy addresses.
-*Abstract only.*
+fp16 training with an fp32 master copy and **loss scaling** — `torch.amp.GradScaler` in
+`train.py` (`--no-amp` disables it). *Abstract only.*
 
 ---
 
@@ -261,25 +171,17 @@ class of problem the paper's fp32 master copy addresses.
 **YOLO9000: Better, Faster, Stronger**
 Joseph Redmon, Ali Farhadi · 2016 · [arXiv:1612.08242](https://arxiv.org/abs/1612.08242)
 
-The multi-scale training section: every 10 batches the network picks a new input size from
-multiples of 32 between 320 and 608, which forces it to predict well across input dimensions, so
-that one set of weights trades speed against accuracy at inference by choosing a resolution.
-This is exactly what `train.py --scales` does — one batch, one randomly drawn size, a
-size-agnostic model. The abstract does not mention multi-scale training; the claim above is from
-the body.
-*Body read via the ar5iv HTML.*
+Multi-scale training: a new input size every few batches, so one set of weights serves any
+resolution — what `train.py --scales` does. The claim is in the body, not the abstract.
+*Body read via ar5iv.*
 
 <a id="touvron-2019"></a>
 **Fixing the train-test resolution discrepancy**
 Hugo Touvron, Andrea Vedaldi, Matthijs Douze, Hervé Jégou · 2019 ·
 [arXiv:1906.06423](https://arxiv.org/abs/1906.06423)
 
-"FixRes". The abstract states that standard augmentation creates a discrepancy between the
-apparent object size at train and test time, that a *lower* train resolution than test resolution
-can improve accuracy, and that fine-tuning at the test resolution fixes the rest.
-What this project takes from it: the rule that the deployment resolution must occur during
-training. It is why `infer_size` must be one of a run's `scales` — an untrained 80 px cost 133
-misses, silently (`docs/data-pipeline.md` §11).
+"FixRes": the deployment resolution must occur during training. Why `infer_size` must be one of a
+run's `scales` — an untrained 80 px cost 133 misses, silently (`docs/data-pipeline.md` §11).
 *Abstract only.*
 
 <a id="cai-2019"></a>
@@ -287,21 +189,14 @@ misses, silently (`docs/data-pipeline.md` §11).
 Han Cai, Chuang Gan, Tianzhe Wang, Zhekai Zhang, Song Han · 2019 ·
 [arXiv:1908.09791](https://arxiv.org/abs/1908.09791)
 
-One network supporting many architectural settings, with sub-networks extracted for a given
-device without retraining; the progressive-shrinking algorithm varies depth, width, kernel size
-**and resolution**.
-Relevance here: the published precedent for "train once, serve at the size the device wants".
-This project uses only the resolution axis, and none of OFA's machinery.
-*Abstract only.*
+Precedent for "train once, serve at the size the device wants"; only the resolution axis is used
+here. *Abstract only.*
 
 <a id="tan-2019"></a>
 **EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks**
 Mingxing Tan, Quoc V. Le · 2019 · [arXiv:1905.11946](https://arxiv.org/abs/1905.11946)
 
-Compound scaling: depth, width and resolution scaled together by one coefficient.
-Relevance here: resolution is a first-class model dimension, not a preprocessing detail — the
-premise behind `specs/22-inference-resolution` and `specs/23-resolution-all-the-way-down`. The
-project does no compound scaling of its own.
+Resolution is a first-class model dimension (compound scaling) — the premise of `specs/22`/`23`.
 *Abstract only.*
 
 <a id="he-2014"></a>
@@ -309,11 +204,8 @@ project does no compound scaling of its own.
 Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun · 2014 ·
 [arXiv:1406.4729](https://arxiv.org/abs/1406.4729)
 
-The abstract argues that the fixed input size CNNs require is artificial and may hurt accuracy,
-and introduces a pooling layer producing a fixed-length representation regardless of input size.
-What this project takes from it: the reason `AdaptiveAvgPool2d(1)` in
-`training/model.py:SmallCNN` makes multi-scale training possible at all. Global average pooling
-is the degenerate one-level case of the paper's pyramid.
+A fixed-length representation regardless of input size. Global average pooling
+(`AdaptiveAvgPool2d(1)`) is its one-level case and what makes `--scales` possible at all.
 *Abstract only.*
 
 ---
@@ -325,12 +217,8 @@ is the degenerate one-level case of the paper's pyramid.
 Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, Piotr Dollár · 2017 ·
 [arXiv:1708.02002](https://arxiv.org/abs/1708.02002)
 
-Reshapes cross-entropy to down-weight well-classified examples, so training concentrates on a
-sparse set of hard ones instead of being overwhelmed by easy negatives. The stated motivation is
-extreme foreground-background class imbalance.
-What this project takes from it: `training/losses.py:FocalLoss` (`--loss focal`, `--focal-gamma`).
-The situation maps closely: after the 14 → 2 collapse most `empty` crops are trivially easy, and
-they are the majority class.
+Down-weights well-classified examples so training is not swamped by easy negatives —
+`training/losses.py:FocalLoss` (`--loss focal`). Here the easy majority is `empty`.
 *Abstract only.*
 
 <a id="cui-2019"></a>
@@ -338,44 +226,27 @@ they are the majority class.
 Yin Cui, Menglin Jia, Tsung-Yi Lin, Yang Song, Serge Belongie · 2019 ·
 [arXiv:1901.05555](https://arxiv.org/abs/1901.05555)
 
-Argues that weighting by raw class frequency over-corrects, because each additional sample of a
-class adds less than the last; proposes weighting by an "effective number" `(1 − β^n)/(1 − β)`
-instead.
-Relevance here: `dataset.compute_class_weights` uses plain inverse frequency, which is precisely
-the scheme this paper argues against. That is a deliberate record of a divergence, not an
-endorsement — and it compounds with `max_empty_ratio`, since the two act on the same imbalance
-(see the pitfalls list in `CLAUDE.md`). No measurement here has compared the two schemes.
-*Abstract only.*
+Raw inverse frequency over-corrects; weight by effective number `(1 − β^n)/(1 − β)` instead.
+`dataset.compute_class_weights` uses plain inverse frequency — a recorded divergence, never
+compared here, and it compounds with `max_empty_ratio`. *Abstract only.*
 
 <a id="buda-2017"></a>
 **A systematic study of the class imbalance problem in convolutional neural networks**
 Mateusz Buda, Atsuto Maki, Maciej A. Mazurowski · 2017 ·
 [arXiv:1710.05381](https://arxiv.org/abs/1710.05381)
 
-The abstract's conclusions: oversampling dominated in almost all scenarios and should eliminate
-the imbalance completely; the best amount of undersampling depends on how extreme the imbalance
-is; oversampling does not cause CNNs to overfit; and thresholding should be applied to compensate
-for prior class probabilities when overall accuracy is what matters.
-Relevance here: `dataset.subsample_classes` does the opposite — it **undersamples** the majority
-class (`max_empty_ratio`, `max_class_ratio`). The reason is not accuracy but disk and I/O: the
-`empty` class dominates a corpus that is already millions of near-identical crops. The paper's
-thresholding point is also unused, and is a live idea for the occupancy reader.
-*Abstract only.*
+Oversampling dominates and does not overfit; thresholding compensates for class priors.
+`dataset.subsample_classes` **undersamples** instead — for disk and I/O on a corpus of millions of
+near-identical `empty` crops, not for accuracy. *Abstract only.*
 
 <a id="shrivastava-2016"></a>
 **Training Region-based Object Detectors with Online Hard Example Mining**
 Abhinav Shrivastava, Abhinav Gupta, Ross Girshick · 2016 ·
 [arXiv:1604.03540](https://arxiv.org/abs/1604.03540)
 
-OHEM. The abstract's premise is that detection datasets contain overwhelmingly many easy examples
-and few hard ones, and that selecting the hard ones automatically trains better and removes
-heuristics.
-What this project takes from it: the idea, not the method. `scripts/mine_hard_empty.py` mines
-hard `empty` crops **offline**, from a finished model, into a keep-list that survives the empty
-cap (`dataset.subsample_classes(priority_paths=…)`). OHEM is *online* — it selects per mini-batch
-inside the training loop. The offline variant is older and cruder, and it carries the failure mode
-documented in `CLAUDE.md`: a keep-list mined from one model is a hidden variable in the next.
-*Abstract only.*
+OHEM selects hard examples per mini-batch. `scripts/mine_hard_empty.py` takes the idea, not the
+method: it mines **offline** from a finished model into a keep-list — and a keep-list mined from
+one model is a hidden variable in the next. *Abstract only.*
 
 ---
 
@@ -385,50 +256,33 @@ documented in `CLAUDE.md`: a keep-list mined from one model is a hidden variable
 **Improved Regularization of Convolutional Neural Networks with Cutout**
 Terrance DeVries, Graham W. Taylor · 2017 · [arXiv:1708.04552](https://arxiv.org/abs/1708.04552)
 
-Randomly masking out square regions of the input during training, as a regularizer complementary
-to existing augmentation.
+Masking out square regions of the input during training.
 
 <a id="zhong-2017"></a>
 **Random Erasing Data Augmentation**
 Zhun Zhong, Liang Zheng, Guoliang Kang, Shaozi Li, Yi Yang · 2017 ·
 [arXiv:1708.04896](https://arxiv.org/abs/1708.04896)
 
-Erases a random rectangle with random values during training, generating varying levels of
-occlusion; the stated benefit is robustness to occlusion, at no learned parameters.
-
-What this project takes from both: `config.AugmentPolicy.erase_p` / `erase_scale`, applied by
-`torchvision.transforms.RandomErasing` in `torch_data.build_transform`. The stated local reason —
-forcing the model off the board and onto the piece — is this project's own argument; neither
-abstract makes a claim about background shortcuts specifically.
-*Both abstract only.*
+Erasing a random rectangle for robustness to occlusion. Both are `AugmentPolicy.erase_p` /
+`erase_scale`. Forcing the model off the board and onto the piece is this project's own argument,
+not either paper's. *Both abstract only.*
 
 <a id="geirhos-2020"></a>
 **Shortcut Learning in Deep Neural Networks**
 Robert Geirhos, Jörn-Henrik Jacobsen, Claudio Michaelis, Richard Zemel, Wieland Brendel,
 Matthias Bethge, Felix A. Wichmann · 2020 · [arXiv:2004.07780](https://arxiv.org/abs/2004.07780)
 
-Shortcuts are decision rules that do well on a benchmark and fail to transfer to harder testing
-conditions. The paper is a framing and a set of recommendations, not a method.
-What this project takes from it: the name and the diagnosis for the measured failure where a
-knight's prediction relied 8 % on the piece and 43 % on the board around it. The defence built
-for it — border-background randomization — was removed on 2026-08-21 without ever being measured
-(0 of 10 shipped models used it); `chesslab reliance` remains the instrument that detects the
-shortcut, so the diagnosis outlived the cure.
-*Abstract only.*
+The name for the measured failure where a knight's prediction relied 8 % on the piece and 43 % on
+the board. The border randomization built against it was removed unmeasured on 2026-08-21;
+`chesslab reliance` still detects the shortcut. *Abstract only.*
 
 <a id="beery-2018"></a>
 **Recognition in Terra Incognita**
 Sara Beery, Grant van Horn, Pietro Perona · 2018 ·
 [arXiv:1807.04975](https://arxiv.org/abs/1807.04975)
 
-Camera-trap images from twenty locations: algorithms do well at locations seen in training and
-generalize poorly to new ones, classification worse than detection.
-Relevance here twice over. First, it is the published form of "the background is the shortcut" —
-the motivation for the border randomization this project built and then retired unmeasured.
-Second, it is the same structure as this project's
-**per-session split**: a fixed camera is a location, and splitting frames randomly instead of by
-session measures the easy case, not the deployed one.
-*Abstract only.*
+Models generalize poorly to camera locations unseen in training. A fixed camera is a location:
+the reason for the **per-session split**. *Abstract only.*
 
 <a id="geirhos-2018"></a>
 **ImageNet-trained CNNs are biased towards texture; increasing shape bias improves accuracy and
@@ -436,13 +290,9 @@ robustness**
 Robert Geirhos, Patricia Rubisch, Claudio Michaelis, Matthias Bethge, Felix A. Wichmann,
 Wieland Brendel · 2018 · [arXiv:1811.12231](https://arxiv.org/abs/1811.12231)
 
-CNNs trained on ImageNet recognise by texture rather than shape; training on a stylized version
-shifts them toward shape and improves robustness to distortions.
-Relevance here: the standing hypothesis behind the `sobel` input representations in
-`torch_data.InputRepresentation` — a rectified gradient magnitude is a silhouette, i.e. shape. The
-linear probe agreed (0.994 against RGB's 0.872) and the trained network did not (1937 misses
-against 17). The paper is why the idea was worth trying; it is not evidence that it works here.
-*Abstract only.*
+CNNs recognise by texture; the hypothesis behind the `sobel` input representations. The linear
+probe agreed (0.994 against RGB 0.872), the trained network did not (1937 misses against 17). The
+paper is why it was tried, not evidence that it works here. *Abstract only.*
 
 ---
 
@@ -451,44 +301,26 @@ against 17). The paper is why the idea was worth trying; it is not evidence that
 <a id="krawetz-2013"></a>
 **dHash (difference hash)** — Neal Krawetz, "Kind of Like That", The Hacker Factor Blog
 
-The algorithm in `dataset_build.dhash`: reduce to greyscale, resize to 9x8, emit one bit per
-horizontally adjacent pixel pair, giving a 64-bit hash.
-**Verification note: `hackerfactor.com` returned HTTP 403 in this session, so the primary source
-was not read.** The attribution and the algorithm above are confirmed from two independent
-secondary sources that both credit Krawetz's post by name: Ben Hoyt, *Duplicate image detection
-with perceptual hashing in Python* (benhoyt.com), and Adrian Rosebrock, *Image hashing with OpenCV
-and Python* (pyimagesearch.com, 27 November 2017). The pyimagesearch article gives the same 9x8
-resize, the same horizontal-neighbour comparison and the same 64 bits as the code here; Hoyt's
-128-bit variant additionally hashes the columns, which this project's implementation does not do.
-
-What this project knows that no source states: at hamming 6 this filter discarded 54.8 % of the
-corpus and **zero** of 3 432 collisions were pixel-identical. It is off by default since
-2026-07-30 (`config.DedupDefaults.phash_enabled`). See `docs/data-pipeline.md` §5.13.
+Greyscale, resize to 9x8, one bit per horizontal neighbour pair, 64 bits — `dataset_build.dhash`.
+The primary source returned HTTP 403; confirmed via two secondary sources crediting it (Ben Hoyt,
+benhoyt.com; Adrian Rosebrock, pyimagesearch.com, 2017-11-27). Measured here: at hamming 6 the
+filter discarded 54.8 % of the corpus and **zero** of 3 432 collisions were pixel-identical; off by
+default since 2026-07-30 (`docs/data-pipeline.md` §5.13).
 
 <a id="broder-1997"></a>
 **On the resemblance and containment of documents**
-Andrei Z. Broder · SEQUENCES 1997, pages 21–29 · [DOI 10.1109/SEQUEN.1997.666900](https://doi.org/10.1109/SEQUEN.1997.666900)
+Andrei Z. Broder · SEQUENCES 1997, pages 21–29 ·
+[DOI 10.1109/SEQUEN.1997.666900](https://doi.org/10.1109/SEQUEN.1997.666900)
 
-The origin of the resemblance/min-wise hashing line of work that locality-sensitive hashing grew
-out of.
-**Bibliographic record only — verified against dblp; the text was not retrieved in this session.**
-It is therefore listed here as provenance and is deliberately *not* cited at the code site: the
-banding argument in `dataset_build.dedup_phash` (if two 64-bit hashes differ in at most `k` bits,
-then across `k+1` disjoint bands at least one band must match) is a pigeonhole argument that
-stands on its own and is proved in place. The standard textbook treatment is chapter 3 of
-Leskovec, Rajaraman and Ullman, *Mining of Massive Datasets*; `infolab.stanford.edu` and
-`mmds.org` were both unreachable from here, so that book is **not** cited as a verified source.
+Provenance of min-wise/LSH hashing. **Bibliographic record only (dblp), text not read** — so not
+cited at the code site; the banding argument in `dedup_phash` is a pigeonhole proof in place.
 
 <a id="barz-2019"></a>
 **Do We Train on Test Data? Purging CIFAR of Near-Duplicates**
 Björn Barz, Joachim Denzler · 2019 · [arXiv:1902.00423](https://arxiv.org/abs/1902.00423)
 
-3.3 % of CIFAR-10 and 10 % of CIFAR-100 test images have duplicates in the training set;
-re-testing on a de-duplicated set drops accuracy by 9–14 %.
-Relevance here: the published measurement of why near-duplicates across a split matter — and the
-reason this project's answer is a **per-session split** rather than a hash filter. A hash filter
-inside one split is a curation choice; a duplicate *across* splits is leakage, and splitting by
-session removes it structurally without deciding what "duplicate" means.
+Duplicates across splits inflate accuracy by 9–14 %. A duplicate *across* splits is leakage; the
+per-session split removes it structurally, a hash filter inside one split is only curation.
 *Abstract only.*
 
 ---
@@ -499,31 +331,20 @@ session removes it structurally without deciding what "duplicate" means.
 **Quantizing deep convolutional networks for efficient inference: A whitepaper**
 Raghuraman Krishnamoorthi · 2018 · [arXiv:1806.08342](https://arxiv.org/abs/1806.08342)
 
-The abstract recommends per-channel quantization of weights together with per-layer quantization
-of activations as the preferred scheme for hardware acceleration.
-The body is emphatic about exactly this project's model family. Tables 2 and 3 report MobileNet-v1
-and MobileNet-v2 collapsing to 0.001 accuracy (against 0.709 and 0.719 in float) under asymmetric
-**per-layer** weight quantization, and recovering to 0.704 and 0.698 under asymmetric
-**per-channel**. The stated cause is that batch normalization produces extreme variation in
-dynamic range between the convolution kernels of a single layer, which a single per-layer scale
-cannot represent; per-channel quantization sidesteps it by quantizing per kernel.
-What this project takes from it: `training/quantize.py:run_quantize(per_channel=True)` as the
-default. The measured effect here is far milder than the paper's (per-tensor A16W8: 1 phantom;
-per-channel A16W8: 0), which is worth noting — this model is GroupNorm, not BatchNorm, so the
-paper's stated mechanism does not apply to it unchanged.
-*Body read (Tables 2–3 and surrounding text) via the ar5iv HTML.*
+Per-channel weights plus per-layer activations. Tables 2–3: MobileNet-v1/v2 collapse to 0.001 under
+per-layer weight quantization and recover to 0.704/0.698 per-channel, because BN leaves wildly
+different dynamic ranges between the kernels of one layer. Hence `run_quantize(per_channel=True)`.
+Measured here much milder (A16W8 per-tensor 1 phantom, per-channel 0) — on a GroupNorm model.
+*Body read (Tables 2–3) via ar5iv.*
 
 <a id="jacob-2017"></a>
 **Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference**
 Benoit Jacob, Skirmantas Kligys, Bo Chen, Menglong Zhu, Matthew Tang, Andrew Howard,
 Hartwig Adam, Dmitry Kalenichenko · 2017 · [arXiv:1712.05877](https://arxiv.org/abs/1712.05877)
 
-The integer-only inference scheme underlying TFLite-style quantization, with quantization-aware
-training to recover the accuracy lost; demonstrated on MobileNets.
-Relevance here: it is the scheme ONNX Runtime's QDQ export implements. Note that the abstract
-makes **no** per-channel claim — that is `[krishnamoorthi-2018]`. This project does post-training
-static quantization with a calibration set, not the paper's quantization-aware training.
-*Abstract only.*
+The integer-only scheme ONNX Runtime's QDQ export implements. It makes **no** per-channel claim
+(that is [krishnamoorthi-2018](#krishnamoorthi-2018)); this project does post-training static
+quantization, not the paper's quantization-aware training. *Abstract only.*
 
 <a id="howard-2019"></a>
 **Searching for MobileNetV3**
@@ -531,10 +352,7 @@ Andrew Howard, Mark Sandler, Grace Chu, Liang-Chieh Chen, Bo Chen, Mingxing Tan,
 Yukun Zhu, Ruoming Pang, Vijay Vasudevan, Quoc V. Le, Hartwig Adam · 2019 ·
 [arXiv:1905.02244](https://arxiv.org/abs/1905.02244)
 
-Hardware-aware NAS plus NetAdapt; MobileNetV3-Small is 4.6 % more accurate than MobileNetV2 at
-5 % lower latency on ImageNet.
-What this project takes from it: `--backbone mobilenet_v3_small` (torchvision).
-*Abstract only.*
+Hardware-aware NAS; the torchvision `mobilenet_v3_small`. *Abstract only.*
 
 <a id="qin-2024"></a>
 **MobileNetV4 -- Universal Models for the Mobile Ecosystem**
@@ -542,12 +360,8 @@ Danfeng Qin, Chas Leichner, Manolis Delakis, Marco Fornoni, Shixin Luo, Fan Yang
 Colby Banbury, Chengxi Ye, Berkin Akin, Vaibhav Aggarwal, Tenghui Zhu, Daniele Moro,
 Andrew Howard · 2024 · [arXiv:2404.10518](https://arxiv.org/abs/2404.10518)
 
-Claims Pareto-optimal performance across mobile CPUs, DSPs, GPUs and dedicated accelerators.
-What this project takes from it: the `mobilenetv4_conv_small_*` backbones loaded through timm,
-including the 0.35-width variant that ships. Note that the width the project actually uses has no
-pretrained weights in timm and is trained from random init — the paper's numbers are not this
-model's numbers.
-*Abstract only.*
+The `mobilenetv4_conv_small_*` backbones via timm. The 0.35 width that ships has no pretrained
+weights and trains from random init — the paper's numbers are not this model's. *Abstract only.*
 
 ---
 
@@ -558,12 +372,8 @@ model's numbers.
 Ramprasaath R. Selvaraju, Michael Cogswell, Abhishek Das, Ramakrishna Vedantam, Devi Parikh,
 Dhruv Batra · 2016 · [arXiv:1610.02391](https://arxiv.org/abs/1610.02391)
 
-Uses the gradients of a target class flowing into the final convolutional layer to produce a
-coarse localization map; applies to a wide range of CNNs without retraining or architectural
-change. The abstract explicitly lists identifying dataset bias among its uses.
-What this project takes from it: `training/gradcam.py`, hooking the deepest `Conv2d`, and the
-derived "reliance" measurement (share of attention mass on the piece versus the board) that
-produced the 8 %/43 % knight result.
+Class gradients into the last conv layer give a localization map; the abstract lists finding
+dataset bias as a use. `training/gradcam.py` and the "reliance" measurement (8 %/43 % knight).
 *Abstract only.*
 
 ---
@@ -575,180 +385,123 @@ produced the 8 %/43 % knight result.
 Georg Wölflein, Ognjen Arandjelović · 2021 · *J. Imaging* 7(6), 94 ·
 [arXiv:2104.14963](https://arxiv.org/abs/2104.14963)
 
-"chesscog". A RANSAC-based board localization computing a projective transformation onto a regular
-grid, then **two CNNs: one for occupancy, one for piece classification**. Reports 0.23 % error per
-square, and 99.83 % per-square accuracy on an unseen chess set after few-shot transfer from two
-photographs of the starting position. Trained on a synthetic dataset.
-What this project takes from it: the two-stage decomposition. `model.py:HierarchicalHead` is named
-after it in the code ("the chesscog principle") — the piece head receives gradient only on
-occupied squares. The wider architectural agreement (rectify the board first, classify per square,
-train on synthetic data) is independent convergence rather than borrowing.
+"chesscog": RANSAC board localization, then two CNNs (occupancy, piece), 0.23 % per-square error,
+synthetic training data. Rectify-then-classify-per-square is independent convergence.
 *Abstract only.*
 
 <a id="masouris-2023"></a>
 **End-to-End Chess Recognition**
 Athanasios Masouris, Jan van Gemert · 2023 · [arXiv:2310.04086](https://arxiv.org/abs/2310.04086)
 
-Introduces ChessReD, 10 800 real smartphone photographs with annotations, and argues for
-predicting the whole board configuration directly instead of a pipeline of modules, to avoid
-error accumulation and intermediate annotations; reports roughly 7x better performance than prior
-work on that benchmark.
-Relevance here: it is the published argument **against** this project's architecture. The counter
-this project relies on is not accuracy but labels — a fixed camera plus a known FEN yields 64
-labeled crops per photograph for free, which is what makes a per-square classifier trainable here
-at all. Worth re-reading before anyone proposes a whole-board model.
-*Abstract only.*
+ChessReD (10 800 real photos) and the argument for predicting the whole board directly — the
+published case **against** this architecture. The counter is labels, not accuracy: a fixed camera
+plus a known FEN yields 64 labeled crops per photo for free. Re-read before proposing a
+whole-board model. *Abstract only.*
 
 ---
 
 ## 10. Move classification — what was read at the source, taken, and refused
 
-`specs/44` research pass, 2026-08-03. Primary sources were read **from source, not from
-documentation — the two disagree, and the documentation is the one that is wrong.** This section
-holds the numbers because the pack that held them is retired.
+`specs/44`, 2026-08-03. Read **from source, not documentation — the two disagree, and the
+documentation is wrong.**
 
 <a id="lila-advice"></a>
 **lila — `modules/tree/src/main/Advice.scala`** · AGPL-3.0 · lichess-org/lila
 
-```scala
-private val winningChanceJudgements = List(
-  .3 -> Advice.Judgement.Blunder,
-  .2 -> Advice.Judgement.Mistake,
-  .1 -> Advice.Judgement.Inaccuracy
-)
-```
-
-The delta is on `winningChances`, which runs **-1..+1** — not on `WinPercent`, which runs 0..100.
-Since `winPercent = 50 + 50 * winningChances`, `.3` is **15 percentage points, not 30**.
-
-**Taken: 15 / 10 / 5. NOT 30 / 20 / 10.** The pack's own premise, and the answer everyone quotes off
-the lichess forum, was wrong by a factor of two; had it not been checked against the source, every
-band on the screen would have been twice as forgiving as the product it names. Cross-check:
-chess.com publishes Expected-Points cutoffs of 0.05–0.10 (inaccuracy) and 0.10–0.20 (mistake) on a
-0..1 win probability, i.e. 5 and 10 points — on the 30/20/10 reading lichess would be exactly double
-chess.com at every rung, which is not a coincidence anyone should believe.
-
-Live in code: `android/app/.../analysis/Accuracy.kt:9-11` and `AccuracyTest.kt:13-14` carry this
-correction verbatim.
+Blunder / Mistake / Inaccuracy at `.3 / .2 / .1` on `winningChances` (**-1..+1**), not on
+`WinPercent` (0..100). Since `winPercent = 50 + 50 * winningChances`, **taken: 15 / 10 / 5
+points, NOT 30 / 20 / 10** — the forum answer is wrong by a factor of two. chess.com's published
+cutoffs (5 and 10 points) agree. Live in `Accuracy.kt` and `AccuracyTest.kt`.
 
 <a id="lila-eval"></a>
 **scalachess — `core/src/main/scala/eval.scala`**, constant fitted in lila PR #11148
 
-`k = 0.00368208`, the win-expectancy logistic. **Fitted for 2300+ rated players.** The PR author
-states it trends towards **-0.002** as rating decreases; this project's users are not 2300, so this
-is a known, unfixed approximation and the one place where the borrowed maths is least appropriate to
-its audience. Fixing it means fitting our own curve, which is a different project.
-
-Live in code: `android/app/.../analysis/WinChance.kt:9` (`WIN_CHANCE_K = 0.00368208`), used by
-`winChanceWhite`. Also `Cp.CEILING = ±1000` and the `fromMate` mapping of any mate onto it, from the
-same file, in `WinChance.winChanceCeiled`.
-
-**Trap:** the blog post "Learn from your mistakes" prints the *superseded* `-0.004` multiplier — it
-predates PR #11148. `WinPercent.scala` no longer exists in lila; the code moved to scalachess.
-`ui/chart/src/acpl.ts` does not draw ACPL, it draws the advantage graph.
+`k = 0.00368208`, the win-expectancy logistic, **fitted for 2300+ players** (trends to -0.002 at
+lower ratings) — a known, unfixed approximation for this project's users. Live as
+`WIN_CHANCE_K` in `WinChance.kt`, with `Cp.CEILING = ±1000` and mates mapped onto it.
+**Trap:** the blog post "Learn from your mistakes" prints the superseded `-0.004`.
 
 <a id="lila-accuracy"></a>
 **lila — `modules/analyse/src/main/AccuracyPercent.scala`** · AGPL-3.0
 
-Per-move accuracy curve
-`103.1668100711649 * exp(-0.04354415386753951 * delta) - 3.166924740191411`, plus lichess' own
-`+ 1` uncertainty bonus, clamped 0..100 → `Accuracy.accuracyPercent`. The harmonic mean's
-`max(1, v)` guard comes from `scalalib/lila/src/main/scala/Maths.scala` → `Accuracy.gameAccuracy`.
-Accuracy colour bands >=85 / >=70 / >=55 from `lila/ui/analyse/src/view/roundTraining.ts`.
-
-**Three details are absent from lichess' public accuracy page** — the `+ 1` bonus, the early return
-of exactly `100d`, and the ±1000 ceiling. A port written from the public page would be wrong in
-three places. This is the concrete case for the rule at the top of this file.
+Per-move accuracy `103.1668100711649 * exp(-0.04354415386753951 * delta) - 3.166924740191411`,
+plus lichess' `+ 1` bonus, clamped 0..100; the harmonic mean's `max(1, v)` guard from
+`scalalib/.../Maths.scala`; colour bands >=85 / >=70 / >=55. Three details — the `+ 1`, the early
+return of exactly `100d`, the ±1000 ceiling — are absent from the public accuracy page; a port from
+the page would be wrong in three places.
 
 ### The licence position — settled, do not re-open
 
-- A mathematical **formula** is not copyrightable; a verbatim **code port** would be. Formula plus
-  attribution is the normal and clean route, and it is what this project already does.
-- Even a genuine code port would be combinable: lila is **AGPL-3.0**, chesslab is
-  **GPL-3.0-or-later** (python-chess is GPL), and **GPLv3 §13 permits the combination** — the AGPL
-  portion simply keeps its own obligation.
-- **chess.com is the one real limit.** Their accuracy formula (CAPS2) is proprietary and
-  unpublished: it can be approximated from what they have published, never copied. Their
-  *presentation* — the move taxonomy, the shape of the review flow — is functionality and is free to
-  learn from. Only the shape and the published Expected-Points table (Best 0.00, Excellent <=0.02,
-  Good <=0.05, Inaccuracy <=0.10, Mistake <=0.20, Blunder >0.20) were taken, as a cross-check; none
-  of it is implemented.
-- `lichess-org/chess-openings` is **CC0** — public-domain data that may simply be shipped
-  (`specs/47`), attribution as courtesy rather than obligation.
-- `specs/42` refused the accuracy percentage **for scope, not for licensing**; the user asked
-  directly on 2026-08-03 whether licences were the obstacle. They are not.
+- A formula is not copyrightable; a verbatim code port would be. Formula plus attribution is what
+  this project does.
+- Even a port would combine: lila is AGPL-3.0, chesslab GPL-3.0-or-later, and **GPLv3 §13 permits
+  the combination**.
+- **chess.com is the one real limit:** CAPS2 is proprietary — approximate, never copy. Their
+  presentation is free to learn from; only the published Expected-Points table was taken, as a
+  cross-check.
+- `lichess-org/chess-openings` is CC0. `specs/42` refused the accuracy percentage for scope, not
+  licensing (user asked, 2026-08-03).
 
 ### Refused, with the reason
 
 | Refused | Why |
 |---|---|
-| **Brilliant / Great / Miss** | chess.com's definition is prose and the rule is unpublished and rating-dependent; every open reimplementation guesses differently. Shipping a guess under chess.com's word is invented authority — and a beginner cannot act on "Brilliant" anyway. |
-| **Book** | `MoveQuality.BOOK` existed and was **deleted**: no opening book ships, so nothing could ever set it; only its own unit test produced one. |
-| **A "Best vs Good" threshold** | BEST is the *fact* that the player matched the engine's first choice. Over 83 plies the 29 engine-matching moves lost at most **1.56** points of win expectancy — a cutoff would only restate it. |
-| **Lichess' full accuracy aggregation** | `(volatility-weighted mean + harmonic mean) / 2`, `windowSize = clamp(plies / 10, 2, 8)`, population sigma squeezed to 0.5..12. Reproducible — but the weighted half is precisely the half that leaks a decided finish. We ship the harmonic mean alone. |
-| **ACPL anywhere on the screen** | Regan & Haworth: a marginal centipawn has roughly **5x the impact at +20 that it has at +100**. And the lichess community study: an ACPL of 50 can mean inaccuracies on almost every move or one big blunder with good play elsewhere. |
-| **A rating-dependent classifier** | chess.com's expected-points function takes the player's rating as an input, so the same swing classifies differently for an 800 and a 2200. We have no rating for anybody, and inventing one is invented authority. |
-| **WintrChess / freechess reimplementations** | Both are third-party curve-fits to observed chess.com output; one is abandoned. |
-| **chess.com's motif naming** ("Show Fork", "Show Lost Piece") | Naming a motif needs tactical classification we do not have and would have to invent. |
-| **Skeleton screens** | The cited study found skeletons perceived as shorter than a spinner "but not by much"; an ECCE 2018 replication found **no significant difference**. |
-| **A percent-done bar as the only feedback** | NN/g's >=10 s rule; lichess' actual pattern is that the filling advantage chart *is* the progress indicator. |
+| **Brilliant / Great / Miss** | chess.com's rule is unpublished and rating-dependent; shipping a guess under their word is invented authority |
+| **Book** | no opening book ships; `MoveQuality.BOOK` could never be set and was deleted |
+| **A "Best vs Good" threshold** | BEST is a fact (matched the engine's first choice); over 83 plies the 29 matches lost at most 1.56 points |
+| **Lichess' full accuracy aggregation** | its volatility-weighted half leaks a decided finish (below); we ship the harmonic mean alone |
+| **ACPL on screen** | a centipawn at +20 has ~5x the impact of one at +100; ACPL 50 can be many inaccuracies or one blunder |
+| **A rating-dependent classifier** | we have no rating for anybody |
+| **WintrChess / freechess** | third-party curve-fits to chess.com output |
+| **Motif naming** ("Show Fork") | needs tactical classification we do not have |
+| **Skeleton screens** | a replication found no significant difference to a spinner |
+| **A percent bar as the only feedback** | the filling advantage chart *is* the progress indicator |
 
-The measured effect of the mate-tail question, which is why the aggregation half was refused:
-adding 15 mate-tail plies per side moves the losing side's accuracy **69.1 -> 80.9** and cuts their
-ACPL by 60 %; counting them reads White 76.5 / Black 75.6, dropping them reads **71.4 / 66.5**.
-Nine points of Black's score was the length of their own defeat.
-
-The engine budget these bands are read at is in `docs/android-performance.md`.
+Why the aggregation half was refused: adding 15 mate-tail plies per side moves the losing side's
+accuracy **69.1 -> 80.9**; counting them reads White 76.5 / Black 75.6, dropping them
+**71.4 / 66.5**. The engine budget these bands run at is in `docs/android-performance.md`.
 
 ---
 
-## 11. State estimation and temporal filtering — located, never cited
+## 11. Decisions with no published basis
 
-**This project has no section on state estimation or temporal filtering, and the tracker's whole
-temporal design is therefore uncited.** Two sources were located and confirmed on 2026-08-02
-(`specs/39`) and **neither was read beyond its abstract**, so under §12's rule neither was ever
-added as an entry — and neither has been since. Stating that plainly is the point of this section.
-
-| Located | Would cover | Status |
-|---|---|---|
-| **An Algorithm for Tracking Multiple Targets** — Donald B. Reid, 1979, *IEEE Trans. Automatic Control* 24(6) 843–854, doi `10.1109/TAC.1979.1102177` | The origin of multiple-hypothesis tracking; the direct ancestor of the parked beam-search/multi-hypothesis idea (`specs/10`) | **Abstract only. Never cited. Do not cite from this line — fetch it first.** |
-| **Continuous Inspection Schemes** — E. S. Page, 1954, *Biometrika* 41(1–2) 100–115, doi `10.1093/biomet/41.1-2.100` | CUSUM: the textbook form of "this has disagreed longer than noise explains" — which the tracker does by hand in observation counts (`desyncObs`/`desyncSince` in `Alarm.kt`, `anomalySince`/`anomalyStart[64]` in `EngineState.kt`/`AnomalyPatcher.kt`) | **Abstract only. Never cited. Do not cite from this line — fetch it first.** |
-
-`specs/31` shipped the 42-entry bibliography on 2026-07-31; both sources were located two days
-later and were deliberately parked behind its rule: *every citation must be fetched and verified in
-the session that writes it down; if a paper cannot be retrieved and confirmed, write "no source
-verified" instead.*
-
----
-
-## 12. How to add an entry
-
-1. Fetch the source. The arXiv `abs` page is enough for title, authors, year and identifier; use
-   `ar5iv.labs.arxiv.org/html/<id>` when the claim is in the body.
-2. Record what the source *actually* says. "Is associated with" is not "causes"; an abstract's
-   claim is not the body's evidence.
-3. If only the abstract was readable, write *Abstract only.* If nothing was readable, do not add
-   the entry — add a line to §13 instead.
-4. At the code site, one sentence and an anchor. The reference itself lives only here.
-
----
-
-## 13. Decisions with no published basis
-
-These are load-bearing settings that no source justifies. They are listed so nobody mistakes them
-for results. The reasoning behind each, and what it would take to settle it, was in
-`specs/31-cite-what-we-rely-on/STATUS.md` (`git show fd9c1908:specs/31-cite-what-we-rely-on/STATUS.md`).
+Load-bearing settings no source justifies — listed so nobody mistakes them for results. The
+reasoning was in `specs/31` (`git show fd9c1908:specs/31-cite-what-we-rely-on/STATUS.md`).
 
 | Decision | Where | Status |
 |---|---|---|
-| `lr = 3e-4` | `config.DEFAULT_LR`, every run on record | No source verified. Inherited; never swept, never range-tested. It is also the rate at which every BatchNorm-vs-GroupNorm comparison ran — see `[bjorck-2018]`. |
-| `weight_decay` left at PyTorch's AdamW default | `training/train.py` | Never chosen. `[loshchilov-2017]` is about this parameter and the project does not set it. |
-| `epochs = 30` as the default, and `T_max = epochs` | `config.DEFAULT_EPOCHS`, `training/train.py` | The coupling is documented (`[loshchilov-2016]`), the number is not justified by anything. |
-| `batch_size = 256` | `config.DEFAULT_BATCH_SIZE` | No source. Chosen to fit VRAM. |
-| `max_empty_ratio = 1.5`, `max_class_ratio` | `config.DEFAULT_MAX_EMPTY_RATIO`, `dataset.subsample_classes` | No source. `[buda-2017]` recommends the opposite direction (oversample rather than undersample). |
-| Inverse-frequency class weights | `dataset.compute_class_weights` | `[cui-2019]` argues against exactly this scheme. Never compared here. |
-| Every augmentation magnitude (`brightness` 0.35, `gamma` (0.6, 1.8), `noise_std` 0.03, `erase_p` 0.25, `neighbour_p` 0.30, …) | `config.AugmentPolicy` | The *techniques* are cited above; the numbers are hand-set and unswept. |
-| `per_cell_cap = 4`, phash hamming threshold | `config.DedupDefaults` | No source. Both are measured here instead (`docs/data-pipeline.md` §5.13) — which is the better kind of justification, but it is not a citation. |
-| `patience`, and `occ_board_acc` as the checkpoint metric | `training/train.py` | This project's own invention. See the `CLAUDE.md` pitfall about the metric being structurally floored. |
-| The occupancy reader `1 − P(empty) − P(occluded)` and its bias toward "occupied" | `move_tracker/cnn_recovery.py` | This project's own arithmetic, measured here. No source and none needed — but it is not a standard technique either. |
-| GroupNorm group count capped at 8 | `training/model.py:_gn_groups` | No source. `[wu-2018]` sets G=32 by default and reports GN insensitive to G over 64…2 (about 0.6 pp spread), so 8 is probably harmless — but it was never varied here, and on narrow layers the divisor rule silently drops it further. |
+| `lr = 3e-4` | `config.DEFAULT_LR` | Inherited; never swept, never range-tested. Also the rate of every BN-vs-GN comparison — see [bjorck-2018](#bjorck-2018). |
+| `weight_decay` at AdamW's default | `training/train.py` | Never chosen ([loshchilov-2017](#loshchilov-2017)). |
+| `epochs = 30`, `T_max = epochs` | `config.DEFAULT_EPOCHS` | The coupling is documented ([loshchilov-2016](#loshchilov-2016)), the number is not justified. |
+| `batch_size = 256` | `config.DEFAULT_BATCH_SIZE` | Chosen to fit VRAM. |
+| `max_empty_ratio = 1.5`, `max_class_ratio` | `dataset.subsample_classes` | [buda-2017](#buda-2017) recommends the opposite direction. |
+| Inverse-frequency class weights | `dataset.compute_class_weights` | [cui-2019](#cui-2019) argues against exactly this. |
+| Every augmentation magnitude | `config.AugmentPolicy` | Techniques cited in §5; numbers hand-set and unswept. |
+| `per_cell_cap`, phash hamming threshold | `config.DedupDefaults` | Measured here (`docs/data-pipeline.md` §5.13), not cited. |
+| `patience`, checkpoint metric | `training/train.py` | This project's own invention. |
+| GroupNorm group count capped at 8 | `training/model.py:_gn_groups` | [wu-2018](#wu-2018) reports insensitivity over 64…2; never varied here. |
+
+---
+
+## 12. State estimation and temporal filtering — located, never cited
+
+**The tracker's temporal design is uncited.** Two sources were located on 2026-08-02 (`specs/39`)
+and read only to the abstract, so under §13's rule neither became an entry:
+
+- **An Algorithm for Tracking Multiple Targets** — Donald B. Reid, 1979, *IEEE Trans. Automatic
+  Control* 24(6) 843–854, doi `10.1109/TAC.1979.1102177`. Origin of multiple-hypothesis tracking.
+- **Continuous Inspection Schemes** — E. S. Page, 1954, *Biometrika* 41(1–2) 100–115, doi
+  `10.1093/biomet/41.1-2.100`. CUSUM — what `desyncObs`/`anomalySince` do by hand in counts.
+
+**Do not cite either from these lines — fetch it first.**
+
+---
+
+## 13. How to add an entry
+
+1. Fetch the source. The arXiv `abs` page gives title, authors, year, id; use
+   `ar5iv.labs.arxiv.org/html/<id>` when the claim is in the body.
+2. Record what the source *actually* says — an abstract's claim is not the body's evidence.
+3. Mark *Abstract only.* where that is all that was read. If nothing was readable, add no entry —
+   add a line to §11 instead.
+4. At the code site, one sentence and an anchor. The reference itself lives only here.

@@ -15,8 +15,8 @@ etwas Besseres baut.
 
 Deshalb: **Lies nichts von unserem Tracker.** Konkret ist alles unter `android/` außer
 `android/arena/` gesperrt — besonders `android/core-engine/`, `android/tracker-runtime/` und
-`android/desktop/`. Ebenso `docs/tracker-flow.md`, `docs/alarm-path.md`, `docs/hand-gate.md` und
-`docs/position-check.md`. Das ist keine Geheimhaltung, sondern der Punkt der Messung: eine Lösung,
+`android/desktop/`. Ebenso `docs/tracker-flow.md`, `docs/session-mattes.md` und
+`docs/frame-scan.md`. Das ist keine Geheimhaltung, sondern der Punkt der Messung: eine Lösung,
 die unsere kennt, beantwortet die Frage nicht mehr.
 
 Erlaubt und gewollt: `android/arena/README.md`, das Modul `android/arena/` selbst, alles was du

@@ -97,10 +97,10 @@ die `corners` sind das INNERE Brettquad, der Rahmen kommt dazu, und hohe Figuren
 perspektivisch nach aussen. Der Mensch muss also zurueck.
 
 Was das kostet, ist klein: mit 15 % Rand um die Diagonale sinkt die Zelle von 119 auf **111
-Quellpixel** — 7 %, und damit im gemessenen Korpusband von 97–126 (`docs/plan-98/00-plan.md`).
+Quellpixel** — 7 %, und damit im gemessenen Korpusband von 97–126 (`docs/evaluation.md`).
 Bei 3840x2160 waeren es bei gleicher Rahmung **~166 Quellpixel**, also +40 % gegenueber heute.
 128 px waeren dann erstmals eine VERKLEINERUNG statt eines Gleichstands — und die Schranke
-„128 px ist die Sensorgrenze" (`plan-98/00-plan.md:40`) gaelte nicht mehr.
+„128 px ist die Sensorgrenze" (`evaluation.md`) gaelte nicht mehr.
 
 **Korrigiert 2026-09-13: es braucht wahrscheinlich gar keinen Umbau.** Ich hatte hier eine zweite
 Bindung (`VideoCapture` statt `ImageAnalysis`) vorgeschlagen. Nachgesehen:
@@ -213,7 +213,7 @@ anbietet, und die Wahl gehoert in die Aufnahme-Metadaten, damit hinterher nachle
 wirklich lief.
 
 **Bewegungsunschaerfe ist KEIN Argument gegen 15 fps** — gemessen: bei `[15,15]` waeren 66,7 ms
-erlaubt, das Geraet fuhr **10,0 ms** (`docs/board-exposure.md:104`). Die Belichtung ist nicht
+erlaubt, das Geraet fuhr **10,0 ms** (`docs/camera.md`). Die Belichtung ist nicht
 verhandelbar, also kostet eine langsamere Bildrate keine Schaerfe.
 
 **GEBAUT 2026-09-13.** `agreedProfile` fragt vor dem `configure` die

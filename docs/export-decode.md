@@ -1,207 +1,115 @@
-# Bretter ausschneiden: wo die Zeit hingeht (2026-09-08)
+# Bretter ausschneiden: Dekodieren, Schneiden, Entzerren
 
-Gemessen an `2026-08-30-16-20-19` (262 Zeilen, 12 Segmente, 1440×2560, Index bis 2421).
-Alle Zahlen sind Wanduhrzeit eines echten `export-session`, keine Schätzungen.
+Wo die Zeit eines `realgames export-session` hingeht und welche Interpolation welcher Warp nimmt.
+Gemessen an `2026-08-30-16-20-19` (262 Zeilen, 12 Segmente, 1440×2560), Wanduhrzeit echter Läufe.
+Tempo des Composite-Ingests vom Drehteller: `docs/occluder-plates.md`.
 
-## Vorher und nachher
+## Ergebnis (2026-09-08)
 
-| Phase | vorher | Dekodieren | Prozesse | + Geometrie |
-|---|---:|---:|---:|---:|
-| Rotation + Settle | ~49 s | 49 s | 18 s | **9,5 s** |
-| Grid-Fit | ~87 s | 42 s | 15 s | **11,1 s** |
-| Bretter schneiden | ~87 s | 23 s | 23 s | **7,1 s** |
-| **gesamt** | **~223 s** | **114 s** | **57 s** | **27,8 s** |
+| Phase | vorher | heute |
+|---|---:|---:|
+| Rotation + Settle | ~49 s | **9,5 s** |
+| Grid-Fit | ~87 s | **11,1 s** |
+| Bretter schneiden | ~87 s | **7,1 s** |
+| **gesamt** | **~223 s** | **27,8 s** |
 
-Die letzte Spalte ist die Geometrie-Arbeit (Abschnitt unten): die
-zwischengespeicherte Mesh-Koordinatenkarte, das analytische `_notch_centre` statt `polyfit`, die
-Settle-Zuschnitte nur noch auf den gebrauchten Feldern — und der größte Einzelposten, das
-**Zusammenfassen zweier sich aufhebender Drehungen** (OpenCV dreht nach Metadaten automatisch, der
-Export drehte zurück). Nachgewiesen: ein voller Re-Export liefert alle 269 Bretter bytegleich und
-alle 262 Zeilen identisch zum vorher geprüften Stand.
+Nachgewiesen: ein voller Re-Export liefert alle Bretter bytegleich und alle 262 Zeilen identisch.
+**Ein zweiter Lauf ist schneller, ohne dass etwas besser wurde:** er startet auf den gefitteten
+Ecken des ersten und fittet 13 statt 125 Frames nach — nie zwei Läufe derselben Session als A/B.
 
-Der Grid-Fit-Wert ist nicht ganz sauber vergleichbar: ein zweiter Lauf startet auf den bereits
-gefitteten Ecken und fittet nur noch 13 statt 125 Frames nach. Der Dekodier-Anteil (−21 s) ist es.
+## 1. `grab` statt `read` für die Frames, die niemand will
 
-## 1. `grab` statt `read` für die 89 %, die niemand will
+Der Export will **11 %** der Frames. `cap.read()` ist `grab()` + `retrieve()`, und `retrieve`
+(BGR-Konvertierung) ist der Preis: `read` 10,43 ms, `grab` 1,96 ms je Frame, am echten Zeilensatz
+25,5 s → 4,7 s je Durchlauf. `Recording.frames(wanted=…)` bezahlt nur die gewollten — bitgleich
+(`test_wanted_yields_the_same_pictures_it_would_have_decoded`). Nutzer: `stream_frames`,
+`decode_frames`, `framescan.scan_video`.
 
-Der Export fordert **11 %** der Frames an (262 von 2 422), dekodierte aber alle voll — und das
-zweimal, einmal für den Fit und einmal für den Warp.
-
-`cap.read()` ist `grab()` + `retrieve()`. `grab()` schiebt den Container weiter, `retrieve()` baut
-das BGR-Bild. Auf diesem Material:
-
-| | je Frame |
-|---|---:|
-| `read` | 10,43 ms |
-| `grab` | 1,96 ms |
-
-Am echten Zeilensatz: **25,5 s → 4,7 s je Durchlauf**, also 51 s → 9,4 s für beide.
-
-`Recording.frames(wanted=…)` nimmt jetzt die gewollten Indizes entgegen. **Bitgleich** geprüft
-(`test_wanted_yields_the_same_pictures_it_would_have_decoded`, und auf zwei echten Aufnahmen mit
-maximaler Abweichung 0) — `retrieve` dekodiert genau den Frame, den `grab` geholt hat.
-
-Nutzer: `stream_frames` (beide Export-Durchläufe), `decode_frames`, `framescan.scan_video`
-(jeder 3.).
-
-**`measure_settle` bekommt nichts davon**, und das ist kein Versehen: die Cluster-Bildung öffnet
-einen neuen Cluster genau dann, wenn eine Lücke entsteht, also ist die Vereinigung der Fenster
-innerhalb eines Clusters immer lückenlos. Ein `wanted` wäre dort exakt der ganze Bereich.
+**`measure_settle` ist ausgenommen:** seine Cluster sind per Konstruktion lückenlos, ein `wanted`
+wäre dort der ganze Bereich.
 
 ## 2. Das Kodieren überlappt das Dekodieren
 
-Profil der Schneide-Phase: `imwrite` **73 %**, `warpPerspective` 2 %. Ein 928-px-Brett bei
-webp-Qualität 95 kostet 50 ms. Die Qualität ist eine Datenentscheidung und bleibt.
+`imwrite` ist 73 % der Schneide-Phase (50 ms je 928-px-Brett bei WebP-Qualität 95, die eine
+Datenentscheidung ist und bleibt). `cv2.imwrite` gibt das GIL frei: `BOARD_WRITERS = 4` Threads,
+66,3 s → 22,8 s. **Vier und nicht mehr** — ein Frame in Flug ist 11 MB, und die Abstürze dieser
+Maschine sind Speicher. Gefahrlos, weil `retrieve()` je Frame einen **eigenen** Puffer liefert;
+ein wiederverwendeter hätte das nächste Bild unter dem alten Namen geschrieben.
 
-`cv2.imwrite` gibt das GIL frei, also schreiben `BOARD_WRITERS = 4` Threads, während der Decoder
-weiterläuft: **66,3 s → 22,8 s** (2,9×). Vier und nicht mehr, weil ein Frame in Flug 11 MB ist und
-die Abstürze dieser Maschine Speicher sind.
+## 3. Die Phasen laufen in Prozessen (`--workers`, Vorgabe 4)
 
-Geprüft, dass das gefahrlos ist: `retrieve()` liefert für jeden Frame einen **eigenen** Puffer
-(verschiedene Adressen, paarweise verschiedene Inhalte). Bei einem wiederverwendeten Puffer hätte
-der Encoder das nächste Bild unter dem alten Namen geschrieben — eine stille Label-Verfälschung.
+- **Die Segment-Zählung stimmt exakt** (11 × 900 + 671 über 12 Segmente); der globale Index eines
+  Segments ist die Summe davor.
+- **Ein Seek ist NICHT exakt:** 2 von 7 Sonden lieferten andere Pixel, während
+  `CAP_PROP_POS_FRAMES` den gefragten Index meldete. Ein Worker startet an der Segmentgrenze
+  (`Recording.segment_base`) und läuft mit `grab` vor (1,3 ms je Frame).
+- **Zusammenhängende Strecken** (`plan_chunks`), nie reihum — sonst liefe jeder Worker durch die
+  ganze Aufnahme. Zurück kommen Zeilen, nie Bilder.
+- **Ein Abschnitt darf nie sein eigenes Mesh poolen.** `meshes_for_boards` mittelt über alle
+  sauberen Frames der Aufnahme; der Elternteil rechnet es einmal.
+- **Der Median wird aus den Zeilen neu gebildet**, nicht aus Teilmedianen gemittelt.
 
-## 3. Die Phasen laufen in Prozessen
+Der Brett-Schnitt skaliert NICHT mit (33 s → 23 s, dann Sättigung): er ist decode-gebunden, und
+`grab` kostet bei vier Prozessen 3,4 statt 1,4 ms. Der Grid-Fit ist rechengebunden und skaliert
+(42 → 15 s). Encoder-Threads, Zielordner, `CAP_PROP_N_THREADS`, Prozessstart und
+Speicherbandbreite wurden gemessen und sind es nicht.
 
-Was verteilt werden darf, war zuerst zu klären:
+`measure_settle` seekte früher auf `cluster_lo` und lief damit auf teils falschen Bildern; es
+startet jetzt ebenfalls an der Segmentgrenze.
 
-- **Die Segment-Zählung stimmt exakt.** Alle 12 Segmente von 20-19 melden, was ein voller
-  Vorwärtslauf zählt (11 × 900 + 671). Der globale Index eines Segments ist also die Summe davor.
-- **Ein Seek ist NICHT exakt.** 2 von 7 Sonden lieferten andere Pixel, während
-  `CAP_PROP_POS_FRAMES` den gefragten Index meldete. Ein Worker startet deshalb an der
-  Segmentgrenze (`Recording.segment_base`) und läuft mit `grab` vor — 1,3 ms je Frame.
+## 4. Die Geometrie-Arbeit
 
-Aufgeteilt wird in **zusammenhängende Strecken** (`plan_chunks`), nie im Reihum-Verfahren: sonst
-liefe jeder Worker durch die ganze Aufnahme. Zurück kommen nur Zeilen, nie Bilder.
+- **Die Drehung war doppelt:** OpenCV dreht nach Container-Metadaten automatisch, der Export drehte
+  zurück. `_combined_rotation` fasst beide zusammen. Die Winkel ADDIEREN — gemessen auf drei
+  Aufnahmen: `ROTATE_90_CLOCKWISE` aufs rohe Bild ergibt das auto-gedrehte, das `META` 90 nennt.
+  Unsere Aufnahmen heben sich alle auf (90 + 270), und eine Aufhebung beweist die Konvention nicht.
+- **Mesh-Koordinatenkarte gecacht** (`calibration._crop_mesh_coordinates`, Schlüssel: Brettgröße,
+  Rand, alle Mesh-Werte; Homographie und Linse weiter je Frame). Mesh, Homographie und Linse sind
+  EIN kubischer Remap, kein Warp mit nachgelagertem Geradeziehen. Brett-Phase 23 → 7 s — **eine
+  obere Schranke**: `scripts/benchmark_export_warp.py` fuhr `uncached` damals immer zuerst.
+- **`_notch_centre`** löst die Schulter-Basislinie analytisch statt über `polyfit`; dasselbe
+  lineare Modell, Linienlagen weichen um höchstens 1,14e-13 px ab.
+- **GPU bringt nichts:** OpenCL kostet mit Transfer 10,6 statt 2,1 ms je Remap. Hardware-Dekodierung
+  ist auf diesem Rechner zu (kein D3D11 im pip-Wheel, `rocDecode` ist Linux/Instinct, unter Windows
+  nur AMF ohne Python-Bindung).
 
-Nachgewiesen gleich, auf echtem Material (262 Zeilen): **Statistiken gleich, jede Zeile Feld für
-Feld identisch, alle 262 Bretter bytegleich.**
+**Offen, gemessen aber nicht angefasst:** `line_band_samples` ist 69 % des Grid-Fits (38 848
+winzige `polyfit`/`lstsq` auf 40 Frames) — overhead-gebunden, der nächste Batching-Kandidat. Die
+Farbkonvertierung zu batchen lohnt nach dem `grab`-Fix nicht mehr. `cv2.rotate` (19 % der
+Settle-Phase) ließe sich in die Homographie ziehen, fasst aber Geometrie an, die Labels trägt.
 
-Zwei Fallen, die dabei zu umgehen waren:
+## 5. Entzerrung: kubisch für Bilddaten, bilinear für Messungen (2026-09-14)
 
-- **Ein Abschnitt darf nicht sein eigenes Mesh poolen.** `meshes_for_boards` mittelt über alle
-  sauberen Frames der Aufnahme; vier Worker hätten vier Bretter-Sätze gegen vier verschiedene
-  Messungen gerade gezogen, und die Naht wäre unsichtbar. Der Elternteil rechnet es einmal.
-- **Der Median wird aus den Zeilen neu gebildet**, nicht aus den Teilmedianen gemittelt — jede
-  gefittete Zeile trägt ihr `align_worst_px`, also ist die Zusammenführung dieselbe sortierte
-  Liste wie beim seriellen Lauf.
+Echtes Brett (952×952), gleiche Perspektive, Median aus 7 Läufen, Laplace-Varianz (Quelle 1 059,8):
 
-### Warum der Brett-Schnitt nicht mitskaliert
+| Arm | ms | Anteil der Quelle |
+|---|---|---|
+| `warpPerspective` bilinear | 1,33 | 63,6 % |
+| `warpPerspective` kubisch | 2,26 | 92,1 % |
+| `remap` bilinear | 0,91 | 63,6 % |
+| `remap` kubisch | 1,78 | 92,1 % |
 
-| Worker | 1 | 2 | 4 | 6 |
-|---|---:|---:|---:|---:|
-| Grid-Fit | 42 s | — | **15 s** | — |
-| Bretter | 33 s | 24,5 s | 23,1 s | 23,2 s |
-
-Einzeln gemessen braucht jeder der vier Abschnitte ~9 s, perfekt parallel wären also 9,6 s. Der
-Faktor 2,4 dazwischen ist exakt die gemessene Decoder-Degradation: `grab` kostet 1,4 ms bei einem
-Prozess und 3,4 ms bei vieren. **Der Brett-Schnitt ist decode-gebunden, der Grid-Fit
-rechen-gebunden** — deshalb skaliert der eine 2,8× und der andere 1,4×.
-
-Was es NICHT ist, jeweils gemessen und verworfen: Encoder-Threads (1, 2 und 4 sind gleich schnell),
-der Zielordner (Temp = Projektordner, also kein Virenscanner), `CAP_PROP_N_THREADS` (wird nicht
-beachtet), der Prozessstart (`import chesslab.realgames` kostet 0,24 s und zieht kein torch), und
-die Speicherbandbreite (webp-Kodieren skaliert linear: 8 → 47 Bretter/s über 6 Prozesse).
-
-## Nebenbei ein Korrektheitsfehler behoben
-
-`measure_settle` seekte auf `cluster_lo` — bei nachweislich ungenauem Seek. Diese Messung
-entscheidet, ab welchem Frame ein Feld als gesetzt gilt, also lief sie auf teils falschen Bildern.
-Sie startet jetzt an der Segmentgrenze; `wanted` hält den Vorlauf auf `grab`-Preis.
-
-## Was übrig bleibt, gemessen aber nicht angefasst
-
-Profil der Settle-Phase, bevor sie auf Prozesse ging:
-
-| | Anteil |
-|---|---:|
-| `read` (1 630 Frames, alle gebraucht) | 51 % |
-| `cv2.rotate` | 19 % |
-| `resize` (104 256 Aufrufe) | 11 % |
-| `warpPerspective` | 6 % |
-
-- **`cv2.rotate`** schiebt 1 629-mal 11 MB um. Eine Homographie kann die Drehung mitnehmen: die
-  ECKEN in die ungedrehten Bildkoordinaten rechnen und direkt warpen. Spart 19 % hier und
-  Vergleichbares in `framescan` — fasst aber Geometrie an, die Labels trägt.
-- **64 Crops je Frame**, wo `active` 2–4 Felder groß ist. `crops_for_frame` ist ausdrücklich die
-  *eine* Quelle für den Trainings-Zuschnitt und die Live-Inferenz; ein Filter würde ihre Zusage
-  „64 in der Reihenfolge `all_squares()`" brechen. 11 % sind das nicht wert.
-- **Grid-Fit**: `line_band_samples` ist 69 % der Phase, darin 38 848 winzige `polyfit`/`lstsq` auf
-  40 Frames. Overhead-gebunden, nicht rechengebunden — dieselbe Form wie der Trainings-Feed
-  (`docs/batch-aug.md`), also der nächste echte Batching-Kandidat.
-
-**Die Farbkonvertierung zu batchen lohnt nicht mehr.** Nach dem `grab`-Fix kostet sie 1,5 s von
-4,7 s je Durchlauf, und eine GPU-Variante müsste die YUV-Ebenen erst hochladen.
-
-## Export geometry optimization, 2026-09-08
-
-The board exporter already composes mesh, homography and optional lens distortion into
-one cubic remap. It does **not** run a perspective warp followed by mesh straightening.
-The expensive repeated work was constructing the dense mesh coordinates in NumPy.
-
-`calibration._crop_mesh_coordinates` now caches the normalized float64 coordinates by
-board size, border and all mesh values. The homography and lens are still applied for
-each frame, so changing corners remain effective. Arrays are read-only; two cache
-entries retain about 30 MB at 952 x 952 per process. The operation order, interpolation
-and WebP quality are unchanged. There is no persistent cache to invalidate on disk.
-
-`alignment._notch_centre` solves the shoulder baseline analytically using symmetric,
-centered coordinates instead of a general `polyfit` solver. This preserves the linear
-least-squares model; floating-point rounding can differ. Other robust fits retain their
-existing solvers because their weights and design matrices vary.
-
-### Measurements
-
-Session `2026-08-30-16-20-19`, 262 frozen log rows, unchanged pooled mesh and rotation.
-The comparison uses copies of the same input rows and writes only to temporary outputs.
-
-| Measurement | Previous code | Optimized |
-| --- | ---: | ---: |
-| Full board phase, one process / four writer threads | 40.035 s | 10.774 s |
-| Full board phase, four processes | not measured in this comparison | 9.105 s |
-| 12 real-frame line scans | 0.227 s | 0.179 s |
-| 12 complete grid fits, identical input geometry | 2.108 s | 1.905 s |
-
-All 262 encoded boards, row fields and statistics matched exactly in both optimized
-board paths. The twelve complete fit results also matched exactly. Intermediate line
-positions differed by at most 1.14e-13 pixels. Randomized regression tests compare
-3,000 noisy/sloped/occluded profiles against the original polyfit detector, and warp
-tests compare pixels while changing corners, border, mesh values and lens distortion.
-
-A first board-phase pair measured 34.479 s versus 9.940 s while tests were also running;
-the table uses the repeat without concurrent tests. These are phase measurements, not
-a new end-to-end export benchmark; previous cold/warm export totals are not comparable.
-
-OpenCL was available and enabled. A warmed cubic remap of a real frame, with resident
-maps and upload/download on every invocation, averaged 10.647 ms versus 2.138 ms on CPU
-over 30 iterations. GPU timing included synchronization. Pixels matched, but this path
-was slower, so no OpenCL dependency or global backend change was introduced.
-
-### Reproduce the board comparison
-
-Run from the repository using the existing environment:
-
-```powershell
-$env:PYTHONPATH = 'src'
-.venv/Scripts/python.exe scripts/benchmark_export_warp.py 2026-08-30-16-20-19
-```
-
-The script compares cached and uncached construction with one process and the normal
-writer pool, and verifies encoded hashes, rows and statistics. `--limit 12` is a quick
-smoke check. Session files are read only; temporary encoded boards are cleaned up.
-
-## Aus CLAUDE.md verschoben (2026-09-23)
-
-- `cap.read()` ist `grab()` + `retrieve()`: `read` 10,4 ms je Frame gegen `grab` 1,96 ms, am echten
-  Zeilensatz 25,5 s -> 4,7 s je Durchlauf, bitgleich. `imwrite` war 73 % der Schneide-Phase
-  (50 ms je 928-px-Brett bei Qualitaet 95); vier Schreiber brachten 66,3 s -> 22,8 s.
-- Die Drehwinkel ADDIEREN (`_combined_rotation`), gemessen 2026-09-08 auf drei Aufnahmen:
-  `ROTATE_90_CLOCKWISE` aufs rohe Bild ergibt das auto-gedrehte, das `META` 90 nennt. Unsere
-  Aufnahmen heben sich alle auf (90 + 270), und eine Aufhebung beweist die Konvention nicht.
-- Seek: 2 von 7 Sonden lieferten andere Pixel, waehrend `POS_FRAMES` den gefragten Index meldete.
-- GPU: OpenCL kostet mit Transfer 10,6 statt 2,1 ms je Remap; Hardware-Dekodierung ist auf diesem
-  Rechner zu (kein D3D11 im pip-Wheel, `rocDecode` ist Linux/Instinct, unter Windows nur AMF ohne
-  Python-Bindung).
-- Die Mesh-Koordinatenkarte (23 -> 7 s) wurde gemessen, als `benchmark_export_warp.py` `uncached`
-  immer zuerst fuhr; seit 2026-09-23 wechselt das Skript die Reihenfolge ab. Bis zu einer neuen
-  Messung ist die Zahl eine obere Schranke.
+- **Die Funktion ist für die Schärfe egal, die Interpolation nicht.** `remap` ist gratis schneller
+  und bleibt; der Unterschied sind 63,6 % gegen 92,1 %.
+- **Vereinheitlicht auf kubisch** (Nutzer: „dann waehle die bessere qualitaet und
+  vereinheitliche"): der schnelle Zweig in `warp_padded` nimmt für den Crop-Warp
+  `INTER_CUBIC`, der Mesh-Zweig war es immer. Gespeicherte Bretter ändern sich nicht — alle 14 449
+  trugen `board_straightened`, waren also schon kubisch. Über ein Identitäts-Mesh weichen beide
+  Zweige noch an einzelnen Randpixeln um 11 Graustufen ab (vorher 63, im Mittel 0,002;
+  `test_both_warp_paths_resample_the_same_way`). Geometrie und Zeilen der Paritäts-Fixtures blieben,
+  das Quad wich um 0,0 px ab; nur die PIXEL änderten sich.
+- **Kosten:** unter 1 ms je Beobachtung (+0,62 ms bei 80 px, Brett 582), gegen 16 ms CNN.
+- **Der Erkennungs- und der Gitter-Warp bleiben bilinear — das ist die eigentliche Entscheidung.**
+  Eine Messung wird durch Schärfe nicht richtiger, nur anders skaliert, und jede Schwelle ist gegen
+  die bisherige Weichheit geeicht: kubisch verschob der Gitter-Warp das gefittete Quad um
+  **2,78 px**, der Ruhe-Vergleich wurde ~10 % empfindlicher (mittlere Zell-Differenz bei 0,3 px
+  Versatz 2,76 → 3,02) gegen ein `SETTLE_LIMIT` von 45, und aus dem Erkennungs-Warp kommt alles, was
+  `motionThr` und der Census diffen. Wer es trotzdem will, macht ein eigenes Vorhaben mit
+  Nachmessen der Schwellen und A/B.
+- **Nicht belegt ist der Nutzen:** Laplace-Energie ist ein Kantenmaß; mit bloßem Auge kaum
+  sichtbar. Zeigen wird es sich erst an neu geschnittenen Packs, gemessen mit `chesslab eval` gegen
+  denselben Val-Satz, ohne zweite Änderung im selben Lauf. `sharp`-Werte alter `scan.jsonl` sind
+  mit neuen nicht mischbar.
+- **Bekannter Handel:** `crops_for_frame` entzerrt Frame UND Mesh zweimal (bilinear, dann kubisch),
+  der Brett-Store einmal kubisch. Betrifft Komposite; der Kommentar an `warp_board_for_crops`
+  beziffert ihn.

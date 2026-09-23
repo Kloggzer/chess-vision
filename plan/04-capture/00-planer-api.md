@@ -128,7 +128,7 @@ python -c "import json;d=json.load(open('data/reports/capture-plan.json'));s=d['
   Route duenn ist — so machen es die 50 vorhandenen `lib/*.test.ts`.
 - `docs/capture-plan.schema.json` und `docs/capture-axes.md` existieren; letztere enthaelt die
   Zeichenkette `Verkürzung` **und** `0,986` (die Zahl allein waere schwach: 0,9860 ist auch eine
-  `val_visible_piece_acc` in `docs/plan-98/00-plan.md`).
+  `val_visible_piece_acc` in `docs/evaluation.md`).
 
 ## Do NOT
 

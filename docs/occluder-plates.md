@@ -1,233 +1,149 @@
 # Occluder-Platten und 2.5D-Compositing
 
-Warum es das gibt, und welche Entscheidungen darin stecken. Code: `chesslab/occluders.py`
-(Freistellen) und `chesslab/composite.py` (Auflegen + Label).
+Warum Verdeckung ein gemessener Ausgang ist und keine Klasse, wie die Hand-Kacheln entstehen und
+wie `occluders composite` sie auf Drehteller-Clips legt. Code: `chesslab/occluders.py`
+(Freistellen), `chesslab/composite.py` (Auflegen, Label, Ingest), `chesslab/grid_occlusion.py`
+(Rillen-Sensor). Verdeckung auf echten Aufnahmen: `docs/session-mattes.md`.
 
-## Warum die Klasse `occluded` ersetzt wurde
+## 1. Warum die Klasse `occluded` ersetzt wurde
 
-Die handmarkierte Klasse war keine visuelle Klasse, sondern eine Markierung mit zu grober Körnung.
-Gemessen am Korpus (2026-08-17): **87,9 %** aller `occluded`-Zellen stammen aus Frames mit **11 oder
-mehr** geflaggten Feldern, 51,4 % aus Frames mit 21 bis 40 — ein Arm verdeckt keine 30 Felder. Was
-die FEN unter dem Flag sagt: **59,9 % `empty`**, also 12 865 leere Felder, die dem Modell als
-*besetzt* beigebracht wurden, und 8 603 Figurenbeispiele, die dem Klassifikator vorenthalten
-blieben.
+Die handmarkierte Klasse war eine Markierung mit zu grober Körnung (Korpus, 2026-08-17): **87,9 %**
+aller `occluded`-Zellen stammten aus Frames mit 11 oder mehr geflaggten Feldern — ein Arm verdeckt
+keine 30 Felder. Unter dem Flag sagte die FEN **59,9 % `empty`**: 12 865 leere Felder wurden als
+besetzt gelehrt, 8 603 Figurenbeispiele dem Klassifikator vorenthalten.
 
-Folgen, auf dem Fold-2-Testsplit über 3 Seeds gemessen:
-
-| | mit `occluded` | ohne |
+| Fold-2-Test, 3 Seeds | mit `occluded` | ohne |
 |---|---|---|
 | Recall `empty` | 0,908 | **0,989** |
-| Recall `wP` | 0,579 | 0,807 |
 | Recall `wK` | 0,268 | 0,471 |
 | Recall `bK` | 0,224 | 0,690 |
 
-Über den **ganzen** Korpus bestätigt (2026-08-18, vier Folds, repariertes Mesh, gleiches Rezept,
-gleicher Seed — nur `occluded` unterscheidet sie). Gepaart gelesen, weil dieselben Folds verglichen
-werden: **4 von 4 verbessern sich** bei `square_acc` und bei `wK`.
+Über den ganzen Korpus bestätigt (2026-08-18, vier Folds, gepaart): **4 von 4** verbessern sich bei
+`square_acc` (Median 0,8593 → 0,9129) und bei `wK` (0,483 → 0,851).
 
-| Fold | sq_acc mit | ohne | wK mit | ohne |
-|---|---|---|---|---|
-| f0 | 0,8594 | **0,9221** | 0,33 | **1,00** |
-| f1 | 0,8592 | **0,9229** | 0,65 | **0,98** |
-| f2 | 0,8590 | **0,8784** | 0,64 | **0,72** |
-| f3 | 0,8739 | **0,9036** | 0,10 | **0,48** |
-| Median | 0,8593 | **0,9129** | 0,483 | **0,851** |
+Gebraucht wird Verdeckung trotzdem — als Veto, damit kein Zug fällt, während eine Hand über dem
+Brett liegt. Nur nicht im selben Softmax: „könnte beeinflusst sein" konkurriert dort mit „das ist
+ein Bauer" und gewinnt, wo das Modell ohnehin unsicher ist. Deshalb ein **zweiter Ausgang** mit
+**kontinuierlichem** Ziel (`coverage`), das der Composite exakt kennt, statt eines Ja/Nein, das
+jemand urteilen musste.
 
-Die Klasse wird trotzdem gebraucht — als Veto, damit kein Zug ausgelöst wird, während eine Hand über
-dem Brett liegt. Nur gehört sie nicht in denselben Softmax: eine Zelle trägt ein Label, also
-konkurriert „könnte beeinflusst sein" mit „das ist ein Bauer" und gewinnt dort, wo das Modell
-ohnehin unsicher ist. Deshalb ein **zweiter Ausgang** und ein **kontinuierliches** Ziel.
+## 2. Freistellen ohne Green Screen
 
-## Freistellen ohne Green Screen
+- **Kein Clean Plate nötig.** Kamera fest, Arm bewegt: der zeitliche Median IST der leere
+  Hintergrund. Zweistufig — der zweite Durchgang mittelt nur über Samples, die zu **einer
+  globalen** Hintergrundfarbe passen, sonst wird eine lang stehende Hand selbst zum Median.
+- **Chroma statt Farbton, Schwelle per Otsu je Clip.** Ein Festwert geht nicht: ein Schatten
+  verschiebt die Farbe auf gesättigtem Blau stärker (0,18) als auf entsättigtem Oliv (0,11), Haut
+  noch weiter (0,62 gegen 0,22) — der Abstand sitzt je Hintergrund woanders.
+- **Schatten ist Hintergrund**, sonst kehrt die Überflaggung zurück. **Zusätzliches Licht auch:**
+  ein Helligkeitszweig hielt eine von einer Lampe überstrichene Matte fest und ist raus.
+- **Dunkler Ärmel ≠ Schatten.** Ein Schatten fällt nie unter ~45 % des Hintergrunds (Tuch 118,
+  Ärmel 20–26, Restschatten 39–61).
+- **Morphologie darf keinen Schatten annektieren:** sichere Schattenpixel werden nach dem `CLOSE`
+  wieder ausgestanzt.
+- **Doppelte Posen** über die IoU auf 1/8 verkleinerten Silhouetten verworfen (volle Auflösung
+  823 ms bei 500 Posen; die Verkleinerung verschiebt die IoU um höchstens 0,006, kippt am Schnitt
+  0,85 nichts).
+- **Löcher nicht nach Topologie allein füllen:** eine zur Schlaufe gekrümmte Hand schließt
+  Hintergrund ein, der offen bleiben muss (`matte.MAX_HOLE_FRAC`).
 
-- **Kein Clean Plate nötig.** Die Kamera steht fest, der Arm bewegt sich: der zeitliche Median über
-  die Frames IST der leere Hintergrund. Zweistufig, weil eine Hand, die länger als die Hälfte des
-  Clips an derselben Stelle steht, selbst zum Median wird — der zweite Durchgang mittelt nur über
-  Samples, deren Farbe zu **einer globalen** Hintergrundfarbe passt, nie zum ersten Median.
-- **Chroma statt Farbton.** Getrennt wird über den Abstand der Farbrichtung zum Hintergrund, die
-  Schwelle bestimmt Otsu je Clip. Ein Festwert geht nicht: ein Schatten verschiebt die Farbe auf
-  gesättigtem Blau stärker (0,18) als auf entsättigtem Oliv (0,11) — aber Haut verschiebt sie noch
-  weiter (0,62 gegen 0,22), der Abstand ist also größer, er sitzt nur woanders.
-- **Schatten ist Hintergrund.** Ein beschattetes Feld bleibt lesbar; würde der Schatten als
-  Verdeckung zählen, wäre die Überflaggung wieder da, die das Ganze ersetzen soll.
-- **Zusätzliches Licht auch.** Der Spiegelsatz dazu, und er hat gefehlt: eine Helligkeitsschwelle
-  (`ratio > 1.3`) hielt im letzten Fünftel von `230602` die beleuchtete Matte fest, als eine Lampe
-  darüberstrich — 88 % einer Kachel war Hintergrund, auf einem Frame ganz ohne Hand. Global rechnet
-  `rebalance` so etwas heraus, ein lokaler Lichtstreifen bleibt aber stehen. Der Zweig ist raus; die
-  beiden sauberen Clips verlieren dadurch unter 0,2 % der Fläche, weil ein Objekt, das heller ist
-  als der Hintergrund UND dieselbe Farbe hat, praktisch nicht vorkommt.
-- **Dunkler Ärmel ≠ Schatten.** Ein Schatten nimmt nur Licht weg und fällt nie unter etwa 45 % des
-  Hintergrunds; darunter ist es ein Objekt. Gemessen: leeres Tuch 118, schwarzer Ärmel 20–26,
-  Restschatten 39–61.
-- **Morphologie darf keinen Schatten annektieren.** `CLOSE` überbrückt Lücken, und ein Schattenband
-  am Ärmel ist so eine Lücke — es wird erst korrekt verworfen und danach wieder eingesammelt.
-  Deshalb werden sichere Schattenpixel nach der Morphologie ausgestanzt.
-- **Doppelte Posen** werden über die IoU verworfen, und zwar auf 1/8 verkleinerten Silhouetten.
-  Gemessen: der Vergleich in voller Auflösung kostet bei 500 gehaltenen Posen 823 ms gegen die
-  konstanten 360 ms des Schnitts selbst und wächst weiter; über 3 160 echte Kachelpaare verschiebt
-  die Verkleinerung die IoU um höchstens 0,006 und kippt am Schnitt 0,85 keine Entscheidung.
+**SAM 3 für die Kacheln: geprüft und verworfen (2026-08-21).** 30–60 % mehr Fläche und präzisere
+Ränder, aber 3–4 s je Bild gegen Millisekunden, und ein Blindtest über 13 Zeilen blieb ohne klares
+Urteil. Die Kachel wird auf die BÜHNEN-Box beschnitten; eine Hand, die über die Mattenkante ragt,
+ist dort abgeschnitten (`230602`: 456 von 456).
 
-## SAM 3 statt Chroma — geprüft und verworfen (2026-08-21)
+**Aufnahme:** Kamera fest aus Brettposition, Hintergrund formatfüllend, **gleichmäßig
+ausgeleuchtet** (harter Schattenwurf ist der einzige Fall, den die Trennung nicht schafft),
+Belichtung und Weißabgleich sperren — sonst rechnet `rebalance` Drift bis Faktor 1,405 heraus.
 
-Der Chroma-Schnitt lebt davon, dass die Bühne einfarbig ist. SAM 3 braucht das nicht, also lag
-nahe, die Kacheln damit zu schneiden. Gebaut, gemessen, wieder entfernt — hier steht, was dabei
-herauskam, damit es niemand ein zweites Mal baut.
+## 3. Auflegen
 
-**Was für SAM 3 sprach.** Auf denselben Frames geschnitten (`occluders.alpha_of` gegen SAM 3, damit
-beide dasselbe Bild bekommen) deckte SAM 3 30–60 % mehr Fläche ab und traf die Ränder an Ärmel und
-Uhr präziser. Es braucht keine einfarbige Bühne, also auch keine Aufnahme-Disziplin.
+- **Auf das Quellbild, nicht auf das entzerrte Brett:** eine echte Hand liegt über der Brettebene;
+  nach dem Warp einkopiert läge sie perfekt in der Ebene. Die Alpha läuft durch denselben Warp.
+- **Position, Winkel, Spiegelung gewürfelt, die Größe nicht.** Die Occluder-Clips entstanden auf
+  demselben Rig mit näherer Kamera: Maßstab `Bildkante / WORK_SIZE * RIG_SCALE`, die Kachel auf ihre
+  Alpha-Ausdehnung beschnitten. Ohne brauchbaren Index sagt die Kachel selbst, in welcher Auflösung
+  sie geschnitten wurde — die Rückfallkonstante ist die alte Arbeitsgröße.
+- **Gemessen über den Crop-Ausschnitt**, mit demselben `crops_for_frame`-Aufruf, der das Bild
+  schneidet: die Label-Region ist per Konstruktion die Crop-Region, Mesh und Pads eingeschlossen.
+- `over` blendet in uint8 durch OpenCV (4,6 ms je Kachel statt 16,6 in float32), höchstens 1
+  Grauwert Unterschied.
 
-**Was dagegen sprach.** 3–4 s je Bild auf der GPU gegen Millisekunden für Chroma — ein voller Lauf
-über die drei Clips wären bei Schrittweite 4 rund 2,4 Stunden. Ein Blindtest über 13 Zeilen ergab
-kein klares Urteil: manchmal identisch, manchmal SAM 3 leicht besser.
+## 4. Drehteller: `--clean`, `--angle-buckets`, Stride
 
-**Was dabei über die Daten gelernt wurde, und weiterhin gilt:**
+- **`--clean`** lässt das Frame unberührt. Der Beitrag des Drehtellers ist **dieselbe Figur über
+  die ganze Drehung**; der echte Korpus zeigt jede Situation in einer Orientierung. Coverage 0 ist
+  hier die **Wahrheit**, nicht die fehlende Messung der Matte-Falle.
+- **`--angle-buckets N`** rechnet modulo einer Umdrehung (`DEG_PER_FRAME` 0,43 Grad, 837 Frames je
+  Umlauf): dieselbe Ansicht aus verschiedenen Durchgängen landet im selben Eimer, weil `--balance`
+  über Situationen mittelt und eine Situation eine Ansicht ist. `blocks` schneidet dagegen
+  fortlaufend — bei 1,1 bis 3,1 Umdrehungen je Clip taugt das nicht als Winkel-Eimer.
+- **Der Stride** steuert Crops je Eimer, nicht die Zahl der Situationen. Stride 8 ≈ 3,4 Grad; über
+  240 Bretter je Clip (1 Grad) sind Nachbarn identisch.
+- **Sauberes Drehteller-Material allein SCHADET** (32 512 Crops, 11 % des s2-Mischsatzes):
+  `vis_piece` 0,7585 → 0,7186 (ohne Balance) bzw. 0,6510 (mit), obwohl `cov_prec` steigt. Ursache
+  ist die Domäne: **+39 % Sättigung** gegen den Korpus. Zu wenig von einer neuen Domäne stört,
+  statt gelernt zu werden; mit `comp13-v4` daneben kippt das (`docs/evaluation.md`).
+- `pad_side` übersteuert das Profil und muss zum Rand der ECHTEN Crops passen.
 
-- Die Kachel wird auf die BÜHNEN-Box beschnitten, nicht auf die Hand. Die Matte füllt das Bild aber
-  nicht (58 % bei zwei Clips, 73 % beim dritten), also wird jede Hand, die über die Mattenkante
-  hinausragt, dort abgeschnitten. Gemessen: `222655` 37/472, `224656` 0/506, **`230602` 456/456**.
-- `230602` ist in seiner zweiten Hälfte fast durchgehend leer — was die Kacheln von dort erklärt.
-- Die Konzept-Union hat Nähte (Uhr gegen Arm) und der Ring kerbt den Finger ein. Beides ist
-  reparierbar (`ring` als Konzept, kleine Löcher füllen), aber Löcher-Füllen nach Topologie allein
-  ist FALSCH: eine zur Schlaufe gekrümmte Hand schließt Hintergrund ein, und der muss offen bleiben.
+## 5. Tempo des Composite-Ingests (2026-08-23, 4K-Drehteller)
 
-## Aufnahme
+- **Lesen:** `cap.set` + `read` 235 ms je genutztem Frame, `grab` überspringen und `retrieve` nur
+  für den genutzten **39 ms** (`composite.read_forward`, eigener Thread). Die Zeit steckte in der
+  BGR-Umrechnung der verworfenen Frames. **Hardware-Decode hilft nicht:** der Rückweg in den
+  Hauptspeicher kostet mehr, als er spart (`d3d11va` 4,78x Echtzeit gegen 9,36x in Software).
+- **Schreiben:** `WRITE_THREADS = 8` (64 Crops: seriell 185 ms, 4 → 52, 8 → 33, 16 → 36), vier
+  Bretter Rückstau.
+- **Kacheln:** eine Kachel kostet 89 ms von der Platte, alle 1440 im Speicher wären 18,7 GB.
+  `tile_stream` lädt voraus (8 Lader: 117 ms je Brett); `TILE_LOOKAHEAD = 6` — 12 brachten auf 4K
+  nichts und kosteten auf 1080p 20 %. Die Auswahl zieht aus einem EIGENEN Zufallsstrang
+  (`seed + 1`), sonst verschöbe das Vorausziehen die Posen.
+- Ein 4K-Clip mit 519 Brettern: 107 s → 61 s.
 
-Fest aufgestellte Kamera aus Brettposition, Hintergrund formatfüllend, **gleichmäßig ausgeleuchtet**
-(ein harter Schattenwurf ist der einzige Fall, den die Trennung nicht schafft), Belichtung und
-Weißabgleich sperren. Ohne Sperre rechnet `rebalance` den Drift heraus — gemessen bis Faktor 1,405
-auf Rot bei 0,771 auf Blau, sobald eine warme Hand ins Bild kommt.
+## 6. Der Rillen-Sensor: Auflösung ist tragend, und c8 ist der stehende Falsch-Positive
 
-## Auflegen
+`GridOcclusion.kt` / `grid_occlusion.py` hält den bandweisen Rillen-Read des Alignment-Fits **pro
+Segment**: 2 Achsen × 9 Linien × 8 Bänder, ein Segment je Feldkante; ein Feld liest `occluded` ab
+**2 fehlenden Kanten**. Zwei Regeln, gemessen 2026-08-09/10 (`specs/53`):
 
-Der Occluder kommt auf das **Quellbild**, nicht auf das entzerrte Brett: eine echte Hand liegt über
-der Brettebene, die Homographie verzerrt sie also, und wer nach dem Warp einkopiert, bekommt eine
-Hand, die perfekt in der Ebene liegt. Die Alpha läuft durch denselben Warp mit.
+- **Volle Auflösung oder nichts:** im Crop-Warp 2 / 11 / 2 fehlende Segmente auf sauber / Hand /
+  sauber; bei detSize 30–40 von 144 ersäuft das Signal.
+- **Eine Hand ist ein orthogonal benachbartes PAAR.** Auf `VID_20260802_222741` ist c8 — eine
+  Figur, die über ihre eigenen Rillen lehnt — auf 73 % aller Frames geflaggt.
 
-Position, Winkel und Spiegelung sind gewürfelt — es muss kein plausibler Griff sein, nur eine
-plausible Verdeckung. **Die Größe nicht:** die Occluder-Clips entstanden auf demselben Rig wie das
-Brett, nur mit näherer Kamera. Der Maßstab ist deshalb `Bildkante / WORK_SIZE * RIG_SCALE`, und die
-Kachel wird beim Laden auf ihre Alpha-Ausdehnung beschnitten, damit sich der Faktor auf die Hand
-bezieht und nicht auf die leere Bühne.
-
-Gemessen wird über den **Crop**-Ausschnitt, geschnitten mit `crops_for_frame` — demselben Aufruf,
-der auch das Bild schneidet. Damit ist die Label-Region per Konstruktion die Crop-Region, Mesh und
-Pads eingeschlossen, und genau die Körnungslücke von oben kann nicht zurückkommen.
-
----
-
-## Was der gelöschte Vorschlags-Produzent gemessen hat (`specs/53`, 2026-08-09)
-
-> ⚠ **Das Werkzeug existiert nicht mehr.** `src/chesslab/occluded.py` (512 Zeilen) und
-> `realgames propose-occluded` sind am 2026-08-19 mit `fbbe5a34` gelöscht worden — der Pixel-Score
-> gegen den Intervall-Median ist durch die SAM-3-Alpha ersetzt, der Modell-Kanal heißt jetzt
-> `realgames model-read`, und der Rillen-Kanal lebt als `src/chesslab/grid_occlusion.py` im
-> Frame-Scan weiter. `fbbe5a34` parkte die 42 alten Vorschlagsdateien (131 MB) nach
-> `data/_parked/occluded-proposals-2026-08-19/` — dieses Verzeichnis ist im aktuellen
-> Arbeitsverzeichnis **nicht mehr da**. Die Zahlen unten sind **historisch** und stehen
-> hier, weil sie die einzige Präzisionsmessung sind, die es zu diesem Übergang gibt.
-
-Erzeugt wurden 126 720 Vorschläge über beide Sessions, 1 410 bei `hi 0.7`:
-
-| Session | Zeilen | `occluded` @0,7 | p50 | p90 | p99 | >0,5 | =1,0 | ungültig |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| rg-rec-20260808-003957 | 48 640 | 495 (1,02 %) | 0,015 | 0,230 | 0,701 | 1 748 | 41 | 0 |
-| rg-rec-20260808-115912 | 78 080 | 915 (1,17 %) | 0,011 | 0,242 | 0,719 | 2 872 | 148 | 0 |
-
-### Die 30-Zellen-Konfusionstabelle (`hi = 0.7`, `lo = 0.3`)
-
-30 Zellen, `numpy`-Seed 42, geschichtet über die drei Score-Bänder (12/9/9) über **beide** Sessions,
-jede aus dem Session-Frame durch denselben Warp gerendert, den der Scorer benutzt (Zelle plus
-1,5 Zellen Halo, Zelle umrandet), und per Augenschein klassifiziert. Die Review-PNGs unter
-`data/realgames/*/frames/` wurden **nicht** benutzt: deren Farbverdikt-Overlay verdeckt genau die
-Pixel, auf denen die Entscheidung ruht. Das Schichten nach Band ist es, was Präzision bei `hi`
-direkt schätzbar macht — Band A ist eine gleichverteilte Ziehung aus `score > hi`.
-
-| Band | n | occluder | shadow | clean |
-|---|---:|---:|---:|---:|
-| A: score > 0,7 (Vorschlag `occluded`) | 12 | **12** | 0 | 0 |
-| B: 0,3 < score ≤ 0,7 (Tinder-Band der UI) | 9 | 8 | 0 | 1 |
-| C: score ≤ 0,3 | 9 | 0 | 0 | 9 |
-
-**precision(occluder | score > 0,7) = 12/12 = 1,00**, über der 0,9-Latte. `lo = 0.3` bestätigt sich
-von der anderen Seite: Band C ist 9/9 clean.
-
-Zwei ehrliche Einschränkungen, und beide gelten weiter:
-
-- **Recall bei `hi` ist niedrig.** Band B ist 8/9 occluder — die meisten verdeckten Zellen sitzen im
-  Review-Band, nicht im Vorschlag. Der Trade ist hier richtig (ein falsches `occluded` vergiftet das
-  Training, ein Miss lässt nur das FEN-Label stehen), aber die `hi`-Menge allein ist nicht die Klasse.
-- **In 30 Ziehungen kam kein einziges `shadow` vor.** Die benannte Falsch-Positiv-Klasse ist nicht
-  aufgetreten, also ist die Schatten-Invarianz des Census-Kanals **durch diese Tabelle ungetestet** —
-  belegt nur durch den synthetischen Vertrag in `tests/test_realgames.py`.
-
-## Der Rillen-Sensor: Auflösung ist tragend, und c8 ist der stehende Falsch-Positive
-
-Der modellfreie Hand-Sensor (`core-geometry/GridOcclusion.kt`, Python-Spiegel
-`src/chesslab/grid_occlusion.py`) hält den bandweisen Rillen-Read des Alignment-Fits **pro Segment**
-statt ihn zu Linien einzusammeln: 2 Achsen × 9 Linien × 8 Bänder = ein Segment je Feldkante, ein Feld
-liest `occluded` ab **2 fehlenden Kanten**.
-
-- **Auflösung entscheidet:** im vollen Crop-Warp **2 / 11 / 2** fehlende Segmente auf
-  sauber / Hand / sauber (die 11 exakt unter der Hand geclustert); bei **detSize 30–40 von 144**
-  ersäuft das Signal. Der Sensor wird deshalb dort gestempelt, wo die Crops geschnitten werden.
-- **Der stehende Falsch-Positive:** auf `VID_20260802_222741` liest **ein** Feld — c8, eine Figur,
-  die über ihre eigenen Rillen lehnt — auf **73 % aller Frames** geflaggt, minutenlang am Stück.
-
-Daraus die Gate-Regel, gemessen gegen beide Versagensarten (`specs/53`, 2026-08-10):
-
-| Gate-Regel | 003957 (67-Ply-Referenz) | 222741 (keine Referenz; ohne Gate 28) |
+| Gate-Regel | 003957 (67-Ply-Referenz) | 222741 (ohne Gate 28 Plies) |
 |---|---|---|
-| jedes Flag (Rohkarte) | **67/67, 0 erfunden** | **0 Plies** — c8 blankt das Replay |
-| Zählschwelle ≥ 3 | 39 Plies (`g4` durch den 2-Flag-Schwanz) | 28 |
-| **orthogonal benachbartes Paar** | **67 Plies, LCS 65/67** | **28** |
+| jedes Flag | 67/67, 0 erfunden | **0 Plies** — c8 blankt das Replay |
+| Zählschwelle ≥ 3 | 39 Plies | 28 |
+| **benachbartes Paar** | **67 Plies, LCS 65/67** | **28** |
 
-Die abziehende Hand läuft über 2-Flag-Frames aus (h3+h2 — immer Nachbarn), deshalb committet eine
-Zählschwelle von 3 genau die Fabrikation, die das Gate verhindern soll. Die Regel ist **räumlich, pro
-Observation, ohne Zeitzustand** (`gridHandSquares`, `SQ_NEIGHBOURS`).
+Die abziehende Hand läuft über 2-Flag-Frames aus (immer Nachbarn), also committet eine Schwelle von
+3 genau die Fabrikation, die das Gate verhindern soll. Räumlich, pro Beobachtung, ohne Zeitzustand
+(`gridHandSquares`, `SQ_NEIGHBOURS`).
 
+## 7. Der Pool `comp13-v3` (Stand 2026-08-23)
 
-## Der Pool `comp13-v3` (Stand 2026-08-23)
+`data/` ist gitignored — diese Liste ist der Nachweis des Pools. `occluders composite --tag
+comp13-v3` je Clip, Stride 8, `out_size` 128, 0–2 Kacheln je Brett, `--seed 42`: **4 523 Bretter,
+289 472 Crops**, je Clip 10,6–12,7 % über 50 % verdeckt (der Anteil hängt am Kachel-Zufall, nicht
+an der Quelle).
 
-`data/` ist gitignored, der Pool selbst liegt also nirgends im Repo — diese Tabelle IST sein
-Nachweis. Gebaut mit `chesslab occluders composite --tag comp13-v3` je Clip, Code-Stand
-`perf(composite): Lesen, Kacheln und Schreiben laufen jetzt neben der Rechnung`, Standardwerte
-(Stride 8, `out_size` 128x128, 0-2 Kacheln je Brett, `--seed 42`). Ganzer Bau: 7 min 24 s.
+| Quelle | Stellung | Bretter |
+|---|---|---|
+| `2026-08-09 20-48-50` | Grundstellung | 965 |
+| `VID_20260731_092133` | Grundstellung | 389 |
+| `VID_20260731_222043` | K/D vertauscht | 84 |
+| `VID_20260731_222320` | K/D vertauscht | 108 |
+| `VID_20260812_112853` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | 678 |
+| `VID_20260817_214400` | Grundstellung | 499 |
+| `VID_20260823_120131` | Grundstellung (4K) | 351 |
+| `VID_20260823_120426` | eine Reihe zur Mitte (4K) | 519 |
+| `VID_20260823_120721` | zwei Reihen zur Mitte (4K) | 347 |
+| `VID_20260824_005850` | zwei Reihen zur Mitte, dunkelorangem Licht (4K) | 337 |
+| `VID_20260824_013627` | Figuren und Bauern getauscht (4K) | 246 |
 
-| Quelle | Stellung | Bretter | Crops | > 50 % verdeckt |
-|---|---|---|---|---|
-| `2026-08-09 20-48-50` | Grundstellung | 965 | 61.760 | 11,2 % |
-| `VID_20260731_092133` | Grundstellung | 389 | 24.896 | 12,6 % |
-| `VID_20260731_222043` | K/D vertauscht | 84 | 5.376 | 10,6 % |
-| `VID_20260731_222320` | K/D vertauscht | 108 | 6.912 | 12,7 % |
-| `VID_20260812_112853` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | 678 | 43.392 | 11,8 % |
-| `VID_20260817_214400` | Grundstellung | 499 | 31.936 | 12,1 % |
-| `VID_20260823_120131` | Grundstellung (4K) | 351 | 22.464 | 11,9 % |
-| `VID_20260823_120426` | eine Reihe zur Mitte (4K) | 519 | 33.216 | 11,6 % |
-| `VID_20260823_120721` | zwei Reihen zur Mitte (4K) | 347 | 22.208 | 12,0 % |
-| `VID_20260824_005850` | zwei Reihen zur Mitte, dunkelorangem Licht (4K) | 337 | 21.568 | 10,9 % |
-| `VID_20260824_013627` | Figuren und Bauern getauscht (4K) | 246 | 15.744 | 10,9 % |
-| **gesamt** | | **4.523** | **289.472** | |
-
-Die drei 4K-Aufnahmen vom 2026-08-23 tragen dieselbe Armee auf ANDEREN Feldern: verschiebt man die
-Aufstellung zur Mitte, steht jede Figur auf der anderen Feldfarbe. Ihre FEN stehen in
-`data/footage/turntable/README.md`.
-
-Klassen: `empty` 144.736, Bauern je 36.184, Laeufer/Springer/Tuerme je 9.046, K/D je 4.523 —
-64 Crops je Brett, also genau die Stellungen mal ihre Bretter.
-
-`013627` schliesst die Luecke, die die verschobenen Aufstellungen offen liessen. Sie setzen die
-Armee nach INNEN, wodurch Reihe 2 und 7 leer werden — und genau dort las das Modell eine echte
-Figur weiterhin zu 80 % als Bauer (`docs/tracker-flow.md`). Diese Aufnahme stellt die Figuren
-auf 2 und 7 und die Bauern auf 1 und 8, ist also der direkte Gegenbeweis. Kein Frame ging ohne
-Marker verloren.
-
-Die Aufnahme vom 2026-08-24 ist die erste unter einer anderen LICHTFARBE, und sie kostet die
-Marker-Erkennung etwas: 38 Frames wurden ohne Marker uebersprungen, wo die anderen Clips fast
-keine verlieren. Gemessen wurde an ihr vor dem Ingest, dass beide Modelle dort einbrechen —
-Bauern auf 44-76 % statt 84-98 %, und `bP -> wP` wird zum haeufigsten Fehler, wo der Farbfehler
-sonst bei 0,7 % liegt (`docs/tracker-flow.md`).
-
-Der Verdeckungsanteil haengt am Kachel-Zufall, nicht an der Quelle: derselbe Pool eine Stunde
-vorher, vor `tile_stream`, lag bei 10-12 % statt 11-13 %. Wer zwei Pools vergleicht, vergleicht
-also nicht die Clips.
+FEN der 4K-Aufnahmen: `data/footage/turntable/README.md`. Die zur Mitte verschobenen Aufstellungen
+setzen jede Figur auf die andere Feldfarbe; `013627` stellt Figuren auf Reihe 2/7 und Bauern auf
+1/8 — dort las das Modell eine Figur zu 80 % als Bauer. `005850` ist die erste andere Lichtfarbe:
+beide Modelle brachen dort ein (Bauern 44–76 %, `bP -> wP` häufigster Fehler;
+`docs/tracker-flow.md`).

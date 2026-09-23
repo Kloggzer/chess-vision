@@ -1,88 +1,58 @@
 # Retime — the board decides when a position stood
 
-`chesslab realgames retime <name>` (2026-09-06). Moves every ply of a candidate to the frame its
-position first stood on the board, read off the video — not off the phone's commit clock.
+`chesslab realgames retime <name>` moves every ply of a candidate to the frame its position first
+stood on the board, read off the video — not off the phone's commit clock. The platform runs it
+right after `phone-candidate` (job `phone-record`); a refusal fails the job with its sentence.
 
 ## Why
 
-The phone commits LATE when hands are fast. 2026-08-30-16-20-19 committed ply 7 (Nxe5) at frame
-291 and plies 8+9 four frames later, while every frame from 289 on already showed the position after
-ply 9: the three captures took less than the phone's verify window, and the recovery caught up
-afterwards. A label window cut from those commits labels frames "after ply 7" that show ply 9, and
-the review card for ply 7 shows a picture that never matches. The phone's frame rows carry the
-phone's COMMITTED FEN, so the timeline has no earlier truth; the video has.
+The phone commits LATE when hands are fast: 2026-08-30-16-20-19 committed ply 7 at frame 291 and
+plies 8+9 four frames later, while every frame from 289 on already showed the position after
+ply 9. A label window cut from those commits labels frames "after ply 7" that show ply 9. The
+phone's frame rows carry its COMMITTED FEN, so only the video has the earlier truth.
 
 ## What it does
 
 | step | detail |
 |---|---|
 | positions | `start_fen` + every `fen_after` — the record's order, confirmed by the human |
-| reads | every `--stride` (3) frame between `first commit − 12 s` and `last commit + 4 s`: 64 crops through the ply's own `corners`, classified by `--model` (default `data/models/p4a-80-clahe`, the ONNX export; batch is exactly 64 = one frame) |
-| emission | per frame and position: sum over VISIBLE cells (coverage ≤ `PIECE_VISIBLE_MAX`) of `max(log p(label), −4)`; a frame with more than 12 covered cells says nothing (all zero) |
-| window | position k may stand from 12 s before its own commit to 4 s after the next one — the phone lags, it rarely runs ahead |
-| path | monotone Viterbi over the chain; advancing by one position costs `ADVANCE_COST = 6`, so one misread frame cannot open a position and three agreeing ones can; skips are allowed at the same price per position |
-| result | `moves[i].frame` = first frame on the path with that position, `frame_phone` keeps the old one, `held` = frames the position stood (× stride); a position never entered gets `held 0` and the frame of the next one entered — a multi-commit, `carriesFrames` false in the review |
-| gate | per entered ply the margin `(emission[k] − emission[k−1]) / ADVANCE_COST` at its entry frame, clipped to [0, 1], kept as `moves[i].margin`; a ply under `WEAK_MARGIN = 0.5` is weak and listed in `source.retime.weak`; when more than `WEAK_SHARE = 20 %` of the plies are weak nothing is written and the verb exits 1 with the reason (a median gate at 0.85 refused 21-29-35 with 3 weak plies of 99) |
-| picture | `moves[i].frame_review`: of the frames the path holds position k on, the one with the FEWEST covered cells, the latest on a tie — the entry frame is where the piece leaves the hand (2026-09-06-21-29-35 showed hands on most cards), the picture is where the hand is gone; a collapsed ply borrows the next entered ply's |
-| boards | `frames/` is cleared and rewritten at every ply's review frame ±2 (rectified through the ply's corners), so `/confirm` shows a clean picture of the timed position |
+| reads | every `--stride` (3) frame from `first commit − 12 s` to `last commit + 4 s`: 64 crops through the ply's own `corners`, classified by `--model` (default `data/models/p4a-80-clahe`, ONNX, batch 64 = one frame) |
+| emission | per frame and position: sum over VISIBLE cells (coverage ≤ `PIECE_VISIBLE_MAX`) of `max(log p(label), −4)`; a frame with more than 12 covered cells says nothing |
+| window | position k may stand from 12 s before its own commit to 4 s after the next — the phone lags, it rarely runs ahead |
+| path | monotone Viterbi over the chain; advancing costs `ADVANCE_COST = 6`, so one misread frame cannot open a position and three agreeing ones can; skips allowed at the same price per position |
+| result | `moves[i].frame` = first frame on the path with that position, `frame_phone` keeps the old one, `held` = frames it stood (× stride); a position never entered gets `held 0` and the next entered frame — a multi-commit, `carriesFrames` false in the review |
+| gate | per entered ply `margin = (emission[k] − emission[k−1]) / ADVANCE_COST` at its entry frame, clipped to [0, 1]; under `WEAK_MARGIN = 0.5` a ply is weak (`source.retime.weak`); more than `WEAK_SHARE = 20 %` weak plies → nothing written, exit 1 with the reason |
+| boards | `frames/` is cleared and rewritten at every ply's review frame ±2 |
 
 `source.retime` in the candidate records model, stride, frames read, agreement, how many plies
-moved and which collapsed. The platform runs the verb right after `phone-candidate` (job
-`phone-record`); a refusal fails the job with its sentence.
+moved and which collapsed.
+
+## The picture is not the label frame
+
+The entry frame is where the piece leaves the hand — right as a label, the worst picture of the
+hold for a human. `moves[i].frame_review` picks separately, without a threshold: among the frames
+the path holds position k on, the least covered ones; of those, the ones with the fewest
+contradictions to the claimed position (reads from `PICTURE_CONF` 0.5, per visible cell); of
+those, the MIDDLE one. Both ends of a hold are dirty (the hand that set, the hand reaching for the
+next move), so "latest on a tie" hit the frame just before the next grab. Only equally open frames
+are compared — a frame under a hand contradicts little because it shows little. A ply without its
+own hold borrows the next one's picture.
+
+A hold can contain another board: on 21-12-56 Black captured on e5 with the rook, took it back and
+captured with the bishop — ~100 frames of the hold show the retracted position.
+
+- **`disputed`** counts the hold's frames that contradict on `DISPUTED_CELLS` (2) more cells than
+  the picture — a hint, not a verdict. **The label interval is untouched**: it still vouches for
+  the whole hold; what happens per cell is `docs/frame-scan.md` §3.
+- **`review_covered`**: cells still covered on the chosen picture. Over 0 means the whole hold
+  carried a hand; the card says so ("Hand auf N Feldern").
+- The review cards of a retimed ply show only its OWN frames (`review-cards.ts`); the old window
+  reached back to the previous commit and showed the previous position.
 
 ## Not covered
 
-- A repeated position (threefold) inside one window could match the earlier occurrence; the
-  window keeps the search near the phone's own order, so this needs both a repetition and a
-  lag of more than 12 s.
-- The PC label replay (`replay … label`) is not retimed yet; its commits come from the same
-  engine and lag the same way on fast hands.
-
-## Das Bild ist nicht der Label-Frame (2026-09-07)
-
-Gemeldet: *„hier sehe ich viele bilder mit händen für das confirm"* (2026-09-06-21-29-35). Der
-Eintrittsframe ist per Definition der ERSTE, auf dem die neue Stellung steht — die Hand ist dort
-noch im Bild, weil sie die Figur gerade losgelassen hat. Als Label ist das richtig, als Bild für
-einen Menschen das schlechteste der ganzen Haltezeit.
-
-`moves[i].frame_review` trennt die beiden: von allen Frames, die der Pfad auf derselben Stellung
-hält, der MITTLERE unter denen mit den wenigsten verdeckten Zellen (Coverage über
-`PIECE_VISIBLE_MAX`). Beide Enden eines Halts sind schmutzig — vorn die Hand, die gesetzt hat,
-hinten die, die zum nächsten Zug greift. „Der späteste bei Gleichstand" traf deshalb systematisch
-den Frame kurz vor der nächsten Hand: auf 21-29-35 Ply 76 liegen 116 der 124 gelesenen Frames bei
-0 verdeckten Zellen, und der letzte davon ist 3 Frames vor dem Zugriff. `frames/` wird um diesen Frame ±2 geschrieben, die Karten der Sichtprüfung öffnen
-darauf (`review-cards.ts`), und `frame` bleibt unangetastet der Label-Frame. Ein Ply ohne eigene
-Haltezeit (Mehrfach-Commit) erbt das Bild des nächsten, das eine hat.
-
-Ein Halt kann Frames eines ANDEREN Bretts enthalten: auf 21-12-56 schlug Schwarz auf e5 mit dem
-Turm, nahm zurück und schlug mit dem Läufer — rund 100 Frames des Halts zeigen die zurückgenommene
-Stellung, und eines davon war das Kartenbild. Das Bild wird deshalb ohne Schwellenwert gewählt: die am wenigsten verdeckten Frames des Halts,
-davon die mit den wenigsten Widersprüchen zur behaupteten Stellung (Lesungen ab `PICTURE_CONF` 0,5,
-gezählt je sichtbarer Zelle), davon die Mitte. Nur gleich offene Frames werden verglichen — ein
-Frame unter einer Hand widerspricht wenig, weil er wenig zeigt, und würde sonst die Latte setzen.
-Gemessen an diesem Halt: die richtigen Frames widersprechen auf keiner oder einer Zelle (h2 liest
-das Modell die ganze Partie falsch), die zurückgenommenen zusätzlich auf e5, e6 und h6.
-
-`disputed` zählt die Frames des Halts, die um `DISPUTED_CELLS` (2) je 64 Zellen mehr widersprechen
-als das Bild. Eine Rücknahme ist eine Ursache, eine halb sichtbare Hand die andere; die Zahl sagt,
-wie sehr das Label-Intervall über seine Stellung hinausreicht — sie ist ein Hinweis, kein Urteil.
-**Das Label-Intervall bleibt davon unberührt** — es bürgt weiter für die ganze Haltezeit, also auch
-für die zurückgenommenen Frames. Was dort je Zelle passiert, entscheidet `docs/position-check.md`.
-
-`review_covered` sagt, wie viele Zellen auf dem gewählten Bild noch verdeckt sind. Über 0 heißt:
-der ganze Halt trug eine Hand, das Bild ist das beste vorhandene — die Karte sagt es dann („Hand
-auf N Feldern"), statt es zu verschweigen. Kurze Halte (Blitzfolgen) und der letzte Ply vor
-Videoende sind die Fälle, in denen das vorkommt.
-
-Die Karten der Sichtprüfung zeigen zu einem retimeten Ply nur noch dessen EIGENE Frames
-(`review-cards.ts`): das alte Fenster reichte bis zum nächsten Commit zurück und trug damit den
-Schwanz der vorigen Stellung mit — ein Schritt zurück zeigte einen anderen Zug.
-
-## Der letzte Zug lag hinter der Uhr, nicht hinter dem Video (2026-09-07)
-
-`2026-09-06-21-12-56` und `-20-57-45` verloren ihren Matt-Zug: `phone-candidate` schrieb „1 plies
-after the video's end omitted". Das Matt lag bei Sekunde 969,96 von 970,07 — im Video. Der
-Concat-Decoder addierte an jeder Segmentnaht nur die letzte PTS und verlor je Naht ein
-Frame-Intervall; über 17 Segmente ist das gut eine Sekunde, und damit fiel der letzte Zug hinten
-heraus. Seit dem Nahtfix (`ConcatFrameSource`) sind beide Partien vollständig. **Wer einen
-Kandidaten mit dieser Notiz findet, liest ihn mit dem neuen Binary neu ein.**
+- A repeated position inside one window could match the earlier occurrence; that needs both a
+  repetition and a lag over 12 s.
+- The PC label replay (`replay … label`) is not retimed yet; it lags the same way.
+- A candidate noting "plies after the video's end omitted" predates the concat seam fix
+  (`ConcatFrameSource`, 2026-09-07) — re-import it with the current binary.
