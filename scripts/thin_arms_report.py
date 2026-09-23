@@ -28,21 +28,22 @@ TAIL = 20
 EPOCHS = 60
 
 
-def tail_mean(run: Path, epochs: int = EPOCHS) -> float | None:
-    """Wie der Zwilling in `compare_arms`: EINDEUTIGE, LUECKENLOSE Epochen 0..epochs-1.
+def tail_mean(run: Path, metric: str = METRIC, tail: int = TAIL,
+              epochs: int = EPOCHS) -> float | None:
+    """Mittel der letzten `tail` WERTE — oder None, wenn der Lauf nicht rangfaehig ist.
 
-    Zeilen zaehlen reicht nicht — ein fortgesetzter Lauf schreibt seine ersten Epochen ein
-    zweites Mal und kam so als vollstaendig durch (2 von 307 `metrics.jsonl` auf der Platte).
+    Rangfaehig heisst: EINDEUTIGE, LUECKENLOSE Epochen 0..epochs-1 (ein fortgesetzter Lauf schreibt
+    seine ersten Epochen doppelt) und mindestens `tail` Werte. `compare_arms` importiert diese.
     """
     if not (run / "metrics.jsonl").is_file():
         return None
     rows = read_jsonl(run / "metrics.jsonl")
     if sorted(r["epoch"] for r in rows if "epoch" in r) != list(range(epochs)):
         return None
-    vals = [r[METRIC] for r in rows if METRIC in r]
-    if len(vals) < TAIL:
+    vals = [r[metric] for r in rows if metric in r]
+    if len(vals) < tail:
         return None
-    return float(np.mean(vals[-TAIL:]))
+    return float(np.mean(vals[-tail:]))
 
 
 def baseline() -> np.ndarray:

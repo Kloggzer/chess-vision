@@ -9,32 +9,14 @@ from __future__ import annotations
 
 import argparse
 import statistics
+import sys
 from pathlib import Path
 
-from chesslab.ioutil import read_jsonl
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from thin_arms_report import tail_mean  # noqa: E402
 
 METRICS = ("val_visible_piece_acc", "val_visible_occupied_board_acc",
            "val_coverage_precision", "val_loss")
-
-
-def tail_mean(run: Path, metric: str, tail: int, epochs: int) -> float | None:
-    """Der Schwanzmittelwert — oder None, wenn der Lauf nicht rangfaehig ist.
-
-    Zeilen zaehlen reicht nicht: ein fortgesetzter oder doppelt geschriebener Verlauf kaeme sonst
-    als vollstaendig durch. Geprueft werden EINDEUTIGE, LUECKENLOSE Epochenindizes 0..epochs-1.
-    Unvollstaendige Laeufe fallen aus der Rangfolge, statt mit einem Sternchen mitzulaufen.
-    """
-    p = run / "metrics.jsonl"
-    if not p.exists():
-        return None
-    rows = read_jsonl(p)
-    # Eine LISTE, keine Menge: die schluckte die Wiederholung, die der Docstring ausschliessen
-    # will, und ein fortgesetzter Lauf kam damit als vollstaendig durch.
-    seen = sorted(r["epoch"] for r in rows if "epoch" in r)
-    if seen != list(range(epochs)):
-        return None
-    vals = [r[metric] for r in rows[-tail:] if metric in r]
-    return statistics.fmean(vals) if vals else None
 
 
 def main() -> int:

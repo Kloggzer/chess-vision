@@ -12,6 +12,7 @@ import { open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type Candidate, confirmedAgainst, gameDir, referenceDigest } from "@/lib/data";
 import { dataDir } from "@/lib/data";
+import { videoInput } from "@/lib/ingest";
 import { readJsonl, stripBom } from "@/lib/jsonl";
 import { type MatteCensus, matteCensus, matteSources } from "@/lib/matte";
 import { absentOnly, exists } from "@/lib/measurement";
@@ -58,26 +59,10 @@ export type ChainState = {
   useless: UselessFlag | null;
 };
 
-/**
- * The bundle's own recording: the newest session directory that has a video, else the mirrored copy.
- *
- * Some transfers carry `video.mp4` beside `files/` as well, some ONLY there (`2026-08-30-14-33-02`).
- */
+/** Dieselbe Antwort wie der Job (`ingest.videoInput`), sonst bietet die Kette einen toten Knopf an. */
 async function videoOf(name: string): Promise<string | null> {
-  const dir = gameDir(name);
-  const sessions = path.join(dir, "files", "sessions");
-  let ids: string[] = [];
-  try {
-    ids = (await readdir(sessions, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
-    /* no sessions/ — the mirrored copy may still be there */
-  }
-  for (const id of ids.sort().reverse()) {
-    const video = path.join(sessions, id, "video.mp4");
-    if (await exists(video)) return video;
-  }
-  const mirrored = path.join(dir, "video.mp4");
-  return (await exists(mirrored)) ? mirrored : null;
+  const found = await videoInput(name);
+  return "video" in found ? found.video : null;
 }
 
 /**

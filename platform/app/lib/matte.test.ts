@@ -231,3 +231,20 @@ test("a merge after the verdict reopens the frame; a verdict after the merge clo
   expect(reopened({ matte: "ok", matteAt: "2026-09-12T08:00:00+00:00" }, "2026-09-11T23:00:00+00:00")).toBe(false);
   expect(reopened({ matte: "ok" }, undefined)).toBe(false);
 });
+
+test("eine spaetere Absage nimmt die Matte zurueck — im Census wie im Leser", async () => {
+  const { loadMatte, matteCensus } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
+  await writeFile(path.join(dir, "log.jsonl"), pile(2), "utf8");
+  // matte.jsonl ist eine Historie: die juengste Zeile je Frame gilt, ueberall.
+  await write([
+    JSON.stringify({ frame: "f0", coverage: { a1: 0.9 } }),
+    JSON.stringify({ frame: "f1", skipped: "zone too big" }),
+    JSON.stringify({ frame: "f0", skipped: "zone too big" }),
+    JSON.stringify({ frame: "f1", coverage: { a1: 0.2 } }),
+  ]);
+  const matte = await loadMatte("g");
+  expect(matte.get("f0")?.skipped).toBe("zone too big");
+  expect(matte.get("f1")?.coverage).toEqual({ a1: 0.2 });
+  expect((await matteCensus("g")).done).toBe(1);
+});

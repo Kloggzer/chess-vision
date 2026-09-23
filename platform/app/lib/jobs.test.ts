@@ -31,10 +31,10 @@ import {
   spawnTool,
   stopRunning,
   verifyPack,
-  videoInput,
   whenIdle,
   type Job,
 } from "@/lib/jobs";
+import { videoInput } from "@/lib/ingest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 type Op = "stat" | "readFile" | "readdir" | "open";

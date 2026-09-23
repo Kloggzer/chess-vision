@@ -24,6 +24,8 @@ export type MatteFrame = {
   alpha?: string;
   /** `session temporal-merge` added cells SAM called clear — when, and which. */
   mergedAt?: string;
+  /** `_source.log` (`chesslab.provenance`): der Export, gegen den das Alpha geschnitten wurde. */
+  source?: string;
 };
 
 /** Whose alpha the row's numbers came from: SAM's, a recut correction, or a correction not yet cut. */
@@ -85,29 +87,32 @@ async function readOnlyMissingIsEmpty(file: string): Promise<string> {
   }
 }
 
-type Cache = Map<string, { key: string; value: SessionMatte }>;
-const cache: Cache = ((globalThis as { __chesslabMattes?: Cache }).__chesslabMattes ??= new Map());
+type Sets = Map<string, { key: string; value: unknown }>;
+const sets: Sets = ((globalThis as { __chesslabMatteSets?: Sets }).__chesslabMatteSets ??= new Map());
 
 /** One session's mattes, mtime-keyed — a 12 000-frame run is ~7 MB of JSON per request otherwise. */
 export async function loadMatte(name: string): Promise<SessionMatte> {
   const file = path.join(sessionDir(name), "matte.jsonl");
-  const key = (await stampOrMissing(file)) ?? "none";
-  const hit = cache.get(file);
-  if (hit?.key === key) return hit.value;
-
-  const value: SessionMatte = new Map();
-  const text = key === "none" ? "" : await readOnlyMissingIsEmpty(file);
   // Eine kaputte Zeile MITTENDRIN still zu ueberspringen nimmt einem gemessenen Frame sein Alpha,
   // und die Lane liest es danach als "nie gemattet" — der Schwanz eines laufenden Laufs nicht.
+  const { frames, corrupt } = await cachedSet(file, "latest", latestFrames);
+  if (corrupt > 0) throw new Error(`${file}: ${corrupt} beschaedigte Zeile(n)`);
+  return frames;
+}
+
+/** `matte.jsonl` ist eine Historie: je Frame gilt die JUENGSTE Zeile — fuer die Lane, den Census
+ *  und die Stempel gleich. Eine spaetere Absage nimmt eine fruehere Messung zurueck. */
+function latestFrames(text: string): { frames: SessionMatte; corrupt: number } {
+  const frames: SessionMatte = new Map();
   const read = readJsonl(text);
-  if (read.corrupt > 0) throw new Error(`${file}: ${read.corrupt} beschaedigte Zeile(n)`);
   for (const line of read.rows) {
     const row = line as unknown as {
       frame: string; ply?: number; reason?: string; skipped?: string; alpha?: string;
       concepts?: Record<string, number>; coverage?: Record<string, number>;
-      merged_at?: string;
+      merged_at?: string; _source?: { log?: unknown };
     };
-    value.set(row.frame, {
+    const source = row._source?.log;
+    frames.set(row.frame, {
       stem: row.frame,
       ply: row.ply,
       reason: row.reason,
@@ -116,10 +121,18 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
       ...(row.alpha ? { alpha: row.alpha } : {}),
       ...(row.skipped ? { skipped: row.skipped } : {}),
       ...(typeof row.merged_at === "string" ? { mergedAt: row.merged_at } : {}),
+      ...(typeof source === "string" ? { source } : {}),
     });
   }
-  cache.set(file, { key, value });
-  return value;
+  return { frames, corrupt: read.corrupt };
+}
+
+/** Gemessen heisst: keine Absage und eine `coverage` — auf der juengsten Zeile. */
+const measured = (row: MatteFrame): boolean => row.coverage !== undefined && !row.skipped;
+
+/** Die juengsten Zeilen ohne Diagnose: Census und Stempel werfen auf eine kaputte Zeile nicht. */
+async function latestOf(name: string): Promise<SessionMatte> {
+  return (await cachedSet(path.join(sessionDir(name), "matte.jsonl"), "latest", latestFrames)).frames;
 }
 
 export type MatteCensus = {
@@ -150,9 +163,6 @@ export function matteTarget(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 80;
 }
 
-type Sets = Map<string, { key: string; value: unknown }>;
-const sets: Sets = ((globalThis as { __chesslabMatteSets?: Sets }).__chesslabMatteSets ??= new Map());
-
 const FRAME_ONE = /"frame":\s*"([^"]+)"/;
 const BOARD_ONE = /"board":\s*"([^"]+)"/;
 const OCCLUDED_ONE = /"dirty_reason":\s*"occluded"/;
@@ -166,7 +176,7 @@ const stemOf = (value: string): string => {
 };
 
 /** Die Stems der Zeilen, die `keep` durchlaesst; `pick` nennt die Felder, die den Frame tragen,
- *  in der Reihenfolge, in der sie gelten. Ein Set, keine Zeilenzahl — siehe `usableStemsIn`. */
+ *  in der Reihenfolge, in der sie gelten. Ein Set, keine Zeilenzahl: ein Recut schreibt Stems doppelt. */
 const stemsIn = (keep: (line: string) => boolean, pick: RegExp[] = [FRAME_ONE]) => (text: string): Set<string> => {
   const out = new Set<string>();
   for (const line of text.split(String.fromCharCode(10))) {
@@ -177,16 +187,6 @@ const stemsIn = (keep: (line: string) => boolean, pick: RegExp[] = [FRAME_ONE]) 
   return out;
 };
 
-/**
- * Die Stems, die WIRKLICH eine Matte haben: kein `skipped` (SAM hat abgelehnt, es liegt kein
- * Alpha da) und eine `coverage`. Distinct, not lines: `recut_fixed` rewrites the file whole, and
- * 27 stems came back twice on 14-32-33 — line counts then read "done" while frames are missing.
- */
-const usableStemsIn = stemsIn((line) => !line.includes('"skipped"') && line.includes('"coverage"'));
-
-/** Die Stems, die SAM AUSDRUECKLICH abgelehnt hat — beantwortet, aber ohne Alpha auf der Platte. */
-const skippedStemsIn = stemsIn((line) => line.includes('"skipped"'));
-
 /** Jeder Stem mit einem Brett. Der `occluded`-Stapel ist eine TEILMENGE davon. */
 const exportedStemsIn = stemsIn(() => true, [BOARD_ONE]);
 
@@ -194,7 +194,7 @@ const exportedStemsIn = stemsIn(() => true, [BOARD_ONE]);
  *  einem Stem, den der Export nicht mehr waehlt, ist verwaist und zaehlt nicht als erledigt. */
 const occludedStemsIn = stemsIn((line) => OCCLUDED_ONE.test(line), [BOARD_ONE, FRAME_ONE]);
 
-/** Mtime-keyed like `loadMatte` — a card must not parse two megabytes of log per render. */
+/** Mtime-keyed — a card must not parse two megabytes of log per render. */
 async function cachedSet<T>(file: string, tag: string,
                             read: (text: string) => T): Promise<T> {
   const key = (await stampOrMissing(file)) ?? "none";
@@ -207,33 +207,17 @@ async function cachedSet<T>(file: string, tag: string,
   return value;
 }
 
-/** `chesslab.provenance.source` — der Export, gegen den das Alpha geschnitten wurde. */
-const SOURCE_LOG = /"_source":\s*\{[^}]*"log":\s*"([^"]+)"/;
-
-/** Je Stem der Stempel seiner WIRKSAMEN Zeile (Punkt 28), nur wo wirklich gemessen wurde: eine
- *  spaetere Absage nimmt die fruehere Messung zurueck und mit ihr die Coverage, die driften kann. */
-const stampsIn = (text: string): Map<string, string> => {
-  const out = new Map<string, string>();
-  for (const line of text.split(String.fromCharCode(10))) {
-    const frame = line ? FRAME_ONE.exec(line) : null;
-    if (!frame) continue;
-    const stamp = line.includes('"coverage"') && !line.includes('"skipped"') ? SOURCE_LOG.exec(line) : null;
-    if (stamp) out.set(stemOf(frame[1]), stamp[1]);
-    else out.delete(stemOf(frame[1]));
-  }
-  return out;
-};
-
 /** Die Herkunft der Alphas, die heute noch zaehlen — `chain.ts` haelt sie gegen die `log.jsonl`.
  *  Nur Stems, die dieser Export noch fuehrt (eine verwaiste Zeile hielte die Sprosse fuer immer
  *  offen), und nur gestempelte: Altbestand hat keinen Stempel und gilt weiter. */
 export async function matteSources(name: string): Promise<string[]> {
   const dir = sessionDir(name);
-  const [stamps, exported] = await Promise.all([
-    cachedSet(path.join(dir, "matte.jsonl"), "stamps", stampsIn),
+  const [latest, exported] = await Promise.all([
+    latestOf(name),
     cachedSet(path.join(dir, "log.jsonl"), "exported", exportedStemsIn),
   ]);
-  return [...new Set([...stamps].filter(([stem]) => exported.has(stem)).map(([, s]) => s))];
+  const stamps = [...latest.values()].filter((row) => measured(row) && exported.has(stemOf(row.stem)));
+  return [...new Set(stamps.flatMap((row) => (row.source ? [row.source] : [])))];
 }
 
 /**
@@ -242,9 +226,8 @@ export async function matteSources(name: string): Promise<string[]> {
  */
 export async function matteCensus(name: string): Promise<MatteCensus> {
   const dir = sessionDir(name);
-  const [usable, skipped, pile, reviews, exported] = await Promise.all([
-    cachedSet(path.join(dir, "matte.jsonl"), "usable", usableStemsIn),
-    cachedSet(path.join(dir, "matte.jsonl"), "skipped", skippedStemsIn),
+  const [latest, pile, reviews, exported] = await Promise.all([
+    latestOf(name),
     cachedSet(path.join(dir, "log.jsonl"), "pile", occludedStemsIn),
     frameReviews(sessionId(name)),
     cachedSet(path.join(dir, "log.jsonl"), "exported", exportedStemsIn),
@@ -252,6 +235,9 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
   // Nur was BEIDES ist: brauchbar gemattet UND heute noch im Stapel. Ein Re-Export waehlt andere
   // Frames, und die alten Zeilen meldeten die Session sonst als erledigt, waehrend der Stapel
   // unberuehrt daliegt (gemessen an den sechs ungescannten Sessions, 2026-09-09).
+  const rows = [...latest.values()];
+  const usable = new Set(rows.filter(measured).map((row) => stemOf(row.stem)));
+  const skipped = new Set(rows.filter((row) => row.skipped).map((row) => stemOf(row.stem)));
   let done = 0;
   for (const stem of usable) if (pile.has(stem)) done += 1;
   const total = pile.size;

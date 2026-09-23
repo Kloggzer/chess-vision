@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import { nextStep } from "@/lib/chain";
-import { videoInput } from "@/lib/jobs";
+import { videoInput } from "@/lib/ingest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 // Ohne Rueckfall auf das gespiegelte Video wurde der angebotene `label`-Job `skipped` und hing in Reparatur.

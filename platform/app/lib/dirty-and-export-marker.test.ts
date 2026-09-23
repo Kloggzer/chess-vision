@@ -3,14 +3,17 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
-const fake = vi.hoisted(() => ({ script: "" }));
+const fake = vi.hoisted(() => ({ script: "", spawned: 0 }));
 
 vi.mock("@/lib/jobs", async (original) => {
   const real = await original<typeof import("@/lib/jobs")>();
-  return { ...real, spawnTool: (_bin: string, args: string[], cwd: string) => real.spawnTool(process.execPath, [fake.script, ...args], cwd) };
+  return { ...real, spawnTool: (_bin: string, args: string[], cwd: string) => {
+    fake.spawned += 1;
+    return real.spawnTool(process.execPath, [fake.script, ...args], cwd);
+  } };
 });
 
 const FAKE_TOOL = String.raw`
@@ -19,6 +22,7 @@ const name = process.argv[process.argv.length - 1];
 const data = process.env.CHESSLAB_DATA_DIR;
 const ctl = path.join(data, "fake-adopt");
 fs.mkdirSync(ctl, { recursive: true });
+const main = () => {
 const me = path.join(ctl, "running-" + process.pid);
 fs.writeFileSync(me, "");
 fs.appendFileSync(path.join(ctl, "starts"), fs.readdirSync(ctl).filter((f) => f.startsWith("running-")).length + "\n");
@@ -47,6 +51,8 @@ const finish = () => {
 };
 const wait = () => (fs.existsSync(path.join(ctl, "hold")) ? setTimeout(wait, 20) : finish());
 wait();
+};
+setTimeout(main, fs.existsSync(path.join(ctl, "slow")) ? 400 : 0);
 `;
 
 let scriptDir: string;
@@ -63,6 +69,7 @@ beforeAll(async () => {
 afterAll(() => rm(scriptDir, { recursive: true, force: true }));
 
 beforeEach(async () => {
+  fake.spawned = 0;
   data = await tempDataRoot("dirty-marker");
   mkdirSync(ctl(), { recursive: true });
   await writeSession({ root: data, name: NAME, rows: [1, 2, 3, 4, 5].map((frame) => ({ frame })) });
@@ -86,7 +93,14 @@ async function dirtyOf(stem: string): Promise<boolean> {
 
 const settle = { timeout: 8000, interval: 50 };
 
+/** `adopt-dirty.ts` haelt `running` ueber den Folgelauf hinweg: erst `false` ist das Ende der Kette. */
+const adoptBusy = () =>
+  (globalThis as { __chesslabAdoptDirty?: Map<string, { running: boolean }> }).__chesslabAdoptDirty?.get(NAME)?.running === true;
+
 describe("dirty-frame und Widerruf", { timeout: 20_000 }, () => {
+  // Ein Folgelauf, der den Test ueberlebt, startet sonst im Datenverzeichnis des NAECHSTEN.
+  afterEach(() => vi.waitFor(() => expect(adoptBusy()).toBe(false), settle));
+
   it("ein Widerruf nach dem Lauf nimmt die gemeldete Hand aus dem Log", async () => {
     await note();
     await vi.waitFor(async () => expect(await dirtyOf("000002")).toBe(true), settle);
@@ -105,19 +119,19 @@ describe("dirty-frame und Widerruf", { timeout: 20_000 }, () => {
   });
 
   it("ein Doppelklick startet keinen zweiten Prozess neben dem ersten", async () => {
+    await writeFile(ctl("slow"), "");
     await writeFile(ctl("hold"), "");
     await note();
     await note();
-    await vi.waitFor(async () => expect((await lines("starts")).length).toBeGreaterThanOrEqual(1), settle);
-    await new Promise((r) => setTimeout(r, 1500));
+    // Jeder gestartete Prozess meldet sich an, solange `hold` steht — ein zweiter zaehlte dann 2.
+    await vi.waitFor(async () => expect((await lines("starts")).length).toBe(fake.spawned), settle);
     await rm(ctl("hold"));
-    await vi.waitFor(async () => {
-      const [starts, done] = [await lines("starts"), await lines("done")];
-      expect(done.length).toBe(starts.length);
-    }, settle);
+    await vi.waitFor(() => expect(adoptBusy()).toBe(false), settle);
+    expect((await lines("done")).length).toBe(fake.spawned);
     const concurrent = Math.max(...(await lines("starts")).map(Number));
     expect(concurrent, "BUG: zwei adopt-dirty auf derselben Aufnahme gleichzeitig").toBe(1);
     expect(await dirtyOf("000002")).toBe(true);
+    expect(adoptBusy(), "der Folgelauf war noch unterwegs, als der Test sein Ergebnis las").toBe(false);
   });
 
   it("ein gescheiterter Lauf steht im Job-Status, nicht nur im Log", async () => {

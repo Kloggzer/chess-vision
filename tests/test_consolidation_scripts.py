@@ -271,3 +271,23 @@ def test_hand_audit_classify_flags_a_hand_body_next_door():
     assert classify(row, "occluded", 0.0, "e4") == "nachbar"
     assert classify(row, "occluded", 0.0, "f4") == "nachbar"
     assert classify(row, "occluded", 0.0, "d4") is None
+
+
+# --- compare_arms / thin_arms_report: EIN Schwanzmittel -----------------------------------------
+
+@pytest.fixture(params=["compare_arms", "thin_arms_report"])
+def arms(request):
+    return load_script(request.param)
+
+
+def test_tail_mean_takes_the_last_values_not_the_last_rows(arms, tmp_path):
+    rows = [{"epoch": 0, "val_loss": 1.0}, {"epoch": 1, "val_loss": 0.8},
+            {"epoch": 2}, {"epoch": 3, "val_loss": 0.6}]
+    run = tmp_path / "a-s42"
+    write_jsonl(run / "metrics.jsonl", rows)
+    assert arms.tail_mean(run, "val_loss", 2, 4) == pytest.approx(0.7)
+    assert arms.tail_mean(run, "val_loss", 4, 4) is None, "weniger Werte als der Schwanz: kein Urteil"
+
+
+def test_compare_arms_takes_tail_mean_from_thin_arms_report():
+    assert _defined_in(load_script("compare_arms").tail_mean, "thin_arms_report")

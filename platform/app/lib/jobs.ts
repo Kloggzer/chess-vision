@@ -18,7 +18,7 @@ import path from "node:path";
 import { appendRows } from "@/lib/atomic";
 import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir, gameDir } from "@/lib/data";
-import { inboxDir, targetDir } from "@/lib/ingest";
+import { inboxDir, targetDir, videoInput } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
 import { absentOnly, exists } from "@/lib/measurement";
 import { jsonlRows, stripBom } from "@/lib/jsonl";
@@ -254,30 +254,6 @@ export async function packInputs(name: string): Promise<{ video: string; game: s
     if (text.includes(`"sessionId":"${sessionId}"`) || text.includes(`"sessionId": "${sessionId}"`)) return { video, game: full };
   }
   return { reason: `no game record names session ${sessionId} — the game was not finished on the phone` };
-}
-
-/** The newest complete QHD recording in one transferred bundle, with no game requirement. */
-export async function videoInput(name: string): Promise<{ video: string; sessionId: string } | { reason: string }> {
-  const files = targetDir(checkName(name, "transfer name"));
-  const sessionsRoot = path.join(files, "sessions");
-  let sessions: string[] = [];
-  try {
-    sessions = (await readdir(sessionsRoot, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
-    /* kein sessions/ — die gespiegelte Kopie kann trotzdem daliegen */
-  }
-  const sessionId = sessions.sort().at(-1);
-  if (sessionId) {
-    const video = path.join(sessionsRoot, sessionId, "video.mp4");
-    if (await exists(video)) return { video, sessionId };
-  }
-  // Derselbe Rueckfall wie `chain.ts`: die gespiegelte Kopie liegt neben dem Bundle. Ohne ihn bot
-  // die Chain den Knopf an und die Reparatur verweigerte ihn — eine dauerhafte Sperre.
-  const mirrored = path.join(path.dirname(files), "video.mp4");
-  if (await exists(mirrored)) return { video: mirrored, sessionId: sessionId ?? name };
-  return { reason: sessionId
-    ? `no video.mp4 in sessions/${sessionId} — recording ran without the QHD bundle`
-    : "no sessions/ and no mirrored video.mp4 in the transfer" };
 }
 
 /**

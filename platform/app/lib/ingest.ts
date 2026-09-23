@@ -19,7 +19,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { readJsonl } from "@/lib/jsonl";
-import { absentOnly } from "@/lib/measurement";
+import { absentOnly, exists } from "@/lib/measurement";
 import { checkName, dataDir } from "@/lib/data";
 import { serialize } from "@/lib/serialize";
 
@@ -100,6 +100,33 @@ function stagingDir(name: string): string {
 
 export function targetDir(name: string): string {
   return path.join(dataDir(), "recordings", checkName(name, "transfer name"), "files");
+}
+
+/**
+ * The recording of the bundle's NEWEST session, else the mirrored copy — the job and the chain
+ * both ask here: an older session's video is not this session's, and no button may be offered
+ * that the job then refuses.
+ */
+export async function videoInput(name: string): Promise<{ video: string; sessionId: string } | { reason: string }> {
+  const files = targetDir(checkName(name, "transfer name"));
+  const sessionsRoot = path.join(files, "sessions");
+  let sessions: string[] = [];
+  try {
+    sessions = (await readdir(sessionsRoot, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    /* kein sessions/ — die gespiegelte Kopie kann trotzdem daliegen */
+  }
+  const sessionId = sessions.sort().at(-1);
+  if (sessionId) {
+    const video = path.join(sessionsRoot, sessionId, "video.mp4");
+    if (await exists(video)) return { video, sessionId };
+  }
+  // Manche Transfers tragen `video.mp4` NUR neben `files/` (`2026-08-30-14-33-02`).
+  const mirrored = path.join(path.dirname(files), "video.mp4");
+  if (await exists(mirrored)) return { video: mirrored, sessionId: sessionId ?? name };
+  return { reason: sessionId
+    ? `no video.mp4 in sessions/${sessionId} — recording ran without the QHD bundle`
+    : "no sessions/ and no mirrored video.mp4 in the transfer" };
 }
 
 /** Groesse, `null` nur wenn die Datei FEHLT. Ein `-1` fuer jeden Fehler liess ein EACCES wie

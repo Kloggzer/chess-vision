@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, stat, utimes, writeFile } from "node:fs/pr
 import path from "node:path";
 import { beforeEach, describe, expect, it, test, vi } from "vitest";
 import { adoptPgn, chainState, nextStep, referenceOrigin } from "@/lib/chain";
+import { videoInput } from "@/lib/ingest";
 import { matteCensus, matteSources } from "@/lib/matte";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
@@ -244,6 +245,14 @@ describe("chainState", () => {
 
     await video();
     expect((await chainState(NAME)).video).toContain(path.join("sessions", "20260813-121055"));
+  });
+
+  it("offers the video the job would take: an older session's video is not the newest session's", async () => {
+    await video();
+    await mkdir(game("files", "sessions", "20260813-130000"), { recursive: true });
+    const job = await videoInput(NAME);
+    expect(job).toHaveProperty("reason");
+    expect((await chainState(NAME)).video, "die Kette bot einen Knopf an, den der Job verweigert").toBeNull();
   });
 
   // `queueRows` ruft chainState je Aufnahme in einem `Promise.all`: ein Wurf leerte jede Queue-Seite.
