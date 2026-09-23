@@ -36,13 +36,15 @@ export type GameInfo = {
   lastJob: Job | null;
 };
 
-/** Eine Aufnahme als Karte, fuer `/` und `/game/<name>` gleich gelesen. BRETTER zuerst, Zellen danach. */
-export async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: GameInfo; census: ReadCensus }> {
+/** Eine Aufnahme als Karte, fuer `/` und `/game/<name>` gleich gelesen. BRETTER zuerst, Zellen danach.
+ *  `known`: der Kettenstand aus `chainStates`, wenn die Seite alle Aufnahmen in einer Anfrage holte. */
+export async function gameInfo(name: string, lastJob: Job | null,
+  known?: ChainState): Promise<{ info: GameInfo; census: ReadCensus }> {
   const [meta, archived, candidate, chain, pgn] = await Promise.all([
     loadMeta(name),
     isArchived(name),
     loadCandidate(name).catch(() => null),
-    chainState(name),
+    known ?? chainState(name),
     truthSans(name),
   ]);
   const decided = await judgedKeys(name);

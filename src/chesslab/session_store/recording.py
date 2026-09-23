@@ -101,6 +101,15 @@ class VerdictContested(ValueError):
 UNCHECKED = "unchecked"
 
 
+def confirmation_against(candidate: dict, reference_md5: str | None) -> str:
+    """`same`/`moved` gegen die heutige Referenz; `unknown` ohne Stempel oder mit einem, den eine
+    spaetere Bestaetigung ohne Stempel stehen liess (`at` passt nicht mehr)."""
+    ref = candidate.get("confirmed_reference")
+    if not isinstance(ref, dict) or ref.get("at") != candidate.get("confirmed_at"):
+        return "unknown"
+    return "same" if "md5" in ref and ref["md5"] == reference_md5 else "moved"
+
+
 def write_confirmation(name: str, candidate: dict, plies: list[int], *,
                        reference_md5: str | None = UNCHECKED, struck: list[int] | None = None) -> Path:
     """Stamp the confirmation keys; `reference_md5=None` means the verdict saw NO reference.

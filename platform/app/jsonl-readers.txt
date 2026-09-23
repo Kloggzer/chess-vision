@@ -2,12 +2,10 @@
 # Darf nur SCHRUMPFEN - lib/jsonl-ratchet.test.ts wacht darueber. Testdateien zaehlen nicht:
 # ein Test zerlegt sein eigenes Fixture und erfindet dabei keine Lesepolitik.
 # Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
-# Gezaehlt wird nur Zeilenschnitt MIT JSON.parse: lib/session-store/matte.ts scannt seine 2-MB-Logs weiter mit
-# Regex, parst dort aber keine Zeile und erfindet damit auch keine Lesepolitik.
+# Gezaehlt wird nur Zeilenschnitt MIT JSON.parse.
 1 lib/chain/pack.ts  # manifestRows wirft mit Absicht
 1 lib/session-store/review-notes.ts  # BEHAELT eine kaputte Zeile beim Umschreiben, statt sie zu verlieren
 2 lib/chain/session-delete.ts  # zerschneidet die AUSGABE eines Werkzeugs, keine Datei
-1 lib/chain/chain.ts  # liest nur die erste Zeile aus einem 4-KB-Puffer
 1 lib/session-store/frame-flag.ts  # braucht den Zeilen-INDEX, um die Datei zurueckzuschreiben
 1 lib/corpus/provenance.ts  # braucht die Zeilen-ZAHL und nur die Kopfzeile
 1 lib/corpus/corpus.ts  # stroemt ueber ein 57-MB-Manifest; lib/jsonl.ts liest den GANZEN Text - traegt die Schwanz-Politik seit 2026-09-17 selbst

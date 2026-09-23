@@ -3,7 +3,7 @@ import { lcsReport, moveSquares, type MoveSquares } from "@/lib/py/ops";
 import type { StreamGame } from "@/lib/label/zuege";
 import {
   confirmedAgainst, listFrameStems, loadCandidate, readReference, readReferenceBytes, referenceDigest,
-  type Candidate, type FrameStem,
+  type Candidate, type ConfirmedAgainst, type FrameStem,
 } from "@/lib/session-store/recordings";
 import { referenceOrigin, type ReferenceOrigin } from "@/lib/session-store/reference";
 import { badIntervals } from "@/lib/session-store/review-notes";
@@ -44,7 +44,7 @@ export type ConfirmRead = Review & {
   /** Der Text fuer den Editor — gelesen NACH Referenz und Herkunft, ein Lesefehler wirft. */
   referenceText: string;
   referenceMd5: string | null;
-  against: ReturnType<typeof confirmedAgainst> | null;
+  against: ConfirmedAgainst | null;
 };
 
 /** `/confirm/<name>` fuer eine Aufnahme MIT `candidate.json`. Die Wahrheit ist die Referenz, auch
@@ -64,7 +64,7 @@ export async function confirmReview(name: string, candidate: Candidate): Promise
     truth,
     referenceText: referenceBytes?.toString("utf8") ?? "",
     referenceMd5,
-    against: candidate.confirmed ? confirmedAgainst(candidate, referenceMd5) : null,
+    against: candidate.confirmed ? await confirmedAgainst(candidate, referenceMd5) : null,
   };
 }
 

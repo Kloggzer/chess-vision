@@ -225,13 +225,13 @@ export type ConfirmedReference = { md5: string | null; at: string };
 
 export const referenceDigest = (bytes: Buffer): string => createHash("md5").update(bytes).digest("hex");
 
-/** `unknown`: kein Stempel, oder einer, den eine spaetere Bestaetigung ohne Stempel stehen liess. */
-export function confirmedAgainst(doc: Pick<Candidate, "confirmed_at" | "confirmed_reference">,
-  current: string | null): "same" | "moved" | "unknown" {
-  const ref = doc.confirmed_reference;
-  if (!ref || typeof ref !== "object" || ref.at !== doc.confirmed_at) return "unknown";
-  return ref.md5 === current ? "same" : "moved";
-}
+export type ConfirmedAgainst = "same" | "moved" | "unknown";
+
+/** `session_store.recording.confirmation_against`: `unknown` ohne Stempel oder mit einem, den eine
+ *  spaetere Bestaetigung ohne Stempel stehen liess. */
+export const confirmedAgainst = (doc: Pick<Candidate, "confirmed_at" | "confirmed_reference">,
+  current: string | null): Promise<ConfirmedAgainst> =>
+  pyCall<ConfirmedAgainst>("confirmed_against", { candidate: doc, reference_md5: current });
 
 /** Die Seite zeigte eine andere `reference.pgn` als die, gegen die jetzt geurteilt wuerde. */
 export class ReferenceMoved extends Error {}

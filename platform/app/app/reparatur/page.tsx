@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import { PageTitle } from "@/app/page-title";
 import { ListRow } from "@/components/list-row";
-import { chainState } from "@/lib/chain/chain";
+import { chainStates } from "@/lib/chain/chain";
 import { STEP } from "@/lib/chain/steps";
 import { repairs } from "@/lib/chain/drain";
 import { failureParts, logName } from "@/lib/failure";
@@ -14,9 +14,8 @@ export const dynamic = "force-dynamic";
 export default async function RepairPage() {
   const [repair, ledger] = await Promise.all([repairs(), jobs(500)]);
   const lastJobs = new Map(ledger.map((job) => [job.name, job]));
-  const rows = await Promise.all(
-    repair.map(async (row) => ({ ...row, state: await chainState(row.name), lastJob: lastJobs.get(row.name) ?? null })),
-  );
+  const states = await chainStates(repair.map((row) => row.name));
+  const rows = repair.map((row, i) => ({ ...row, state: states[i], lastJob: lastJobs.get(row.name) ?? null }));
 
   return (
     <main className="space-y-4">

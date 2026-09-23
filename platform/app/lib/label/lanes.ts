@@ -337,10 +337,10 @@ function positionCells(stream: LabelStream): LaneCell[] {
     .flatMap(([, rows]) => byClaim(groupBySquare(rows.map(positionCell))));
 }
 
-/** Ueber `PIECE_VISIBLE_MAX` maskiert der Verlust die Zelle, ein Urteil dort lernt kein Kopf.
- *  Ohne Messung bleibt sie drin: ungemessen heisst nicht verdeckt. */
+/** Verdeckt oder zu dunkel maskiert der Verlust die Zelle, ein Urteil dort lernt kein Kopf. Die
+ *  Regel rechnet Python (`LabelStream.ineligible`); ungemessen bleibt die Zelle eine Frage. */
 function visible(stream: LabelStream, cell: { session: number; stem: string; square: string }): boolean {
-  return (stream.coverage[cell.session]?.[cell.stem]?.[cell.square] ?? 0) <= PIECE_VISIBLE_MAX;
+  return !(stream.ineligible[cell.session]?.[cell.stem] ?? []).includes(cell.square);
 }
 
 /** `Strittig` is every measurer at once, BLOCK BY BLOCK and not interleaved, so a page stays one
@@ -438,15 +438,6 @@ export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string,
   return Object.keys(fenLabels(board.fen)).some((sq) => decided[`${board.stem}|${sq}`] === undefined);
 }
 
-/** Spiegelt `slice_session`. Fehlende `phase` heisst NICHT dirty — sonst blendet ein ungemessenes
- *  Brett sich selbst aus. */
-export function reachesPool(board: StreamBoard, coverage: Record<string, Record<string, number> | undefined>[]): boolean {
-  if (board.phase !== "after" && board.phase !== "before") return true;
-  const cover = coverage[board.session]?.[board.stem];
-  if (cover === undefined || Object.keys(cover).length === 0) return false;
-  return board.settleMeasured === true || board.dirtyReason === "occluded";
-}
-
 /** Jedes strittige Frame des Korpus, beurteilt oder nicht — der Nenner der Lane. */
 export function laneFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
   return id === "frames" ? stream.boards.filter(frameCandidate) : [];
@@ -467,13 +458,13 @@ export function openFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
 
 export function openBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   return laneBoards(stream, id).filter(
-    (b) => reachesPool(b, stream.coverage) && laneOpen(b, id, stream.decided[b.session] ?? {}),
+    (b) => b.reachesPool && laneOpen(b, id, stream.decided[b.session] ?? {}),
   );
 }
 
 export function openCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
   const alive = new Set(
-    stream.boards.filter((b) => reachesPool(b, stream.coverage)).map((b) => `${b.session}|${b.stem}`),
+    stream.boards.filter((b) => b.reachesPool).map((b) => `${b.session}|${b.stem}`),
   );
   return laneCells(stream, id, wall).filter(
     (c) =>

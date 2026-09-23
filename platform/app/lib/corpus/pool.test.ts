@@ -1,11 +1,10 @@
 import { readFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
-import { readJsonl } from "@/lib/jsonl";
 import type { CorpusIndex, Split } from "@/lib/corpus/corpus";
 import { fenLabels } from "@/lib/fen";
-import { dedupCorrections, foldPool, loadPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/corpus/pool";
+import { loadPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/corpus/pool";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const fail = vi.hoisted(() => ({ on: null as null | ((file: string) => void) }));
@@ -38,17 +37,9 @@ function blowUpOn(needle: string, code: string) {
   };
 }
 
-function freshPool() {
-  delete (globalThis as { __chesslabPool?: unknown }).__chesslabPool;
-  return loadPool();
-}
+const freshPool = () => loadPool();
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-/** One session, two frames — the smallest thing that has a pool at all. */
-const SESSION = [
-  { sessionId: "rg-2026-08-07", frames: [{ stem: "000234", fen: START, dirty: true }, { stem: "000237", fen: START, dirty: false }] },
-];
 
 test("a FEN asserts 64 labels and never asserts occluded", () => {
   const labels = fenLabels(START);
@@ -59,13 +50,25 @@ test("a FEN asserts 64 labels and never asserts occluded", () => {
   expect(Object.values(labels)).not.toContain("occluded");
 });
 
+/** Eine Aufnahme mit einem Frame je FEN, und ihr Ledger — der Pool rechnet in Python (`corpus_pool`). */
+async function poolOf(fens: string[], corrections: (object | string)[] = []) {
+  const dir = await writeSession({
+    root: await tempDataRoot("pool"), rows: fens.map((fen, i) => ({ frame: 234 + 3 * i, fen })),
+  });
+  if (corrections.length > 0) {
+    await writeFile(path.join(dir, "corrections.jsonl"),
+      corrections.map((r) => (typeof r === "string" ? r : JSON.stringify(r))).join("\n"), "utf8");
+  }
+  return freshPool();
+}
+
 /** Der Pool zaehlt je Zelle das Label, das Python ueber python-chess vergibt — dieselbe Tabelle
  *  wie `fen-labels-parity.test.ts`, damit Pool und Lanes eine FEN nicht verschieden lesen. */
-test("the pool counts every FEN cell exactly as python-chess labels it", () => {
+test("the pool counts every FEN cell exactly as python-chess labels it", async () => {
   const fixture = path.join(__dirname, "../../../../tests/data/fen_labels_parity.json");
   const cases = (JSON.parse(readFileSync(fixture, "utf8")) as { cases: { fen: string; labels: Record<string, string> }[] }).cases;
   for (const c of cases) {
-    const pool = foldPool([{ sessionId: "rg-x", frames: [{ stem: "000001", fen: c.fen, dirty: false }] }], new Map());
+    const pool = await poolOf([c.fen]);
     const want: Record<string, number> = {};
     for (const label of Object.values(c.labels)) want[label] = (want[label] ?? 0) + 1;
     expect(pool.classes, c.fen).toEqual(want);
@@ -73,34 +76,31 @@ test("the pool counts every FEN cell exactly as python-chess labels it", () => {
   }
 });
 
-test("the dedup is last-wins on (session_id, str(frame), square)", () => {
-  const last = dedupCorrections(readJsonl(
-    '{"session_id":"rg-a","frame":"000234","square":"e2","label":"occluded"}\n'
-    + '{"session_id":"rg-a","frame":234,"square":"e2","label":"empty"}\n'
-    + '{"session_id":"rg-a","frame":"000234","square":"e2","label":"wP"}\n'
-    + "not json at all",
-  ));
+test("the dedup is last-wins on (session_id, str(frame), square)", async () => {
+  const pool = await poolOf([START], [
+    { session_id: "rg-g", frame: "000234", square: "e2", label: "occluded" },
+    { session_id: "rg-g", frame: 234, square: "e2", label: "empty" },
+    { session_id: "rg-g", frame: "000234", square: "e2", label: "bQ" },
+    "not json at all",
+  ]);
   // `234` and `"000234"` are DIFFERENT keys — Python stringifies the value, it does not renumber it.
-  expect(last.get("rg-a|000234|e2")).toBe("wP");
-  expect(last.get("rg-a|234|e2")).toBe("empty");
-  expect(last.size).toBe(2);
+  expect(pool.classes.bQ).toBe(2);
+  expect(pool.classes.occluded ?? 0).toBe(0);
+  expect(pool.orphans).toBe(1);
 });
 
-test("the pool is the FEN with the ledger on top, and counts cells, not crops", () => {
-  const pool = foldPool(
-    SESSION,
-    dedupCorrections(readJsonl(
-      '{"session_id":"rg-2026-08-07","frame":"000234","square":"e2","label":"occluded"}\n'
-      + '{"session_id":"rg-2026-08-07","frame":"000234","square":"e4","label":"occluded"}\n'
-      + '{"session_id":"rg-fremd","frame":"000001","square":"a1","label":"occluded"}\n',
-    )),
-  );
+test("the pool is the FEN with the ledger on top, and counts cells, not crops", async () => {
+  const pool = await poolOf([START, START], [
+    { session_id: "rg-g", frame: "000234", square: "e2", label: "occluded" },
+    { session_id: "rg-g", frame: "000234", square: "e4", label: "occluded" },
+    { session_id: "rg-fremd", frame: "000001", square: "a1", label: "occluded" },
+  ]);
   expect(pool.frames).toBe(2);
   expect(pool.cells).toBe(128);
   expect(pool.classes.occluded).toBe(2);
   // e2 was a wP in the FEN and is now occluded; e4 was empty. 8 pawns on one frame, 7 on the other.
   expect(pool.classes.wP).toBe(15);
-  expect(pool.occludedBySession["rg-2026-08-07"]).toBe(2);
+  expect(pool.occludedBySession["rg-g"]).toBe(2);
   // A correction on a frame no exported log carries has no snapshot to land in.
   expect(pool.orphans).toBe(1);
 });
@@ -136,11 +136,7 @@ test("DIFF is pool minus snapshot — positive is what a rebuild would add", () 
 });
 
 // `/corpus` zeichnet den Pool als Messung; ein `readdir`/`stat`-Fehler nahm Aufnahmen lautlos heraus.
-test("ein I/O-Fehler auf log.jsonl ist keine Aufnahme ohne Zellen", async () => {
-  await writeSession({ root: await tempDataRoot("poolstat"), rows: [{ frame: 234 }, { frame: 237 }] });
-  blowUpOn("log.jsonl", "EMFILE");
-  await expect(freshPool()).rejects.toThrow(/EMFILE/);
-});
+// Den Fall "EMFILE auf log.jsonl" haelt seit 2026-09-23 `tests/test_corpus_pool.py` — Python liest das Log.
 
 test("ein I/O-Fehler auf dem Aufnahme-Verzeichnis ist kein leerer Korpus", async () => {
   await writeSession({ root: await tempDataRoot("poolreaddir"), rows: [{ frame: 234 }] });
@@ -167,4 +163,15 @@ test("ein unlesbares corrections.jsonl ist kein Pool ohne Korrekturen", async ()
   const dir = await writeSession({ root: await tempDataRoot("poolfail"), rows: [{ frame: 234 }] });
   await mkdir(path.join(dir, "corrections.jsonl"), { recursive: true });
   await expect(freshPool()).rejects.toThrow();
+});
+
+// `labeling.load_corrections`: eine `retract: true`-Zeile oeffnet die Zelle wieder (CONCEPT.md 4.2.2).
+// Die Web-Kopie las sie als Korrektur — der Pool zaehlte zurueckgenommene Urteile weiter mit.
+test("ein zurueckgenommenes Urteil zaehlt im Pool nicht mehr", async () => {
+  const dir = await writeSession({ root: await tempDataRoot("poolretract"), rows: [{ frame: 234, fen: START }] });
+  const row = (extra: object) => JSON.stringify({ session_id: "rg-g", frame: "000234", square: "e2", label: "bQ", ...extra });
+  await writeFile(path.join(dir, "corrections.jsonl"), `${row({})}\n${row({ retract: true })}\n`, "utf8");
+  const pool = await freshPool();
+  expect(pool.classes.bQ ?? 0, "die Ruecknahme hebt die Korrektur auf").toBe(1);
+  expect(pool.classes.wP).toBe(8);
 });

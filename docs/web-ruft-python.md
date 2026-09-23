@@ -1,8 +1,8 @@
 # Web ruft Python — Bestandsaufnahme und Plan (2026-09-23)
 
 Nutzer, 2026-09-23: "Gerne kannst du dich auf Python beschraenken und die Webanwendung die
-Python/Kotlin Sachen callen, das brauchen wir nicht doppelt warten." Stand: Schritte 0 und 1
-umgesetzt (Abschnitt 6), 2-5 offen.
+Python/Kotlin Sachen callen, das brauchen wir nicht doppelt warten." Stand: Schritte 0 bis 3
+umgesetzt (Abschnitt 6), 4 und 5 offen.
 
 ## 1. Inventar: TS rechnet, was Python/Kotlin schon rechnet
 
@@ -24,10 +24,9 @@ Hitze: **Zelle** = je `<img>` im Raster (60 je Seite), **Liste** = je Aufnahme a
 | 11 | `lib/fen.ts` `fenLabels` (27) | `components/board-paint.tsx` (**Client**), `label-stream`, `pool`, `history-load` | Strom | `fen-labels-parity.test.ts` + `tests/data/fen_labels_parity.json` | `state.GameState.label_for` |
 | 12 | `review-cards.ts` `REVIEW_SPREAD = 3` | Karten | Seite | `review-cards.test.ts` | `retime.REVIEW_CONTEXT + 1` |
 
-Befunde nebenbei (ohne roten Test, also Pruefauftrag, kein Bugbefund):
-- `lanes.visible` misst nur `coverage <= 0,15`; der Verlust maskiert seit 2026-09-22 auch
-  `brightness < CELL_DARK_MIN` (`cell_rule.classification_eligible`). Die Lane fragt also dunkle
-  Zellen, die kein Kopf lernt. Mit Schritt 3 verschwindet das strukturell.
+Befunde nebenbei:
+- `lanes.visible` mass nur `coverage <= 0,15`; der Verlust maskiert seit 2026-09-22 auch
+  `brightness < CELL_DARK_MIN`. Bestaetigt und behoben in Schritt 3 (Abschnitt 6).
 - `session.ts` liest `mesh` aus dem Log, das laut eigenem Kommentar niemand ausser dem Test nutzt.
 - `io-policy-parity.test.ts`/`lib/jsonl.ts`/`lib/atomic.ts` sind I/O-Politik der eigenen
   Schreiber, keine Fachlogik — bleiben (Abschnitt 5).
@@ -133,8 +132,9 @@ Paritaetstests weniger; `chess.js` faellt als Abhaengigkeit.
   `PyWorkerDown` (keiner antwortete, mit stderr-Schwanz) — die Routen antworten darauf 500.
   `killTree` und `repoDir` liegen jetzt in `lib/py/worker.ts`, `chain/spawn.ts`/`cli-args.ts`
   reichen sie weiter.
-- **Start**: `.venv/Scripts/python.exe -c "from chesslab.cli.web_worker import web_worker; web_worker()"`,
-  also der Rumpf des Verbs ohne Typers Kommandobaum. Gemessen: acht gleichzeitige Starts ueber
+- **Start**: `.venv/Scripts/python.exe -c "from chesslab.web_serve import main; main()"` (seit
+  "Latenz" unten ohne das Paket `chesslab.cli`; das Verb ruft dasselbe `main`), also der Rumpf
+  des Verbs ohne Typers Kommandobaum. Gemessen: acht gleichzeitige Starts ueber
   `-m chesslab.cli web-worker` 12,1 s, ueber den Rumpf 0,86 s (die Testsuite startet einen je
   Datei); einzeln kalt 250-340 ms bis zur ersten Antwort. `CHESSLAB_PYTHON` ueberschreibt das
   venv — `vitest.config.mts` setzt es, weil die Testdaten nicht neben dem Repo liegen.
@@ -178,6 +178,191 @@ Paritaetstests weniger; `chess.js` faellt als Abhaengigkeit.
   Median ueber 18 Aufnahmen mit Referenz, je 15 Laeufe): vorher 6,2-7,0 ms (chess.js + TS), nachher
   4,3-5,1 ms (Worker warm); groesste Partie (117 Plies) 13,9 -> 12,9 ms. Einmal je Serverstart
   kommt der Kaltstart dazu (250-340 ms).
-- **Offen**: `docs/web-architektur.md` nennt die Schichten noch ohne `py`. `confirmedAgainst`
-  (TS) rechnet weiter neben Pythons Stempel — gehoert zu Schritt 2 (`chain_status`).
+- **Offen** (in Schritt 2 erledigt): `confirmedAgainst` und die Schicht `py` in `docs/web-architektur.md`.
 
+### Schritt 2: Kette (2026-09-23)
+
+- **Op `chain_status(root, names[], target, model)`** (`src/chesslab/chain_state.py`): je Aufnahme
+  Export (`exported`/`settled`/`interrupted`, `SETTLE_MIN_FRAMES` aus `realgames.position`),
+  Matte-Census, Herkunft der Alphas (`staleMatte`), Pass (`absent`/`fresh`/`stale`/`matte_moved`/
+  `input_moved`), Lesarten (`absent`/`fresh`/`stale`/`other_model`) und `against`
+  (`recording.confirmation_against`). `chainStates(names)` stellt EINE Anfrage fuer die ganze
+  Seite: Startseite, Warteschlangen, `/reparatur` (`lib/chain/bundled.test.ts` zaehlt sie).
+  Die Saetze und `nextStep` bleiben in TS — das ist Darstellung.
+- **Weitere Ops**: `matte_census(root, name, target)` (nach einem Matte-Job),
+  `confirmed_against(candidate, reference_md5)` (`/confirm`).
+- **Weg**: in `chain.ts` `exportedSession`, `stampOf`, `headerOf`, `stillCurrent`, `sameLog`,
+  `passOf`, `sameFile`, `scanInputPath`, `inputsMoved` (−152/+51 Zeilen); in `matte.ts` der
+  Census samt Regex-Scanner, `matteSources`, `measured` (−104/+10); `confirmedAgainst`s Rumpf.
+  Python parst jede Datei je (mtime, Groesse) einmal (`chain_state.parsed`).
+- **Paritaet** (echter Korpus, 51 Aufnahmen): vor dem Umzug Python gegen die TS-Felder, nach dem
+  Umzug der VOLLE `ChainState` gegen den TS-Stand — beide Male 0 Abweichungen.
+- **Zwei Regeln sind jetzt die von `alpha_worker`**, beide ohne Treffer im Korpus: der Stapel ist
+  `matte.dirty_pile` (eine Log-Zeile ohne `board` kann kein Lauf matten, die Web-Kopie zaehlte
+  sie mit — `matte.test.ts` "a log row without a board"), und `done` zaehlt eine Absage mit
+  `coverage` nicht (dieselbe Menge wie `--limit`).
+- **Nach Python gewandert**: die fs-Mock-Faelle aus `chain.test.ts` (EACCES auf Log, Pass,
+  Lesarten, Log-Stempel, Profil) und `position-flags.test.ts` (EMFILE im Census) —
+  `tests/test_chain_state.py`. In TS bleibt: ein Python-Fehler kommt als `PyOpFailed` an.
+- **Gegenproben** (Python veraendert, `__pycache__` geloescht, Web-Test rot, zurueck): Census ohne
+  Stapel-Schnitt, `SETTLE_MIN_FRAMES` `>=` -> `>`, Pass ohne Log-Pruefung (4 rot), 1-ms-Toleranz
+  des Passes weg, `same`/`moved` vertauscht (3 rot), anderes Modell ignoriert, Pass ohne
+  Matte-Eingabe, `staleMatte` immer falsch, Absage als offen gezaehlt — je rot. Die
+  1-ms-Toleranz der LESARTEN deckt kein Web-Test.
+- **Latenz** Kette ueber alle 51 Aufnahmen (15 warme Laeufe): vorher TS kalt 560 ms, warm Median
+  132 ms; nachher gebuendelt kalt 949 ms (1,7x: Worker-Start, Imports, erstes Parsen — einmal je
+  Serverstart), warm Median 80 ms. Startseite samt `gameInfo` warm 763 -> 504 ms.
+
+### Schritt 3: Strom und Korpus (2026-09-23)
+
+- **Op `admission(root, names[])`** (`src/chesslab/stream_admission.py`): je Aufnahme `blocked`
+  (Stems, deren FEN-Urteil der Slice verwirft: `labeling.frame_dirty`, aus `iter_session_crops`
+  herausgezogen und dort benutzt) und `ineligible` (Stem -> Felder ausserhalb von
+  `cell_rule.classification_eligible`; Coverage aus der Matte, Helligkeit aus `bright` der
+  Lesarten — gemessen wie die `brightness` des Slice). `StreamBoard.reachesPool` und
+  `LabelStream.ineligible` tragen das zum Client; `lanes.reachesPool` ist weg, `visible` liest nur.
+- **Befund `lanes.visible` bestaetigt**: roter Test zuerst (`label-stream.test.ts`, e2 bei
+  `bright` 12 stand in der Strittig-Lane). Im Korpus fallen 2 186 dunkle, sichtbare Zellen neu
+  heraus, davon 458 Stellungs- und 1 Hand-Karte. `reachesPool`: 0 Abweichungen im Korpus
+  (`carried` und "verdeckt ohne Settle" kannte die TS-Kopie nicht; beides kommt nicht vor).
+- **Op `pool(root, names[])`, `session_dirty`** (`src/chesslab/corpus_pool.py`): der POOL mit
+  `labeling.load_corrections`. **Befund**: die Web-Kopie kannte `retract: true` nicht und zaehlte
+  zurueckgenommene Urteile weiter (roter Test in `pool.test.ts`). Sonst 0 Abweichungen im Korpus
+  (13 577 Frames, 868 928 Zellen, 2 079 Waisen). Weg: `foldPool`, `dedupCorrections`,
+  `sessionLogs` (−105/+9).
+- **Gegenproben**: Helligkeit nicht weitergereicht (label-stream rot), `frame_dirty` ueberbrueckt
+  (4 rot), `load_corrections` durch last-wins ohne Ruecknahme ersetzt (pool.test rot).
+- **Latenz Strom**: gemessen und nachgezogen im Abschnitt "Latenz" unten.
+
+### Offen fuer Schritt 4/5
+
+- `loadMatte` (Strom, `verify.ts`) liest `matte.jsonl` weiter in TS; `matte-state-parity.test.ts`
+  haelt ihn am gemeinsamen Fixture. Umzug zusammen mit dem Raster (4).
+- Der POOL bleibt "jede Zelle jedes Log-Frames", nicht "was ein Slice ergaebe": dafuer muesste die
+  Zellregel aus `iter_session_crops` als reine Funktion heraus — `labeling.py` war waehrend dieser
+  Arbeit in fremder Bearbeitung, also nur `frame_dirty`.
+- Kaltstart ohne Vorwaermen bleibt ueber den Zielen; mit `instrumentation.ts` siehe "Latenz".
+
+## Latenz (2026-09-23)
+
+Auftrag: der Strom war mit Worker langsamer als die TS-Kopie (kalt 4,1-5,2 s gegen 1,4 s, warm
+~680 gegen ~360 ms). Gemessen mit dem Skript unten ueber den echten Korpus (51 Aufnahmen, 27 mit
+Lesarten, 161 MB `model-reads.jsonl`, 868 928 Zeilen).
+
+**Wo die Zeit hing**
+
+- **Die +300 ms warm waren nie der Worker.** Die Maschine wird nach ~3 s Prozessleben oder nach
+  einer Ruhepause um ~1,5x langsamer — eine reine CPU-Schleife in frischem Node ohne Worker: 140 ms,
+  nach 5 s Pause 220 ms, im Dauerlauf ab ~3 s 200-500 ms. Der alte Kaltlauf dauerte 5 s, also lagen
+  alle Warmlaeufe schon im langsamen Zustand. Gegenprobe: der reine TS-Strom (Op antwortet sofort)
+  mit 0,8 s Pause nach dem Kaltlauf misst 465/568/667 ms, der Strom mit Worker in derselben Lage
+  380-445/446-509/629-685 ms. Die Op selbst kostet warm 15-26 ms Wanduhr ab Node (Antwort 493 KB,
+  `json.dumps` 5 ms). Kein Nagle-, Flush- oder Doppelanfrage-Effekt: eine Anfrage je Seite
+  (`lib/chain/bundled.test.ts` prueft genau `["admission"]`, auch beim zweiten Laden).
+- **Kalt war es das Parsen der Lesarten**: `iter_jsonl` mit Pool-Hook 2,4-2,6 s fuer 161 MB, dazu
+  `classification_eligible` je Zelle mit frischem dict. Logs 0,3 s, Matte 0,18 s, Imports 0,2 s,
+  Prozessstart nach Ruhe 0,3-0,6 s.
+- **Kette kalt**: `chain_status` 0,62 s, davon ein Sechstel `Path(...).stem` (22 000 Aufrufe);
+  Node las seine sechs Dateien je Aufnahme erst NACH der Python-Antwort.
+
+**Was sich geaendert hat**
+
+- `stream_admission.read_cells`: ein Muster ueber die Bytes (die Zeilenform von
+  `occluded_model.read_session`), das nur gilt, wenn es JEDE Datenzeile trifft — sonst, und bei
+  halber letzter Zeile, Leerzeile, Kopf mittendrin, Escape, anderer Reihenfolge oder NaN, entscheidet
+  `iter_jsonl` wie bisher. Die Regel wird je (Coverage, Helligkeits-Token) EINMAL gerufen statt je
+  Zelle. Korpus: 0 Abweichungen gegen den JSON-Weg (83 471 gesperrte Zellen, 130 Bretter), keine
+  Datei faellt auf den JSON-Weg. Das Log liegt nicht mehr als Zeilenliste im Worker.
+- `chain_state._stem` ohne `Path` (gleichwertig, 19 Randfaelle in `test_chain_state.py`).
+- Worker-Einstieg `chesslab.web_serve` (ohne `chesslab.cli`: 195 statt 220-236 ms Import), importiert
+  `web_ops` vor der ersten Anfrage; Antwort ohne Leerzeichen (`separators`). `ping` meldet `cli`.
+- `loadLabelStream` schickt `admission` als ERSTES, vor den Lane-Dateien; `chainStates` liest die
+  Node-Dateien NEBEN `chain_status`. Beide kehren erst zurueck, wenn Python fertig ist (sonst haelt
+  der Worker nach einem Node-Fehler Dateien offen — EBUSY im Test).
+- **Verworfen**: Kindprozesse, die einen Teil der Aufnahmen rechnen. Vorab gestartet sparte einer
+  ~0,3 s am Strom, kostete die Kette aber +0,35 s (Startkonkurrenz); bei Bedarf gestartet brachte er
+  nach Ruhe nichts (Worker 7 Aufnahmen in 1,3 s, Gehilfe 44 — zusammen kaum schneller als allein).
+
+**Vorher/jetzt** (je 5 Laeufe, vor jedem Prozess 6 s Ruhe, Median; "vorher Worker" = derselbe
+Aufbau am Morgen, ohne Pausen)
+
+| Pfad | vorher TS | vorher Worker | jetzt | Ziel |
+|---|---|---|---|---|
+| Strom kalt, Worker startet mit der Seite | 1,4 s | 4,7-5,3 s | **2,19 s** | 1,5 s — nicht erreicht |
+| Strom, erste Seite nach Serverstart (vorgewaermt) | 1,4 s | — | **2,54-2,64 s** = TS in gleicher Lage (2,54-2,63 s) | 1,5 s |
+| Strom warm | ~360 ms | ~680-750 ms | **380-510 ms**, = TS in gleicher Lage | 360 ms |
+| Op `admission` kalt ab Node | — | 4,5 s | **2,1 s** | — |
+| Kette kalt, Worker startet mit der Seite | 560 ms | 929-1356 ms | **1,10-1,23 s** | 600 ms — nicht erreicht |
+| Kette, erste Seite nach Serverstart (vorgewaermt) | 560 ms | — | **56-86 ms** | 600 ms — erreicht |
+| Kette warm | 132 ms | 80 ms | **51-56 ms** | — |
+
+In Python allein (ohne Start): Zulassung aller 51 kalt 4,1 s -> 1,6 s, Kette 0,62 -> 0,59 s.
+
+**Vorwaermen beim Serverstart** (`platform/app/instrumentation.ts`, nur `NEXT_RUNTIME=nodejs`): startet
+den Worker und rechnet `chain_status` und `admission` vor, der Server wartet NICHT darauf (~2,7 s).
+Die erste Seite reiht sich beim laufenden Worker ein, statt einen zweiten zu starten; ein Fehler
+wird geloggt (`[instrumentation] Python-Worker vorwaermen fehlgeschlagen`), Kette und Zulassung
+scheitern unabhaengig. Danach antwortet `admission` in 15 ms. Die erste Strom-Seite braucht trotzdem
+~2,6 s — das ist der TS-Teil (Node-Caches kalt) im gedrosselten Zustand nach 2,7 s Arbeit: der reine
+TS-Strom nach 2,7 s CPU-Last misst dasselbe. Oeffnet man die Seite nach einer Ruhepause, gilt die
+Zeile "vorher TS" (1,4 s). Test: `lib/instrumentation.test.ts` (Fake-Worker: ein Start, Edge startet
+nichts, Fehler geloggt); Gegenproben Runtime-Pruefung weg, Fehler geworfen statt geloggt, Worker je
+Aufruf neu — je rot.
+
+**Lazy Importe**: `web_ops` zog beim Start ueber `chain_state` (`realgames.position`), `stream_admission`
+und `corpus_pool` (`labeling`) `cv2` und numpy. Jetzt erst in der Op, die sie braucht: Import 190-205
+-> 104-110 ms, 390 -> 200 Module; `ping` meldet `cv2: false` (`tests/test_web_worker.py`).
+
+**Die wacklige Suite**: gleichzeitige Python-Starts nach einer Ruhepause dauern auf diesem Rechner
+Sekunden — 8 gleichzeitige `python -c pass` 11,6-13,6 s ueber das venv, 5,0-5,3 s ueber den
+Basis-Interpreter, 8 `node -e 0` 0,5 s; direkt danach 0,3 s. Es sind die Prozessstarts, nicht die
+Importe (`import cv2` ebenso lang wie `pass`). Jede Testdatei startete ihren eigenen Worker, also
+liefen 15-18 Dateien in ihr 5-s-Limit. Jetzt startet `lib/py/shared-worker.setup.ts` (vitest-
+`globalSetup`) EINEN Python fuer die ganze Suite; die Dateien bekommen ueber `CHESSLAB_PY_WORKER`
+ein Node-Relais (`node -e`, TCP auf 127.0.0.1) darauf. Fake-Worker-Tests setzen weiter ihren eigenen
+Befehl. Ergebnis: `npx vitest run` mit Standardeinstellung 3x hintereinander mit je 30 s Pause gruen,
+Dauer 5 s statt 25-30 s. `maxWorkers` bleibt unangetastet.
+
+**Absicherung**: `test_stream_admission.py` — Schnellweg = JSON-Weg (LF, CRLF, BOM), acht
+Zeilenformen erzwingen den JSON-Weg, unveraenderte Lesarten werden nicht neu geparst. Gegenproben
+(Quelle veraendert, `__pycache__` geloescht, rot, zurueck): Cache aus (1 rot), Zeilenzaehlung weg
+(6 rot), Helligkeit verschoben (3 rot), Zeilenschluss-Pruefung weg (1 rot).
+
+Mess-Skript (`CHESSLAB_DATA_DIR` gesetzt; `PAUSE_MS` nach dem Kaltlauf, `WARM=1` wie nach dem
+Serverstart, `BURN_MS` CPU-Last als Gegenprobe):
+
+```js
+// Aus platform/app: node <pfad>/latency.mjs <stream|ts-stream|chain|admission> [laeufe] — CHESSLAB_DATA_DIR gesetzt.
+import { createRequire } from "node:module";
+const APP = process.cwd().replaceAll("\\", "/");
+const { createJiti } = createRequire(`${APP}/package.json`)("jiti");
+const jiti = createJiti(`${APP}/x.ts`, { alias: { "@": APP } });
+const [what = "stream", runs = "4"] = process.argv.slice(2);
+const py = await jiti.import(`${APP}/lib/py/worker.ts`);
+const { loadLabelStream, liveGames } = await jiti.import(`${APP}/lib/label/label-stream.ts`);
+const { listGames, dataDir } = await jiti.import(`${APP}/lib/session-store/recordings.ts`);
+const { chainStates } = await jiti.import(`${APP}/lib/chain/chain.ts`);
+// "ts-stream": derselbe Strom, die Op antwortet sofort `{}` — der reine TS-Anteil als Vergleich.
+if (what === "ts-stream") py.setPyWorkerCommand({ command: process.execPath, args: ["-e",
+  "require('readline').createInterface({input:process.stdin}).on('line',l=>{const r=JSON.parse(l);" +
+  "process.stdout.write(JSON.stringify({id:r.id,ok:true,value:{}})+'\\n')})"] });
+// WARM=1: wie nach dem Serverstart — `instrumentation.warmPython` ist durch, bevor die erste Seite laeuft.
+if (process.env.BURN_MS) { const t = performance.now(); let x = 0; while (performance.now() - t < Number(process.env.BURN_MS)) x += Math.sqrt(x + 1); }
+if (process.env.WARM) {
+  const t = performance.now();
+  await (await jiti.import(`${APP}/instrumentation.ts`)).warmPython();
+  console.log("warm", Math.round(performance.now() - t));
+}
+const ms = [];
+for (let i = 0; i < Number(runs); i++) {
+  if (i === 1 && process.env.PAUSE_MS) await new Promise((r) => setTimeout(r, Number(process.env.PAUSE_MS)));
+  const t0 = performance.now();
+  if (what.endsWith("stream")) await loadLabelStream();
+  else if (what === "chain") await chainStates(await listGames());
+  else await py.pyCall("admission", { root: dataDir(), names: await liveGames() });
+  ms.push(Math.round(performance.now() - t0));
+}
+console.log(what, JSON.stringify(ms));
+await py.stopPyWorker();
+process.exit(0);
+```

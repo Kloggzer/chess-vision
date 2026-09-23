@@ -75,6 +75,7 @@ describe("die Stellungs-Karten sind die, die kein Modellwort haben", () => {
       ],
       cells: [],
       coverage: [{}],
+      ineligible: [{}],
     } as unknown as LabelStream;
     const [c] = laneCells(stream, "audit");
     expect(c.exception).toBeNull();

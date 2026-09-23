@@ -55,7 +55,8 @@ function Note({ why, className, children }: { why: string; className?: string; c
 
 const poolWhy = (pool: Pool) =>
   `POOL = jede Zelle jedes exportierten Log-Frames (64 je Frame, ${num(pool.frames)} Frames, ${num(pool.cells)} Zellen), ` +
-  `FEN-Label mit corrections.jsonl last-wins auf (session_id, frame, square). Ein Slice schneidet aus einer Zelle einen ` +
+  `FEN-Label mit corrections.jsonl last-wins auf (session_id, frame, square), eine Rücknahme öffnet die Zelle wieder. ` +
+  `Ein Slice schneidet aus einer Zelle einen ` +
   `Crop; ${num(pool.orphans)} Korrekturzeilen liegen auf keinem exportierten Frame.`;
 
 function OccludedTile({ pool, view }: { pool: Pool; view: DatasetView | null }) {

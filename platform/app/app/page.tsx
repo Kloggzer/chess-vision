@@ -2,6 +2,7 @@ import { Progress } from "@/components/progress";
 import { gameInfo, type GameInfo } from "@/lib/chain/game-info";
 import { jobs } from "@/lib/chain/jobs";
 import { listGames } from "@/lib/session-store/recordings";
+import { chainStates } from "@/lib/chain/chain";
 import { splitQueues, type QueueRow } from "@/lib/chain/queues";
 import { BareBundles } from "./bare-bundles";
 import { GameCard } from "./cards";
@@ -22,8 +23,11 @@ const rowOf = (game: GameInfo): QueueRow => ({
 export default async function Home() {
   // One read of the job ledger for the whole list, not one per card.
   const recent = new Map((await jobs(200)).map((job) => [job.name, job]));
+  const names = await listGames();
+  // EINE Worker-Anfrage fuer die ganze Liste, nicht eine je Karte.
+  const chains = await chainStates(names);
   const games = await Promise.all(
-    (await listGames()).map(async (name) => (await gameInfo(name, recent.get(name) ?? null)).info),
+    names.map(async (name, i) => (await gameInfo(name, recent.get(name) ?? null, chains[i])).info),
   );
   const rows = games.map(rowOf);
   const queues = splitQueues(rows);

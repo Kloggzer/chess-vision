@@ -27,7 +27,9 @@ beforeEach(async () => {
 
 /** `n` occluded rows, as the exporter writes them — the pile a matte run is measured against. */
 const pile = (n: number) =>
-  Array.from({ length: n }, (_, i) => JSON.stringify({ frame: `f${i}.png`, dirty: true, dirty_reason: "occluded" })).join("\n") + "\n";
+  Array.from({ length: n }, (_, i) => JSON.stringify({
+    frame: `f${i}.png`, board: `dirty/f${i}.webp`, dirty: true, dirty_reason: "occluded",
+  })).join("\n") + "\n";
 
 const write = (lines: string[]) =>
   writeFile(path.join(dir, "recordings", "g", "matte.jsonl"), lines.join("\n") + "\n", "utf8");
@@ -134,11 +136,21 @@ test("only occluded rows are the pile, and a session nobody exported has none", 
   const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
   expect(await matteCensus("g")).toEqual({ done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
   await writeFile(path.join(dir, "log.jsonl"), [
-    JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }),
-    JSON.stringify({ frame: "2.png", dirty: true, dirty_reason: "grid-late" }),
-    JSON.stringify({ frame: "3.png" }),
+    JSON.stringify({ frame: "1.png", board: "dirty/1.webp", dirty: true, dirty_reason: "occluded" }),
+    JSON.stringify({ frame: "2.png", board: "dirty/2.webp", dirty: true, dirty_reason: "grid-late" }),
+    JSON.stringify({ frame: "3.png", board: "boards/3.webp" }),
   ].join("\n") + "\n", "utf8");
   expect(await matteCensus("g")).toEqual({ done: 0, total: 1, target: 1 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
+});
+
+// `matte.dirty_pile`: SAM schneidet aus dem BRETT. Eine Zeile ohne Brett kann kein Lauf matten —
+// im Stapel hielte sie die Sprosse fuer immer offen (bis 2026-09-23 zaehlte die Web-Kopie sie mit).
+test("a log row without a board is no work for a matte run", async () => {
+  const { matteCensus } = await import("@/lib/session-store/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
+  await writeFile(path.join(dir, "log.jsonl"),
+    JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }) + "\n", "utf8");
+  expect((await matteCensus("g")).total).toBe(0);
 });
 
 test("gemeldete Frames zählen getrennt — der occluded-Stapel kennt sie nicht", async () => {

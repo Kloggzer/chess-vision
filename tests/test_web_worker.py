@@ -10,7 +10,7 @@ import pytest
 # Der Verb-Weg (Typer) und der Weg, den `platform/app/lib/py/worker.ts` startet.
 ENTRIES = {
     "verb": [sys.executable, "-m", "chesslab.cli", "web-worker"],
-    "web": [sys.executable, "-c", "from chesslab.cli.web_worker import web_worker; web_worker()"],
+    "web": [sys.executable, "-c", "from chesslab.web_serve import main; main()"],
 }
 
 
@@ -28,6 +28,10 @@ def test_the_worker_answers_by_id_and_refuses_an_unknown_op(entry):
     answers = [json.loads(line) for line in run.stdout.splitlines()]
     assert [a["id"] for a in answers] == [1, 2, 3, 4, None]
     assert answers[0]["ok"] is True and answers[0]["value"]["torch"] is False
+    # Der Web-Weg laedt den CLI-Baum nicht (Kaltstart, `docs/web-ruft-python.md` Latenz).
+    assert answers[0]["value"]["cli"] is (entry == "verb")
+    if entry == "web":
+        assert answers[0]["value"]["cv2"] is False, "cv2/numpy erst mit der Op, die sie braucht"
     assert answers[1] == {"id": 2, "ok": True, "value": {"matched": [[0, 0]], "invented": [1], "missed": [1]}}
     assert answers[2]["ok"] is False and answers[2]["kind"] == "UnknownOp"
     assert answers[3]["ok"] is False and answers[3]["kind"] == "TypeError"

@@ -1,7 +1,7 @@
 /** The review queues are `chainState` asked across every game and sorted, not a new truth: a game
  *  sits in exactly the queue of its step. Only `queueRows` touches the disk. */
 import type { ChainState, ChainStep } from "@/lib/chain/chain";
-import { adoptOffered, chainState } from "@/lib/chain/chain";
+import { adoptOffered, chainStates } from "@/lib/chain/chain";
 import { countFrames, listGames, loadCandidate, recordedAt } from "@/lib/session-store/recordings";
 import { isArchived, loadMeta } from "@/lib/session-store/meta";
 
@@ -71,10 +71,11 @@ export function offeredPgns(rows: readonly QueueRow[]): string[] {
 /** Every game as a queue row. One candidate read per game, same as the home page does. */
 export async function queueRows(): Promise<QueueRow[]> {
   const names = await listGames();
+  const chains = await chainStates(names);
   const rows = await Promise.all(
-    names.map(async (name) => {
-      const [chain, meta, archived, candidate] = await Promise.all([
-        chainState(name),
+    names.map(async (name, i) => {
+      const chain = chains[i];
+      const [meta, archived, candidate] = await Promise.all([
         loadMeta(name),
         isArchived(name),
         loadCandidate(name).catch(() => null),

@@ -46,7 +46,7 @@ export function killTree(pid: number): Promise<void> {
   });
 }
 
-type Command = { command: string; args: string[] };
+export type Command = { command: string; args: string[] };
 type Pending = { op: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 type Answer = { id?: unknown; ok?: unknown; value?: unknown; error?: unknown; kind?: unknown };
 
@@ -132,9 +132,9 @@ class Worker {
   }
 }
 
-/** Der Rumpf von `chesslab web-worker` ohne Typers Kommandobaum: der kostete gemessen 0,4-1,4 s je
- *  Start, bei acht gleichzeitigen 12 s (die Testsuite startet einen je Datei). */
-const WEB_WORKER = "from chesslab.cli.web_worker import web_worker; web_worker()";
+/** Der Rumpf von `chesslab web-worker` ohne das Paket `chesslab.cli`: dessen Kommandobaum kostete
+ *  gemessen 0,4-1,4 s je Start, bei acht gleichzeitigen 12 s (die Testsuite startet einen je Datei). */
+const WEB_WORKER = "from chesslab.web_serve import main; main()";
 
 type Slot = { worker: Worker | null; command: Command | null };
 /** Auf `globalThis`, wie die Job-Queue: ein Hot Reload darf keinen zweiten Worker starten. */
@@ -145,9 +145,19 @@ export function setPyWorkerCommand(command: Command | null): void {
   slot.command = command;
 }
 
+/** `CHESSLAB_PY_WORKER` (JSON `{command, args}`) ersetzt den Start — die Testsuite teilt so EINEN
+ *  Python ueber alle Dateien (`lib/py/shared-worker.setup.ts`). */
+function realCommand(): Command {
+  const shared = process.env.CHESSLAB_PY_WORKER;
+  return shared ? (JSON.parse(shared) as Command) : pythonCommand();
+}
+
+/** Der echte Python-Start, ohne die Umleitung oben — fuer den, der den geteilten Worker haelt. */
+export const pythonCommand = (): Command => ({ command: pythonBinary(), args: ["-c", WEB_WORKER] });
+
 function worker(): Worker {
   if (slot.worker && !slot.worker.down) return slot.worker;
-  const command = slot.command ?? { command: pythonBinary(), args: ["-c", WEB_WORKER] };
+  const command = slot.command ?? realCommand();
   slot.worker = new Worker(command, (w) => {
     if (slot.worker === w) slot.worker = null;
   });

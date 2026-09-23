@@ -1,10 +1,11 @@
-import { appendFile, mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, test, vi } from "vitest";
 import { adoptPgn, chainState, nextStep } from "@/lib/chain/chain";
 import { referenceOrigin } from "@/lib/session-store/reference";
 import { videoInput } from "@/lib/ingest/ingest";
-import { matteCensus, matteSources } from "@/lib/session-store/matte";
+import { matteCensus } from "@/lib/session-store/matte";
+import { PyOpFailed } from "@/lib/py/worker";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 type Op = "stat" | "readFile" | "readdir" | "open";
@@ -432,7 +433,9 @@ describe("Matte-Herkunft", () => {
       ...STEMS.slice(1).map((frame) => ({ frame, coverage: { a8: 0.9 }, _source: fresh })),
     ]);
 
-    expect(await matteSources(NAME)).toEqual([fresh.log]);
+    // Die Absage zaehlt nicht als Messung: nur die frischen Stempel bleiben, die Sprosse schliesst.
+    const state = await chainState(NAME);
+    expect(state.outdated.matte).toBeUndefined();
   });
 });
 
@@ -528,12 +531,6 @@ describe("Temporal-Sprosse und ihre Eingaben", () => {
     expect(state.passInputsUnknown).toBe(true);
   });
 
-  it("ein Lesefehler am Profil ist kein Urteil ueber den Pass — er wirft", async () => {
-    await recording();
-    await passWithInputs();
-    failOn("stat", "p.yaml");
-    await expect(chainState(NAME)).rejects.toThrow(/EACCES/);
-  });
 });
 
 // Die Kette liest ihren Knopf von der Platte: ein Lesefehler darf nie "der Schritt lief nie" heissen.
@@ -557,22 +554,18 @@ describe("Lesefehler sind keine Abwesenheit", () => {
     await expect(chainState("g")).rejects.toThrow(/EACCES/);
   });
 
+  // Die Lesefehler auf log.jsonl, pass.json, model-reads.jsonl und dem Profil liest seit 2026-09-23
+  // Python (`tests/test_chain_state.py`). Hier nur: ein Python-Fehler kommt LAUT an, nicht als Default.
   test("ein unlesbares log.jsonl ist keine ungeschnittene Aufnahme", async () => {
     await fixture();
-    failOn("readFile", "log.jsonl", "EMFILE");
-    await expect(chainState("g")).rejects.toThrow(/EMFILE/);
+    await rm(g("log.jsonl"));
+    await mkdir(g("log.jsonl"));
+    await expect(chainState("g")).rejects.toBeInstanceOf(PyOpFailed);
   });
 
   test("ein I/O-Fehler am games-Verzeichnis ist kein „das Handy hat nichts aufgeschrieben\"", async () => {
     await fixture();
     failOn("readdir", "games");
-    await expect(chainState("g")).rejects.toThrow(/EACCES/);
-  });
-
-  test("ein unlesbares pass.json ist kein ungelaufener Sensor", async () => {
-    await fixture();
-    await passJson(JSON.stringify({ _source: { log: "1:2" } }));
-    failOn("readFile", "pass.json");
     await expect(chainState("g")).rejects.toThrow(/EACCES/);
   });
 
@@ -590,21 +583,6 @@ describe("Lesefehler sind keine Abwesenheit", () => {
     await expect(adoptPgn("g")).rejects.toThrow(/EACCES/);
     fail.on = null;
     expect(await readFile(g("reference.pgn"), "utf8")).toBe("1. e4 e5\n");
-  });
-
-  test("ein EACCES auf model-reads.jsonl ist kein „nie gelesen\"", async () => {
-    await fixture();
-    failOn("open", "model-reads.jsonl");
-    await expect(chainState("g")).rejects.toThrow(/EACCES/);
-  });
-
-  test("ein EACCES auf den Stempel von log.jsonl ist kein fehlender Export", async () => {
-    await writeSession({ root: data, rows: [{ frame: 1 }] });
-    // Nur der Aufrufer `stampOf` in chain.ts: dieselbe Datei fragen auch andere Module.
-    const caller = () => (new Error().stack ?? "").split("\n").slice(1).find((l) => !l.includes("chain.test")) ?? "";
-    fail.on = (op, file) =>
-      op === "stat" && file.endsWith("log.jsonl") && caller().includes("stampOf") ? "EACCES" : null;
-    await expect(chainState("g")).rejects.toThrow(/EACCES/);
   });
 
   // `referenceOrigin` liest seit 2026-09-23 in Python: seine beiden EACCES-Faelle stehen in

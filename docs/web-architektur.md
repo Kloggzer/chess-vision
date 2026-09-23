@@ -14,7 +14,8 @@ schrieb, baute sich den Pfad selbst, und zwei Seiten/Routen gingen direkt an `no
 | LabelService | `lib/label/` | Lanes, Strom, Seiten, Karten, Historie — fast alles rein (Client-tauglich) |
 | Corpus | `lib/corpus/` | Datensaetze, Pool, Packs, Perf, Provenienz |
 | Reports | `lib/reports/` | die READ-ONLY-Berichte unter `data/reports/` (`audit-flags`, `hand-flags`, ...) |
-| Kern | `lib/*.ts` | Politik und reine Helfer: `atomic`, `jsonl`, `measurement`, `serialize`, `warp`, `fen`, `classes`, `lcs`, `pgn`, `query`, ... |
+| Kern | `lib/*.ts` | Politik und reine Helfer: `atomic`, `jsonl`, `measurement`, `serialize`, `warp`, `fen`, `classes`, `query`, ... |
+| py | `lib/py/` | der warme Python-Worker (`worker.ts`) und seine reinen Ops (`ops.ts`) |
 
 Abhaengigkeiten laufen abwaerts, festgeschrieben seit Runde 3 (`lib/service-deps.test.ts`):
 **Kern <- py (Python-Worker, `docs/web-ruft-python.md`) <- session-store <- {ingest, reports} <- label <- corpus <- chain <- app.** Ein Modul
@@ -22,6 +23,11 @@ importiert aus seinem eigenen Ordner oder aus einer tieferen Schicht; `ingest` u
 Geschwister und kennen einander nicht; `lib/` importiert nichts aus `app/`/`components/`; ein
 neuer Ordner unter `lib/` braucht eine Schicht. Derselbe Waechter verbietet Importzyklen in `lib/`,
 seit Runde 4 auch ueber `app/` und `components/` (samt dem, was sie aus `lib/` ziehen).
+
+**Fachregeln rechnet Python, nicht die Web-App** (`docs/web-ruft-python.md`, Stand Schritt 3): LCS,
+Referenz und Bestaetigung, Kettenstand (`chain_status`: Export, Matte-Census, Herkunftsstempel,
+`confirmedAgainst`), Zulassung im Strom (`admission`: `frame_dirty`, `classification_eligible`) und der
+Korpus-Pool. Die Services lesen dafuer nicht selbst, sie fragen den Worker — gebuendelt je Seite.
 
 ## Regeln und ihre Waechter
 

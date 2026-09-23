@@ -177,3 +177,19 @@ test("ein unlesbares `model-reads.jsonl` faellt nicht mehr als `rows: []` durch 
   await mkdir(path.join(gameDir(NAME), "model-reads.jsonl"), { recursive: true });
   await expect(loadLabelStream()).rejects.toThrow();
 });
+
+// `cell_rule.classification_eligible`: der Verlust maskiert verdeckte UND zu dunkle Zellen. Die Lane
+// fragte bis 2026-09-23 nur die Coverage — und legte damit dunkle Zellen vor, die kein Kopf lernt.
+test("eine dunkle, sichtbare Zelle ist keine Frage — der Verlust maskiert sie wie eine verdeckte", async () => {
+  await fixture(2);
+  const read = (square: string, bright: number) =>
+    JSON.stringify({ session_id: ID, frame: "000000", square, fen_label: "wP", bright, probs: { wP: 1.0 } });
+  await writeFile(path.join(gameDir(NAME), "model-reads.jsonl"),
+    [JSON.stringify({ _model: "runs/m" }), read("e2", 12.0), read("d2", 80.0)].join("\n") + "\n", "utf8");
+  const flag = (square: string) => `{"session_id": "${ID}", "frame": "000000", "square": "${square}", ` +
+    '"fen_label": "wP", "dev": 41.2, "matte_cov": null, "reason": "changed"}';
+  await report("position-flags.jsonl", `${flag("e2")}\n${flag("d2")}\n`);
+  const stream = await loadLabelStream();
+  expect(openCells(stream, "audit").map((c) => c.square), "e2 liegt bei 12 von 255 unter CELL_DARK_MIN")
+    .toEqual(["d2"]);
+});

@@ -1,18 +1,15 @@
 /** The ladder from a transferred recording to the labelling stream, as a STATE: each step's input
  *  is the previous file, so the next step is read off the disk — never offered before it exists. */
-import { open, readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import {
-  confirmedAgainst, gameDir, peekCandidate, readReferenceBytes, RECORDING_FILES, recordingFile, referenceDigest,
-} from "@/lib/session-store/recordings";
+import { gameDir, peekCandidate } from "@/lib/session-store/recordings";
 import { hasReferenceFile, writeReferenceOnce } from "@/lib/session-store/reference";
 import { dataDir } from "@/lib/session-store/recordings";
 import { videoInput } from "@/lib/ingest/ingest";
-import { readJsonl, stripBom } from "@/lib/jsonl";
-import { type MatteCensus, matteCensus, matteSources } from "@/lib/session-store/matte";
-import { absentOnly, exists } from "@/lib/measurement";
+import { type MatteCensus, matteTarget } from "@/lib/session-store/matte";
+import { absentOnly } from "@/lib/measurement";
+import { pyCall } from "@/lib/py/worker";
 import { firstUnfinalized } from "@/lib/ingest/mp4";
-import { sessionDir } from "@/lib/session-store/session";
 import { type UselessFlag, uselessFlag } from "@/lib/session-store/useless";
 
 /** `phone-record`, `label`, `matte` and `model-read` are jobs; `confirm` and `labeln` are pages. */
@@ -60,70 +57,16 @@ async function videoOf(name: string): Promise<string | null> {
   return "video" in found ? found.video : null;
 }
 
-/** The export writes log.jsonl LAST, so the directory alone proves nothing. A mirrored bundle keeps
- *  the PHONE's commit log under the same name — `frame` rows, no `board` — which is no export. */
-async function exportedSession(name: string): Promise<{ exported: boolean; settled: boolean; interrupted: boolean }> {
-  // `realgames.mark_export`: Bretter schon neu, Log noch alt — was darauf weiterlaeuft, mischt Generationen.
-  if (await exists(path.join(sessionDir(name), ".export-running"))) return { exported: false, settled: false, interrupted: true };
-  const text = await readFile(recordingFile(name, "log"), "utf8").catch(absentOnly);
-  // Hier wird NICHT geworfen, anders als in `loadSession`: eine kaputte Zeile darf die ganze
-  // Aufnahmeliste nicht 500en.
-  const rows = readJsonl(text ?? "").rows as { board?: unknown; ply?: unknown; settle_dev?: unknown }[];
-  if (rows.length === 0 || !("board" in rows[0])) return { exported: false, settled: false, interrupted: false };
-  const perPly = new Map<unknown, number>();
-  for (const row of rows) if (row.board) perPly.set(row.ply, (perPly.get(row.ply) ?? 0) + 1);
-  // Ein Intervall unter `realgames.SETTLE_MIN_FRAMES` kann der Scan gar nicht bewerten; die
-  // Sprosse darauf offen zu halten hiesse, winzige Aufnahmen fuer immer auf einen Knopf zu setzen.
-  const measurable = Math.max(0, ...perPly.values()) >= 5;
-  return { exported: true, settled: !measurable || rows.some((row) => row.settle_dev !== undefined), interrupted: false };
-}
-
-/** Pythons `source_stamp`-Form, `${ganze ms}:${bytes}` — NICHT `stampOrMissing`: dessen
- *  Cache-Schluessel behaelt den Bruchteil der ms und traefe den Python-Stempel nie. */
-async function stampOf(file: string): Promise<string | null> {
-  const s = await stat(file).catch(absentOnly);
-  return s === null ? null : `${Math.floor(s.mtimeMs)}:${s.size}`;
-}
-
-/** Wer die Aufnahme geschnitten hat, als der Lauf lief (`chesslab.provenance.source_stamp`). */
-type Provenance = { log?: string; model?: string };
-
-/** Only the header of `model-reads.jsonl` is read. `null` bei unlesbarer Kopfzeile, nicht `{}`:
- *  `{}` hiesse "ungestempelt, gilt weiter", und die leere Datei eines gestoppten Laufs schloesse
- *  damit die Sprosse. */
-async function headerOf(file: string): Promise<Provenance | null> {
-  // Nur ENOENT heisst "nie gelaufen"; ein EACCES bot sonst den schweren Lauf erneut an.
-  const handle = await open(file, "r").catch(absentOnly);
-  if (!handle) return null;
-  try {
-    const buffer = Buffer.alloc(4096);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    const line = stripBom(buffer.toString("utf8", 0, bytesRead)).split("\n")[0];
-    return (JSON.parse(line) as { _source?: Provenance })._source ?? {};
-  } catch {
-    return null;
-  } finally {
-    await handle.close();
-  }
-}
-
-/** Eine Datei OHNE Stempel gilt weiter: alles, was heute auf der Platte liegt, hat keinen, und sie
- *  ungueltig zu nennen risse jeder bestehenden Aufnahme die Kette auf. */
-function stillCurrent(source: Provenance, log: string | null, model: string | null): boolean {
-  // `null` heisst UNLESBAR und darf die Sprosse nicht schliessen — deshalb nimmt dies kein `null`.
-  if (source.log === undefined) return true;
-  if (model !== null && source.model !== undefined && path.basename(source.model) !== path.basename(model)) return false;
-  return sameLog(source.log, log);
-}
-
-function sameLog(stamped: string, current: string | null): boolean {
-  if (current === null) return false;
-  const [ms, size] = stamped.split(":");
-  const [nowMs, nowSize] = current.split(":");
-  // Python floors the same timestamp through a float in SECONDS, so the millisecond can land one
-  // apart; a rewrite moves it by more than that, and the size catches the rest.
-  return size === nowSize && Math.abs(Number(ms) - Number(nowMs)) <= 1;
-}
+/** `chain_state.chain_status` (Python): was die Kette von der Platte liest und Python schon rechnet
+ *  — Export, Matte-Census, die Herkunftsstempel der Laeufe und `confirmedAgainst`. */
+type PyChain = {
+  session: { exported: boolean; settled: boolean; interrupted: boolean };
+  mattes: MatteCensus;
+  staleMatte: boolean;
+  pass: { state: "absent" | "fresh" | "stale" | "matte_moved" | "input_moved"; inputs_known: boolean };
+  reads: { state: "absent" | "fresh" | "stale" | "other_model"; model: string | null };
+  against: "same" | "moved" | "unknown" | null;
+};
 
 /** Exactly one session directory, because the verb refuses several: with two, the record names one
  *  and the video is the other's. `index.json` is the phone's list of records, not a record. */
@@ -152,50 +95,50 @@ async function phonePgn(name: string): Promise<string | null> {
   return pgns.length > 0 ? path.join(games, pgns[pgns.length - 1]) : null;
 }
 
-export async function chainState(name: string): Promise<ChainState> {
-  // Der Name wird VOR dem Promise.all geprueft: sonst lehnen schon gestartete Leser unbeobachtet ab.
-  gameDir(name);
-  const passFile = path.join(dataDir(), "reports", "temporal-mattes", name, "pass.json");
-  const [video, offeredPgn, referenceBytes, hasPhoneRecord, candidate, session, mattes, matteStamps, passRun, readsSource, logStamp, useless] = await Promise.all([
-    videoOf(name),
-    phonePgn(name),
-    readReferenceBytes(name),
-    phoneRecord(name),
-    peekCandidate(name),
-    exportedSession(name),
-    matteCensus(name),
-    matteSources(name),
-    // Eine halb geschriebene Datei 500te die ganze Aufnahmeliste — der PARSE darf scheitern,
-    // das LESEN nicht: ein unlesbares `pass.json` ist kein ungelaufener Sensor.
-    readFile(passFile, "utf8").catch(absentOnly).then(passOf),
-    headerOf(recordingFile(name, "modelReads")),
-    stampOf(recordingFile(name, "log")),
-    uselessFlag(name),
-  ]);
-  // Eine halb geschriebene `candidate.json` ist "noch nicht bestaetigt" (`peekCandidate`).
-  const doc = candidate?.doc ?? null;
-  const confirmed = doc?.confirmed === true;
-  const hasReference = referenceBytes !== null;
-  const against = confirmed ? confirmedAgainst(doc!, hasReference ? referenceDigest(referenceBytes) : null) : null;
+/** Jede Aufnahme einer Seite in EINER Worker-Anfrage — die Startseite fragt alle 51. */
+export async function chainStates(names: readonly string[]): Promise<ChainState[]> {
+  // Die Namen werden VOR dem Promise.all geprueft: sonst lehnen schon gestartete Leser unbeobachtet ab.
+  for (const name of names) gameDir(name);
+  if (names.length === 0) return [];
   // Ohne die Umgebungsvariable hat niemand ein Modell benannt, gegen das sich ein Lauf vergleichen liesse.
   const model = process.env.CHESSLAB_MODEL_READ_RUN?.trim() || null;
-  const passSource = passRun?.source ?? null;
-  const moved = passRun?.inputs ? await inputsMoved(name, passRun.inputs) : null;
-  const passLogCurrent = passSource !== null && stillCurrent(passSource, logStamp, null);
-  const freshPass = passLogCurrent && moved === null;
-  const freshReads = readsSource !== null && stillCurrent(readsSource, logStamp, model);
-  const otherModel = model !== null && readsSource?.model !== undefined
-    && path.basename(readsSource.model) !== path.basename(model);
-  // Die gespeicherte `coverage` ist ein Schnappschuss vom Matten; `crop_square` schneidet danach mit
-  // den NEUEN Ecken.
-  const staleMatte = matteStamps.some((stamp) => !sameLog(stamp, logStamp));
+  // Die Node-Lesungen laufen NEBEN der Python-Anfrage; zurueck erst, wenn Python fertig ist — sonst
+  // haelt der Worker nach einem Node-Fehler noch Dateien offen (Windows: EBUSY beim Aufraeumen).
+  const py = pyCall<Record<string, PyChain>>(
+    "chain_status", { root: dataDir(), names, target: matteTarget(), model });
+  try {
+    return await Promise.all(names.map((name) => stateOf(name, py.then((all) => all[name]), model)));
+  } finally {
+    await py.catch(() => undefined);
+  }
+}
+
+export async function chainState(name: string): Promise<ChainState> {
+  return (await chainStates([name]))[0];
+}
+
+async function stateOf(name: string, pending: Promise<PyChain>, model: string | null): Promise<ChainState> {
+  const [video, offeredPgn, hasReference, hasPhoneRecord, candidate, useless, py] = await Promise.all([
+    videoOf(name),
+    phonePgn(name),
+    hasReferenceFile(name),
+    phoneRecord(name),
+    peekCandidate(name),
+    uselessFlag(name),
+    pending,
+  ]);
+  // Eine halb geschriebene `candidate.json` ist "noch nicht bestaetigt" (`peekCandidate`).
+  const confirmed = candidate?.doc?.confirmed === true;
+  const against = confirmed ? py.against : null;
+  const pass = py.pass.state;
   const outdated: Partial<Record<ChainStep, string>> = {
     ...(against === "moved" ? { confirm: REFERENCE_MOVED } : {}),
-    ...(session.interrupted ? { export: EXPORT_INTERRUPTED } : {}),
-    ...(staleMatte ? { matte: RECUT } : {}),
-    ...(passSource !== null && !freshPass ? { temporal: passLogCurrent ? moved! : STALE } : {}),
-    ...(readsSource !== null && !freshReads
-      ? { "model-read": otherModel ? `die Lesarten stammen von ${path.basename(readsSource!.model!)}, gelesen wird mit ${path.basename(model!)}` : STALE }
+    ...(py.session.interrupted ? { export: EXPORT_INTERRUPTED } : {}),
+    ...(py.staleMatte ? { matte: RECUT } : {}),
+    ...(PASS_MOVED[pass] ? { temporal: PASS_MOVED[pass] } : {}),
+    ...(py.reads.state === "stale" ? { "model-read": STALE } : {}),
+    ...(py.reads.state === "other_model"
+      ? { "model-read": `die Lesarten stammen von ${py.reads.model}, gelesen wird mit ${path.basename(model!)}` }
       : {}),
   };
   // Checked before the button is offered, not after ten minutes of replay. JEDES Segment: eine
@@ -211,57 +154,17 @@ export async function chainState(name: string): Promise<ChainState> {
     hasPhoneRecord,
     hasCandidate: candidate !== null,
     confirmed,
-    hasSession: session.exported,
-    hasSettle: session.settled,
-    mattes,
-    hasTemporalPass: freshPass,
-    passInputsUnknown: freshPass && !passRun?.inputs,
+    hasSession: py.session.exported,
+    hasSettle: py.session.settled,
+    mattes: py.mattes,
+    hasTemporalPass: pass === "fresh",
+    passInputsUnknown: pass === "fresh" && !py.pass.inputs_known,
     confirmRefUnknown: against === "unknown",
-    hasModelReads: freshReads,
+    hasModelReads: py.reads.state === "fresh",
     outdated,
     useless,
   };
   return { ...state, ...nextStep(state) };
-}
-
-/** Was der Pass ausser dem Log las (`temporal_matte.pass_inputs`): `matte.jsonl` und die Scan-Eingaben. */
-type PassInputs = { matte?: string | null; scan?: [string, number | null, number | null][] };
-
-/** `null` heisst hier „nichts zu holen": keine Datei, oder eine, die gerade geschrieben wird. */
-function passOf(text: string | null): { source: Provenance; inputs: PassInputs | null } | null {
-  if (text === null) return null;
-  try {
-    const head = JSON.parse(text) as { _source?: Provenance; _inputs?: PassInputs };
-    return { source: head._source ?? {}, inputs: head._inputs ?? null };
-  } catch {
-    return null;
-  }
-}
-
-function sameFile(stamped: string | null | undefined, current: string | null): boolean {
-  return stamped == null || current === null ? (stamped ?? null) === current : sameLog(stamped, current);
-}
-
-/** Welche Scan-Eingabe die Kette selbst nachstempelt; Bretter nur Python (`provenance.check`),
- *  jedes Brett-Schreiben schreibt auch das Log. `log.jsonl` prueft schon `_source`. */
-function scanInputPath(name: string, rel: string): string | null {
-  if (rel === RECORDING_FILES.session) return recordingFile(name, "session");
-  if (rel.startsWith("profile:")) return path.join(dataDir(), "calibration", `${rel.slice("profile:".length)}.yaml`);
-  return null;
-}
-
-/** Der Satz, warum der Pass nicht mehr zu seinen Eingaben passt — `null`, wenn er es tut. */
-async function inputsMoved(name: string, inputs: PassInputs): Promise<string | null> {
-  if ("matte" in inputs && !sameFile(inputs.matte, await stampOf(recordingFile(name, "matte")))) {
-    return MATTE_MOVED;
-  }
-  for (const [rel, size, ns] of inputs.scan ?? []) {
-    const file = scanInputPath(name, rel);
-    if (file === null) continue;
-    const stamped = size === null || ns === null ? null : `${Math.floor(ns / 1e6)}:${size}`;
-    if (!sameFile(stamped, await stampOf(file))) return INPUT_MOVED;
-  }
-  return null;
 }
 
 const STALE = "der Lauf stammt von vor dem letzten Export — seine Zahlen gehoeren zu anderen Brettern";
@@ -275,6 +178,9 @@ const REFERENCE_MOVED = "die Referenz wurde nach der Bestaetigung ersetzt — di
 const EXPORT_INTERRUPTED = "ein Export wurde abgebrochen (`.export-running`) — Bretter und Log stammen aus verschiedenen Laeufen, erst ein neuer Export gibt die Folgeschritte frei";
 
 const RECUT = "die Alphas wurden vor dem letzten Export geschnitten — `chesslab occluders recut-coverage` rechnet ihre Coverage gegen die heutige Geometrie neu";
+
+/** Warum ein Lauf nicht mehr gilt, je Zustand, den Python meldet. */
+const PASS_MOVED: Partial<Record<PyChain["pass"]["state"], string>> = { stale: STALE, matte_moved: MATTE_MOVED, input_moved: INPUT_MOVED };
 
 /** The one step that can run now, and why. `export-session` reads `reviewed_plies`, so an
  *  unconfirmed candidate would export an empty session. A useless game has no step at all. */

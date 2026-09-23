@@ -2,9 +2,9 @@
  *  never summed — that double-counts one recording. */
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { dataDir } from "@/lib/session-store/recordings";
+import { dataDir, listGames } from "@/lib/session-store/recordings";
 import { absentOnly } from "@/lib/measurement";
-import { sessionLogs } from "@/lib/corpus/pool";
+import { pyCall } from "@/lib/py/worker";
 
 type Counts = { frames: number | null; crops: number | null };
 export type PackSummary = {
@@ -88,11 +88,7 @@ export async function listPacks(): Promise<Bundle[]> {
 
 export type SessionDirty = { sessionId: string; rows: number; dirty: number };
 
-/** `count(dirty)/count(rows)` over the exported log — the same rows the pool expands. */
+/** `count(dirty)/count(rows)` over the exported log — the same rows the pool expands (Python). */
 export async function sessionDirty(): Promise<SessionDirty[]> {
-  return (await sessionLogs()).map((log) => ({
-    sessionId: log.sessionId,
-    rows: log.frames.length,
-    dirty: log.frames.filter((f) => f.dirty).length,
-  }));
+  return pyCall<SessionDirty[]>("session_dirty", { root: dataDir(), names: await listGames() });
 }

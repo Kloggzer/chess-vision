@@ -6,7 +6,7 @@ import { loadCorrectionViolations } from "@/lib/reports/correction-violations";
 import { dataDir, gameDir } from "@/lib/session-store/recordings";
 import { loadFrameHands } from "@/lib/reports/frame-hands";
 import { loadHandFlags } from "@/lib/reports/hand-flags";
-import { loadMatte, matteCensus } from "@/lib/session-store/matte";
+import { loadMatte } from "@/lib/session-store/matte";
 import { clearMeasurementCache } from "@/lib/measurement";
 import { loadModelReads } from "@/lib/session-store/model-reads";
 import { loadPositionFlags, positionFlagsPath } from "@/lib/reports/position-flags";
@@ -193,11 +193,5 @@ test("ein EMFILE auf unusable-cells.jsonl holt keine abgehakte Zelle zurueck", a
   await expect(unusableCells("rg-2026-09-22-00-00-00")).rejects.toMatchObject({ code: "EMFILE" });
 });
 
-test("ein EMFILE auf log.jsonl meldet keinen erledigten Matte-Stapel", async () => {
-  await recording("g2", {
-    "matte.jsonl": "",
-    "log.jsonl": `${JSON.stringify({ board: "boards/000010.webp", dirty_reason: "occluded" })}\n`,
-  });
-  blowUpOn(".jsonl", "EMFILE");
-  await expect(matteCensus("g2")).rejects.toMatchObject({ code: "EMFILE" });
-});
+// "Ein EMFILE auf log.jsonl meldet keinen erledigten Matte-Stapel": der Census liest seit 2026-09-23
+// in Python — `tests/test_chain_state.py::test_a_read_error_is_no_absence`.

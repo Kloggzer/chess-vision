@@ -16,6 +16,8 @@ import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/
 import { loadMatte } from "@/lib/session-store/matte";
 import { unusableCells } from "@/lib/session-store/unusable-cells";
 import { uselessFlag } from "@/lib/session-store/useless";
+import { pyCall } from "@/lib/py/worker";
+import { dataDir } from "@/lib/session-store/recordings";
 
 export type StreamSession = {
   name: string;
@@ -40,6 +42,8 @@ export type StreamBoard = {
   dirtyReason?: string;
   /** `settle_dev` liegt an: dann entscheidet die Zelle über ihr Label, nicht die Frame-Klasse. */
   settleMeasured?: boolean;
+  /** Ein FEN-Urteil hier erreicht den Slice (`labeling.frame_dirty`, Python) — sonst fragt keine Lane. */
+  reachesPool: boolean;
   sinceS?: number;
   toS?: number;
   /** Squares the exporter refuses to vouch for — the `FEN unklar` lane's whole predicate. */
@@ -149,7 +153,13 @@ export type LabelStream = {
   /** Per session, `frame|square` a human called unlabelable — `unusable-cells.jsonl`. Keine Lane
    *  fragt sie noch, und `iter_session_crops` macht keine Manifest-Zeile mehr daraus. */
   unusableCells: string[][];
+  /** Per session, `stem -> Felder`, die der Klassenverlust nie lernt (`cell_rule.classification_eligible`,
+   *  Python): verdeckt ODER zu dunkel. Ungemessen fehlt die Zelle hier und bleibt eine Frage. */
+  ineligible: Record<string, string[]>[];
 };
+
+/** `stream_admission.admission` (Python), je Aufnahme. */
+type Admission = { blocked: string[]; ineligible: Record<string, string[]> };
 
 /** Newest recording first, the same reading of the two naming schemes the queues use. */
 const newestFirst = (names: string[]) =>
@@ -183,6 +193,26 @@ export async function liveGames(): Promise<string[]> {
  * `globalThis`-pinned, so it is paid once per changed file and not once per request.
  */
 export async function loadLabelStream(): Promise<LabelStream> {
+  const live = await liveGames();
+  // EINE Worker-Anfrage fuer den ganzen Strom, als ERSTES raus und NEBEN allem Lesen: kalt parst
+  // Python ~150 MB Lesarten. Zurueck erst, wenn Python fertig ist — auch wenn Node vorher wirft.
+  const admitting = admissionOf(live);
+  admitting.catch(() => undefined); // nur der Beobachter: gewartet wird in `buildStream`
+  try {
+    return await buildStream(live, admitting);
+  } finally {
+    await admitting.catch(() => undefined);
+  }
+}
+
+const admissionOf = (names: string[]) => pyCall<Record<string, Admission>>("admission", { root: dataDir(), names });
+
+/** Fuer `instrumentation.ts`: dieselbe Anfrage wie die Seite, damit Python sie beim Serverstart rechnet. */
+export async function warmAdmission(names: string[]): Promise<void> {
+  await admissionOf(names);
+}
+
+async function buildStream(live: string[], admitting: Promise<Record<string, Admission>>): Promise<LabelStream> {
   const sessions: StreamSession[] = [];
   const boards: StreamBoard[] = [];
   const cells: StreamCell[] = [];
@@ -211,7 +241,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   let pos = 0;
   let readBoards = 0;
 
-  for (const name of await liveGames()) {
+  for (const name of live) {
     let session;
     try {
       session = await loadSession(name);
@@ -275,6 +305,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
         phase: row.phase,
         ...(row.dirtyReason ? { dirtyReason: row.dirtyReason } : {}),
         settleMeasured: row.settleMeasured,
+        reachesPool: true, // nach der Schleife aus Pythons Antwort
         sinceS: row.sinceS,
         toS: Number.isFinite(row.toS) ? row.toS : undefined,
         unknown: row.unknown,
@@ -325,6 +356,10 @@ export async function loadLabelStream(): Promise<LabelStream> {
     bySession.set(id, { index, byStem });
   }
 
+  const admitted = await admitting;
+  const blocked = sessions.map((s) => new Set(admitted[s.name]?.blocked ?? []));
+  for (const board of boards) board.reachesPool = !blocked[board.session].has(board.stem);
+
   const touched = decided.map((seen) => new Set(Object.keys(seen).map((k) => k.slice(0, k.indexOf("|")))));
   return {
     sessions,
@@ -344,6 +379,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     frameHands,
     handScanned,
     unusableCells: unusableCell,
+    ineligible: sessions.map((s) => admitted[s.name]?.ineligible ?? {}),
   };
 }
 

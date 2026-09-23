@@ -16,7 +16,6 @@ import {
   NO_READS,
   NO_QUERY,
   boardCells,
-  reachesPool,
   collapseEvents,
   groupBySquare,
   handBeside,
@@ -34,6 +33,7 @@ import {
   openFrames,
   frameCandidate,
   isUnusableCell,
+  openBoards,
   openCells,
   recentCells,
   wallCells,
@@ -111,7 +111,7 @@ test("an event never crosses a recording boundary, even when frame and square ma
 const board = (over: Partial<StreamBoard> = {}): StreamBoard => ({
   session: 0, pos: 0, stem: "000100", ply: 4, fen: "8/8/8/8/8/8/8/R6R w - - 0 1",
   unknown: [], violations: [], violating: {}, disagree: {}, disagreeReads: {},
-  read: true, ...over,
+  read: true, reachesPool: true, ...over,
 });
 
 const cell = (over: Partial<StreamCell> = {}): StreamCell => ({
@@ -127,7 +127,7 @@ const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", probs: false, reportedDirty: [], matteWanted: [] }],
   boards: [], cells: [], recent: [], audit: null, hands: null, positions: null, decided: [{}],
   reads: { boards: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}], skipped: [{}],
-  frameHands: [{}], handScanned: [true], unusableCells: [[]], positionsUnmeasured: [], ...over,
+  frameHands: [{}], handScanned: [true], unusableCells: [[]], positionsUnmeasured: [], ineligible: [{}], ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null only when EVERY source is silent", () => {
@@ -257,14 +257,15 @@ test("die Strittig-Lane traegt die Abfrage der Klassenwand mit, und sagt — sol
 test("eine verdeckte Zelle ist keine Frage — der Verlust maskiert sie ohnehin", () => {
   const audit = (square: string) =>
     ({ session: 0, pos: 0, stem: "000100", square, fen_label: "bP", predicted: "bB" });
+  // Die Regel rechnet Python (`classification_eligible`, `tests/test_stream_admission.py`); die
+  // Lane liest nur, welche Zellen ausserhalb des Verlusts liegen. Die Coverage steuert hier nichts.
   const stream = streamOf({
     audit: [audit("e5"), audit("h1")],
-    // e5 liegt unter einer Hand (`PIECE_VISIBLE_MAX` 0.15), h1 ist frei, a1 wurde nie gemessen.
-    coverage: [{ "000100": { e5: 0.82, h1: 0.02 } }],
+    coverage: [{ "000100": { e5: 0.02, h1: 0.02 } }],
+    ineligible: [{ "000100": ["e5"] }],
   });
   expect(laneCells(stream, "audit").map((c) => c.square)).toEqual(["h1"]);
-  // Ungemessen heisst NICHT verdeckt: ohne Zahl bleibt die Zelle eine Frage.
-  const unmeasured = streamOf({ audit: [audit("a1")], coverage: [{}] });
+  const unmeasured = streamOf({ audit: [audit("a1")], ineligible: [{}] });
   expect(laneCells(unmeasured, "audit")).toHaveLength(1);
 });
 
@@ -281,27 +282,14 @@ test("a crop card prints SAM's number, and stays silent where nothing was measur
   expect(cellCoverage([], { session: 3, stem: "000447", square: "h1" })).toBeNull();
 });
 
+// Ob ein Brett den Slice erreicht, rechnet Python (`labeling.frame_dirty`, `tests/test_stream_admission.py`).
 test("a board that can never yield a crop is not asked about", () => {
-  const cover = [{ "000002": { h6: 0.9 } }];
-  const board = (stem: string, phase: "settled" | "after", dirtyReason?: string) =>
-    ({ session: 0, pos: 0, stem, ply: 1, fen: "x", phase, unknown: [], violations: [],
-       disagree: {}, ...(dirtyReason ? { dirtyReason } : {}) }) as never;
-  // Settled: always. Occluded WITH a matte: rescued by `slice_session`, so still worth asking.
-  expect(reachesPool(board("000001", "settled"), cover)).toBe(true);
-  expect(reachesPool(board("000002", "after", "occluded"), cover)).toBe(true);
-  // Occluded without a matte, and every other dirty reason: the crop never reaches the pool.
-  expect(reachesPool(board("000003", "after", "occluded"), cover)).toBe(false);
-  expect(reachesPool(board("000002", "after", "stale"), cover)).toBe(false);
-});
-
-test("mit Settle-Messung rettet die Matte auch ein `stale` Brett — zellweise", () => {
-  const cover = [{ "000002": { h6: 0.9 } }];
-  const board = (settleMeasured: boolean) =>
-    ({ session: 0, pos: 0, stem: "000002", ply: 1, fen: "x", phase: "after", unknown: [],
-       violations: [], disagree: {}, dirtyReason: "stale", settleMeasured }) as never;
-  // Der sichtbar ziehende Bauer: das Frame ist `stale`, aber 62 seiner Felder sind es nicht.
-  expect(reachesPool(board(true), cover)).toBe(true);
-  expect(reachesPool(board(false), cover)).toBe(false);
+  const stream = streamOf({
+    boards: [board({ stem: "000001", unknown: ["e5"] }), board({ stem: "000002", unknown: ["e5"], reachesPool: false })],
+    audit: [{ session: 0, pos: 0, stem: "000002", square: "h1", fen_label: "wR", predicted: "bB" }],
+  });
+  expect(openBoards(stream, "all").map((b) => b.stem)).toEqual(["000001"]);
+  expect(openCells(stream, "audit")).toEqual([]);
 });
 
 test("die Stellungs-Lane fragt nach der Figur, die wirklich dasteht", () => {
