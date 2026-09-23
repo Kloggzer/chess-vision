@@ -57,27 +57,6 @@ def to_full_fen(placement_or_fen: str) -> str:
     return s if " " in s else f"{s} w - - 0 1"
 
 
-def fen_from_squares(occupied: dict[str, str]) -> str:
-    """`{'e1':'K','e8':'k','e4':'P', ...}` (Feld→FEN-Buchstabe) → volle FEN.
-    Uppercase = White, lowercase = Black (FEN-conform)."""
-    ranks = []
-    for rank in range(8, 0, -1):
-        row, empty = "", 0
-        for file in _FILES:
-            sym = occupied.get(f"{file}{rank}")
-            if sym:
-                if empty:
-                    row += str(empty)
-                    empty = 0
-                row += sym
-            else:
-                empty += 1
-        if empty:
-            row += str(empty)
-        ranks.append(row)
-    return to_full_fen("/".join(ranks))
-
-
 # --- synthetic profile (margin=0: corners lie DIRECTLY on the board edge) ---------
 
 def ingestion_profile(tag: str, board_size: int, out_size: tuple[int, int] | None = None):

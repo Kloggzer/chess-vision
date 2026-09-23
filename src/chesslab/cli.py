@@ -352,6 +352,7 @@ def session_temporal_pass(
     from . import position_flags, temporal_flags
     from .temporal_matte import (
         adopt_proposals,
+        pass_inputs,
         propose_session,
         prune_dead_rows,
         upsert_proposals,
@@ -377,13 +378,14 @@ def session_temporal_pass(
     print(f"[OK] upsert: {upsert['upserted']} frames, {upsert['sam_found']} stay with SAM", flush=True)
     pruned = prune_dead_rows(session)
     print(f"[OK] prune: {pruned['dropped']} superseded temporal rows dropped", flush=True)
+    seen = pass_inputs(session)
     flags = position_flags.position_flags()
     print(f"[OK] {flags['flags']} audit cards -> {flags['path']}", flush=True)
     report = write_pass_report(session, {
         "started": started, "finished": datetime.now(UTC).isoformat(),
         "candidates": scan["flags"], "proposals": mattes["proposed"],
         "adopted": adopted["adopted"], "upserted": upsert["upserted"],
-        "sam_found": upsert["sam_found"]})
+        "sam_found": upsert["sam_found"]}, inputs=seen)
     print(f"[OK] pass -> {report}")
 
 
@@ -893,6 +895,10 @@ def realgames_export_session(
     workers: int = typer.Option(4, "--workers",
                                 help="Processes for the frame phases. 1 runs everything in this "
                                      "one — the path the equivalence tests measure against."),
+    drop_verdicts: bool = typer.Option(
+        False, "--drop-verdicts",
+        help="Menschliche `unusable`-Urteile auf Frames, die der Export nicht mehr waehlt, "
+             "ausdruecklich verwerfen (bleiben nur in der `.bak`). Ohne: der Export verweigert."),
 ) -> None:
     """Cut a CONFIRMED candidate into its own folder `data/recordings/<name>/` for `chesslab slice`.
 
@@ -911,7 +917,8 @@ def realgames_export_session(
                                          per_position=per_position or None,
                                          dirty_per_position=dirty_per_position,
                                          dirty=dirty, fit=fit, report_only=report_only,
-                                         no_scan=no_scan, workers=workers)
+                                         no_scan=no_scan, workers=workers,
+                                         drop_verdicts=drop_verdicts)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -1049,12 +1056,13 @@ def realgames_adopt_dirty(
             print(f"[ERR] {target}: {e}")
             failed += 1
             continue
-        total += res["changed"]
+        total += res["set"]
         if res["changed"]:
-            print(f"[OK] {target}: {res['changed']} von {res['reported']} gemeldeten Frames "
-                  f"auf `occluded` gesetzt (Backup {res['backup']})")
+            print(f"[OK] {target}: {res['set']} von {res['reported']} gemeldeten Frames auf "
+                  f"`occluded` gesetzt, {res['retracted']} widerrufene Meldungen zurueckgenommen "
+                  f"(Backup {res['backup']})")
     status = "FAIL" if failed else "OK"
-    print(f"[{status}] {total} Frames warten jetzt auf die Matte — "
+    print(f"[{status}] {total} neu gemeldete Frames warten jetzt auf die Matte — "
           "`chesslab occluders alpha-worker`")
     _exit_on_bulk_failures(failed)
 
@@ -1122,6 +1130,8 @@ def realgames_frame_hands() -> None:
         print(f"  ! {total} exportierte Frames ohne Scan-Zeile in "
               f"{len(r['unscanned_frames'])} Aufnahmen — dort heisst keine Zeile UNGEMESSEN, "
               "nicht handfrei")
+    if r["export_interrupted"]:
+        print(f"[WARN] Export abgebrochen, uebersprungen: {', '.join(r['export_interrupted'])}")
 
 
 @realgames_app.command("position-flags")
@@ -1140,6 +1150,8 @@ def realgames_position_flags() -> None:
     if r["unmeasured"]:
         print("[WARN] ohne `session settle-scan`, null Flags heisst hier ungemessen: "
               f"{', '.join(r['unmeasured'])}")
+    if r["export_interrupted"]:
+        print(f"[WARN] Export abgebrochen, uebersprungen: {', '.join(r['export_interrupted'])}")
     for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
         print(f"  {sid:34} {n}")
     i = position_flags_mod.interval_flags()
@@ -1868,6 +1880,10 @@ def dataset_build_cmd(
                                               "sees, so the result is a new corpus, not a twin - "
                                               "only the test split stays comparable with the "
                                               "donor's."),
+    allow_stale_packs: bool = typer.Option(
+        False, "--allow-stale-packs",
+        help="With --from-packs: build even when a pack still carries cells a human marked "
+             "unusable or relabelled after it was cut. Recorded as stale_packs in dataset.yaml."),
 ) -> None:
     """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
     from . import dataset_build as db
@@ -1884,7 +1900,8 @@ def dataset_build_cmd(
                                class_mode=classes, like=like,
                                force_train=[s.strip() for s in (force_train or '').split(',') if s.strip()],
                                add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()],
-                               add_train=[s.strip() for s in (add_train or '').split(',') if s.strip()])
+                               add_train=[s.strip() for s in (add_train or '').split(',') if s.strip()],
+                               allow_stale_packs=allow_stale_packs)
     except ValueError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
@@ -2089,6 +2106,10 @@ def train_cmd(
         None, "--neighbour-p",
         help="Wahrscheinlichkeit, einer LEEREN Zelle den Rand einer besetzten anzukleben "
              "(Fuss der Nachbarfigur). Zielt auf Phantome; Default aus."),
+    strict_verdicts: bool = typer.Option(
+        False, "--strict-verdicts",
+        help="Abbrechen statt melden, wenn Zeilen des Datensatzes einem spaeteren "
+             "Menschenurteil widersprechen (gesperrt/umgelabelt). Vorgabe: melden."),
     no_empty_cap: bool = typer.Option(
         False, "--no-empty-cap",
         help="Die `max_empty_ratio`-Kappe des Splits ignorieren. Board-Backbones tun das immer; "
@@ -2127,9 +2148,9 @@ def train_cmd(
                                            help="torch.compile mode, e.g. reduce-overhead (CUDA "
                                                 "graphs). Needs --compile-model."),
     compile_model: bool = typer.Option(False, "--compile-model",
-                                       help="torch.compile the model forward. Needs a Triton-capable "
-                                            "stack (docs/training-stack-spike.md); the pinned one "
-                                            "has none and the run dies here."),
+                                       help="torch.compile the model forward (triton-windows, "
+                                            "docs/training-stack-spike.md). Off by default: runs "
+                                            "with it are not comparable with the archive."),
     compile_batch_aug: bool = typer.Option(False, "--compile-batch-aug",
                                            help="Compile GPU augmentation, preserving RNG draws. Requires "
                                                 "--batch-aug and Triton; small rounding differences remain."),
@@ -2395,7 +2416,8 @@ def train_cmd(
                                      grayscale_p=grayscale_p,
                                      balance=balance, epoch_frac=epoch_frac,
                                      rot90=rot90, aug_scale=aug_scale, pretrained=pretrained,
-                                     no_empty_cap=no_empty_cap, neighbour_p=neighbour_p)
+                                     no_empty_cap=no_empty_cap, neighbour_p=neighbour_p,
+                                     strict_verdicts=strict_verdicts)
     except MemoryError as exc:
         print(f"[FAIL] {exc}")
         code = 1
@@ -2432,6 +2454,10 @@ def eval_cmd(
     burn_frozen: bool = typer.Option(False, "--burn-frozen",
                                      help="Eine eingefrorene Aufnahme verbrauchen. Genau EINMAL, "
                                           "nach dem Einfrieren des Kandidaten."),
+    strict_verdicts: bool = typer.Option(
+        False, "--strict-verdicts",
+        help="Abbrechen statt melden, wenn Zeilen des Datensatzes einem spaeteren "
+             "Menschenurteil widersprechen (gesperrt/umgelabelt). Vorgabe: melden, Zahl im eval_*.json."),
 ) -> None:
     """Board accuracy, per-class recall, per-session table and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
@@ -2439,7 +2465,8 @@ def eval_cmd(
     raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size, dataset=dataset,
                               split_file=split_file, boards_only=boards_only,
                               sessions=[s.strip() for s in sessions.split(",") if s.strip()]
-                              if sessions else None, burn_frozen=burn_frozen))
+                              if sessions else None, burn_frozen=burn_frozen,
+                              strict_verdicts=strict_verdicts))
 
 
 @app.command("reliance")

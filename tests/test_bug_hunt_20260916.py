@@ -66,16 +66,6 @@ def test_timing_flags_do_not_report_an_unmeasured_cell_as_matte_free():
     assert rows[0]["matte_cov"] is None, "ohne Matte ist die Coverage ungemessen, nicht 0.0"
 
 
-def test_an_unreadable_segment_is_not_counted_as_zero_frames(tmp_path):
-    """`_locate` addiert diese 0 auf `base` — jeder spaetere Frame-Index zeigt auf die falsche Zeile."""
-    from chesslab.recording import _frame_count
-
-    broken = tmp_path / "video-001.mp4"
-    broken.write_bytes(b"not a container")
-    with pytest.raises((OSError, ValueError)):
-        _frame_count(broken)
-
-
 def test_a_candidate_without_a_clock_does_not_get_an_invented_frame_rate():
     """28,63 ist gemessen, 15 bei der Erfassung — 30,0 verschiebt jedes Intervall lautlos."""
     from chesslab.realgames import video_fps

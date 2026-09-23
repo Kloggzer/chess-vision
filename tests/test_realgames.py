@@ -56,14 +56,14 @@ def _candidate(tmp_path, monkeypatch, sans):
     return d / "candidate.json"
 
 
-def test_confirm_writes_only_the_three_keys(tmp_path, monkeypatch):
+def test_confirm_writes_only_its_own_keys(tmp_path, monkeypatch):
     path = _candidate(tmp_path, monkeypatch, ["e4", "d4", "Nf3", "Nc6"])
     before = json.loads(path.read_text(encoding="utf-8"))
 
     confirm("g", yes=True)
 
     after = json.loads(path.read_text(encoding="utf-8"))
-    assert set(after) - set(before) == {"confirmed_at", "reviewed_plies"}
+    assert set(after) - set(before) == {"confirmed_at", "reviewed_plies", "confirmed_reference"}
     assert before["confirmed"] is False and after["confirmed"] is True
     assert after["confirmed_at"].endswith("Z")
     for key in set(before) - {"confirmed"}:
@@ -361,23 +361,6 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
     assert len(manifest) == 192
     first = json.loads(manifest[0])
     assert first["session_id"] == "rg-g" and first["frame"] == rows[0]["frame"][7:13]
-
-
-# --- propose-occluded (specs/53-02) -----------------------------------------------------------
-
-E4 = 28  # `all_squares()` is a1..h1, a2..h2, ...
-
-
-def _cells(seed, n, e4_seed=0):
-    """`n` frames of ONE fixed 64-cell board plus sensor noise; `e4_seed` decides what is on e4."""
-    base = np.random.default_rng(1000).integers(150, 255, (64, 32, 32, 3)).astype(float)
-    if e4_seed:
-        base[E4] = np.random.default_rng(e4_seed).integers(150, 255, (32, 32, 3))
-    rng = np.random.default_rng(seed)
-    return [
-        [np.clip(c + rng.normal(0, 1.0, c.shape), 0, 255).astype(np.uint8) for c in base]
-        for _ in range(n)
-    ]
 
 
 def test_decode_frames_walks_past_the_first_segment(tmp_path):

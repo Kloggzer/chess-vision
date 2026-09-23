@@ -1,13 +1,10 @@
 """Tests for scan_discover + meshprep — pure Python, NO Blender / GPU needed."""
 
-import json
 
 from chesslab.scan_discover import (
     _pick_texture,
     assess_report,
     discover_scans,
-    load_report,
-    normalize_name,
     parse_piece_name,
 )
 
@@ -41,26 +38,6 @@ class TestParsePieceName:
         items, _ = discover_scans(tmp_path)
         got = {(i.name, i.variant) for i in items}
         assert got == {("wP", "v1"), ("wP", "v2"), ("bP", "v1")}
-
-
-class TestNormalizeName:
-    def test_WQ_normalizes_to_wQ(self):
-        assert normalize_name("WQ") == "wQ"
-
-    def test_wq_normalizes_to_wQ(self):
-        assert normalize_name("wq") == "wQ"
-
-    def test_BK_normalizes_to_bK(self):
-        assert normalize_name("BK") == "bK"
-
-    def test_bk_normalizes_to_bK(self):
-        assert normalize_name("bk") == "bK"
-
-    def test_single_char_P_gets_w_prefix(self):
-        assert normalize_name("P") == "wP"
-
-    def test_single_char_n_gets_w_prefix(self):
-        assert normalize_name("n") == "wN"
 
 
 class TestDiscoverScans:
@@ -289,15 +266,3 @@ class TestAssessReport:
         }
         level, _ = assess_report(report)
         assert level == "ok"
-
-
-class TestLoadReport:
-    def test_existing_report(self, tmp_path):
-        data = {"piece": "wP", "verts": 5000}
-        (tmp_path / "wP_report.json").write_text(json.dumps(data), encoding="utf-8")
-        result = load_report(tmp_path, "wP")
-        assert result == data
-
-    def test_missing_report(self, tmp_path):
-        result = load_report(tmp_path, "nonexistent")
-        assert result is None

@@ -1,8 +1,7 @@
 """The session on disk: one directory, `session.yaml` + `log.jsonl` + frames.
 
 Split out of `collect` on 2026-08-20: the rig loops need a camera and a display, this does
-not. `scripts/ingest_video_session.py` and `scripts/capture_empty_session.py` build sessions
-from video and from an empty board and never touch a camera.
+not. `scripts/ingest_video_session.py` builds sessions from video and never touches a camera.
 """
 
 from __future__ import annotations

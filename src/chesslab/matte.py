@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from . import provenance
+from .cell_rule import PIECE_VISIBLE_MAX
 from .ioutil import append_rows, read_jsonl, write_rows_guarded
 from .labeling import (
     all_squares,
@@ -436,7 +437,6 @@ def recut_coverage(
     """
     from .calibration import load_profile
     from .realgames import game_dir
-    from .training.occlusion import PIECE_VISIBLE_MAX  # lokal: das Modul zieht torch herein
 
     session_dir = game_dir(name)
     path = session_dir / "matte.jsonl"
@@ -644,7 +644,6 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     (`alpha: fixed`) is skipped whole: that alpha and that coverage are theirs."""
     from .calibration import load_profile
     from .realgames import game_dir
-    from .training.occlusion import PIECE_VISIBLE_MAX  # local: the module pulls torch in
 
     session_dir = game_dir(name)
     path = session_dir / "matte.jsonl"

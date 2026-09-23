@@ -184,28 +184,6 @@ def test_stage_model_asset_refuses_to_overwrite_an_existing_asset(tmp_path, monk
     )
 
 
-def test_drop_measured_memmaps_rejects_a_misspelled_dry_run(tmp_path, monkeypatch):
-    script = _load_script("drop_measured_memmaps.py")
-    script.NAMES = ["valuable"]
-    packed = tmp_path / "data" / "datasets" / "valuable" / "packed_images.u8"
-    packed.parent.mkdir(parents=True)
-    packed.write_bytes(b"irreplaceable-for-this-test")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["drop_measured_memmaps.py", "--dry-rnu"])
-
-    try:
-        script.main()
-    except SystemExit as exc:
-        code = exc.code
-    else:
-        code = 0
-
-    assert code != 0 and packed.is_file(), (
-        "`drop_measured_memmaps.py` hand-parses only the exact string --dry-run, so a typo is "
-        "accepted as an unknown argument and switches the command from preview to deletion"
-    )
-
-
 def test_thin_per_position_refuses_to_overwrite_an_existing_dataset(tmp_path, monkeypatch):
     script = _load_script("thin_per_position.py")
     source = tmp_path / "source"

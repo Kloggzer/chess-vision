@@ -39,6 +39,9 @@ from .. import config
 # module imports without onnxruntime present).
 _QUANT_TYPES = {"quint8", "qint8", "quint16", "qint16"}
 
+#: Below this the INT8 graph is not the model any more (`_parity`); above it is still no proof.
+PARITY_FLOOR = 0.9
+
 
 def _quant_type(name: str):
     from onnxruntime.quantization import QuantType
@@ -166,8 +169,8 @@ def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
     (A8W8, per-tensor) export of `occ-v6-f5nd` at parity **1.000** here and 5 phantoms on the
     veto metric, against the float model's 1. The calibration set is TRAIN crops the model
     already fits; phantoms live on empty squares in a held-out session. Parity below 0.9 is a
-    reason to stop, but parity 1.0 is not a reason to ship — score the graph with
-    `scripts/score_onnx.py`.
+    reason to stop, but parity 1.0 is not a reason to ship — score the graph on the
+    regression set first.
     """
     import onnxruntime as ort
 
@@ -271,6 +274,9 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
     print(f"[OK] quantized ({activation_type}/{weight_type}, "
           f"{'per-channel' if per_channel else 'per-tensor'} weights) -> {out} "
           f"({size_mb:.1f} MB, {len(rows)} calib crops, argmax parity {agreement:.3f})")
-    if agreement < 0.9:
-        print("[WARN] low FP32↔INT8 argmax parity — consider quint16 activations or more calib crops.")
+    if agreement < PARITY_FLOOR:
+        out.unlink(missing_ok=True)
+        print(f"[FAIL] FP32↔INT8 argmax parity {agreement:.3f} < {PARITY_FLOOR} — graph removed; "
+              "consider quint16 activations or more calib crops.")
+        return 1
     return 0

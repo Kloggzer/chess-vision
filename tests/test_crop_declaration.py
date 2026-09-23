@@ -11,9 +11,6 @@ from __future__ import annotations
 
 import json
 
-import numpy as np
-import pytest
-
 from chesslab import config, labeling, serving
 from chesslab.calibration import CalibrationProfile
 from chesslab.training.data import crop_of_rows
@@ -23,13 +20,6 @@ from conftest import make_profile
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:
     return make_profile(board_size)
-
-
-def _frame(board_size: int = 800) -> np.ndarray:
-    """Every pixel distinct in at least one channel, so two crops of the same square with
-    different pads cannot compare equal by accident."""
-    y, x = np.mgrid[0:board_size, 0:board_size]
-    return np.dstack([(x % 251), (y % 241), ((x // 100) * 8 + y // 100) * 3]).astype(np.uint8)
 
 
 # --- what a crop row says about itself ---------------------------------------------------
@@ -88,11 +78,6 @@ def test_crop_of_dataset_reads_the_built_manifest(tmp_path):
 
 # --- what serving does with the declaration ----------------------------------------------
 
-def _spec(run_dir, **kw) -> serving.RunSpec:
-    return serving.RunSpec(run_dir=run_dir, classes=["empty", "occupied"], out_size=(128, 128),
-                           infer_size=(128, 128), **kw)
-
-
 def test_run_spec_reads_the_declared_crop(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
@@ -108,38 +93,3 @@ def test_run_spec_reads_the_declared_crop(tmp_path):
     (run / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
     legacy = serving.run_spec(run)
     assert legacy.pad_side is None
-
-
-def test_crops_for_model_crops_at_the_declared_pad(tmp_path):
-    """The model supplies the box, the profile supplies the board."""
-    prof = _identity_profile()
-    prof.crop.pad_side = 0.10
-    frame = _frame()
-    corners = prof.image_corners
-
-    declared = serving.crops_for_model(frame, corners, prof, _spec(tmp_path, pad_side=0.05))
-    # The reference: the same call with a profile that ALREADY holds the declared pads.
-    ref_prof = _identity_profile()
-    ref_prof.crop.pad_side = 0.05
-    reference = serving.crops_for_model(frame, corners, ref_prof, _spec(tmp_path))
-    for i, (a, b) in enumerate(zip(declared, reference, strict=True)):
-        assert np.array_equal(a, b), f"crop {i} is not the one the model asked for"
-
-    # Not vacuous: the profile's own 0.10 produces different pixels, which is the whole point.
-    profile_pads = serving.crops_for_model(frame, corners, prof, _spec(tmp_path))
-    assert not np.array_equal(profile_pads[0], reference[0])
-
-    # And the caller's profile is not mutated — the pads are applied to a copy, so the next
-    # consumer of the same profile still sees the board's own geometry.
-    assert prof.crop.pad_side == pytest.approx(0.10)
-
-
-def test_legacy_model_keeps_the_profiles_pads(tmp_path):
-    prof = _identity_profile()
-    prof.crop.pad_side = 0.10
-    frame = _frame()
-    legacy = serving.crops_for_model(frame, prof.image_corners, prof, _spec(tmp_path))
-    explicit = serving.crops_for_model(frame, prof.image_corners, prof,
-                                       _spec(tmp_path, pad_side=0.10))
-    for a, b in zip(legacy, explicit, strict=True):
-        assert np.array_equal(a, b)

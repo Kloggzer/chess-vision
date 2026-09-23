@@ -110,34 +110,6 @@ def test_scan_ply_offset_meldet_den_nenner_der_GEPRUEFTEN_frames(tmp_path, monke
     assert "1 von 3 Frames geprueft" in out
 
 
-def test_audit_lane_probe_meldet_den_handanteil_auf_GEMESSENEN_zellen(tmp_path, monkeypatch,
-                                                                       capsys):
-    """Der Handanteil lief durch `n_shown`; ein Frame ohne Matte-Zeile drueckte ihn auf die Haelfte."""
-    import audit_lane_probe as probe
-
-    flags = [{"session_id": "rg-20-19", "frame": f, "square": "e4", "fen_label": "empty",
-              "predicted": "wP", "prob": 0.9} for f in ("f1", "f2")]
-    monkeypatch.setattr(probe, "read_jsonl",
-                        lambda p: flags if "audit-flags" in str(p)
-                        else [{"frame": f"{f}.png", "corners": []} for f in ("f1", "f2")])
-    monkeypatch.setattr(probe, "read_session_meta", lambda _d: {"profile": "p"})
-    monkeypatch.setattr(probe, "load_profile", lambda _p: object())
-    # Nur f1 ist gemattet; f2 hat keine Zeile und ist damit nicht gemessen, nicht handfrei.
-    monkeypatch.setattr(probe, "read_matte", lambda _d: {"f1": {"e4": 0.6}})
-    monkeypatch.setattr(probe, "board_source", lambda _r, _p: ("boards/f.webp", True))
-    monkeypatch.setattr(probe, "crops_for_frame",
-                        lambda *a, **k: [np.zeros((4, 4, 3), dtype=np.uint8)] * 64)
-    monkeypatch.setattr(probe, "cv2", _FakeCv2())
-    monkeypatch.setattr(sys, "argv", ["audit_lane_probe", "--flags",
-                                      str(tmp_path / "audit-flags.jsonl"),
-                                      "--out", str(tmp_path / "probe.png")])
-
-    probe.main()
-    out = capsys.readouterr().out
-    assert "1 von 1 gemessenen (100 %)" in out
-    assert "ohne Matte: 1 von 2 gezeichneten" in out
-
-
 def _fake_pack(pack: Path, paths: list[str]) -> None:
     pack.mkdir(parents=True, exist_ok=True)
     (pack / "packed_meta.json").write_text(

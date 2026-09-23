@@ -50,12 +50,6 @@ def make_profile(board_size: int = 800, *, corners=None, homography=None, margin
         homography=homography or compute_homography(corners, board_size, margin), **kw)
 
 
-@pytest.fixture
-def calib_profile():
-    """`make_profile` as a fixture, for tests that build their profile inside the test body."""
-    return make_profile
-
-
 def write_session(session_dir: Path, rows: list[dict], *, profile: CalibrationProfile,
                   image, boards: bool = True, session_id: str = "s1",
                   meta: dict | None = None) -> Path:

@@ -117,46 +117,6 @@ def test_temporal_adopt_rejects_proposals_after_the_source_changed(tmp_path, mon
     )
 
 
-def _provenance(*, clean=False, pad_side=0.2):
-    return {
-        "video": "video.mp4", "plate_dir": "plates", "board_size": 320, "stride": 8,
-        "tiles_per_frame": [0, 2], "seed": 42, "profile": "p", "clean": clean,
-        "pad_side": pad_side,
-    }
-
-
-def test_recut_of_a_clean_composite_does_not_add_occluders(monkeypatch):
-    called = {}
-
-    def fake_boards(video, plate_dir, **kwargs):
-        called["plate_dir"] = plate_dir
-        yield 0, [np.zeros((1, 1, 3), np.uint8)] * 64, {}, object()
-
-    monkeypatch.setattr(composite, "composed_boards", fake_boards)
-    list(composite.recut_frames(_provenance(clean=True), {0: ["a1"]}, (80, 80)))
-
-    assert called["plate_dir"] is None, (
-        "the provenance says clean=true, but recut_frames always passes plate_dir and therefore "
-        "adds random occluder tiles to crops that were originally generated clean"
-    )
-
-
-def test_recut_preserves_the_composites_declared_crop_padding(monkeypatch):
-    called = {}
-
-    def fake_boards(_video, _plate_dir, **kwargs):
-        called.update(kwargs)
-        yield 0, [np.zeros((1, 1, 3), np.uint8)] * 64, {}, object()
-
-    monkeypatch.setattr(composite, "composed_boards", fake_boards)
-    list(composite.recut_frames(_provenance(pad_side=0.2), {0: ["a1"]}, (80, 80)))
-
-    assert called.get("pad_side") == 0.2, (
-        "recut_frames ignored provenance pad_side=0.2 and will use the current profile default, "
-        "so the promised source recut no longer has the same field of view as the manifest crop"
-    )
-
-
 def test_composite_provenance_records_the_crop_padding_needed_for_recut(tmp_path, monkeypatch):
     prof = ingest.ingestion_profile("p", 320, (8, 8))
     captured = {}

@@ -117,7 +117,7 @@ def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
 def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
              dataset: str | None = None, split_file: str | None = None,
              sessions: list[str] | None = None, boards_only: bool = False,
-             burn_frozen: bool = False) -> int:
+             burn_frozen: bool = False, strict_verdicts: bool = False) -> int:
     """`dataset` points the run at a corpus it was not trained on — the "validate with the
     pretrain" step, which used to need a throwaway script. `split_name="all"` skips the split
     filter, `sessions` narrows it further, and both guards below only fire on that path.
@@ -203,6 +203,13 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         rows = kept
     if not rows:
         print(f"[FAIL] {split_name} split is empty.")
+        return 1
+    from ..dataset_build import check_verdicts
+
+    try:
+        verdicts = check_verdicts(rows, split.get("splits") or {}, strict=strict_verdicts)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
         return 1
     # Eine eingefrorene Aufnahme wird GENAU EINMAL ausgewertet, nach der Auswahl. Bis dahin ist
     # jede Messung auf ihr ein Verlust: `data/TEST-USED.json` zaehlt 33 bzw. 32 Auswertungen auf
@@ -337,6 +344,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 
     summary = eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread,
                            split_name=split_name, ds_name=ds_name)
+    summary["verdict_conflicts"] = verdicts
     write_json(run_dir / f"eval_{stem}.json", summary)
     print(f"[OK] {run_dir / f'eval_{stem}.json'}")
     return 0
@@ -345,6 +353,36 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 #: The one batch the tracker ever infers: 64 squares of a board, read in a single call.
 #: Baked into the exported graph — see `_export_onnx` for why it must not be dynamic.
 ONNX_BATCH = 64
+
+#: ORT against torch on one fixed batch; the tolerance scales with the largest logit.
+ONNX_PARITY_TOL = 1e-3
+
+#: Key in the run's `config.json` naming the checkpoint and graph of the last ONNX export.
+EXPORT_FINGERPRINT = "export_fingerprint"
+
+
+def export_checkpoint(run_dir: Path) -> Path:
+    """The checkpoint `load_run` traces without `weights`: best.pt, else last.pt."""
+    best = run_dir / "best.pt"
+    return best if best.exists() else run_dir / "last.pt"
+
+
+def _sha256(path: Path) -> str | None:
+    import hashlib
+
+    if not path.is_file():
+        return None
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def export_fingerprint(run_dir: Path) -> dict:
+    ckpt = export_checkpoint(run_dir)
+    return {"checkpoint": ckpt.name, "checkpoint_sha256": _sha256(ckpt),
+            "onnx_sha256": _sha256(run_dir / "model.onnx")}
 
 
 def _fmt(v: float | None) -> str:
@@ -449,9 +487,17 @@ def run_export(run: str, fmt: str = "torchscript",
         print(f"[FAIL] {err}")
         return 1
     crop = crop_of_dataset(str(cfg.get("dataset") or ""))
-    if crop is not None:
+    declared = cfg.get("pad_side")
+    if crop is not None and declared is not None and abs(float(declared) - crop) > 1e-9:
+        # The run's value is what it was trained on; a dataset rebuilt under the same name is not.
+        print(f"[FAIL] {run_dir.name} declares pad_side={declared}, but dataset "
+              f"{cfg.get('dataset')!r} now says {crop} — rebuilt under the same name? The run's "
+              "value stays; decide by hand before exporting.")
+        return 1
+    new_crop = crop is not None and declared is None
+    if new_crop:
         cfg["pad_side"] = crop
-    elif "pad_side" not in cfg:
+    elif declared is None:
         # Never removes a declaration already in the file: a value established by hand from the
         # session profiles (which is how the bundled models got theirs) outranks a dataset that
         # has since been rebuilt or moved away.
@@ -465,7 +511,7 @@ def run_export(run: str, fmt: str = "torchscript",
     covering = cfg.get("head") == "occlusion"
     if covering:
         cfg["coverage_output"] = True
-    if infer_size is not None or crop is not None or covering:
+    if infer_size is not None or new_crop or covering:
         # Write it before tracing: the graph must be what the config declares, and the config is
         # what every consumer resizes and pads its crops to.
         (run_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
@@ -488,7 +534,7 @@ def run_export(run: str, fmt: str = "torchscript",
 
         model = _BoardExport(model).eval()
 
-    def _export_onnx() -> None:
+    def _export_onnx() -> str | None:
         # NO dynamic_axes. A dynamic batch dim is not a harmless generalisation here: under ORT's
         # ALL_OPT the Android session answers a [64,3,128,128] input with a [1,2] output and every
         # observation dies on "model returned 2 logits, expected 128". That was diagnosed once
@@ -498,6 +544,7 @@ def run_export(run: str, fmt: str = "torchscript",
         torch.onnx.export(model, example, str(run_dir / "model.onnx"),
                           input_names=["input"], output_names=["logits"],
                           opset_version=17, dynamo=False)
+        return _onnx_parity_error(model, run_dir / "model.onnx", example.shape)
 
     # "qnn" is the INT8/QDQ ONNX for the on-device Hexagon NPU (needs the FP32 onnx first).
     formats = ["torchscript", "onnx", "qnn"] if fmt == "all" else [fmt]
@@ -508,12 +555,18 @@ def run_export(run: str, fmt: str = "torchscript",
             ts.save(str(run_dir / "model.torchscript.pt"))
             written.append("torchscript")
         elif f == "onnx":
-            _export_onnx()
+            err = _export_onnx()
+            if err:
+                print(f"[FAIL] {err}")
+                return 1
             written.append("onnx")
         elif f in ("qnn", "onnx-qnn"):
             # NPU deployment: ensure the FP32 graph exists, then static-quantize it.
             if "onnx" not in written and not (run_dir / "model.onnx").exists():
-                _export_onnx()
+                err = _export_onnx()
+                if err:
+                    print(f"[FAIL] {err}")
+                    return 1
                 written.append("onnx")
             from .quantize import run_quantize
 
@@ -524,6 +577,10 @@ def run_export(run: str, fmt: str = "torchscript",
         else:
             print(f"[FAIL] unknown format {f!r} (torchscript | onnx | qnn | onnx-qnn | all).")
             return 1
+
+    if "onnx" in written:
+        cfg[EXPORT_FINGERPRINT] = export_fingerprint(run_dir)
+        write_json(run_dir / "config.json", cfg)
 
     metrics = {}
     eval_test = run_dir / "eval_test.json"
@@ -538,3 +595,24 @@ def run_export(run: str, fmt: str = "torchscript",
     (run_dir / "model_card.json").write_text(json.dumps(card, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[OK] exportiert: {', '.join(written)} @ {in_w}x{in_h} + model_card.json -> {run_dir}")
     return 0
+
+
+def _onnx_parity_error(model, onnx_path: Path, shape) -> str | None:
+    """Why the written graph does not compute what `model` computes — None when it does."""
+    import onnxruntime as ort
+    import torch
+
+    x = torch.randn(tuple(shape), generator=torch.Generator().manual_seed(0))
+    with torch.no_grad():
+        ref = model(x).detach().cpu().numpy()
+    so = ort.SessionOptions()
+    so.log_severity_level = 3
+    sess = ort.InferenceSession(str(onnx_path), so, providers=["CPUExecutionProvider"])
+    got = np.asarray(sess.run(None, {"input": x.numpy()})[0])
+    if got.shape != ref.shape:
+        return f"ONNX gibt {got.shape} aus, torch {ref.shape}"
+    worst = float(np.abs(got - ref).max())
+    limit = ONNX_PARITY_TOL * max(1.0, float(np.abs(ref).max()))
+    if worst > limit:
+        return f"ONNX weicht von torch ab: max |d| {worst:.3g} > {limit:.3g} ({onnx_path})"
+    return None

@@ -10,7 +10,6 @@ torch = pytest.importorskip("torch")
 
 from chesslab.training.occlusion import (  # noqa: E402
     OcclusionLoss,
-    coverage_metrics,
     split_targets,
 )
 
@@ -60,13 +59,6 @@ def test_the_targets_travel_in_one_tensor():
 
     assert (int(y), float(cov), float(bright)) == (2, 0.25, 255.0)
     assert y.dtype == torch.long
-
-
-def test_metrics_read_the_last_logit_only():
-    m = coverage_metrics(_logits([5.0, 0.0, 0.0], 9.0), _target(0, 1.0))
-
-    assert m["occ_recall"] == 1.0
-    assert m["occ_mae"] < 0.01
 
 
 def test_validation_returns_coverage_predictions_without_a_second_model_pass():

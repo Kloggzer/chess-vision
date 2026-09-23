@@ -521,31 +521,6 @@ def test_take_starts_at_the_segment_base_not_at_the_wanted_index(monkeypatch, tm
     assert seen["start"] == 100
 
 
-def test_the_metadata_and_the_asked_rotation_add_up():
-    """Beide drehen in dieselbe Richtung (gemessen 2026-09-08), also ADDIEREN sich die Winkel.
-
-    Unsere Aufnahmen heben sich alle auf (90 + 270) — eine Aufhebung beweist die Konvention
-    NICHT, deshalb steht hier der Fall, der sie unterscheidet.
-    """
-    import cv2
-
-    from chesslab.recording import _combined_rotation
-
-    class Cap:
-        def __init__(self, meta):
-            self.meta = meta
-
-        def get(self, prop):
-            return 1.0 if prop == cv2.CAP_PROP_ORIENTATION_AUTO else float(self.meta)
-
-        def set(self, _prop, _value):
-            return True
-
-    assert _combined_rotation(Cap(270), cv2.ROTATE_90_CLOCKWISE) is None       # 270 + 90 = 0
-    assert _combined_rotation(Cap(90), cv2.ROTATE_90_CLOCKWISE) == cv2.ROTATE_180
-    assert _combined_rotation(Cap(90), None) is None
-
-
 # --- 10. markerless: die Ecken kommen aus ALLEN Schnittpunkten -----------------------------
 
 def test_a_quad_needs_the_whole_grid_not_four_corners(monkeypatch):
@@ -609,14 +584,6 @@ def test_a_named_checkpoint_is_not_served_the_runs_default_model(tmp_path, monke
         assert (default.name, swa.name) == (None, "swa.pt")
     finally:
         serving.clear_cache()
-
-
-def test_one_cuda_graph_per_checkpoint():
-    """Derselbe Grund eine Ebene tiefer: ein fuer den Default aufgenommener Graph darf nicht
-    fuer jeden spaeteren Checkpoint wiedergespielt werden."""
-    from chesslab.serving import graph_key
-
-    assert graph_key("run", "cuda", None) != graph_key("run", "cuda", "swa.pt")
 
 
 def test_a_gpu_request_is_not_served_silently_on_the_cpu(tmp_path, monkeypatch):
@@ -723,26 +690,6 @@ def test_a_prior_that_would_zero_the_board_keeps_the_pixels():
     assert apply_prior(probs, classes, None, lam=4.0) == probs
 
 
-def test_the_crop_box_comes_from_the_model_not_from_the_profile():
-    """128 px eines 1,10-Zellen-Kastens und 128 px eines 1,20-Kastens sind verschiedene Fotos
-    desselben Feldes. Das Profil sagt, WO das Brett liegt; das Modell, wieviel drumherum."""
-    from chesslab.labeling import crops_for_frame, effective_profile
-    from chesslab.serving import RunSpec, crops_for_model
-
-    prof = ingest.ingestion_profile("mutprobe", 128)
-    frame = np.random.default_rng(3).integers(0, 255, (128, 128, 3), dtype=np.uint8)
-    corners = [[0.0, 0.0], [128.0, 0.0], [128.0, 128.0], [0.0, 128.0]]
-    spec = RunSpec(run_dir=None, classes=["empty"], out_size=(32, 32), infer_size=(32, 32),
-                   pad_side=0.30)
-
-    got = crops_for_model(frame, corners, prof, spec)
-    wanted = crops_for_frame(frame, corners, effective_profile(prof, 0.30), out_size=(32, 32))
-    plain = crops_for_frame(frame, corners, prof, out_size=(32, 32))
-
-    assert all(np.array_equal(a, b) for a, b in zip(got, wanted, strict=True))
-    assert not all(np.array_equal(a, b) for a, b in zip(got, plain, strict=True))
-
-
 # --- 12. dataset: der Rettungszug darf keinen Split erfinden -------------------------------
 
 def test_a_holdout_nobody_asked_for_stays_empty():
@@ -775,20 +722,6 @@ def test_pinning_half_a_clip_pins_the_whole_group():
                                        force_train={"clip-0"}, groups=groups)
 
     assert {"clip-0", "clip-1"} <= set(splits["train"])
-
-
-def test_a_session_in_two_splits_is_an_error_not_a_warning():
-    """Die mengenbasierten Loader legen die Zeilen einer doppelt genannten Aufnahme in BEIDE
-    Saetze — trainiert und bewertet auf demselben Bild."""
-    from chesslab.dataset import validate_split
-
-    split = {"classes": ["empty"], "counts": {"train": 10, "val": 5, "test": 5},
-             "splits": {"train": ["s1", "s2"], "val": ["s2"], "test": ["s3"]}}
-    rows = [{"label": "empty", "session_id": s} for s in ("s1", "s2", "s3")]
-
-    errors, _warnings = validate_split(split, rows)
-
-    assert any("s2" in e and "train" in e and "val" in e for e in errors), errors
 
 
 def test_the_same_seed_keeps_the_same_crops_whatever_the_manifest_order():

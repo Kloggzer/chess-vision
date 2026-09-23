@@ -22,13 +22,6 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Pipeline parameters
-# ---------------------------------------------------------------------------
-
-_RANSAC_ITERS: int = 500
-_RANSAC_TOL_FRAC: float = 0.005
-
 
 def prepare_scan(
     item: ScanItem,

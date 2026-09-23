@@ -22,6 +22,7 @@ from .labeling import (
     read_session_meta,
 )
 from .realgames import INTERVAL_FILE
+from .sessions import ExportInterrupted
 from .state import GameState
 
 FLAGS_FILE = "position-flags.jsonl"
@@ -111,14 +112,18 @@ def position_flags() -> dict:
     """Über jede Session mit einer Matte. -> Zusammenfassung und Pfad."""
     from .temporal_flags import load_flags
 
-    rows, per_session, stale_temporal, unmeasured = [], {}, [], []
+    rows, per_session, stale_temporal, unmeasured, interrupted = [], {}, [], [], []
     for path in sorted(config.DATA.recordings.glob("*/log.jsonl")):
         session_dir = path.parent
         if not (session_dir / "session.yaml").is_file():
             continue
         session_id = read_session_meta(session_dir)["session_id"]
         matte = read_matte(session_dir)
-        entries = read_log(session_dir)
+        try:
+            entries = read_log(session_dir)
+        except ExportInterrupted:
+            interrupted.append(session_id)
+            continue
         # Ohne `settle_dev` faellt jede Zelle durch `frame_flags` — null Flags saehen dann aus
         # wie "nichts strittig", statt wie "`session settle-scan` lief hier nie".
         if not any("settle_dev" in entry for entry in entries):
@@ -150,12 +155,13 @@ def position_flags() -> dict:
             per_session[session_dir.name] = len(found)
     header = {"_settle_limit": SETTLE_LIMIT, "_seen_min": SETTLE_SEEN_MIN,
               "_visible_max": MATTE_DIRTY, "_unmeasured": unmeasured,
+              "_export_interrupted": interrupted,
               "_written_at": datetime.now(UTC).isoformat()}
     out = write_flags(config.DATA.reports / FLAGS_FILE, rows, header)
     return {"path": out, "flags": len(rows),
             "frames": len({(r["session_id"], r["frame"]) for r in rows}),
             "per_session": per_session, "stale_temporal": stale_temporal,
-            "unmeasured": unmeasured}
+            "unmeasured": unmeasured, "export_interrupted": interrupted}
 
 
 def interval_flags() -> dict:

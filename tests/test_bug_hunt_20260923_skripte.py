@@ -204,3 +204,434 @@ def test_worker_probe_reports_warm_epochs(monkeypatch, capsys):
     assert mod.main() == 0
     line = capsys.readouterr().out.strip().splitlines()[-1]
     assert "10.7s" in line and "30.5s" not in line
+
+
+# === Runde 2 (2026-09-23): die Skripte, die keine Jagd angefasst hatte =============================
+
+# --- profile_training_gpu: A/B abwechselnd statt fester Reihenfolge, Paritaet ohne Bezug ungemessen -
+
+def test_profile_gpu_ab_cancels_linear_drift():
+    mod = _load("profile_training_gpu")
+    calls = []
+
+    def arm(true_ms):
+        def fn():
+            calls.append(true_ms)
+            return true_ms + 1.0 * len(calls)   # der Rechner wird je Messung 1 ms langsamer
+        return fn
+
+    got = mod.alternating({"a": arm(10.0), "b": arm(10.0)})
+    assert len(got["a"]["reps_ms"]) >= 2
+    assert got["a"]["median_ms"] == pytest.approx(got["b"]["median_ms"])
+
+
+def test_profile_gpu_fused_parity_without_reference_is_unmeasured():
+    torch = pytest.importorskip("torch")
+    mod = _load("profile_training_gpu")
+    got = mod.parity(None, {"w": torch.ones(3)})
+    assert got["parameters_equal"] is None and got["max_parameter_error"] is None
+
+
+# --- thin_per_position: ungemessene Coverage ist nicht sauber, Kompositen tragen keinen `ply` ------
+
+def _thin_env(tmp_path, monkeypatch, rows):
+    mod = _load("thin_per_position")
+    _jsonl(tmp_path / "src" / "manifest.jsonl", rows)
+    monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / name)
+    monkeypatch.setattr(sys, "argv", ["thin", "src", "dst", "--clean", "1", "--dirty", "0"])
+    return mod
+
+
+def _board(sid, frame, cov, ply=None):
+    row = {"session_id": sid, "frame": frame, "square": "a1", "label": "empty", "coverage": cov}
+    return row if ply is None else {**row, "ply": ply}
+
+
+def test_thin_refuses_unmeasured_coverage(tmp_path, monkeypatch):
+    mod = _thin_env(tmp_path, monkeypatch, [_board("rg-x", "000001", None, ply=3),
+                                            _board("rg-x", "000002", 0.4, ply=3)])
+    assert mod.main() == 1
+    assert not (tmp_path / "dst").exists()
+
+
+def test_thin_takes_a_composite_without_ply_as_one_position(tmp_path, monkeypatch):
+    mod = _thin_env(tmp_path, monkeypatch, [_board("comp-a", "000001", 0.3),
+                                            _board("comp-a", "000002", 0.0),
+                                            _board("rg-x", "000001", 0.0, ply=3)])
+    assert mod.main() == 0
+    kept = [(r["session_id"], r["frame"]) for r in _read(tmp_path / "dst" / "manifest.jsonl")]
+    assert kept == [("comp-a", "000002"), ("rg-x", "000001")]
+
+
+def _read(path: Path) -> list[dict]:
+    from chesslab.ioutil import read_jsonl
+
+    return read_jsonl(path)
+
+
+# --- mix_datasets: zwei FEHLENDE Klassenlisten sind keine gleichen ---------------------------------
+
+def test_mix_refuses_when_no_side_names_its_classes(tmp_path, monkeypatch):
+    mod = _load("mix_datasets")
+    for name in ("host", "guest"):
+        _jsonl(tmp_path / name / "manifest.jsonl",
+               [{"session_id": f"{name}-s", "path": "x.webp", "label": "wP", "square": "a2"}])
+        (tmp_path / name / "split.json").write_text(
+            json.dumps({"splits": {"train": [f"{name}-s"], "val": [], "test": []}}), encoding="utf-8")
+    monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / name)
+    monkeypatch.setattr(sys, "argv", ["mix", "host", "guest", "out"])
+    with pytest.raises(SystemExit):
+        mod.main()
+    assert not (tmp_path / "out").exists()
+
+
+# --- benchmark_export_warp: `uncached` lief immer zuerst, `cached` gegen den warmen Cache ----------
+
+def test_export_warp_benchmark_alternates_its_arms(tmp_path, monkeypatch):
+    mod = _load("benchmark_export_warp")
+    _jsonl(tmp_path / "log.jsonl", [{"frame": "frames/000001.png"}])
+    realgames, calibration = mod.realgames, mod.calibration
+    for attr, value in (("game_dir", lambda name: tmp_path), ("video_path", lambda name: None),
+                        ("load_candidate", lambda name: {}), ("detect_rotation", lambda *a: None),
+                        ("stream_frames", lambda *a: iter(()))):
+        monkeypatch.setattr(realgames, attr, value)
+    monkeypatch.setattr(calibration, "load_profile", lambda name: None)
+    clock, order = [0.0], []
+
+    def rewarp(destination, rows, profile, *, frames, progress):
+        order.append("cached" if hasattr(calibration._crop_mesh_coordinates, "cache_clear") else "uncached")
+        clock[0] += 5.0 + len(order)   # die Maschine wird je Lauf 1 s langsamer
+        return {}
+
+    monkeypatch.setattr(realgames, "rewarp_boards", rewarp)
+    monkeypatch.setattr(mod.time, "perf_counter", lambda: clock[0])
+    got = mod.benchmark("x")
+    assert order[:2] == ["uncached", "cached"] and order[2:4] == ["cached", "uncached"]
+    assert got["cached"]["seconds"] == pytest.approx(got["uncached"]["seconds"])
+
+
+# --- border_probe: der Seek landete neben dem Index, und die Ecken sassen auf einem fremden Bild ---
+
+def test_border_probe_warps_the_frame_its_corners_belong_to(tmp_path, monkeypatch):
+    import cv2
+
+    from chesslab import realgames
+
+    mod = _load("border_probe")
+    sdir = tmp_path / "rec"
+    _jsonl(sdir / "log.jsonl", [{"frame": "frames/000007.png", "board": "boards/000007.webp",
+                                 "board_border": 12, "corners": [[0, 0]] * 4}])
+    monkeypatch.setattr(mod, "config", types.SimpleNamespace(DATA=types.SimpleNamespace(recordings=tmp_path)))
+
+    class Seeking:   # ein Seek auf n liefert Frame n + 1 — gemessen 2 von 7 Sonden
+        def __init__(self, *_):
+            self.pos = 0
+
+        def set(self, _prop, value):
+            self.pos = int(value) + 1
+
+        def read(self):
+            return True, np.full((4, 4, 3), self.pos, np.uint8)
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(cv2, "VideoCapture", Seeking)
+    monkeypatch.setattr(realgames, "video_path", lambda name: sdir / "video.mp4")
+    monkeypatch.setattr(realgames, "load_candidate", lambda name: {})
+    monkeypatch.setattr(realgames, "detect_rotation", lambda *a: None)
+    monkeypatch.setattr(realgames, "stream_frames",
+                        lambda video, rows, rot: iter([(rows[0], np.full((4, 4, 3), 7, np.uint8))]))
+    monkeypatch.setattr(mod, "read_session_meta", lambda d: {"profile": "p"})
+    monkeypatch.setattr(mod, "load_profile", lambda p: types.SimpleNamespace(board_size=8))
+    seen = []
+
+    def warp(frame, profile, corners, pad):
+        seen.append(int(frame[0, 0, 0]))
+        raise SystemExit(0)
+
+    monkeypatch.setattr(mod, "warp_padded", warp)
+    monkeypatch.setattr(sys, "argv", ["border_probe", "--session", "rec", "--out", str(tmp_path / "o")])
+    with pytest.raises(SystemExit):
+        mod.main()
+    assert seen == [7]
+
+
+# --- move_strip: die Kachel schrieb eine ungemessene Coverage als `cov=0.00` -----------------------
+
+def test_move_strip_caption_marks_unmeasured_coverage(tmp_path, monkeypatch):
+    mod = _load("move_strip")
+    manifest = [{"session_id": "rg-s", "ply": 4, "square": "d1", "frame": f, "label": "wQ",
+                 "path": f"mm://s/{f}/d1", "coverage": cov} for f, cov in (("000001", None),
+                                                                            ("000002", 0.3))]
+    _jsonl(tmp_path / "ds" / "manifest.jsonl", manifest)
+    monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / "ds")
+    pixels = np.zeros((2, 8, 8, 3), np.uint8)
+    monkeypatch.setattr(mod, "open_packed_rows",
+                        lambda name, rows: (pixels, {r["path"]: i for i, r in enumerate(rows)}))
+    monkeypatch.setattr(mod, "Path", lambda *a: tmp_path.joinpath(*a) if a[0] == "data/recordings"
+                        else Path(*a))
+    _jsonl(tmp_path / "data/recordings" / "s" / "interval-check.jsonl", [{"ply": 4, "moved": []}])
+    texts = []
+    real_draw = mod.ImageDraw.Draw
+
+    def draw(img):
+        d = real_draw(img)
+        monkeypatch.setattr(d, "text", lambda _xy, text, **kw: texts.append(text))
+        return d
+
+    monkeypatch.setattr(mod.ImageDraw, "Draw", draw)
+    monkeypatch.setattr(sys, "argv", ["move_strip", "--session", "s", "--ply", "4", "--square", "d1",
+                                      "--out", str(tmp_path / "o.png")])
+    assert mod.main() == 0
+    assert "wQ cov=--" in texts and "wQ cov=0.30" in texts
+
+
+# --- fix_ply_offset: `reviewed.jsonl` ist auch ein Urteil, und ungemessen ist nicht sichtbar -------
+
+_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+
+
+def _ply_offset_env(tmp_path, monkeypatch, coverage, reviewed):
+    mod = _load("fix_ply_offset")
+    rec = tmp_path / "recordings" / "s"
+    _jsonl(tmp_path / "hits.jsonl", [{"session_id": "rg-s", "frame": "000010", "ply": 0,
+                                      "better_at": 1, "match_better": 64, "match_own": 62}])
+    manifest = [{"session_id": "rg-s", "frame": "000010", "ply": 0, "fen": _START, "square": sq,
+                 "label": "wP" if sq == "e2" else "empty", "path": f"mm://s/000010/{sq}",
+                 "coverage": coverage} for sq in ("e2", "e4")]
+    manifest.append({**manifest[0], "frame": "000020", "ply": 1, "fen": _E4})
+    _jsonl(tmp_path / "ds" / "manifest.jsonl", manifest)
+    _jsonl(rec / "reviewed.jsonl", reviewed)
+    monkeypatch.setattr(mod, "ROOT", tmp_path / "recordings")
+    monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / "ds")
+    monkeypatch.setattr(mod, "ledger_paths", lambda name: sorted((tmp_path / "recordings").glob(f"*/{name}")),
+                        raising=False)
+    monkeypatch.setattr(mod, "open_packed_rows", lambda name, rows: (
+        np.zeros((len(rows), 4, 4, 3), np.uint8), {r["path"]: i for i, r in enumerate(rows)}))
+    new = {"e2": "empty", "e4": "wP"}
+    monkeypatch.setattr(mod.occluded_model, "all_reads",
+                        lambda run, crops: [{"pred_label": new[sq]} for sq in ("e2", "e4")][:len(crops)])
+    monkeypatch.setattr(sys, "argv", ["fix", "--hits", str(tmp_path / "hits.jsonl"), "--apply"])
+    return mod, rec / "corrections.jsonl"
+
+
+def test_ply_offset_never_overrides_a_reviewed_cell(tmp_path, monkeypatch):
+    reviewed = [{"session_id": "rg-s", "frame": "000010", "square": sq, "label": lab}
+                for sq, lab in (("e2", "wP"), ("e4", "empty"))]
+    mod, out = _ply_offset_env(tmp_path, monkeypatch, 0.0, reviewed)
+    mod.main()
+    assert not out.exists()
+
+
+def test_ply_offset_skips_unmeasured_coverage(tmp_path, monkeypatch):
+    mod, out = _ply_offset_env(tmp_path, monkeypatch, None, [])
+    mod.main()
+    assert not out.exists()
+
+
+def test_ply_offset_still_corrects_a_clean_unjudged_cell(tmp_path, monkeypatch):
+    mod, out = _ply_offset_env(tmp_path, monkeypatch, 0.0, [])
+    mod.main()
+    from chesslab.ioutil import read_jsonl
+
+    assert {(r["square"], r["label"]) for r in read_jsonl(out)} == {("e2", "empty"), ("e4", "wP")}
+
+
+# --- matte_audit_montage: dasselbe Raster wie `matte_audit` vor 5f4a85c9 -- ohne Rand, ohne Seite --
+
+def test_matte_montage_marks_the_square_the_audit_named(tmp_path, monkeypatch):
+    from PIL import Image
+
+    mod = _load("matte_audit_montage")
+    monkeypatch.chdir(tmp_path)
+    rec = tmp_path / "data" / "recordings" / "rec"
+    (rec / "boards").mkdir(parents=True)
+    Image.new("RGB", (952, 952)).save(rec / "boards" / "000005.webp")
+    _jsonl(tmp_path / "audit.jsonl", [{"session": "rec", "frame": "000005", "ply": 3, "squares": ["a1"]}])
+    entry = {"frame": "frames/000005.png", "board_size": 928, "board_border": 12}
+    monkeypatch.setattr(mod, "read_log", lambda d: [entry], raising=False)
+    monkeypatch.setattr(mod, "read_session_meta", lambda d: {}, raising=False)
+    monkeypatch.setattr(mod, "_profile_for_session",
+                        lambda meta, p: types.SimpleNamespace(white_pov=False), raising=False)
+    boxes = []
+    real_draw = mod.ImageDraw.Draw
+
+    def draw(img):
+        d = real_draw(img)
+        if img.size == (mod.TILE, mod.TILE):
+            monkeypatch.setattr(d, "rectangle", lambda box, **kw: boxes.append(box))
+        return d
+
+    monkeypatch.setattr(mod.ImageDraw, "Draw", draw)
+    monkeypatch.setattr(sys, "argv", ["m", "--audit", str(tmp_path / "audit.jsonl"),
+                                      "--out", str(tmp_path / "o.png")])
+    assert mod.main() == 0
+    scale = mod.TILE / 952
+    # Schwarz unten: a1 liegt OBEN RECHTS, eine Randbreite nach innen versetzt.
+    assert boxes[0][0] == pytest.approx((12 + 7 * 116) * scale)
+    assert boxes[0][1] == pytest.approx(12 * scale)
+
+
+# --- audit_montage: das Beispiel je Fall war auch ein ungemessener oder dunkler Crop ---------------
+
+def test_audit_montage_picks_a_measured_visible_crop(tmp_path, monkeypatch):
+    mod = _load("audit_montage")
+    (tmp_path / "audit.json").write_text(json.dumps(
+        {"rg-s": {"faelle": [{"square": "a8", "label": "bR", "model": "bN", "conf": 0.9, "n": 5}]}}),
+        encoding="utf-8")
+    rows = [{"session_id": "rg-s", "square": "a8", "label": "bR", "path": f"mm://s/{i}/a8", **extra}
+            for i, extra in enumerate(({"coverage": None}, {"coverage": 0.0, "brightness": 10.0},
+                                       {"coverage": 0.0, "brightness": 90.0}))]
+    _jsonl(tmp_path / "ds" / "manifest.jsonl", rows)
+    monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / "ds")
+    taken = []
+
+    class Pack:
+        def __getitem__(self, i):
+            taken.append(i)
+            return np.zeros((8, 8, 3), np.uint8)
+
+    monkeypatch.setattr(mod, "open_packed_rows",
+                        lambda name, man: (Pack(), {r["path"]: i for i, r in enumerate(man)}))
+    monkeypatch.setattr(sys, "argv", ["a", "--audit", str(tmp_path / "audit.json"),
+                                      "--out", str(tmp_path / "o.png")])
+    mod.main()
+    assert taken == [2]
+
+
+# === Runde 3 (2026-09-23): die vier offenen Punkte aus Nr. 50 =====================================
+
+# --- sweep_report: Rauschen aus dem Sweep selbst, gemittelt ueber 20 statt 5 Epochen --------------
+
+def _sweep(tmp_path, monkeypatch, capsys, arms: dict[str, list[float]]) -> dict[str, str]:
+    mod = _load("sweep_report")
+    axis = "val_visible_piece_acc"
+    for arm, vals in arms.items():
+        _jsonl(tmp_path / arm / "metrics.jsonl", [{"epoch": i, axis: v} for i, v in enumerate(vals)])
+    monkeypatch.setattr(sys, "argv", ["sweep_report", "--dir", str(tmp_path)])
+    assert mod.main() == 0
+    lines = capsys.readouterr().out.splitlines()
+    return {arm: next(line for line in lines if line.startswith(arm)) for arm in arms}
+
+
+def _wobble(level: float, amp: float, n: int = 20) -> list[float]:
+    return [level + (amp if i % 2 else -amp) for i in range(n)]
+
+
+def test_sweep_a_spike_in_the_last_five_epochs_is_no_effect(tmp_path, monkeypatch, capsys):
+    spike = [*_wobble(0.88, 0.02, 15), *[0.96] * 5]      # Mittel ueber 20: genau der Bezug
+    got = _sweep(tmp_path, monkeypatch, capsys, {"a": _wobble(0.90, 0.001), "b": spike})
+    assert "(im Rauschen)" in got["b"]
+
+
+def test_sweep_noise_comes_from_the_sweep_not_from_one_old_set(tmp_path, monkeypatch, capsys):
+    # Zwei ruhige Arme, 0,02 auseinander: gegen die feste 3 x 0,0157 hiess das "im Rauschen".
+    got = _sweep(tmp_path, monkeypatch, capsys, {"a": _wobble(0.90, 0.001), "b": _wobble(0.92, 0.001)})
+    assert "(im Rauschen)" not in got["b"]
+
+
+# --- benchmark_batch_aug: Varianten verschraenkt statt Block fuer Block ---------------------------
+
+def test_batch_aug_benchmark_interleaves_its_variants(monkeypatch):
+    mod = _load("benchmark_batch_aug")
+    clock, order = [0.0], []
+
+    def arm(name):
+        def aug(raw):
+            order.append(name)
+            clock[0] += 1.0 + len(order) / 1000   # der Rechner wird je Aufruf langsamer
+        return aug
+
+    monkeypatch.setattr(mod.time, "perf_counter", lambda: clock[0])
+    got = mod.time_variants({"a": arm("a"), "b": arm("b")}, None, lambda: None, calls=10)
+    assert order[:10] == ["a"] * 10 and order[10:30] == ["b"] * 20
+    assert got["a"]["median_ms"] == pytest.approx(got["b"]["median_ms"])
+    assert len(got["a"]["reps_ms"]) >= 2
+
+
+# --- pack_dataset_sessions: ein Pack, den ein Urteil ueberholt hat, hiess "have" -----------------
+
+def _pack_donor(tmp_path, monkeypatch):
+    from chesslab import config
+    from chesslab.training import pack_session
+    from test_bug_hunt_20260923_packstand import _unusable
+    from test_session_pack import _make_session, _pack_paths
+
+    sdir = _make_session(tmp_path)
+    paths = _pack_paths(tmp_path, monkeypatch)
+    (paths.datasets / "ds").mkdir(parents=True)
+    (paths.datasets / "ds" / "dataset.yaml").write_text("session_ids: [sess1]\n", encoding="utf-8")
+    _jsonl(paths.datasets / "ds" / "manifest.jsonl", [])
+    pack_session.write_session_pack("sess1", paths=paths)   # juenger als das Spender-Manifest
+    monkeypatch.setattr(config, "DATA", paths)
+    monkeypatch.setattr(sys, "argv", ["pack", "--dataset", "ds", "--size", "80", "--dry-run"])
+    return _load("pack_dataset_sessions"), lambda: _unusable(sdir)
+
+
+def test_pack_sessions_names_a_pack_a_verdict_overtook(tmp_path, monkeypatch, capsys):
+    mod, lock = _pack_donor(tmp_path, monkeypatch)
+    lock()
+    assert mod.main() == 1
+    out = capsys.readouterr().out
+    assert "VERDICT" in out and "0000/e1" in out and "--replace" in out
+
+
+def test_pack_sessions_a_current_pack_is_still_have(tmp_path, monkeypatch, capsys):
+    mod, _ = _pack_donor(tmp_path, monkeypatch)
+    assert mod.main() == 0
+    assert "have" in capsys.readouterr().out
+
+
+# --- reduce_video: ein Container ohne Bildrate wurde still zu 30 fps -----------------------------
+
+class _NoFpsCapture:
+    def __init__(self, _src):
+        self.props = {"CAP_PROP_FRAME_WIDTH": 64, "CAP_PROP_FRAME_HEIGHT": 32, "CAP_PROP_FPS": 0.0,
+                      "CAP_PROP_FRAME_COUNT": 0}
+
+    def isOpened(self):
+        return True
+
+    def get(self, prop):
+        import cv2
+
+        return next(v for k, v in self.props.items() if getattr(cv2, k) == prop)
+
+    def read(self):
+        return False, None
+
+    def release(self):
+        pass
+
+
+def _reduce_env(monkeypatch):
+    mod = _load("reduce_video")
+    writers = []
+
+    class Writer:
+        def __init__(self, _dst, _fourcc, fps, _size):
+            writers.append(fps)
+
+        def isOpened(self):
+            return True
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(mod.cv2, "VideoCapture", _NoFpsCapture)
+    monkeypatch.setattr(mod.cv2, "VideoWriter", Writer)
+    return mod, writers
+
+
+def test_reduce_video_refuses_a_missing_frame_rate(monkeypatch):
+    mod, writers = _reduce_env(monkeypatch)
+    assert mod.reduce("in.mp4", "out.mp4") == 1
+    assert writers == []
+
+
+def test_reduce_video_takes_an_explicit_frame_rate(monkeypatch):
+    mod, writers = _reduce_env(monkeypatch)
+    assert mod.reduce("in.mp4", "out.mp4", fps=24.0) == 0
+    assert writers == [24.0]

@@ -10,11 +10,10 @@
 2 src/chesslab/synth_build.py  # manifest/stats eines Synth-Baus, mehrzeilige Aufrufe
 2 src/chesslab/cli.py  # zwei Berichte eines Laufs an --json/--out, mehrzeilige Aufrufe
 2 src/chesslab/meshprep.py  # Scan-Berichte je Figur, ein Werkzeug, ein Aufruf
-2 src/chesslab/realgames.py  # Kandidaten-Datei und Payload, beide schon tmp+replace von Hand
+1 src/chesslab/realgames.py  # Payload, schon tmp+replace von Hand
 2 src/chesslab/training/evaluate.py  # config und model_card neben dem Lauf, mehrzeilige Aufrufe
 1 src/chesslab/dataset_build.py  # manifest.jsonl eines Baus, mehrzeiliger Aufruf
 1 src/chesslab/occluded_model.py  # STREAMT Zeile fuer Zeile in die tmp, weil die Inferenz Minuten laeuft
-1 src/chesslab/retime.py  # tmp+replace von Hand, Kandidaten-Datei
 1 src/chesslab/sensor_audit.py  # Bericht an --out, ein Aufruf
 1 src/chesslab/training/pack_session.py  # manifest eines Session-Packs; ein Pack ist unveraenderlich
 1 src/chesslab/work_audit.py  # Bericht, ein Schreiber

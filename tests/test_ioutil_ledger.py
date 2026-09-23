@@ -131,17 +131,6 @@ def test_a_torn_line_with_a_line_after_it_is_corruption(tmp_path):
         read_jsonl(path)
 
 
-def test_a_tail_that_ends_on_a_torn_cr_is_still_a_tail(tmp_path):
-    """Hier haengt `newline=""`: im Universal-Modus waere das abgerissene CR ein sauberer
-    Umbruch, und die halbe letzte Zeile saehe aus wie Beschaedigung. 1127 der 1329 `.jsonl`
-    auf dieser Platte tragen CRLF, ein erschlagener Schreiber endet also oft genau dort.
-    """
-    path = tmp_path / "matte.jsonl"
-    path.write_bytes(b'{"a": 1}\r\n{"b":\r')
-
-    assert read_jsonl(path) == [{"a": 1}]
-
-
 def test_the_same_torn_line_at_the_very_end_is_tolerated(tmp_path):
     """Gegenstueck: dieselbe halbe Zeile, nur ganz hinten — der Schreiber laeuft noch."""
     path = tmp_path / "matte.jsonl"

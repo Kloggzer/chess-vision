@@ -454,26 +454,6 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
             stats["skipped"] = skipped
 
 
-def recut_frames(prov: dict, wanted: dict[int, list[str]], out_size: tuple[int, int]
-                 ) -> Iterator[tuple[int, str, np.ndarray]]:
-    """Die gewuenschten Felder der gewuenschten Frames neu schneiden — aus der QUELLE.
-
-    Der Pool traegt 128 px fuer den Menschen; das Modell bekommt seine Zielgroesse mit genau
-    einem Resample statt ueber den Pool skaliert.
-    """
-    for idx, crops, _cov, _prof in composed_boards(
-            Path(prov["video"]), None if prov.get("clean") else Path(prov["plate_dir"]),
-            board_size=prov["board_size"],
-            out_size=out_size, stride=prov["stride"],
-            tiles_per_frame=tuple(prov["tiles_per_frame"]), seed=prov["seed"],
-            profile_name=prov["profile"], pad_side=prov.get("pad_side")):
-        if idx not in wanted:
-            continue
-        by_square = dict(zip(all_squares(), crops, strict=True))
-        for sq in wanted[idx]:
-            yield idx, sq, by_square[sq]
-
-
 def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Path, fen: str,
                      board_size: int = 0, out_size: tuple[int, int] = (128, 128),
                      stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),

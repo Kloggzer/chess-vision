@@ -35,6 +35,7 @@ from .calibration import (
     straighten_board,
     warp_board_for_crops,
 )
+from .cell_rule import PIECE_VISIBLE_MAX
 from .imgops import resize_keep_aspect
 from .ioutil import read_jsonl
 from .state import GameState
@@ -49,23 +50,7 @@ Corrections = dict[tuple[str, str, str], str]
 
 
 def _profile_for_session(meta: dict, profile: str | None):
-    """Resolve the calibration profile for a session; reconstruct for legacy ingests.
-
-    Older `chesslab ingest` runs built their placeholder profile only in memory and
-    never saved it — re-slicing such a session would fail. The warp uses the per-frame
-    `corners` from the log anyway, so a reconstructed placeholder is equivalent up to
-    the rectified resolution (ingest default board_size=900)."""
-    name = profile or meta["profile"]
-    try:
-        return load_profile(name)
-    except FileNotFoundError:
-        if meta.get("mode") != "ingested":
-            raise
-        from .ingest import ingestion_profile
-
-        print(f"[WARN] profile '{name}' missing — reconstructing the ingest placeholder "
-              "profile (board_size=900; warp uses per-frame corners).")
-        return ingestion_profile(name, board_size=900)
+    return load_profile(profile or meta["profile"])
 
 def label_to_fen_char(label: str) -> str | None:
     """Class label -> FEN piece letter ('wP'->'P', 'bN'->'n'); empty/occluded/empty -> None."""
@@ -236,7 +221,9 @@ def read_session_meta(session_dir: Path) -> dict:
 
 def read_log(session_dir: Path) -> list[dict]:
     from .ioutil import read_jsonl
+    from .sessions import refuse_interrupted_export
 
+    refuse_interrupted_export(session_dir)
     p = session_dir / "log.jsonl"
     if not p.exists():
         raise FileNotFoundError(f"log.jsonl missing in {session_dir}")
@@ -245,8 +232,7 @@ def read_log(session_dir: Path) -> list[dict]:
 
 def effective_profile(profile: CalibrationProfile, pad_side) -> CalibrationProfile:
     """A COPY of `profile` with the pad overridden — the one way to cut at a box the profile
-    does not hold. Used by `slice --pad-side` and by serving, where the pad belongs to the MODEL
-    (`serving.crops_for_model`, specs/45)."""
+    does not hold. Used by `slice --pad-side` and wherever the pad belongs to the MODEL (specs/45)."""
     prof = copy.deepcopy(profile)
     if pad_side is not None:
         prof.crop.pad_side = float(pad_side)
@@ -344,9 +330,9 @@ def load_corrections(path: Path, into: Corrections | None = None) -> Corrections
     return out
 
 
-#: A square this covered is no longer a piece example (`training/occlusion.PIECE_VISIBLE_MAX`),
-#: so a frame carrying one is as dirty as one the tracker flagged — whatever the log says.
-MATTE_DIRTY = 0.15
+#: A square this covered is no longer a piece example, so a frame carrying one is as dirty
+#: as one the tracker flagged — whatever the log says. The loss's own cut, not a copy.
+MATTE_DIRTY = PIECE_VISIBLE_MAX
 
 
 def ledger_paths(name: str = "corrections.jsonl", paths=None) -> list[Path]:

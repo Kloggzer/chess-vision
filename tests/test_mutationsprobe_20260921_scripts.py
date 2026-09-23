@@ -15,7 +15,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -75,36 +74,6 @@ def test_commit_lag_erfindet_keine_zeitbasis(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="clock.fps"):
         commit_lag.reference("eins")
-
-
-def test_lean_probe_schneidet_wie_der_kanonische_schnitt():
-    """Die Sonde rasterte das GESPEICHERTE Brett bei 0 und klammerte am Rand.
-
-    Gemessen auf `board_size` 928 + Rand 12: d8 kam als (342, 0, 470, 122) statt (354, 6, 482,
-    134) — 12 px Versatz und eine um 6 px gestauchte Box, genau auf der Reihe, deren Ueberhang
-    die Sonde messen soll.
-    """
-    import lean_probe
-    from tests.conftest import make_profile
-
-    from chesslab.calibration import crop_border_px, square_to_crop_box
-    from chesslab.labeling import crop_square
-
-    prof = make_profile(928)
-    b = crop_border_px(prof)
-    n = int(prof.board_size) + 2 * b
-    rng = np.random.default_rng(7)
-    board = rng.integers(0, 255, (n, n, 3), dtype=np.uint8)
-
-    for sq in ("a8", "d8", "h1", "e4"):
-        x0, y0, x1, y1 = square_to_crop_box(sq, prof, clamp=False)
-        mein = lean_probe.cut(board, x0 + b, y0 + b, x1 + b, y1 + b)
-        kanonisch = crop_square(board, sq, prof, (mein.shape[1], mein.shape[0]))
-
-        assert mein.shape == kanonisch.shape, sq
-        assert np.array_equal(mein, kanonisch), sq
-        # `clamp=True` machte die Randbox kleiner statt sie schwarz aufzufuellen.
-        assert mein.shape[:2] == (y1 - y0, x1 - x0), sq
 
 
 def test_occlusion_gate_meldet_seine_absage_auch_im_exitcode():

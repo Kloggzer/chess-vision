@@ -14,9 +14,19 @@ from pathlib import Path
 import numpy as np
 
 from .. import config
-from ..ioutil import read_jsonl
+from ..ioutil import read_jsonl, write_json
 from . import packs
 from .pack import decode_crop
+
+#: The human ledgers a pack freezes at cut time; `dataset_build` compares this stamp before it cites.
+LEDGERS = ("unusable-cells.jsonl", "corrections.jsonl")
+LEDGER_STAMP = "ledgers.json"
+
+
+def ledger_stamps(session_path: Path) -> dict[str, str | None]:
+    from ..provenance import file_stamp
+
+    return {n: file_stamp(session_path / n) for n in LEDGERS}
 
 
 def _gb(n: int, h: int, w: int) -> float:
@@ -34,10 +44,12 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
     name = f"{session_id}-{size}"
     session_path, _ = session_dir(session_id, paths)
     prof = _profile_for_session(read_session_meta(session_path), profile)
+    # BEFORE the cut: a verdict written while it runs then reads as a mismatch, never as frozen.
+    stamp = {"ledgers": ledger_stamps(session_path)}
     crops = ((crop[:, :, ::-1], row) for crop, row in
              iter_session_crops(session_path, profile=prof, pad_side=pad_side,
                                 out_size=(size, size)))
-    return _cut(name, size, crops, f"session {session_id}", paths, replace)
+    return _cut(name, size, crops, f"session {session_id}", paths, replace, stamp)
 
 
 def write_pool_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *, pool: str,
@@ -56,7 +68,8 @@ def write_pool_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *, poo
     return _cut(name, size, crops, f"session {session_id} in pool {pool}", paths, replace)
 
 
-def _cut(name: str, size: int, crops, what: str, paths: config.Paths, replace: bool) -> dict:
+def _cut(name: str, size: int, crops, what: str, paths: config.Paths, replace: bool,
+         stamp: dict | None = None) -> dict:
     """`_write_rows` into a fresh directory; with `replace`, over an existing pack.
 
     The old pack is only removed once the new one is complete — an interrupted rewrite must never
@@ -73,6 +86,8 @@ def _cut(name: str, size: int, crops, what: str, paths: config.Paths, replace: b
     out_dir.mkdir(parents=True)
     try:
         res = _write_rows(name, out_dir, size, crops, what)
+        if stamp is not None:
+            write_json(out_dir / LEDGER_STAMP, stamp)
     except BaseException:
         shutil.rmtree(out_dir, ignore_errors=True)
         if old:

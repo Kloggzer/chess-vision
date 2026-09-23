@@ -144,14 +144,14 @@ def write_rows(path: Path, rows: Iterable[dict], *,
 
 
 def write_rows_guarded(path: Path, rows: Iterable[dict], stamp: tuple[int, int] | None,
-                       *, what: str) -> int:
+                       *, what: str, default: Callable[[object], object] | None = None) -> int:
     """Nur schreiben, solange die Datei die ist, an der die Arbeit begann.
 
     Zweimal geprueft, davor und unmittelbar vor dem Umhaengen: das Neuschneiden dauert Minuten
     und das Serialisieren noch Sekunden, und in beiden Fenstern haengt der Alpha-Worker an.
     """
     path = Path(path)
-    text = rows_text(list(rows))
+    text = rows_text(list(rows), default=default)
     tmp = _side_file(path)
     try:
         if stamp_of(path) != stamp:
@@ -168,6 +168,24 @@ def write_rows_guarded(path: Path, rows: Iterable[dict], stamp: tuple[int, int] 
 
 def write_json(path: Path, obj: object, *, indent: int | None = 2) -> None:
     write_atomic(path, json.dumps(obj, indent=indent, ensure_ascii=False) + "\n")
+
+
+def write_json_guarded(path: Path, obj: object, stamp: tuple[int, int] | None, *, what: str,
+                       indent: int | None = 2) -> None:
+    """`write_json` mit dem Riegel von `write_rows_guarded`: `Contested`, statt ein Urteil zu ersetzen."""
+    path = Path(path)
+    text = json.dumps(obj, indent=indent, ensure_ascii=False) + "\n"
+    tmp = _side_file(path)
+    try:
+        if stamp_of(path) != stamp:
+            raise Contested(what)
+        tmp.write_text(text, encoding="utf-8")
+        if stamp_of(path) != stamp:
+            raise Contested(what)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def append_rows(path: Path, rows: Iterable[dict]) -> int:

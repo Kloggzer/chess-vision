@@ -17,12 +17,6 @@ from chesslab import ingest as ig
 
 # --- reine Helfer ------------------------------------------------------------------------
 
-def test_fen_from_squares_places_pieces_on_correct_ranks():
-    fen = ig.fen_from_squares({"e1": "K", "e8": "k", "e4": "P", "a1": "R"})
-    assert fen.split()[0] == "4k3/8/8/8/4P3/8/8/R3K3"
-    assert fen.endswith(" w - - 0 1")
-
-
 def test_to_full_fen_completes_placement_only():
     assert ig.to_full_fen("8/8/8/8/8/8/8/8") == "8/8/8/8/8/8/8/8 w - - 0 1"
     full = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -129,20 +123,3 @@ def test_run_ingest_profiles_every_major_stage(tmp_path, monkeypatch):
         "slice board crop batches", "FEN label expansions", "WebP crop batches",
         "WebP encoding CPU", "full manifest rewrites",
     } <= operations.keys()
-
-def test_profile_for_session_reconstructs_legacy_ingest(tmp_path, monkeypatch):
-    """Legacy ingested sessions (profile never saved) must still be sliceable."""
-    import pytest
-
-    from chesslab import config
-    from chesslab.labeling import _profile_for_session
-
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-
-    meta = {"profile": "pretrain-x", "mode": "ingested"}
-    prof = _profile_for_session(meta, None)
-    assert prof.profile == "pretrain-x" and prof.board_size == 900 and prof.margin == [0.0] * 4
-
-    # non-ingested sessions still raise on a missing profile
-    with pytest.raises(FileNotFoundError):
-        _profile_for_session({"profile": "gone", "mode": "pgn"}, None)

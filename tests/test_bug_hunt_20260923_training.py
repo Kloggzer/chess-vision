@@ -261,16 +261,6 @@ def test_auroc_ties_take_average_ranks():
     assert confidence_auroc([0, 0, 0, 0], [1, 0, 1, 0], [0.7] * 4) == pytest.approx(0.5)
 
 
-def test_coverage_precision_without_a_single_call_is_unmeasured():
-    """M10 (ungedeckt; `coverage_metrics` hat in `src/` keinen Aufrufer mehr)."""
-    from chesslab.training.occlusion import coverage_metrics
-
-    logits = torch.full((2, 3), -9.0)
-    target = torch.tensor([[0.0, 0.9], [1.0, 0.0]])
-
-    assert coverage_metrics(logits, target)["occ_precision"] is None
-
-
 def test_a_board_model_is_graded_in_the_datasets_row_order(tmp_path, paths, monkeypatch):
     """M53 (ungedeckt): der Brettdatensatz sortiert um; die Maske gilt fuer SEINE Reihenfolge."""
     from chesslab.training import engine, evaluate, pack, torch_data

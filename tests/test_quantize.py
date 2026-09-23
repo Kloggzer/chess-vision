@@ -1,7 +1,7 @@
 """INT8/QDQ export — the calibration set and the shipped graph's contract (specs/26 phase 02).
 
 What this file does NOT test is the thing that actually decides: whether the quantized graph is
-phantom-free. That is `scripts/score_onnx.py` against `occ-real6` test, and it needs the corpus.
+phantom-free. That needs the regression set and the corpus.
 The two tests here guard the preconditions that made a bad export possible in the first place —
 a calibration set that only ever saw `empty`, and a quantized graph that silently disagrees with
 the float one about its own input.

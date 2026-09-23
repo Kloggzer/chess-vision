@@ -444,8 +444,7 @@ def upsert_proposals(session_id, *, method="local"):
     kept_rows = [r for r in rows_before if r.get("source") not in ("upsert", "merged")]
     replaced = len(rows_before) - len(kept_rows)
     mattes = recording / "mattes"
-    for backup in mattes.glob("*.sam.webp"):
-        backup.replace(mattes / backup.name.replace(".sam.webp", ".webp"))
+    backups = {p.name.removesuffix(".sam.webp") for p in mattes.glob("*.sam.webp")}
     # Punkt 28, wie `sam_matte`: SAMs Absage ist die JUENGERE Aussage und nimmt die fruehere
     # Messung zurueck. Als blosser Filter gelesen blieb die alte Zahl stehen und zaehlte als
     # `sam_found` — ein Fund, den niemand gemessen hat.
@@ -454,49 +453,83 @@ def upsert_proposals(session_id, *, method="local"):
     stamp = provenance.source(recording)
     upserted, found, fixed = 0, 0, 0
     fresh = []
-    for row in read_jsonl(report):
-        stem, entry = row["frame"], entries.get(row["frame"])
-        if not row.get("alpha") or entry is None or stem not in sam:
-            continue
-        if (mattes / f"{stem}{FIXED_SUFFIX}").is_file():
-            fixed += 1
-            continue
-        if max(sam[stem]["coverage"].values(), default=0.) > MATTE_DIRTY:
-            found += 1
-            continue
-        alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
-        coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
-        # Dieselbe Schwelle wie oben: `solid` war ein zweiter, undokumentierter Schnitt
-        # fuer dieselbe Entscheidung, den nie ein Aufrufer gesetzt hat.
-        if max(coverage.values()) <= MATTE_DIRTY:
-            continue
-        target = mattes / f"{stem}.webp"
-        if target.is_file():
-            target.replace(mattes / f"{stem}.sam.webp")
-        if not cv2.imwrite(str(target), alpha):
-            raise OSError(f"Cannot write matte for {stem}")
-        fresh.append({"frame": stem, "ply": entry.get("ply"),
-                      "dirty_reason": entry.get("dirty_reason"), "source": "upsert",
-                      "merged_at": stamp_now,
-                      **({"_source": stamp} if stamp else {}),
-                      "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                      "coverage": coverage,
-                      "cells_over_half": sum(v > .5 for v in coverage.values())})
-        upserted += 1
-    write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
-                       what=_CONTESTED.format(what="upserting"))
+    # Wie `close_seams`: die Alphas gehen in Nachbardateien und werden erst umgehaengt, wenn der
+    # Ledger steht. Vorher trug nach einem `Contested` die Datei SAMs Alpha, der Ledger unsere Coverage.
+    staged: dict[str, Path] = {}
+    try:
+        for row in read_jsonl(report):
+            stem, entry = row["frame"], entries.get(row["frame"])
+            if not row.get("alpha") or entry is None or stem not in sam:
+                continue
+            if (mattes / f"{stem}{FIXED_SUFFIX}").is_file():
+                fixed += 1
+                continue
+            if max(sam[stem]["coverage"].values(), default=0.) > MATTE_DIRTY:
+                found += 1
+                continue
+            alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
+            coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
+            # Dieselbe Schwelle wie oben: `solid` war ein zweiter, undokumentierter Schnitt
+            # fuer dieselbe Entscheidung, den nie ein Aufrufer gesetzt hat.
+            if max(coverage.values()) <= MATTE_DIRTY:
+                continue
+            tmp = mattes / f"{stem}.tmp.webp"
+            if not cv2.imwrite(str(tmp), alpha):
+                raise OSError(f"Cannot write matte for {stem}")
+            staged[stem] = tmp
+            fresh.append({"frame": stem, "ply": entry.get("ply"),
+                          "dirty_reason": entry.get("dirty_reason"), "source": "upsert",
+                          "merged_at": stamp_now,
+                          **({"_source": stamp} if stamp else {}),
+                          "concepts": {"temporal": round(row["fraction_above_half"], 4)},
+                          "coverage": coverage,
+                          "cells_over_half": sum(v > .5 for v in coverage.values())})
+            upserted += 1
+        write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                           what=_CONTESTED.format(what="upserting"))
+    except BaseException:
+        for tmp in staged.values():
+            tmp.unlink(missing_ok=True)
+        raise
+    _publish_upserts(mattes, backups, staged)
     return {"path": matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
             "replaced": replaced}
 
 
-def write_pass_report(session_id, report: dict) -> Path:
-    """Der Nachweis des Durchlaufs — gestempelt auf den Export, zu dem seine Zahlen gehoeren."""
+def pass_inputs(session_id) -> dict:
+    """Was der Pass ausser dem Log las: `matte.jsonl` und die Eingaben seines Scans (`source_stamp`).
+
+    Nach dem letzten eigenen Schreiben nehmen: spaetere SAM-Zeilen hat kein Upsert gesehen.
+    """
+    recording, _ = session_dir(session_id)
+    try:
+        scan = source_stamp(recording)
+    except OSError:
+        return {}
+    return {"matte": provenance.file_stamp(recording / "matte.jsonl"), "scan": scan}
+
+
+def _publish_upserts(mattes: Path, backups: set[str], staged: dict[str, Path]) -> None:
+    """Frueheres Upsert zurueck auf SAMs Alpha, dann das neue davor; SAMs Datei bleibt `.sam.webp`."""
+    for stem in backups - staged.keys():
+        (mattes / f"{stem}.sam.webp").replace(mattes / f"{stem}.webp")
+    for stem, tmp in staged.items():
+        target = mattes / f"{stem}.webp"
+        if stem not in backups and target.is_file():
+            target.replace(mattes / f"{stem}.sam.webp")
+        tmp.replace(target)
+
+
+def write_pass_report(session_id, report: dict, inputs: dict | None = None) -> Path:
+    """Der Nachweis des Durchlaufs — gestempelt auf die Eingaben, zu denen seine Zahlen gehoeren."""
     recording, _ = session_dir(session_id)
     path = config.DATA.reports / "temporal-mattes" / recording.name / "pass.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    # `chain.ts` vergleicht den `_source` dieser Datei gegen die `log.jsonl`. Eine halbe
-    # Datei ist kein JSON, und die Sprosse laesst sich dann weder oeffnen noch schliessen.
-    write_atomic(path, json.dumps({**report, "_source": provenance.source(recording)}))
+    # `chain.ts` vergleicht `_source` und `_inputs` dieser Datei. Eine halbe Datei ist kein
+    # JSON, und die Sprosse laesst sich dann weder oeffnen noch schliessen.
+    seen = pass_inputs(session_id) if inputs is None else inputs
+    write_atomic(path, json.dumps({**report, "_source": provenance.source(recording),
+                                   **({"_inputs": seen} if seen else {})}))
     return path
 
 

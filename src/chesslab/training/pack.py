@@ -239,31 +239,6 @@ def cut_plan(rows: list[dict]) -> tuple[list[tuple[int, str]], dict]:
     return files, at
 
 
-def pack_from_source(indexed: list[tuple[int, dict]], prov: dict, img_path: Path,
-                     wh: tuple[int, int]) -> int:
-    """Die Zeilen aus der QUELLE schneiden statt aus dem 128er Pool zu skalieren.
-
-    Geschrieben wird mit `seek`, nicht ueber ein Memmap-Fenster: nach Split liegen die Zeilen
-    eines Clips verstreut, ein Fenster ueber min..max waere fast die ganze Datei.
-    """
-    from ..composite import recut_frames
-
-    w, h = wh
-    crop_bytes = h * w * 3
-    at: dict[str, dict[int, list[str]]] = {}
-    where: dict[tuple[str, int, str], int] = {}
-    for i, r in indexed:
-        clip, frame, sq = r["split_group"], int(r["frame"]), r["square"]
-        at.setdefault(clip, {}).setdefault(frame, []).append(sq)
-        where[(clip, frame, sq)] = i
-    def cuts():
-        for clip, wanted in at.items():
-            for frame, sq, crop in recut_frames(prov[clip], wanted, (w, h)):
-                yield where[(clip, frame, sq)], crop
-
-    return write_crops(img_path, crop_bytes, cuts())
-
-
 def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | None = None,
                  out_size: tuple[int, int] | None = None) -> dict:
     """Decode every crop of dataset ``name`` once into a single (N,H,W,3) uint8 memmap (parallel).

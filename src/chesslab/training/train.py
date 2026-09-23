@@ -403,7 +403,7 @@ def _trainings_ahead_of_us() -> list[dict]:
     """Die Laeufe, die vor uns dran waren, falls wir ueber der Grenze liegen — sonst leer.
 
     Slot-Locks kennen einander nicht: `CHESSLAB_TRAIN_SLOT` gibt jedem Lauf eine EIGENE Datei
-    und der Guard in `scripts/sweep_architectures.sh` prueft nur den eigenen Slot. So starteten
+    und der Guard im (2026-09-23 geloeschten) Sweep-Skript pruefte nur den eigenen Slot. So starteten
     am 2026-08-29 drei Laeufe (C/D/E, 0,8 s auseinander) auf einer Maschine, die zwei traegt.
 
     Entschieden wird nach `startedAt`, der spaeteste tritt zurueck. Das haelt auch dem Rennen
@@ -499,7 +499,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               aug_scale: float | None = None,
               pretrained: bool | None = None,
               no_empty_cap: bool = False,
-              neighbour_p: float | None = None) -> int:
+              neighbour_p: float | None = None,
+              strict_verdicts: bool = False) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -629,6 +630,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
+    from ..dataset_build import check_verdicts
+
+    try:
+        verdicts = check_verdicts(manifest, split["splits"], strict=strict_verdicts)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        return 1
     classes = split["classes"]
     # `occlusion` shares the final linear layer and reads its LAST unit as the coverage logit —
     # one output tensor, so the exported graph keeps its shape (`evaluate.ONNX_BATCH`).
@@ -1245,6 +1253,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                                 dmin if occluding else None, coverage_weight),
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),
+        # Rows a later human verdict overruled, trained on as built (`dataset_build.check_verdicts`).
+        "verdict_conflicts": verdicts,
     }
     metrics_path = run_dir / "metrics.jsonl"
 
@@ -1486,13 +1496,26 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         eligible = cal["classification_eligible"]
         temp = fit_temperature(cal.get("logits")[eligible], cal["trues"][eligible],
                                n_classes=len(classes))
-        cfg_path = run_dir / "config.json"
-        cfg_now = json.loads(cfg_path.read_text(encoding="utf-8"))
-        cfg_now["temperature"] = round(temp, 4)
-        write_json(cfg_path, cfg_now)
+        _record_temperature(run_dir / "config.json", temp)
         wrong = cal["conf_wrong"]
         print(f"[OK] Temperatur {temp:.3f} auf val angepasst -> config.json "
               f"(conf auf Fehlern {'—' if wrong is None else format(wrong, '.3f')})")
     except Exception as e:  # noqa: BLE001 — Kalibrierung darf keinen Lauf kippen
-        print(f"[WARN] Temperatur nicht angepasst: {e}")
+        print(f"[WARN] Temperatur nicht angepasst: {e} -> temperature_error in config.json")
+        _record_temperature(run_dir / "config.json", None, e)
     return 0
+
+
+def _record_temperature(cfg_path: Path, temp: float | None, err: Exception | None = None) -> None:
+    """Absent reads as 1,0 on the device, so a failed fit leaves `temperature_error` instead."""
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        if err is None:
+            cfg["temperature"] = round(temp, 4)
+            cfg.pop("temperature_error", None)
+        else:
+            cfg.pop("temperature", None)
+            cfg["temperature_error"] = f"{type(err).__name__}: {err}"
+        write_json(cfg_path, cfg)
+    except (OSError, ValueError) as e:
+        print(f"[WARN] config.json nicht geschrieben ({cfg_path}): {e}")

@@ -7,7 +7,6 @@ exports in a scan directory, pick textures, and assess quality reports from
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,15 +44,6 @@ _MAX_NONMANIFOLD = 500
 _MIN_VERTS = 1000               # suspiciously few vertices
 _HEIGHT_RATIO_RANGE = (0.9, 4.0)  # Height/Base — outside: upright check (knight!)
 _MIN_CENTER_COMPONENT_FRAC = 0.5  # below ⇒ figure fragmented across multiple components
-
-
-def normalize_name(raw: str) -> str:
-    """Normalize piece name to canonical form: lowercase prefix + UPPER type letter.
-
-    ``WQ`` / ``wq`` → ``wQ``, ``BK`` / ``bk`` → ``bK``, ``P`` → ``wP`` (no-prefix = white).
-    """
-    parsed = parse_piece_name(raw)
-    return parsed[0] if parsed else raw
 
 
 def is_bare_piece(raw: str) -> bool:
@@ -231,11 +221,3 @@ def assess_report(report: dict) -> tuple[str, list[str]]:
             "figure fragmented across multiple components")
 
     return ("warn" if msgs else "ok"), msgs
-
-
-def load_report(out_dir: Path, name: str) -> dict | None:
-    """Load a previously written ``<name>_report.json``, or *None*."""
-    p = Path(out_dir) / f"{name}_report.json"
-    if not p.exists():
-        return None
-    return json.loads(p.read_text(encoding="utf-8"))

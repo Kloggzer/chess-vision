@@ -1,4 +1,4 @@
-"""Canonical inference entry point: run specification, loading, crops & prediction.
+"""Canonical inference entry point: run specification, loading & prediction.
 
 This is the **only** supported public facade for model inference.
 Consumers (CLI evaluation, the training sweeps, anything that reads a model)
@@ -8,7 +8,6 @@ used as during training — thus train/serve parity is guaranteed.
 Rules:
 - torch/PIL only lazy-imported in function bodies (ROCm-Windows: CLI/web must start
   without GPU stack).
-- Geometry implementation stays in `labeling` (no copy).
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config, labeling
+from . import config
 
 log = logging.getLogger("chesslab.serving")
 
@@ -184,32 +183,6 @@ def load_run(run_dir: Path, device: str = "cpu", weights: str | None = None):
     model.eval().to(device)
     _CACHE[key] = (model, cfg)
     return model, cfg
-
-
-# ---------------------------------------------------------------------------
-# Crops
-# ---------------------------------------------------------------------------
-
-
-def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[np.ndarray]:
-    """64 BGR crops (order `labeling.all_squares()`) for one frame, cut as the given `RunSpec`
-    declares.
-
-    Crops come out at `spec.infer_size` — the size the network takes, NOT the size the training
-    crops on disk were built at. The square is cut out of the warped board straight at that size,
-    so there is no intermediate 128 px step and nothing is resampled twice (specs/22).
-
-    The BOX is the model's too, when it declares one (`spec.pad_side`, specs/45): the
-    profile says where the board is, the model says how much around each square its examples
-    carried. A run that declares nothing keeps the profile's pad — legacy, and the caller is the
-    one that has to say so.
-
-    Thin wrapper around `labeling.crops_for_frame` — the geometry implementation
-    stays there (single source of truth).
-    """
-    if spec.pad_side is not None:
-        profile = labeling.effective_profile(profile, spec.pad_side)
-    return labeling.crops_for_frame(frame, corners, profile, out_size=spec.infer_size)
 
 
 # ---------------------------------------------------------------------------
@@ -454,8 +427,6 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
             entry["probs"] = [round(float(p), 6) for p in probs_np[i]]
         results.append(entry)
     return results
-
-
 
 
 # ---------------------------------------------------------------------------

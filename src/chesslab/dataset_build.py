@@ -443,8 +443,128 @@ def keep_per_position(rows: list[dict], per_position: int) -> list[dict]:
     return [r for r in rows if str(r["frame"]) in keep[r["session_id"]]]
 
 
+def _ledger_hits(sdir: Path, rows: list[dict]) -> tuple[list[str], list[str]]:
+    """Pack rows today's human ledgers contradict: `(locked unusable, relabelled)` as frame/square."""
+    from .labeling import read_corrections, read_unusable_cells
+
+    locked, relabel = read_unusable_cells(sdir), read_corrections(sdir)
+    unusable: list[str] = []
+    changed: list[str] = []
+    for r in rows:
+        key = (r["session_id"], str(r["frame"]), r["square"])
+        if key in locked:
+            unusable.append(f"{key[1]}/{key[2]}")
+        elif key in relabel and relabel[key] != r["label"]:
+            changed.append(f"{key[1]}/{key[2]}")
+    return unusable, changed
+
+
+def _ledger_dir(sid: str, paths: config.Paths) -> Path | None:
+    """The directory holding `sid`'s human ledgers; None for a composite/turntable, which has none."""
+    from .sessions import session_dir
+
+    try:
+        return session_dir(sid, paths)[0]
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def verdict_conflicts(rows: list[dict], splits: dict[str, list[str]],
+                      paths: config.Paths | None = None, examples: int = 5) -> dict:
+    """Rows of a FINISHED dataset that today's human ledgers contradict, counted per split.
+
+    Reads each session's ledgers once and no crop. Counts rows, not cells: that is what trains.
+    """
+    paths = paths or config.DATA
+    where = {s: k for k, sids in splits.items() for s in sids}
+    by_sid: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        if r.get("session_id") and "frame" in r and "square" in r:
+            by_sid[r["session_id"]].append(r)
+    per: dict[str, dict] = {}
+    unchecked = 0
+    for sid, srows in sorted(by_sid.items()):
+        sdir = _ledger_dir(sid, paths)
+        if sdir is None:
+            unchecked += 1
+            continue
+        unusable, changed = _ledger_hits(sdir, srows)
+        if not (unusable or changed):
+            continue
+        k = per.setdefault(where.get(sid, "unsplit"),
+                           {"unusable": 0, "relabelled": 0, "examples": []})
+        k["unusable"] += len(unusable)
+        k["relabelled"] += len(changed)
+        k["examples"] += [f"{sid} {c} ({why})" for why, cs in (("unusable", unusable),
+                                                                ("relabelled", changed))
+                          for c in cs][:examples - len(k["examples"])]
+    return {"rows": sum(v["unusable"] + v["relabelled"] for v in per.values()),
+            "per_split": per, "sessions_without_ledger": unchecked}
+
+
+def check_verdicts(rows: list[dict], splits: dict[str, list[str]], *, strict: bool,
+                   paths: config.Paths | None = None) -> dict:
+    """`train`/`eval` start: say out loud what a human overruled; `strict` refuses instead.
+
+    No filtering — dropping rows would change the recipe and break comparison with the archive.
+    """
+    found = verdict_conflicts(rows, splits, paths)
+    for split, v in sorted(found["per_split"].items()):
+        print(f"[verdict] {split}: {v['unusable']} row(s) locked unusable, {v['relabelled']} "
+              f"relabelled by a human after the dataset was built (e.g. {', '.join(v['examples'])})")
+    if found["rows"] and strict:
+        raise ValueError(f"{found['rows']} dataset row(s) contradict a human verdict "
+                         f"(--strict-verdicts) — rebuild the dataset from recut packs.")
+    if found["rows"]:
+        print(f"[verdict] {found['rows']} row(s) used AS BUILT; recorded as `verdict_conflicts`.")
+    return found
+
+
+def _stale_packs(chosen: dict[str, tuple[str, list[dict]]], w: int, paths: config.Paths,
+                 allow: bool) -> list[str]:
+    """Refuse a pack a human verdict has overtaken since the cut; returns the ones `allow` let by.
+
+    A matching `ledgers.json` stamp spares the read. A pack without one is checked by CONTENT —
+    "unstamped counts as fresh" is how 13 locked cells stayed in 14 packs (2026-09-23).
+    """
+    from .provenance import same_log
+    from .training import packs
+    from .training.pack_session import LEDGER_STAMP, ledger_stamps
+
+    stale: list[str] = []
+    problems: list[str] = []
+    for sid, (name, rows) in chosen.items():
+        sdir = _ledger_dir(sid, paths)
+        if sdir is None:
+            continue
+        try:
+            then = json.loads((packs.pack_dir(name, paths) / LEDGER_STAMP)
+                              .read_text(encoding="utf-8"))["ledgers"]
+        except (OSError, ValueError, KeyError, TypeError):
+            then = None
+        if then is not None and all(
+                a == b or (a is not None and b is not None and same_log(a, b))
+                for a, b in ((then.get(n), s) for n, s in ledger_stamps(sdir).items())):
+            continue
+        unusable, changed = _ledger_hits(sdir, rows)
+        if not (unusable or changed):
+            continue
+        stale.append(name)
+        problems.append(
+            f"pack {name}: {len(unusable)} cell(s) marked unusable and {len(changed)} cell(s) "
+            f"relabelled by a human since it was cut (e.g. {(unusable + changed)[0]}) — recut "
+            f"with `chesslab session pack --session {sid} --size {w} --replace`")
+    if problems and not allow:
+        raise ValueError("\n".join([f"{len(stale)} pack(s) contradict a human verdict and would "
+                                    f"train on it:", *problems,
+                                    "Only `allow_stale_packs=True` builds on them anyway."]))
+    for line in problems:
+        print(f"[stale] {line} — ALLOWED, recorded under `stale_packs`")
+    return stale
+
+
 def _pack_manifests(session_ids: Sequence[str], pack_size: tuple[int, int],
-                    paths: config.Paths) -> list[Path]:
+                    paths: config.Paths, allow_stale: bool = False) -> tuple[list[Path], list[str]]:
     """One pack manifest per requested session, at `pack_size` (W, H).
 
     `list_packs` owns the layout, so a pack's session comes from its manifest's first row rather
@@ -457,6 +577,7 @@ def _pack_manifests(session_ids: Sequence[str], pack_size: tuple[int, int],
     wanted = set(session_ids)
     found: dict[str, Path] = {}
     names: dict[str, str] = {}
+    chosen: dict[str, tuple[str, list[dict]]] = {}
     for ref in packs.list_packs(paths):
         if (ref.shape[2], ref.shape[1]) != tuple(pack_size):
             continue
@@ -470,12 +591,14 @@ def _pack_manifests(session_ids: Sequence[str], pack_size: tuple[int, int],
             raise ValueError(f"two {w}x{h} packs claim session {sid}: {names[sid]} and "
                              f"{ref.name} — delete the one this build must not cite.")
         found[sid], names[sid] = mp, ref.name
+        chosen[sid] = (ref.name, rows)
     missing = [s for s in session_ids if s not in found]
     if missing:
         raise ValueError(
             f"no {w}x{h} pack for session(s) {', '.join(missing)} — write one with "
             f"`chesslab session pack --session {missing[0]} --size {w}`.")
-    return [found[s] for s in session_ids]
+    stale = _stale_packs(chosen, w, paths, allow_stale)
+    return [found[s] for s in session_ids], stale
 
 
 def build_dataset(
@@ -503,6 +626,8 @@ def build_dataset(
     write_pack: bool = True,
     pack_size: tuple[int, int] | None = None,
     from_packs: bool = False,
+    #: Build on packs a later human verdict contradicts. Never a default: the rows would train on it.
+    allow_stale_packs: bool = False,
     #: None means "unspecified": `--like` then supplies the donor's, otherwise it is `pieces`.
     class_mode: str | None = None,
 ) -> dict:
@@ -570,7 +695,7 @@ def build_dataset(
             raise ValueError("--from-packs and --source-manifest name two different sources; "
                              "the packs win and the pool would be silently ignored. Pick one.")
         pack_size = pack_size or (packs.DEFAULT_PACK_SIDE, packs.DEFAULT_PACK_SIDE)
-        srcs = _pack_manifests(session_ids, pack_size, paths)
+        srcs, stale_packs = _pack_manifests(session_ids, pack_size, paths, allow_stale_packs)
     elif not source_manifest:
         srcs = [paths.crop_pool / "manifest.jsonl"]
     elif isinstance(source_manifest, (str, Path)):
@@ -720,6 +845,8 @@ def build_dataset(
     if from_packs:
         from .training import packs
         cfg[packs.PACKS_KEY] = list(dict.fromkeys(packs.pack_name_of(r["path"]) for r in rows))
+        if stale_packs:
+            cfg["stale_packs"] = stale_packs
     import yaml
     (ds / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                      encoding="utf-8")
@@ -769,17 +896,6 @@ def list_datasets(paths: config.Paths | None = None) -> list[dict]:
             "created_at": cfg.get("created_at"),
         })
     return out
-
-
-def get_dataset(name: str, paths: config.Paths | None = None) -> dict:
-    d = dataset_dir(name, paths)
-    if not (d / "dataset.yaml").exists():
-        raise FileNotFoundError(f"dataset '{name}' not found.")
-    cfg = _read_yaml(d / "dataset.yaml")
-    stats = json.loads((d / "stats.json").read_text(encoding="utf-8")) if (d / "stats.json").exists() else {}
-    split = json.loads((d / "split.json").read_text(encoding="utf-8")) if (d / "split.json").exists() else {}
-    return {"config": cfg, "stats": stats,
-            "split": {k: split.get(k) for k in ("splits", "counts", "warnings", "class_weights")}}
 
 
 def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:

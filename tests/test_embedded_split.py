@@ -41,10 +41,3 @@ def test_the_embedded_split_wins_over_a_rebuilt_dataset(tmp_path, monkeypatch):
         json.dumps({"splits": {"train": ["rg-something-else"]}}), encoding="utf-8")
 
     assert trained_on(run) == {"occ-rg-gone-a", "rg-gone-b"}
-
-
-def test_without_either_the_guard_still_refuses(tmp_path, monkeypatch):
-    run = _run(tmp_path, monkeypatch, {"dataset": "real13-mix-v4"})
-
-    with pytest.raises(ValueError, match="real13-mix-v4"):
-        check_not_circular(run, "rg-anything")

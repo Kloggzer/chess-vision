@@ -5,32 +5,10 @@ Kein Fix in diesem File — nur der Nachweis. Stil wie `test_dead_parameters.py`
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TRAIN = (ROOT / "src" / "chesslab" / "training" / "train.py").read_text(encoding="utf-8")
-
-
-def _callers(symbol: str, roots: tuple[str, ...], skip: tuple[str, ...] = ()) -> list[str]:
-    """Jede Zeile ausserhalb der Definition, die `symbol` als Wort nennt."""
-    pattern = re.compile(rf"\b{re.escape(symbol)}\b")
-    hits = []
-    for root in roots:
-        base = ROOT / root
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if (not path.is_file() or path.suffix not in (".py", ".ts", ".tsx", ".kt")
-                    or "__pycache__" in path.parts or "node_modules" in path.parts):
-                continue
-            rel = path.relative_to(ROOT).as_posix()
-            if rel in skip:
-                continue
-            for n, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
-                if pattern.search(line) and not line.lstrip().startswith(("def ", "#", "*", "//")):
-                    hits.append(f"{rel}:{n}: {line.strip()}")
-    return hits
 
 
 def _run_train_ast():

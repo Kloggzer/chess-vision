@@ -6,7 +6,6 @@ Alle Funde derselben Form: was NICHT gemessen wurde, liest das Skript als gemess
 
 from __future__ import annotations
 
-import dataclasses
 import importlib.util
 import json
 import sys
@@ -151,39 +150,6 @@ def test_settle_lag_does_not_read_an_unmeasured_roi_as_board_motion(tmp_path, mo
     out = capsys.readouterr().out
     assert "board-led 0" in out, out
     assert "ohne ROI-Messung 2" in out, out
-
-
-def test_audit_lane_probe_separates_frames_without_a_matte(tmp_path, monkeypatch, capsys):
-    """Ein Frame OHNE Matte-Zeile liest `.get(square, 0.0)` als "keine Hand".
-
-    Die Quote "davon mit Matte > 0" beantwortet die Frage des Nutzers, ob die Lane voller Haende
-    liegt. Ungemessene Frames druecken sie, ohne dass die Zeile es sagt; und der Nenner zaehlt
-    auch Flags, deren Brett gar nicht gelesen werden konnte.
-    """
-    probe = _load("audit_lane_probe")
-    import numpy as np
-
-    sdir = tmp_path / "recordings" / "s"
-    sdir.mkdir(parents=True)
-    _jsonl(sdir / "log.jsonl", [{"frame": f"{f}.png", "corners": [[0, 0]] * 4} for f in ("f1", "f2")])
-    flags = tmp_path / "flags.jsonl"
-    _jsonl(flags, [{"session_id": "rg-s", "frame": f, "square": "e4", "fen_label": "empty",
-                    "predicted": "wP", "prob": 0.9} for f in ("f1", "f2")])
-    monkeypatch.setattr(probe.config, "DATA",
-                        dataclasses.replace(probe.config.DATA, root=tmp_path))
-    monkeypatch.setattr(probe, "read_session_meta", lambda d: {"profile": "p"})
-    monkeypatch.setattr(probe, "load_profile", lambda name: object())
-    monkeypatch.setattr(probe, "read_matte", lambda d: {"f1": {"e4": 0.0}})
-    monkeypatch.setattr(probe, "board_source", lambda row, profile: ("board.webp", True))
-    monkeypatch.setattr(probe, "crops_for_frame",
-                        lambda *a, **k: [np.zeros((8, 8, 3), np.uint8)] * 64)
-    monkeypatch.setattr(probe.cv2, "imread", lambda path: np.zeros((8, 8, 3), np.uint8))
-    monkeypatch.setattr(sys, "argv", ["probe", "--flags", str(flags),
-                                      "--out", str(tmp_path / "sheet.png")])
-
-    probe.main()
-    out = capsys.readouterr().out
-    assert "ohne Matte: 1" in out, out
 
 
 def test_commit_budget_p90_is_the_ninth_of_ten_values(tmp_path, capsys):

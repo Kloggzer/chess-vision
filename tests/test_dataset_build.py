@@ -191,8 +191,6 @@ def test_list_get_delete_dataset(tmp_path):
                     allow_degenerate=True)
     lst = DB.list_datasets(paths)
     assert len(lst) == 1 and lst[0]["name"] == "d1"
-    got = DB.get_dataset("d1", paths)
-    assert got["config"]["session_ids"] == ["s1"]
     DB.delete_dataset("d1", paths)
     assert DB.list_datasets(paths) == []
 

@@ -53,8 +53,9 @@ def frame_hands() -> dict:
     """Ueber jede exportierte Session mit einem Scan. -> Zusammenfassung und Pfad."""
     from .framescan import GATE_THR, SCAN_STRIDE, read_scan
     from .labeling import read_log, read_session_meta
+    from .sessions import ExportInterrupted
 
-    rows, per_session, scanned, without = [], {}, [], []
+    rows, per_session, scanned, without, interrupted = [], {}, [], [], []
     blind: dict[str, int] = {}
     for path in sorted(config.DATA.recordings.glob("*/log.jsonl")):
         session_dir = path.parent
@@ -65,8 +66,12 @@ def frame_hands() -> dict:
         if not scan:
             without.append(session_dir.name)
             continue
+        try:
+            entries = read_log(session_dir)
+        except ExportInterrupted:
+            interrupted.append(session_dir.name)
+            continue
         scanned.append(session_id)
-        entries = read_log(session_dir)
         if (blind_here := unscanned(entries, scan)):
             blind[session_dir.name] = blind_here
         found = session_hands(entries, scan, session_id)
@@ -76,9 +81,9 @@ def frame_hands() -> dict:
     # `_sessions` traegt die GEMESSENEN: nur dort heisst eine fehlende Zeile "keine Hand". Ohne sie
     # waere jede ungescannte Aufnahme still handfrei, und das ist die Luege, die der Report loest.
     header = {"_gate_thr": GATE_THR, "_stride": SCAN_STRIDE, "_sessions": sorted(scanned),
-              "_unscanned": dict(sorted(blind.items())),
+              "_unscanned": dict(sorted(blind.items())), "_export_interrupted": interrupted,
               "_written_at": datetime.now(UTC).isoformat()}
     out = write_flags(config.DATA.reports / FLAGS_FILE, rows, header)
     return {"path": out, "frames": len(rows), "sessions": len(scanned),
             "per_session": per_session, "without_scan": without,
-            "unscanned_frames": dict(sorted(blind.items()))}
+            "unscanned_frames": dict(sorted(blind.items())), "export_interrupted": interrupted}

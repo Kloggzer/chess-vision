@@ -126,7 +126,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     metric_preds = preds_a[eligible]
     metric_conf = np.asarray(conf)[eligible]
     # Eine leere Menge hat keine Note: `0.0` ist die SCHLECHTESTE, nicht die fehlende.
-    # Konvention wie `per_session_metrics` und `coverage_metrics` (fafc4f7d).
+    # Konvention wie `per_session_metrics` (fafc4f7d).
     square_acc = float((metric_trues == metric_preds).mean()) if len(metric_trues) else None
 
     # Macro-recall: mean of per-class hit rate over present classes.
@@ -196,8 +196,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 def _hit_rate(probs: list[float], cover: list[float], cut: float = 0.5) -> float | None:
     """Share of truly covered cells the output also calls covered — the veto's own metric.
 
-    Ohne eine einzige verdeckte Zelle ist nichts zu treffen; `occlusion.coverage_metrics`
-    meldet denselben leeren Nenner schon als `None`, statt "alles verpasst" zu behaupten.
+    Ohne eine einzige verdeckte Zelle ist nichts zu treffen: `None`, nicht "alles verpasst".
     """
     want = np.array(cover) > cut
     if not want.any():

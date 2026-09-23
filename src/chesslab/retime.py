@@ -13,6 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .ioutil import Contested, stamp_of, write_json_guarded
 from .training.occlusion import PIECE_VISIBLE_MAX
 
 STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -196,6 +197,9 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     from .recording import Recording
     from .training.torch_data import infer_size_of
 
+    # Vor dem Lesen gestempelt: bestaetigt ein Mensch waehrend der Minuten unten, ersetzte der
+    # alte Lesestand sonst sein Urteil (`_write_candidate` prueft dagegen).
+    stamp = stamp_of(game_dir(name) / "candidate.json")
     candidate = load_candidate(name)
     moves = candidate["moves"]
     if not moves:
@@ -286,7 +290,11 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
                              f"the record — candidate left as the phone timed it")
         return result
     if write:
-        _write_candidate(name, candidate, plies, result, fps)
+        try:
+            _write_candidate(name, candidate, plies, result, fps, stamp)
+        except Contested as exc:
+            result["refused"] = str(exc)
+            return result
         result["boards"] = _write_boards(game_dir(name) / "frames", video, rotate, plies, corners_of,
                                          profile, crop_border_px(profile), BOARD_ENCODE)
         result["written"] = True
@@ -311,7 +319,8 @@ def _agreement(emissions: np.ndarray, sampled: list[int], plies: list[Retimed]) 
     return float(np.median(margins)) if margins else 0.0
 
 
-def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: dict, fps: float) -> None:
+def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: dict, fps: float,
+                     stamp: tuple[int, int] | None) -> None:
     from .realgames import game_dir
 
     for move, p in zip(candidate["moves"], plies, strict=True):
@@ -329,13 +338,8 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
         "agreement": round(result["agreement"], 3), "moved": result["moved"], "collapsed": result["collapsed"],
         "weak": result["weak"],
     }
-    path = game_dir(name) / "candidate.json"
-    tmp = path.with_suffix(".json.tmp")
-    try:
-        tmp.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    what = f"{name}: candidate.json wurde waehrend retime geschrieben (Bestaetigung?) — nichts ersetzt, retime neu starten"
+    write_json_guarded(game_dir(name) / "candidate.json", candidate, stamp, what=what)
 
 
 def staged_name(out: Path, idx: int) -> Path:

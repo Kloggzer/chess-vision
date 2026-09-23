@@ -28,7 +28,7 @@ from statistics import median
 import yaml
 
 from . import config
-from .ioutil import append_rows, read_jsonl, write_rows
+from .ioutil import append_rows, read_jsonl, stamp_of, write_rows, write_rows_guarded
 
 log = logging.getLogger("chesslab.sessions")
 
@@ -163,11 +163,12 @@ def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
     path = sdir / "matte.jsonl"
     if not path.exists() or not frame_stems:
         return 0
+    stamp = stamp_of(path)
     rows = read_jsonl(path)
     kept = [r for r in rows if str(r.get("frame")) not in frame_stems]
-    # war ungestagt, waehrend `_filter_jsonl` daneben ausdruecklich stagt. Die Coverage ist
-    # Trainingsziel: die Frames unter einer halben Datei gingen mit `coverage = 0.0` ins Training.
-    write_rows(path, kept)
+    # Bewacht wie die sieben anderen Schreiber: der Alpha-Worker haengt an, waehrend wir filtern.
+    write_rows_guarded(path, kept, stamp,
+                       what=f"{path}: waehrend des Trimmens angehaengt — trim wiederholen")
     return len(rows) - len(kept)
 
 
@@ -343,13 +344,13 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     log_path = target / "log.jsonl"
     if not log_path.exists():
         raise FileNotFoundError(f"Session '{sid}' has no log.jsonl.")
+    stamp = stamp_of(log_path)
     rows = read_jsonl(log_path)
     keep = max(0, min(int(keep_frames), len(rows)))
     kept, removed_rows = rows[:keep], rows[keep:]
     removed_stems = {_frame_stem(r) for r in removed_rows if _frame_stem(r)}
 
     reject_dir = None
-    moved_files = 0
     if removed_rows:
         reject_dir = _reject_dir(paths, sid)
         (reject_dir / "frames").mkdir(parents=True, exist_ok=True)
@@ -363,6 +364,16 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
         })
         import yaml
         (reject_dir / "session.yaml").write_text(yaml.safe_dump(meta, sort_keys=False), encoding="utf-8")
+        _write_log(reject_dir, removed_rows, stamp=None)
+    # Erst das bewachte Log, dann die Bilder: ein `Contested` liess sonst den Schwanz im
+    # Reject-Ordner, waehrend das Log ihn weiter nannte. Der Reject-Ordner ist bis dahin nur Ablage.
+    try:
+        _write_log(target, kept, stamp=stamp)
+    except BaseException:
+        if reject_dir is not None:
+            shutil.rmtree(reject_dir, ignore_errors=True)
+        raise
+    moved_files = 0
     for entry in removed_rows:
         rel = str(entry.get("frame") or "")
         p = _session_frame_path(target, rel)
@@ -372,12 +383,6 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(p), str(dst))
                 moved_files += 1
-    if reject_dir is not None:
-        _write_log(reject_dir, removed_rows)
-
-    # war ein blankes `write_text`, obwohl `_write_log` im selben Modul genau dafuer die
-    # Nebendatei haelt. Ein Abbruch kuerzte das Log, und der Schwanz lag da schon im Reject-Ordner.
-    _write_log(target, kept)
     removed_crops = _purge_crops_for_frames(sid, removed_stems, paths)
     removed_manifest_rows = 0
     for manifest in _manifest_files(paths):      # default + every `crops__<tag>.jsonl`
@@ -482,14 +487,51 @@ def session_dir(session_id: str, paths: config.Paths | None = None) -> tuple[Pat
     raise FileNotFoundError(f"Session '{safe_sid}' not found.")
 
 
-def read_log(sdir: Path) -> list[dict]:
-    """Every row of `log.jsonl`, in order."""
+class LogRows(list):
+    """Die Zeilen von `log.jsonl` samt dem Stempel, unter dem sie gelesen wurden."""
+
+    stamp: tuple[int, int] | None = None
+
+
+#: Liegt waehrend des Brett-Schreibens da. Ein Export ueberschreibt `boards/` an Ort und Stelle,
+#: schreibt `log.jsonl` aber erst zum Schluss — stirbt er dazwischen, beschreiben die Ecken im
+#: alten Log nicht mehr die Pixel auf der Platte, und niemand kann das spaeter noch sehen.
+EXPORT_MARKER = ".export-running"
+
+
+class ExportInterrupted(ValueError):
+    """Log und Bretter stammen aus zwei Generationen; kein Folgeschritt darf darauf arbeiten."""
+
+
+def export_interrupted(session_dir: Path) -> bool:
+    """Steht ein abgebrochener Export im Weg? Dann sind Log und Bretter nicht dasselbe Alter."""
+    return (session_dir / EXPORT_MARKER).is_file()
+
+
+def refuse_interrupted_export(sdir: Path) -> None:
+    """Der eine Pruefpunkt: beide `read_log` rufen ihn, nur die Marker-Setzer lesen daran vorbei."""
+    sdir = Path(sdir)
+    if export_interrupted(sdir):
+        raise ExportInterrupted(
+            f"{sdir.name}: an export was interrupted ({EXPORT_MARKER}) — boards and log are from "
+            "two generations. Re-run `realgames export-session` or `session rewarp` first.")
+
+
+def read_log(sdir: Path, *, under_export: bool = False) -> LogRows:
+    """Every row of `log.jsonl`, in order — carrying the stamp `_write_log` presents back.
+
+    `under_export=True` only for the steps that set and clear `EXPORT_MARKER` themselves, and for
+    a human verdict (`flag_frame`), which the running export carries over (`HUMAN_KEYS`)."""
+    if not under_export:
+        refuse_interrupted_export(sdir)
     log_path = sdir / "log.jsonl"
     if not log_path.exists():
         raise FileNotFoundError(f"Session '{sdir.name}' has no log.jsonl.")
-    rows = read_jsonl(log_path)
+    stamp = stamp_of(log_path)
+    rows = LogRows(read_jsonl(log_path))
     if not rows:
         raise FileNotFoundError(f"Session '{sdir.name}' has no captured frames.")
+    rows.stamp = stamp
     return rows
 
 
@@ -568,10 +610,25 @@ def backup_log(log_path: Path) -> str:
     return dest.name
 
 
-def _write_log(sdir: Path, rows: list[dict]) -> None:
-    """Atomic replace: a crash mid-write must never leave a truncated log."""
+_FROM_ROWS = object()
+
+
+def _write_log(sdir: Path, rows: list[dict], *, stamp=_FROM_ROWS) -> None:
+    """Atomic replace, and only over the log the rows were read from (`read_log`'s stamp).
+
+    A long run wrote its minutes-old snapshot back over a human `unusable` set meanwhile; now that
+    is `Contested`. A checkpointing caller keeps writing: the rows take the stamp they left behind.
+    """
     log_path = sdir / "log.jsonl"
-    write_rows(log_path, rows, default=str)
+    if stamp is _FROM_ROWS:
+        if not isinstance(rows, LogRows):
+            raise TypeError("_write_log needs the stamp of the read: pass read_log rows or stamp=")
+        stamp = rows.stamp
+    write_rows_guarded(log_path, rows, stamp, default=str,
+                       what=f"{log_path}: waehrend des Laufs geschrieben (ein Urteil?) — "
+                            "Lauf wiederholen, nichts ueberschrieben")
+    if isinstance(rows, LogRows):
+        rows.stamp = stamp_of(log_path)
 
 
 def write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
@@ -964,7 +1021,7 @@ def write_boards_session(session_id: str) -> dict:
     )
 
     sdir, _archived = session_dir(session_id)
-    rows = read_log(sdir)
+    rows = read_log(sdir, under_export=True)
     prof = _profile_for_session(read_session_meta(sdir), None)
     # The pop below is unconditional, so without this the verb clears every pointer and then writes
     # none back: a parked session loses its store in the log while the boards sit on disk, and the
@@ -1032,7 +1089,7 @@ def rewarp_boards_session(session_id: str) -> dict:
     )
 
     sdir, _archived = session_dir(session_id)
-    rows = read_log(sdir)
+    rows = read_log(sdir, under_export=True)
     name = session_id[3:] if session_id.startswith("rg-") else session_id
     candidate = game_dir(name) / "candidate.json"
     if not candidate.is_file():
@@ -1066,7 +1123,7 @@ def straighten_boards_session(session_id: str) -> dict:
     are deliberately gone. Idempotent through `board_straightened`, so running it twice cannot
     correct twice.
     """
-    from .realgames import EXPORT_MARKER, export_interrupted, mark_export, straighten_boards
+    from .realgames import mark_export, straighten_boards
 
     sdir, _archived = session_dir(session_id)
     # Der Marker heisst: Bretter neu, Log alt. Dann fehlt `board_straightened` auf Brettern, die
@@ -1148,7 +1205,7 @@ def mark_hands_session(session_id: str) -> dict:
     from .grid_occlusion import hand_squares, missing_edges
     from .imgops import skin_patch
     from .labeling import _profile_for_session, read_session_meta
-    from .realgames import place_board
+    from .realgames import move_boards, place_board
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -1157,6 +1214,7 @@ def mark_hands_session(session_id: str) -> dict:
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
     seen = added = 0
+    moves = []
     for r in rows:
         r.pop("hand_squares", None)
         if not r.get("corners"):
@@ -1179,9 +1237,10 @@ def mark_hands_session(session_id: str) -> dict:
         seen += 1
         added += not r.get("dirty")
         r["dirty"] = True
-        place_board(sdir, r)
+        moves.append(place_board(sdir, r))
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
+    move_boards(moves)
     return {"session_id": session_id, "hands": seen, "newly_dirty": added, "of": len(rows),
             "backup": backup}
 
@@ -1351,7 +1410,8 @@ def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
     session is actively being recorded could drop a concurrently appended line.
     """
     sdir, _archived = session_dir(session_id)
-    rows = read_log(sdir)
+    # Ein Urteil, keine Ableitung aus den Brettern: der laufende Export traegt es hinueber.
+    rows = read_log(sdir, under_export=True)
     if idx < 0 or idx >= len(rows):
         raise ValueError(f"Index {idx} out of range (0-{len(rows) - 1}).")
     rows[idx]["unusable"] = bool(unusable)

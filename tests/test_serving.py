@@ -58,35 +58,6 @@ def _synthetic_session(tmp_path, bs: int = 800):
 
 
 # ---------------------------------------------------------------------------
-# Test 1: crops_for_model
-# ---------------------------------------------------------------------------
-
-def test_crops_for_model_count_and_order(tmp_path):
-    """crops_for_model returns 64 crops in all_squares() order, each with spec.out_size."""
-    bs = 640
-    prof = _identity_profile(bs)
-    frame = _synthetic_frame(bs)
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-
-    spec = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
-    )
-    crops = serving.crops_for_model(frame, corners, prof, spec)
-    assert len(crops) == 64
-    for c in crops:
-        assert c.shape[1] == 96 and c.shape[0] == 128   # (W=96, H=128)
-
-    # check order: a1 should be col=0,row=7
-    squares = labeling.all_squares()
-    a8_crop = crops[squares.index("a8")]
-    h1_crop = crops[squares.index("h1")]
-    # a8 = (col=0, row=0) → blau=0*30+10=10, grün=0*30+10=10
-    assert a8_crop[64, 48, 0] < 30    # B ≈ 10
-    # h1 = (col=7, row=7) → blau=7*30+10=220, grün=7*30+10=220
-    assert h1_crop[64, 48, 0] > 200   # B ≈ 220
-
-
-# ---------------------------------------------------------------------------
 # Test 2: Slice parity
 # ---------------------------------------------------------------------------
 
@@ -459,22 +430,6 @@ def test_run_spec_reads_infer_size(tmp_path):
     spec = serving.run_spec(run_dir)
     assert spec.infer_size == (96, 96)
     assert spec.out_size == (128, 128)
-
-
-def test_crops_for_model_uses_infer_size(tmp_path):
-    """The frame is cropped straight to the inference size — no intermediate 128 px step."""
-    bs = 640
-    prof = _identity_profile(bs)
-    frame = _synthetic_frame(bs)
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-
-    spec = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(128, 128), infer_size=(96, 96),
-    )
-    crops = serving.crops_for_model(frame, corners, prof, spec)
-    assert len(crops) == 64
-    for c in crops:
-        assert c.shape[:2] == (96, 96), f"crop is {c.shape[:2]}, not the inference size"
 
 
 @pytest.mark.skipif(pytest.importorskip("torch", reason="torch nicht installiert") is None,

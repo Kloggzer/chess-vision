@@ -21,9 +21,11 @@ import yaml
 
 from . import config
 from .calibration import MESH_CURV_LIMIT, MESH_TILT_LIMIT, load_profile
-from .ioutil import read_jsonl, write_rows
+from .ioutil import read_jsonl, stamp_of, write_rows, write_rows_guarded
 from .labeling import all_squares, crops_for_frame
 from .recording import Recording
+from .sessions import EXPORT_MARKER
+from .sessions import export_interrupted as export_interrupted  # Wiederausfuhr fuer die Aufrufer
 from .state import GameState
 from .work_audit import measure, object_revision, record_interval
 
@@ -41,13 +43,17 @@ def load_candidate(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def truth_sans(name: str) -> list[str]:
-    """SANs of `reference.pgn`'s mainline, replayed so the SAN spelling matches python-chess."""
+def read_reference(name: str) -> tuple[list[str], str]:
+    """SANs of `reference.pgn`'s mainline, replayed so the SAN spelling matches python-chess,
+    plus the md5 of the SAME bytes — the one `write_confirmation` must stamp."""
+    import hashlib
+    import io
+
     path = game_dir(name) / "reference.pgn"
     if not path.exists():
         raise FileNotFoundError(f"no reference game: {path}")
-    with path.open(encoding="utf-8") as fh:
-        game = chess.pgn.read_game(fh)
+    data = path.read_bytes()
+    game = chess.pgn.read_game(io.StringIO(data.decode("utf-8"), newline=None))
     if game is None:
         raise ValueError(f"{path}: no game in PGN")
     board = game.board()
@@ -55,7 +61,7 @@ def truth_sans(name: str) -> list[str]:
     for move in game.mainline_moves():
         sans.append(board.san(move))
         board.push(move)
-    return sans
+    return sans, hashlib.md5(data).hexdigest()
 
 
 def lcs_report(
@@ -134,18 +140,37 @@ def reviewed_plies(moves: list[dict], matched: list[tuple[int, int]], kept: list
     return [int(moves[j]["ply"]) for j in sorted(keep)]
 
 
-def write_confirmation(name: str, candidate: dict, plies: list[int]) -> Path:
-    """Stamp the three confirmation keys atomically — a half-written label is worse than none."""
+def write_confirmation(name: str, candidate: dict, plies: list[int], *,
+                       reference_md5: str | None = None) -> Path:
+    """Stamp the confirmation keys, `confirmed_reference` in `lib/data.ts::writeConfirmation`'s form.
+
+    Guarded: a file that no longer equals the caller's `candidate` was written by someone else
+    (a `/confirm` during the prompt), and replacing it would drop that verdict.
+    """
+    import hashlib
+
+    from .ioutil import Contested, write_json_guarded
+
+    path = game_dir(name) / "candidate.json"
+    stamp = stamp_of(path)
+    what = f"{name}: candidate.json wurde waehrend der Bestaetigung geschrieben — nichts ersetzt, neu bestaetigen"
+    if load_candidate(name) != candidate:
+        raise ValueError(what)
+    ref = game_dir(name) / "reference.pgn"
+    md5 = hashlib.md5(ref.read_bytes()).hexdigest() if ref.exists() else None
+    # Das Urteil fiel gegen die Bytes, die `read_reference` las; eine waehrend der Rueckfrage
+    # ersetzte Datei bekaeme sonst ihren md5 an ein Urteil ueber die alte.
+    if reference_md5 is not None and md5 != reference_md5:
+        raise ValueError(f"{name}: reference.pgn wurde waehrend der Bestaetigung ersetzt — "
+                         "nichts geschrieben, neu bestaetigen")
     candidate["confirmed"] = True
     candidate["confirmed_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     candidate["reviewed_plies"] = plies
-    path = game_dir(name) / "candidate.json"
-    tmp = path.with_suffix(".json.tmp")
+    candidate["confirmed_reference"] = {"md5": md5, "at": candidate["confirmed_at"]}
     try:
-        tmp.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
+        write_json_guarded(path, candidate, stamp, what=what)
+    except Contested as exc:
+        raise ValueError(str(exc)) from exc
     return path
 
 
@@ -186,7 +211,7 @@ def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) 
     """Compare candidate to reference game, write verdict.
     `ask` decides invented plies one at a time; under `yes`, unmatched plies rejected."""
     candidate = load_candidate(name)
-    truth = truth_sans(name)
+    truth, reference_md5 = read_reference(name)
     moves = candidate["moves"]
     matched, invented, missed = lcs_report(truth, [m["san"] for m in moves])
     for line in report_lines(name, moves, truth, matched, invented, missed):
@@ -198,7 +223,7 @@ def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) 
     kept = [] if yes or ask is None else [j for j in invented if ask(moves[j])]
     plies = reviewed_plies(moves, matched, kept)
     return {
-        "path": write_confirmation(name, candidate, plies),
+        "path": write_confirmation(name, candidate, plies, reference_md5=reference_md5),
         "matched": len(matched),
         "invented": invented,
         "missed": missed,
@@ -458,22 +483,31 @@ def adopt_reported_dirty(name: str) -> dict:
     wanted = reported_dirty(meta["session_id"])
     rows = read_log(session_dir)
     stamp = datetime.now(UTC).isoformat()
-    changed = []
+    changed, moves = [], []
+    retracted = 0
     for row in rows:
         stem = Path(row.get("board") or row["frame"]).stem
-        if not stem.isdigit() or int(stem) not in wanted or row.get("dirty"):
+        if not stem.isdigit():
             continue
-        row["dirty"] = True
-        row["dirty_reason"] = "occluded"
-        row["dirty_source"] = "reported"
-        row["dirty_set_at"] = stamp
-        place_board(session_dir, row)
+        # Ein Widerruf nimmt nur zurueck, was eine Meldung gesetzt hat — nie ein Scan-Urteil.
+        if int(stem) not in wanted and row.get("dirty_source") == "reported":
+            for key in ("dirty", "dirty_reason", "dirty_source", "dirty_set_at"):
+                row.pop(key, None)
+            retracted += 1
+        elif int(stem) in wanted and not row.get("dirty"):
+            row.update(dirty=True, dirty_reason="occluded", dirty_source="reported", dirty_set_at=stamp)
+        else:
+            continue
+        moves.append(place_board(session_dir, row))
         changed.append(stem)
     if not changed:
-        return {"reported": len(wanted), "changed": 0, "stems": [], "backup": None}
+        return {"reported": len(wanted), "changed": 0, "set": 0, "retracted": 0, "stems": [],
+                "backup": None}
     backup = backup_log(session_dir / "log.jsonl")
     _write_log(session_dir, rows)
-    return {"reported": len(wanted), "changed": len(changed), "stems": changed, "backup": backup}
+    move_boards(moves)
+    return {"reported": len(wanted), "changed": len(changed), "set": len(changed) - retracted,
+            "retracted": retracted, "stems": changed, "backup": backup}
 
 
 def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
@@ -507,9 +541,9 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
         # measured `stale` or `changed` — and a frame promoted that way is rescued by its matte and
         # carries the lagging FEN into training. The report answers "the scan missed a hand", the
         # one thing it cannot see; it does not answer "the position is unchanged".
-        for idx in reported:
-            if reasons.get(idx) == "clean":
-                reasons[idx] = "occluded"
+        promoted = {idx for idx in reported if reasons.get(idx) == "clean"}
+        for idx in promoted:
+            reasons[idx] = "occluded"
         clean, flagged = framescan.select(reasons, per_position=per_position,
                                           dirty_per_position=dirty_per_position if dirty else 0,
                                           prefer=prefer)
@@ -526,7 +560,10 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
         rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
                     for idx in clean)
         rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
-                    | {"dirty": True, "dirty_reason": reasons[idx]} for idx in flagged)
+                    | {"dirty": True, "dirty_reason": reasons[idx]}
+                    # Abgeleitet, nicht getragen: nur so erreicht ein spaeterer Widerruf die Zeile.
+                    | ({"dirty_source": "reported"} if idx in promoted else {})
+                    for idx in flagged)
     rows.sort(key=lambda r: r["frame"])
     return rows
 
@@ -1051,8 +1088,8 @@ def board_from_frame(job: tuple[Path, str, list, object, bool]) -> dict | None:
     return write_board(session_dir, Path(frame_rel).stem, frame, corners, profile, dirty)
 
 
-def place_board(session_dir: Path, row: dict) -> bool:
-    """Move a stored board into the folder its `dirty` flag names, and repoint the row.
+def place_board(session_dir: Path, row: dict) -> tuple[Path, Path] | None:
+    """Repoint the row at the folder its `dirty` flag names; returns the move `move_boards` makes.
 
     The FOLDER is the clean/dirty predicate downstream: `temporal_matte.bracketing` and
     `sensor_audit.audit` pick their reference peers out of `boards/`. A flag set after the export
@@ -1060,15 +1097,26 @@ def place_board(session_dir: Path, row: dict) -> bool:
     """
     rel = row.get("board")
     if not rel:
-        return False
+        return None
     want = board_rel(Path(rel).stem, bool(row.get("dirty")))
     src, dst = session_dir / rel, session_dir / want
     if want == rel or not src.is_file():
-        return False
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    src.replace(dst)
+        return None
     row["board"] = want
-    return True
+    return src, dst
+
+
+def move_boards(moves: list[tuple[Path, Path] | None]) -> int:
+    """Erst NACH dem bewachten `_write_log`: vorher verschoben lag das Brett bei `Contested` im
+    anderen Ordner, als die unveraenderte Log-Zeile sagt (W5, Muster `trim_session`)."""
+    done = 0
+    for move in filter(None, moves):
+        src, dst = move
+        if src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            src.replace(dst)
+            done += 1
+    return done
 
 
 def write_board(session_dir: Path, stem: str, frame, corners, profile,
@@ -1491,15 +1539,43 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
     }
 
 
-#: Liegt waehrend des Brett-Schreibens da. Ein Export ueberschreibt `boards/` an Ort und Stelle,
-#: schreibt `log.jsonl` aber erst zum Schluss — stirbt er dazwischen, beschreiben die Ecken im
-#: alten Log nicht mehr die Pixel auf der Platte, und niemand kann das spaeter noch sehen.
-EXPORT_MARKER = ".export-running"
+#: Was ein MENSCH an eine Log-Zeile schreibt (`sessions.flag_frame`, `lib/frame-flag.ts`). Kein
+#: Ledger haelt es, also traegt der Export es selbst auf die neue Zeile desselben Frames.
+HUMAN_KEYS = ("unusable",)
 
 
-def export_interrupted(session_dir: Path) -> bool:
-    """Steht ein abgebrochener Export im Weg? Dann sind Log und Bretter nicht dasselbe Alter."""
-    return (session_dir / EXPORT_MARKER).is_file()
+class VerdictsWouldDrop(ValueError):
+    """Der Export waehlt einen Frame nicht mehr, auf dem ein Mensch geurteilt hat."""
+
+
+def refuse_orphaned_verdicts(orphans: list[str], drop_verdicts: bool) -> None:
+    """`false` zaehlt mit: es ist eine Ruecknahme, also ebenfalls ein menschliches Urteil."""
+    if not orphans:
+        return
+    names = ", ".join(orphans[:20]) + (" ..." if len(orphans) > 20 else "")
+    if not drop_verdicts:
+        raise VerdictsWouldDrop(
+            f"{len(orphans)} menschliche `unusable`-Urteile stehen auf Frames, die dieser Export "
+            f"nicht mehr waehlt ({names}) — Export verweigert, nichts geschrieben. Ausdruecklich "
+            f"verwerfen mit `--drop-verdicts` (sie bleiben dann nur in der `.bak`).")
+    print(f"  [WARN] --drop-verdicts: {len(orphans)} human `unusable` verdicts dropped ({names}) "
+          f"— they stay only in the backup")
+
+
+def carry_human_verdicts(old: list[dict], rows: list[dict]) -> list[str]:
+    """Copy `HUMAN_KEYS` per frame stem; returns the stems whose verdict found no new row."""
+    fresh = {Path(r["frame"]).stem: r for r in rows if r.get("frame")}
+    orphans = []
+    for prev in old:
+        verdict = {k: prev[k] for k in HUMAN_KEYS if k in prev}
+        if not verdict or not prev.get("frame"):
+            continue
+        stem = Path(prev["frame"]).stem
+        if stem in fresh:
+            fresh[stem].update(verdict)
+        else:
+            orphans.append(stem)
+    return orphans
 
 
 @contextmanager
@@ -1518,14 +1594,21 @@ def mark_export(session_dir: Path):
             marker.unlink(missing_ok=True)
 
 
-def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict]) -> Path:
+def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict], *,
+                  drop_verdicts: bool = False) -> Path:
     """`session.yaml` + `log.jsonl` in the §2 shape of `docs/data-pipeline.md`, nothing else."""
-    from .sessions import backup_log
+    from . import sessions
 
+    log_path = session_dir / "log.jsonl"
+    stamp = stamp_of(log_path)
+    # Frisch gelesen, nicht vom Planungsbeginn: ein Urteil aus der Minute davor muss mit.
+    old = read_jsonl(log_path) if stamp is not None else []
+    refuse_orphaned_verdicts(carry_human_verdicts(old, [dict(r) for r in rows]), drop_verdicts)
+    carry_human_verdicts(old, rows)
     # A re-export REPLACES a log that may hold hand-set quads or a review's verdicts. Same
     # `log.jsonl.bak.<stamp>` convention `session scan|autofix|adopt` use, for the same reason.
-    if (session_dir / "log.jsonl").is_file():
-        print(f"  previous log backed up as {backup_log(session_dir / 'log.jsonl')}")
+    if stamp is not None:
+        print(f"  previous log backed up as {sessions.backup_log(log_path)}")
     meta = {
         # The id keeps the `rg-` prefix the DIRECTORY dropped: it is the join key in every
         # manifest and in `sessions.session_dir`, so it must not follow the folder rename.
@@ -1540,7 +1623,9 @@ def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict
     session_dir.mkdir(parents=True, exist_ok=True)
     with (session_dir / "session.yaml").open("w", encoding="utf-8") as fh:
         yaml.safe_dump(meta, fh, sort_keys=False, allow_unicode=True)
-    write_rows(session_dir / "log.jsonl", rows)
+    write_rows_guarded(log_path, rows, stamp,
+                       what=f"{log_path}: waehrend des Exports geschrieben — Export wiederholen, "
+                            "das Log ist unveraendert")
     return session_dir
 
 
@@ -1587,6 +1672,7 @@ def export_session(
     report_only: bool = False,
     workers: int = EXPORT_WORKERS,
     no_scan: bool = False,
+    drop_verdicts: bool = False,
 ) -> dict:
     """A confirmed candidate is cut into its own `data/recordings/<name>/`, and reports its worth."""
     with (ProcessPoolExecutor(max_workers=workers) if workers > 1 and not report_only
@@ -1594,7 +1680,8 @@ def export_session(
         return _export_session(name, quiet_margin_s=quiet_margin_s, every=every,
                                per_position=per_position, dirty_per_position=dirty_per_position,
                                dirty=dirty, measure=measure, fit=fit, report_only=report_only,
-                               no_scan=no_scan, workers=workers, executor=executor)
+                               no_scan=no_scan, workers=workers, executor=executor,
+                               drop_verdicts=drop_verdicts)
 
 
 def ensure_scan(name: str, *, rotate, extra=(), read_only: bool = False,
@@ -1665,7 +1752,8 @@ def correction_ledger(name: str, prefer: set[int], rows: list[dict],
 
 def _export_session(name: str, *, quiet_margin_s: float, every: int, per_position: int | None,
                     dirty_per_position: int, dirty: bool, measure: bool, fit: bool,
-                    report_only: bool, no_scan: bool, workers: int, executor) -> dict:
+                    report_only: bool, no_scan: bool, workers: int, executor,
+                    drop_verdicts: bool = False) -> dict:
     """One export, sharing its worker processes across settle, grid fit and board encoding."""
 
     if is_archived(name):
@@ -1731,6 +1819,10 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                 f"(its {len(candidate['moves'])} moves have nothing vouching for them)")
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
     session_dir = game_dir(name)
+    if not report_only and not drop_verdicts and (session_dir / "log.jsonl").is_file():
+        # Frueh, solange `boards/` noch unberuehrt ist; `write_session` prueft zum Schluss erneut.
+        refuse_orphaned_verdicts(carry_human_verdicts(read_jsonl(session_dir / "log.jsonl"),
+                                                      [dict(r) for r in rows]), False)
     if not report_only:
         # Von hier bis zum Log-Schreiben sind die Bretter schon neu und das Log noch alt.
         # Stirbt der Lauf dazwischen, beschreiben die Ecken nicht mehr die Pixel — und ohne
@@ -1792,7 +1884,13 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                                                  workers=workers, executor=executor)
                 print(f"  boards warped straight: {made['rewarped']}, "
                       f"{made['no_mesh']} left bowed for want of any mesh")
-            write_session(session_dir, name, candidate, rows)
+            write_session(session_dir, name, candidate, rows, drop_verdicts=drop_verdicts)
+        # Hinter dem Marker: was waehrend des Exports gemeldet oder widerrufen wurde, lief dort ins
+        # `ExportInterrupted` von `adopt-dirty` und kaeme sonst erst mit dem naechsten Export an.
+        adopted = adopt_reported_dirty(name)
+        if adopted["changed"]:
+            print(f"  adopt-dirty: {adopted['set']} gemeldet, {adopted['retracted']} widerrufen "
+                  f"(waehrend des Exports)")
     for line in yield_lines(rows):
         print(line)
     return {

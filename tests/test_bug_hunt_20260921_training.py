@@ -159,17 +159,6 @@ def test_a_session_without_a_single_visible_cell_reports_no_accuracy():
     assert m["square_acc"] is None and m["board_acc"] is None
 
 
-def test_coverage_recall_without_a_single_covered_cell_is_not_zero():
-    """Leerer Nenner: `max(1.0, want.sum())` macht aus "nichts zu finden" ein "nichts gefunden"."""
-    import torch
-
-    from chesslab.training.occlusion import coverage_metrics
-
-    logits = torch.zeros((4, 3))
-    target = torch.zeros((4, 2))                       # jede Zelle frei -> `want` ist leer
-    assert coverage_metrics(logits, target)["occ_recall"] is None
-
-
 def test_the_epoch_record_uses_one_convention_for_an_empty_denominator():
     """In EINEM Datensatz zwei Konventionen: `val_visible_*` melden `nan`, wenn nichts zu messen
     war, `val_coverage_recall`/`-precision` daneben melden 0,0 — also den schlechtesten Wert."""

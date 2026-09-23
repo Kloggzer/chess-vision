@@ -1,6 +1,6 @@
 """Skript-Jagd 2026-09-17, Runde 2: Zahlen, die dem Menschen vorgelegt werden.
 
-Die drei Reste aus Runde 1 (`settle_compare`, `phantoms_vs_neighbours`, `chain_gate` /
+Die drei Reste aus Runde 1 (`settle_compare`, `chain_gate` /
 `audit_disk_damage`) und vier neue Funde in den Skripten, die Entscheidungen tragen:
 `coverage_arms`, `compare_arms`, `fold_per_session`, `matte_cell_audit`.
 """
@@ -37,20 +37,6 @@ def test_settle_compare_survives_gaps_whose_spans_are_all_empty():
     assert "0.00" not in line          # keine gemessene Null vortaeuschen
 
     assert settle_compare.share_line([0.5, 0.5, 1.0], 3) == "median 0.50 (n=3)"
-
-
-# --- 2. `phantoms_vs_neighbours`: der leere Bucket meldete n=1 und mean nan --------------------
-
-def test_phantoms_vs_neighbours_empty_bucket_is_not_a_measurement():
-    """`buckets.get(0) or [np.nan]` machte aus "nie beobachtet" ein n=1 mit mean nan; das
-    Verhaeltnis der Mittel wurde still `nan`."""
-    pvn = _load("phantoms_vs_neighbours")
-
-    assert pvn._band(np.array([], dtype=float)) == "n=0 — nicht gemessen"
-    assert "n=1" not in pvn._band(np.array([], dtype=float))
-
-    band = pvn._band(np.array([0.1, 0.3], dtype=float))
-    assert "n=2" in band and "mean 0.2000" in band
 
 
 # --- 3a. `chain_gate`: die uebersprungene Session fehlte in der GESAMT-Zeile --------------------
