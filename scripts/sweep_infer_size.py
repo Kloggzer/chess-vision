@@ -339,6 +339,7 @@ def sweep_path_b(model, cfg: dict, rows: list[dict], sizes: tuple[int, ...],
     from torch.utils.data import DataLoader
 
     from chesslab.training.pack import load_packed
+    from chesslab.training.pack_bake import cfg_for_pack
     from chesslab.training.torch_data import (
         PackedSquareDataset,
         SquareDataset,
@@ -351,7 +352,8 @@ def sweep_path_b(model, cfg: dict, rows: list[dict], sizes: tuple[int, ...],
     model.to(device)
     out: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
     for s in sizes:
-        tf = eval_transform_for(cfg, out_size=(s, s))
+        tf = eval_transform_for(cfg_for_pack(cfg, cfg.get("dataset"), packed, (s, s)),
+                                out_size=(s, s))
         ds = (PackedSquareDataset(rows, classes, tf, packed) if packed is not None
               else SquareDataset(rows, classes, tf))
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers,

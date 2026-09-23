@@ -24,6 +24,7 @@ from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
 from chesslab.training.evaluate import load_run
 from chesslab.training.gradcam import _crop_reader, compute_cam, jet, last_conv
+from chesslab.training.pack_bake import cfg_for_pack
 from chesslab.training.torch_data import eval_transform_for
 
 #: Der aeussere Ring gehoert dem NACHBARN, nicht dieser Zelle: `pad_side` 0,05 schneidet auf
@@ -42,11 +43,11 @@ def edge_mass(cam: np.ndarray) -> float:
     return 1.0 - (float(inner.sum()) / tot if tot > 0 else 0.0)
 
 
-def collect(run: Path, rows, size, n_examples, read=None):
+def collect(run: Path, rows, size, n_examples, read=None, dataset=None):
     model, cfg = load_run(run)
     model.eval()
     layer = last_conv(model)
-    tf = eval_transform_for(cfg)
+    tf = eval_transform_for(cfg_for_pack(cfg, dataset, getattr(read, "packed", None)))
     classes = cfg["classes"]
     acc = np.zeros((size, size), np.float64)
     per_class: dict[str, list[np.ndarray]] = {}
@@ -112,7 +113,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     means = []
     for run in a.runs:
-        mean, cm, per_class, ex, classes = collect(run, rows, a.size, a.examples, read)
+        mean, cm, per_class, ex, classes = collect(run, rows, a.size, a.examples, read, a.dataset)
         means.append((run.name, mean, cm, per_class))
         strip(ex, a.size).save(out / f"{run.name}-beispiele.png")
         print(f"  {run.name:24} Aufmerksamkeit im RAND-Ring: {100*cm:.1f} % (gleichverteilt waeren 51 %)"

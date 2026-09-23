@@ -118,6 +118,18 @@ def bake_pack(src: str, dst: str, params: dict, paths: config.Paths = config.DAT
             "folds": len(folds), "path": str(dst_img)}
 
 
+def cfg_for_pack(cfg: dict, ds_name: str | None, packed, out_size=None) -> dict:
+    """`cfg` fuer Pixel aus `packed`, wie `run_eval` ihn baut: CLAHE raus, wenn er schon drin ist."""
+    from .packs import packed_shape
+
+    baked = baked_of(ds_name, config.DATA) if ds_name and packed is not None else None
+    if not skip_baked(baked, clahe_params(cfg), out_size or cfg["out_size"],
+                      packed_shape(packed)[1:] if baked else None):
+        return cfg
+    print(f"[bake] CLAHE steckt im Pack ({baked['from']}) — hier wird er nicht noch einmal gerechnet")
+    return {**cfg, "clahe_clip": 0.0}
+
+
 def skip_baked(baked: dict | None, params: dict, out_size, pack_hw) -> bool:
     """Darf der Loader CLAHE auslassen? Sonst FLIEGT es: still doppelt oder still gar nicht
     gerechnet sind beide ein anderer Operator als der, den `config.json` behauptet."""

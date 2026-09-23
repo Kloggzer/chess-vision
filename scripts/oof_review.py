@@ -53,6 +53,7 @@ def main() -> int:
     from chesslab.training.evaluate import _load_run
     from chesslab.training.occlusion import classification_eligible
     from chesslab.training.pack import resolve_dataset_packs
+    from chesslab.training.pack_bake import cfg_for_pack
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
     dd = dataset_dir(args.dataset)
@@ -76,7 +77,8 @@ def main() -> int:
             print(f"   {run}: keine Zeilen im Test-Teil")
             continue
         packed = resolve_dataset_packs(args.dataset, manifest_rows=all_rows)
-        ds = PackedBoardDataset(rows, cfg["classes"], eval_transform_for(cfg), packed)
+        tf = eval_transform_for(cfg_for_pack(cfg, args.dataset, packed))
+        ds = PackedBoardDataset(rows, cfg["classes"], tf, packed)
         rows = getattr(ds, "rows", None) or rows
         loader = DataLoader(ds, batch_size=max(1, 256 // CELLS), shuffle=False,
                             num_workers=2, collate_fn=getattr(ds, "collate_fn", None))

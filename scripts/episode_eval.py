@@ -85,6 +85,7 @@ def main() -> int:
     from chesslab.training.engine import evaluate_dataset
     from chesslab.training.evaluate import _load_run
     from chesslab.training.pack import load_packed, resolve_dataset_packs
+    from chesslab.training.pack_bake import cfg_for_pack
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
     run_dir = Path(args.run)
@@ -103,7 +104,8 @@ def main() -> int:
         return 1
 
     packed = resolve_dataset_packs(ds_name, manifest_rows=rows) or load_packed(ds_name)
-    ds = PackedBoardDataset(rows, classes, eval_transform_for(cfg), packed)
+    ds = PackedBoardDataset(rows, classes, eval_transform_for(cfg_for_pack(cfg, ds_name, packed)),
+                            packed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
     res = evaluate_dataset(model, ds, device, batch_size=max(1, 256 // CELLS), keep_workers=False)

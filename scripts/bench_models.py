@@ -57,6 +57,7 @@ def main() -> int:
     from chesslab.training.evaluate import _load_run, load_manifest, load_split
     from chesslab.training.occlusion import classification_eligible
     from chesslab.training.pack import resolve_dataset_packs
+    from chesslab.training.pack_bake import cfg_for_pack
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
     dd = dataset_dir(args.dataset)
@@ -80,7 +81,8 @@ def main() -> int:
         cfg = loaded[runs[0]][1]
         packed = resolve_dataset_packs(args.dataset, manifest_rows=rows_all)
         rows = [r for r in rows_all if r.get("session_id") in keep]
-        ds = PackedBoardDataset(rows, cfg["classes"], eval_transform_for(cfg), packed)
+        tf = eval_transform_for(cfg_for_pack(cfg, args.dataset, packed))
+        ds = PackedBoardDataset(rows, cfg["classes"], tf, packed)
         rows = getattr(ds, "rows", None) or rows
         print(f"\nGruppe size={sig[0]} clahe={sig[1]}: {len(runs)} Modelle, {len(rows)} Zellen")
         from torch.utils.data import DataLoader

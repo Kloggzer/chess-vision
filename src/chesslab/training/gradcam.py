@@ -28,7 +28,8 @@ def _crop_reader(ds_name: str | None, rows: list[dict] | None = None):
 
     `resolve_dataset_packs` FIRST, exactly like `evaluate.run_eval`: a dataset built with
     `--from-packs` has no memmap of its own, and without that step every one of its rows hit
-    the `mm://` refusal below with advice about a synth build it never was.
+    the `mm://` refusal below with advice about a synth build it never was. `.packed` sagt dem
+    Aufrufer, ob die Pixel aus einem Pack kommen — `pack_bake.cfg_for_pack` braucht es.
     """
     packed = None
     if ds_name:
@@ -46,6 +47,7 @@ def _crop_reader(ds_name: str | None, rows: list[dict] | None = None):
                                  "dataset build-synth`, or check that dataset.yaml still names "
                                  "its packs under data/packs/.")
             return Image.open(p).convert("RGB")
+        _read.packed = None
         return _read
     from .torch_data import _pack_index
 
@@ -61,6 +63,7 @@ def _crop_reader(ds_name: str | None, rows: list[dict] | None = None):
         if pack_no not in mm:
             mm[pack_no] = open_packed_memmap(*files[pack_no])
         return Image.fromarray(np.array(mm[pack_no][row_no]))
+    _read.packed = packed
     return _read
 
 
@@ -210,7 +213,6 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     # einer anderen Domaene gemessen als er trainiert hat. Und an der Groesse, die der GRAPH nimmt.
     from .torch_data import eval_transform_for, infer_size_of
     out_w, out_h = infer_size_of(cfg)
-    tf = eval_transform_for(cfg, out_size=(out_w, out_h))
     gray = 0.5  # neutral occluder value on the [0,1] scale
 
     ds_name = cfg.get("dataset")
@@ -247,6 +249,10 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
             return float(F.softmax(logits, dim=1)[0, cls_idx])
 
     read_crop = _crop_reader(ds_name, rows)
+    from .pack_bake import cfg_for_pack
+
+    run_cfg = cfg_for_pack(cfg, ds_name, getattr(read_crop, "packed", None), (out_w, out_h))
+    tf = eval_transform_for(run_cfg, out_size=(out_w, out_h))
     out: list[dict] = []
     for c in classes:
         hits = _diverse_sample([r for r in rows if r["label"] == c], per_class, seed=seed)

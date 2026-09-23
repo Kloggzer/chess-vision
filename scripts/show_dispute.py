@@ -49,6 +49,7 @@ def predictions(run: str, split: str):
     from chesslab.training.engine import evaluate_dataset
     from chesslab.training.evaluate import _load_run
     from chesslab.training.pack import load_packed, resolve_dataset_packs
+    from chesslab.training.pack_bake import cfg_for_pack
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
     model, cfg = _load_run(Path(run))
@@ -57,7 +58,8 @@ def predictions(run: str, split: str):
     rows = filter_rows_by_split(load_manifest(dd / "manifest.jsonl"),
                                 load_split(dd / (cfg.get("split_file") or "split.json")), split)
     packed = resolve_dataset_packs(cfg["dataset"], manifest_rows=rows) or load_packed(cfg["dataset"])
-    ds = PackedBoardDataset(rows, cfg["classes"], eval_transform_for(cfg), packed)
+    tf = eval_transform_for(cfg_for_pack(cfg, cfg["dataset"], packed))
+    ds = PackedBoardDataset(rows, cfg["classes"], tf, packed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     res = evaluate_dataset(model.to(device), ds, device, batch_size=max(1, 256 // CELLS),
                            keep_workers=False)

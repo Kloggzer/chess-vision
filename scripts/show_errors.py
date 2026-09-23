@@ -21,6 +21,7 @@ from chesslab.training.boardnet import CELLS
 from chesslab.training.engine import evaluate_dataset
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import load_packed, open_packed_rows, resolve_dataset_packs
+from chesslab.training.pack_bake import cfg_for_pack
 from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
 CELL, PAD, BAR = 112, 6, 28
@@ -96,7 +97,8 @@ def main() -> int:
         print(f"[clean] {len(rows)} von {before} Zeilen "
               f"({100 * (before - len(rows)) / max(1, before):.1f} % aus dirty/ verworfen)")
     packed = resolve_dataset_packs(ds_name, manifest_rows=rows) or load_packed(ds_name)
-    ds = PackedBoardDataset(rows, classes, eval_transform_for(cfg), packed)
+    ds = PackedBoardDataset(rows, classes, eval_transform_for(cfg_for_pack(cfg, ds_name, packed)),
+                            packed)
     rows = ds.rows
 
     mm, index = open_packed_rows(ds_name, manifest)
