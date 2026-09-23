@@ -1,8 +1,5 @@
-"""Je Session die Guete auf dem Modell, das sie NIE gesehen hat.
-
-Der Standard-Split hat zwei Test-Sessions; welche zwei, verschiebt das Ergebnis so stark wie ein
-Rezeptwechsel. Die vier Folds halten jede der 20 Sessions genau einmal zurueck — diese Auswertung
-laesst je Fold sein Modell ueber SEINE Test-Sessions laufen und stellt die Zahlen nebeneinander.
+"""Je Session die Guete auf dem Modell, das sie NIE gesehen hat: jeder Fold laeuft ueber SEINE
+Test-Sessions.
 
     uv run python scripts/fold_per_session.py [--dataset ...] [--folds data/models/_folds]
 """
@@ -21,11 +18,8 @@ from chesslab.training.packs import open_packed_rows
 
 
 def finished(run: Path, epochs: int = 60) -> bool:
-    """Wie `compare_arms.tail_mean`: EINDEUTIGE, LUECKENLOSE Epochen 0..epochs-1.
-
-    Zeilen zaehlen reicht nicht — ein fortgesetzter Lauf schreibt seine ersten Epochen ein
-    zweites Mal und kam so als fertiger Fold in die Tabelle (2 von 307 `metrics.jsonl` auf der
-    Platte haben genau diese Form).
+    """EINDEUTIGE, LUECKENLOSE Epochen 0..epochs-1: ein fortgesetzter Lauf schreibt seine ersten
+    Epochen doppelt.
     """
     p = run / "metrics.jsonl"
     if not p.is_file():
@@ -34,16 +28,15 @@ def finished(run: Path, epochs: int = 60) -> bool:
 
 
 def missing_sessions(expected, out):
-    """Die Zusage ist "jede Session genau einmal" — `duplicate_sessions` prueft nur die eine
-    Haelfte. Eine Test-Session ohne sichtbare Zeile fiel per `continue` aus der Tabelle, ohne
-    dass irgendwo eine Zahl kleiner wurde."""
+    """Die zweite Haelfte von "jede Session genau einmal": eine Test-Session ohne sichtbare Zeile
+    fiel still aus der Tabelle.
+    """
     have = {sess for sess, _fold in out}
     return sorted((s, f) for s, f in expected if s not in have)
 
 
 def duplicate_sessions(out):
-    """Zwei Folds mit derselben Test-Session waren stille Ueberschreibung — die Zusage "jede
-    Session genau einmal" ist nirgends geprueft, also wird sie hier nachgewiesen statt geglaubt."""
+    """Zwei Folds mit derselben Test-Session waeren stille Ueberschreibung."""
     folds = collections.defaultdict(list)
     for sess, fold in out:
         folds[sess].append(fold)
@@ -51,7 +44,7 @@ def duplicate_sessions(out):
 
 
 def sorted_rows(out):
-    """`nan` vergleicht gegen alles False und liess die Tabelle unsortiert — hier ans Ende."""
+    """`nan` vergleicht gegen alles False; hier ans Ende."""
     rows = [(sess, fold, n, vis, piece) for (sess, fold), (n, vis, piece) in out.items()]
     return sorted(rows, key=lambda r: (r[4] != r[4], r[4] if r[4] == r[4] else 0.0))
 

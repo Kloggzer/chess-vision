@@ -1,5 +1,6 @@
-"""Skript-Jagd 2026-09-20b: Nenner mit uebersprungenen Zeilen und der `--probs-cache` von
-`sweep_prior_lambda`."""
+"""Skript-Jagd: Nenner mit uebersprungenen Zeilen und der `--probs-cache` von
+`sweep_prior_lambda`.
+"""
 from __future__ import annotations
 
 import json

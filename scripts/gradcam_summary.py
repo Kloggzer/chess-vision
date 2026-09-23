@@ -1,15 +1,8 @@
-"""Worauf schaut das Modell — ueber VIELE Zellen gemittelt, nicht nur auf einer.
-
-`scripts/gradcam.py` zeigt eine Karte je Bild. Die Frage "nimmt das Modell eine Abkuerzung"
-beantwortet aber erst der Mittelwert: liegt die Aufmerksamkeit auf der Figur in der Mitte, oder
-am Rand, wo der Nachbar und der Lichtgradient des Bretts liegen?
-
-Zwei Laeufe nebeneinander zeigen, was ein Rezeptwechsel wirklich veraendert hat. Dazu ein Streifen
-Einzelbeispiele, weil ein Mittelwert eine bimodale Verteilung verstecken kann.
+"""Worauf schaut das Modell, ueber VIELE Zellen gemittelt: die Figur in der Mitte oder der Rand mit
+Nachbar und Lichtgradient? Dazu Einzelbeispiele, weil ein Mittel Bimodales versteckt.
 
     uv run python scripts/gradcam_summary.py data/models/_reg/flip-s42 [zweiter-lauf] \
-        --n 300 --examples 10
-"""
+        --n 300 --examples 10"""
 
 from __future__ import annotations
 
@@ -27,11 +20,8 @@ from chesslab.training.gradcam import _crop_reader, compute_cam, jet, last_conv
 from chesslab.training.packs import cfg_for_pack
 from chesslab.training.torch_data import eval_transform_for
 
-#: Der aeussere Ring gehoert dem NACHBARN, nicht dieser Zelle: `pad_side` 0,05 schneidet auf
-#: jeder Seite 5 % ueber die Feldkante hinaus, und die perspektivische Neigung schiebt den Koerper
-#: der Nachbarfigur zusaetzlich herein. Aufmerksamkeit dort ist eine Abkuerzung, keine Evidenz.
-#: Ein Ring dieser Breite ist 51 % der Flaeche — bei gleichverteilter Aufmerksamkeit waeren also
-#: 51 % zu erwarten, und alles darunter heisst "das Modell schaut nach innen".
+#: Der aeussere Ring gehoert dem NACHBARN (Pad plus perspektivische Neigung). Er ist 51 % der
+#: Flaeche: darunter heisst "das Modell schaut nach innen".
 EDGE = 0.15
 
 
@@ -101,7 +91,6 @@ def main() -> int:
         raise SystemExit(f"[FAIL] keine besetzte Zelle in {a.split} von {a.dataset}")
     step = max(1, len(want) // a.n)
     rows = want[::step][:a.n]
-    # Dieselbe Tuer wie `gradcam.py` und `evaluate`: Session-Packs, Monolith oder Datei.
     read = _crop_reader(a.dataset, rows)
     try:
         read(rows[0])
@@ -119,7 +108,6 @@ def main() -> int:
         print(f"  {run.name:24} Aufmerksamkeit im RAND-Ring: {100*cm:.1f} % (gleichverteilt waeren 51 %)"
               f"   -> {run.name}-beispiele.png")
 
-    # Mittelwertkarten nebeneinander, gemeinsame Skala
     hi = max(float(m.max()) for _n, m, _c, _p in means)
     sheet = Image.new("RGB", (len(means) * (a.size + 8) + 8, a.size + 8), (18, 20, 24))
     for i, (_n, m, _c, _p) in enumerate(means):

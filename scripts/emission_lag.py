@@ -1,8 +1,5 @@
-"""Kauft der Cooldown Unabhaengigkeit? Fehlerkorrelation als Funktion des zeitlichen Abstands.
-
-Zwei Bestaetigungsstimmen 0,7 s auseinander sind nur dann zwei Stimmen, wenn der Fehler in dieser
-Zeit vergisst. Gemessen INNERHALB einer Stellung — ueber den Zug hinweg aendert sich das Bild
-ohnehin.
+"""Kauft der Cooldown Unabhaengigkeit? Fehlerkorrelation gegen den zeitlichen Abstand, innerhalb
+einer Stellung: zwei Stimmen sind nur zwei, wenn der Fehler vergisst.
 """
 import json
 import sys
@@ -16,11 +13,8 @@ LAGS = [1, 2, 3, 5, 8, 12, 20, 30, 45]     # in Frames; 21 Frames = 0,7 s
 
 
 def fps_for(sessions: list[str]) -> float:
-    """Die gemeinsame Zeitbasis der uebergebenen Aufnahmen — nie eine erfundene.
-
-    Nur 9 der 27 Aufnahmen mit Lesungen laufen auf 30 fps, zehn auf ~15: die feste Konstante war
-    dort um Faktor zwei falsch. Und die Tabelle poolt ueber alle Aufnahmen, also braucht sie EINE
-    Basis. Wie `commit_lag.py` seit 2026-09-21.
+    """Die gemeinsame Zeitbasis der Aufnahmen, nie eine erfundene: zehn laufen auf ~15 fps, und die
+    Tabelle poolt ueber alle.
     """
     rates = {}
     for s in sessions:
@@ -40,8 +34,7 @@ def fps_for(sessions: list[str]) -> float:
 
 
 def main():
-    # Erst die Aufnahmen, die wirklich beitragen, dann ihre gemeinsame Zeitbasis: eine Aufnahme
-    # ohne Lesungen stand vorher schon nicht in der Tabelle und soll sie auch nicht abweisen.
+    # Erst die beitragenden Aufnahmen, dann ihre Zeitbasis.
     live = [s for s in sys.argv[1:] if (ROOT / s / "model-reads.jsonl").is_file()]
     pairs = defaultdict(lambda: [0, 0, 0, 0])   # lag -> a,b,c,d
     with_cov = 0
@@ -51,8 +44,8 @@ def main():
         for r in read_jsonl(p):
             if "square" not in r or not r["probs"]:
                 continue
-            # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte
-            # Zelle als sichtbar und ging in die Korrelation ein.
+            # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle
+            # als sichtbar.
             cov = r.get("model_cov", r.get("cov"))
             if cov is None:
                 continue
@@ -80,7 +73,6 @@ def main():
         print("[FAIL] keine Zeile traegt `model_cov` — der Lauf hat keinen Occlusion-Kopf, "
               "und verdeckte Zellen waeren nicht auszunehmen.")
         return
-    # Erst hier: die Absage oben braucht keine Zeitbasis, und sie ist der aeltere Befund.
     fps = fps_for(live)
     print(f"Zeitbasis {fps:.2f} fps")
     print(f"{'Abstand':>10} {'Sekunden':>9} {'Paare':>9} {'P(err|err)':>11} {'P(err|ok)':>10} {'rho':>7}")

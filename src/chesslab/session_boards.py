@@ -20,11 +20,8 @@ from .sessions import NothingToDo, missing_source_frames
 
 
 def park_frames_session(session_id: str) -> dict:
-    """Move the source frames of every boarded row to `data/_parked/frames/<session>/`.
-
-    The decode is scratch: 3.3 MB per frame against the board's 115 KB, and the session tree stood
-    at 82 GB for 12.7 GB of video. Parked, not deleted, and only where the board is actually on
-    disk — a frame whose fit failed keeps its source. The video regenerates either.
+    """Move the source frames of every boarded row to `data/_parked/frames/<session>/` (3.3 MB each
+    against the board's 115 KB). Parked, not deleted; a frame whose fit failed stays.
     """
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -56,12 +53,10 @@ def next_touches_of(ply: object, by_ply: dict) -> list[str]:
 
 
 def settle_scan_session(session_id: str) -> dict:
-    """Score every cell against its own ply interval's settled board — measure only, drop nothing.
+    """Score every cell against its ply interval's settled board — measure only, drop nothing.
 
-    A hand is not the whole danger: during a move something HAPPENS on the board, and a square that
-    already holds the piece the next move puts there still carries the old FEN's label. The
-    exporter's `unknown_squares` covers only the next move's footprint; this covers any cell whose
-    pixels stopped matching the position they are labelled with.
+    A square that already holds the next move's piece still carries the old FEN label; this
+    covers any cell whose pixels stopped matching its position.
     """
     from collections import defaultdict
     from concurrent.futures import ProcessPoolExecutor
@@ -78,17 +73,15 @@ def settle_scan_session(session_id: str) -> dict:
             r.pop(key, None)
 
     by_ply: dict[object, list[dict]] = defaultdict(list)
-    # `usable_board`, nicht nur "Datei da": `settle_for_ply` schneidet mit `crop_square` unter der
-    # Skala des PROFILS, ein Brett in einer anderen tastet es an ganz anderen Stellen ab — und die
-    # Zahl landet als `settle_dev` im Log und steuert die Strittig-Lane.
+    # `usable_board`: `settle_for_ply` schneidet unter der Skala des PROFILS, ein Brett anderer
+    # Groesse tastete ganz andere Stellen ab — und steuert die Strittig-Lane.
     for r in rows:
         if usable_board(r, prof) and (sdir / r["board"]).is_file():
             by_ply[r.get("ply")].append(r)
     matte = read_matte(sdir)
     plies = [ply for ply, rs in by_ply.items() if len(rs) >= SETTLE_MIN_FRAMES]
-    # NUR die gemessenen Stems: ein `.get(stem, {})` gab jedem Frame einen Schluessel, womit
-    # `settle_for_ply`s `unmeasured` per Konstruktion leer war und ein nie gemattetes Hand-Brett
-    # als "gemessen, nichts verdeckt" in die gesetzte Stellung einging.
+    # NUR die gemessenen Stems: sonst ging ein nie gemattetes Hand-Brett als "gemessen, nichts
+    # verdeckt" in die gesetzte Stellung ein.
     jobs = [(sdir, by_ply[ply], prof,
              {stem: matte[stem] for r in by_ply[ply]
               if (stem := Path(r["frame"]).stem) in matte},
@@ -123,11 +116,8 @@ def settle_scan_session(session_id: str) -> dict:
 
 
 def write_boards_session(session_id: str) -> dict:
-    """Cut every row's stored board from its frame, under the row's CURRENT quad.
-
-    The export writes these as it fits (`realgames.boards.fit_rows_to_grid`); this is the retrofit for
-    the sessions that predate the store, and the repair for any step that moves a quad afterwards
-    (`autofix`, `adopt`) — a board warped with a quad the log no longer holds is a crop cut wrong.
+    """Cut every row's stored board from its frame under the row's CURRENT quad — the retrofit, and
+    the repair after `autofix`/`adopt` moved a quad.
     """
     from concurrent.futures import ProcessPoolExecutor
 
@@ -140,17 +130,13 @@ def write_boards_session(session_id: str) -> dict:
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir, under_export=True)
     prof = _profile_for_session(read_session_meta(sdir), None)
-    # The pop below is unconditional, so without this the verb clears every pointer and then writes
-    # none back: a parked session loses its store in the log while the boards sit on disk, and the
-    # slice error that follows names THIS command as the repair.
+    # Without this the unconditional pop clears every pointer and writes none back, and the slice
+    # error names THIS command as the repair.
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
     todo = [r for r in rows if r.get("corners") and r.get("frame")]
-    # Only the rows this run rewrites: popping over ALL of them left a corner-less row without its
-    # `board` while the webp stayed on disk, and every reader downstream is log-driven.
-    # Aufgehoben VOR dem Pop: eine Zeile, deren Brett sich nicht neu schneiden laesst, bekommt
-    # ihren alten Zeiger zurueck. Ohne das liegt das `.webp` da und kein log-getriebener Leser
-    # findet es je wieder — die Zeile sieht aus wie eine ohne Brett.
+    # Only the rows this run rewrites, saved BEFORE the pop: a row whose board cannot be recut gets
+    # its old pointer back, or no log-driven reader finds the webp again.
     kept = [{k: r[k] for k in BOARD_KEYS if k in r} for r in todo]
     for r in todo:
         for key in BOARD_KEYS:
@@ -171,13 +157,11 @@ def write_boards_session(session_id: str) -> dict:
         if written % PROGRESS_EVERY == 0:
             print(f"  {written}/{len(jobs)} frames", flush=True)
     missing = len(jobs) - written
-    # A fresh warp is bowed again, so the store's one straightening has to follow the rewrite —
-    # otherwise this repair would quietly hand the cutters a board nobody pulls straight any more.
-    # Der Flag ist laut `straighten_boards` das EINZIGE zwischen einem abgebrochenen Lauf und
-    # einem zweimal gezogenen Store — also muss er unterwegs auf die Platte, nicht erst am Ende.
+    # A fresh warp is bowed again, so the straightening must follow, and its flag goes to disk as it
+    # goes: it is the ONLY thing between an aborted run and a store pulled twice.
     backup = backup_log(log_path(sdir))
-    # `mattes=False`: die Bretter sind frisch (gebogen) aus den Frames geschnitten, die Matten
-    # daneben liegen vom vorigen Lauf schon gerade — sie ein zweites Mal zu ziehen verschiebt sie.
+    # `mattes=False`: die Matten liegen vom vorigen Lauf schon gerade; zweimal gezogen verschieben
+    # sie sich.
     with mark_export(sdir):
         pulled = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows),
                                    mattes=False)
@@ -187,12 +171,8 @@ def write_boards_session(session_id: str) -> dict:
 
 
 def rewarp_boards_session(session_id: str) -> dict:
-    """Rebuild a store FROM ITS VIDEO, straight, in one resample — the good retrofit.
-
-    `straighten_boards_session` is the other one: it works on boards whose frames are gone and pays
-    a second resample for it. Where the video still exists this is strictly better (+57 % Laplacian
-    energy in the finished crop, measured 2026-08-21), because the optics and the mesh fold into
-    the same map the warp already builds.
+    """Rebuild a store FROM ITS VIDEO, straight, in one resample: +57 % Laplacian energy against
+    straightening stored boards, because optics and mesh fold into the warp's map.
     """
     from .calibration import LensModel
     from .labeling import _profile_for_session, read_session_meta
@@ -212,15 +192,13 @@ def rewarp_boards_session(session_id: str) -> dict:
     wanted = {int(Path(r["frame"]).stem) for r in todo}
     rotate = detect_rotation(video, json.loads(candidate.read_text(encoding="utf-8")), wanted)
     prof = _profile_for_session(read_session_meta(sdir), None)
-    # `lens.json` beside the recording, if `:desktop undistort` ever wrote one. No recording carries
-    # it today and none needs to — a blind A/B could not tell the corrected boards apart — but the
-    # optics fold into the same map for free, so a receipt that IS there is honoured.
+    # Honoured if `:desktop undistort` ever wrote one; no recording carries it today.
     receipt = game_dir(name) / "lens.json"
     lens = LensModel.from_receipt(
         json.loads(receipt.read_text(encoding="utf-8")) if receipt.is_file() else None)
     backup = backup_log(log_path(sdir))
-    # Von hier bis zum Log-Schreiben sind die Bretter neu und das Log alt; der Marker ist das
-    # Einzige, was das danach noch sieht (`straighten_boards_session` liest ihn).
+    # Bis zum Log-Schreiben sind die Bretter neu und das Log alt; der Marker ist das Einzige, was
+    # das danach noch sieht.
     with mark_export(sdir):
         done = rewarp_boards(sdir, todo, prof, frames=stream_frames(video, todo, rotate), lens=lens)
         _write_log(sdir, rows)
@@ -229,28 +207,22 @@ def rewarp_boards_session(session_id: str) -> dict:
 
 
 def straighten_boards_session(session_id: str) -> dict:
-    """Pull an EXISTING store straight, from the boards themselves — no frames, no re-decode.
-
-    The retrofit for every session written before the store carried its own straightening. It
-    needs nothing but `boards/` and the rows' `grid_lines`, which is the point: the source frames
-    are deliberately gone. Idempotent through `board_straightened`, so running it twice cannot
-    correct twice.
+    """Pull an EXISTING store straight from `boards/` and `grid_lines` alone — no frames, no
+    re-decode. Idempotent through `board_straightened`.
     """
     from .realgames.boards import straighten_boards
     from .session_store.log import mark_export
 
     sdir, _archived = session_dir(session_id)
-    # Der Marker heisst: Bretter neu, Log alt. Dann fehlt `board_straightened` auf Brettern, die
-    # schon gerade auf der Platte liegen — und dieser Aufruf zoege sie ein zweites Mal (16 px auf
-    # 400). `session rewarp` schneidet sie aus dem Video neu und raeumt den Marker mit auf.
+    # Der Marker heisst: Bretter neu, Log alt; ohne `board_straightened` zoege dieser Aufruf gerade
+    # Bretter ein zweites Mal. `session rewarp` schneidet sie aus dem Video neu.
     if export_interrupted(sdir):
         raise NothingToDo(
             f"{session_id}: an export was interrupted ({EXPORT_MARKER}) — the boards may already "
             f"be straight while the log does not say so. Re-run the export or `session rewarp`.")
     rows = read_log(sdir)
     backup = backup_log(log_path(sdir))
-    # Backed up FIRST and rewritten as it goes: the boards are being overwritten in place, and a
-    # run that dies with the flags unwritten would leave a later run to correct them twice.
+    # Backed up FIRST and rewritten as it goes: the boards are overwritten in place.
     with mark_export(sdir):
         done = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows))
         _write_log(sdir, rows)

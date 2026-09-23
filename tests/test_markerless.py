@@ -63,11 +63,8 @@ def test_a_rotated_board_is_still_found(angle):
 
 
 def test_the_grid_angle_uses_four_theta_not_two():
-    """Zwei senkrechte Familien duerfen nicht zu einem Wert DAZWISCHEN verschmelzen.
-
-    Genau das tat der doppelte Winkel: er legt 0 und 90 Grad aufeinander, und der Mittelwert
-    eines Bretts landete zwischen den Familien statt auf einer. Auf `2026-08-08-11-55-19` kam
-    dabei 107 Grad heraus, und die Familien fielen von 167 auf 4 Segmente.
+    """Zwei senkrechte Familien duerfen nicht zu einem Wert DAZWISCHEN verschmelzen: der doppelte
+    Winkel legte 0 und 90 Grad aufeinander (107 Grad, 4 statt 167 Segmente).
     """
     horiz = np.array([[0, y, 300, y] for y in range(0, 300, 30)], np.float32)
     vert = np.array([[x, 0, x, 300] for x in range(0, 300, 30)], np.float32)

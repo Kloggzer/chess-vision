@@ -1,46 +1,14 @@
 """Sweep the CNN's inference resolution on the path that actually serves (specs/22, phase 00).
 
-The question: `occ-v4-f3e20` reads 43 occupied squares as empty at 128 px and 18 at 96 px on the
-real holdout — but that curve was produced by SHRINKING the 128 px crops on disk. Serving does
-something else: `crops_for_model` cuts the square out of the warped board straight to the model's
-input size and never passes through 128. Those are different pixels.
-
-So the sweep runs twice and reports both:
-
-- **path A — re-sliced (authoritative).** Crops cut from the session frames at each size via
-  `labeling.crops_for_frame(..., out_size=(s, s))`, then through `serving.predict_arrays`. This is
-  what live inference does.
-- **path B — from the 128 px crops (cross-check).** The dataset rows through
-  `eval_transform_for(cfg, out_size=(s, s))`, i.e. the disk crop resized a second time.
-
-If A and B disagree about the optimum, A wins and B's disagreement is the finding: it would mean
-the crop pipeline, not the network, is where the resolution is lost.
-
-Reported per model x split x size x path, on the occupancy question, read from the summed
-piece mass (`occupancy_reader`):
-
-- argmax misses (true occupied read as empty) / phantoms (true empty read as occupied),
-- phantoms at the threshold that holds misses at `--miss-target` (the MATCHED operating point —
-  argmax is an arbitrary point on each model's curve),
-- misses at the most permissive phantom-free threshold.
+Path A re-slices from the session frames at each size (what live inference does, authoritative);
+path B resizes the 128 px disk crops (cross-check). If they disagree, the crop pipeline loses the
+resolution. `--pad-side` sweeps what the crop CONTAINS (specs/45). One process only.
 
 Usage:
     .venv/Scripts/python.exe scripts/sweep_infer_size.py
         [--runs occ-v4-f3e20,occ-r3s-f3] [--splits test,val] [--sizes 48,64,80,96,112,128,160]
         [--paths ab] [--device cuda|cpu] [--num-workers 2] [--batch-size 256]
-        [--miss-target 43] [--pad-side 0.05,0.10] [--log data/_perf/sweep_infer_size.log]
-
-`--pad-side` sweeps what the crop CONTAINS instead of what it is scaled to (specs/45); path A is
-repeated per value and every row is labelled `<run>@pad<value>`. Both rows have to come from one
-invocation — a path-A number is cut through the current profile and an older row is not comparable.
-
-**Path-A numbers printed before 2026-08-20 are not comparable with anything since**: the pad
-(`--pad-side` and the run's own declaration alike) reached the RunSpec but never the crop, so every
-measurement was cut at the profile's pad whatever was asked for.
-
-Evaluation only: no training, no export, no rendering. One process — two concurrent DataLoader
-sweeps have deadlocked this machine before.
-"""
+        [--miss-target 43] [--pad-side 0.05,0.10] [--log data/_perf/sweep_infer_size.log]"""
 
 from __future__ import annotations
 
@@ -56,8 +24,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Must be set BEFORE `serving` captures anything: the CUDA/HIP-graph fast path bakes one fixed
-# input shape into a per-run cache entry, which is exactly wrong for a resolution sweep.
+# BEFORE `serving` captures anything: the CUDA/HIP graph bakes one input shape per run, wrong for a
+# resolution sweep.
 os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -68,13 +36,10 @@ from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
 from chesslab.training.data import filter_rows_by_split  # noqa: E402
 
-#: Outside 48..160 the multi-scale runs were never trained (`scales: [32, 64, 96, 128]` plus the
-#: 128-px native size); numbers there measure extrapolation, not deployment.
+#: Outside 48..160 the multi-scale runs were never trained: extrapolation, not deployment.
 SIZES = (48, 64, 80, 96, 112, 128, 160)
 
-#: The composite-pretrain champion, against the 13-class run the APK still bundles as
-#: `assets/cnn_model/id35-80/`. The former default named `occ-v9bn-wide`/`occ-v10bn35-13c-hn`,
-#: the retired 2-class pair — neither exists under `data/models/` any more.
+#: The composite-pretrain champion against the 13-class run the APK bundles.
 RUNS = ("comp13-occ-bn-lr1e2-bs512", "id35-80-before-hn-20260812")
 
 SPLITS = ("test", "val")
@@ -84,7 +49,7 @@ MISS_TARGET = 43
 
 
 class Log:
-    """stdout + file, flushed on every line — a hang has to be visible while it hangs."""
+    """stdout + file, flushed per line: a hang must be visible while it hangs."""
 
     def __init__(self, path: Path | None) -> None:
         self._fh = None
@@ -112,13 +77,11 @@ def px_per_square(session_id: str) -> float:
 
 
 def warp_px_per_square(profile) -> float:
-    """Resolution the crop is actually cut at: the warp lands on `board_size`, whatever the
-    camera delivered. This is the number `crops_for_frame` sees, and it is the same for every
-    session sharing a profile."""
+    """Resolution the crop is actually cut at: the warp lands on `board_size`, whatever the camera
+    delivered.
+    """
     return profile.board_size / 8.0
 
-
-# --- metrics -------------------------------------------------------------------------------
 
 def _counts(trues: np.ndarray, preds: np.ndarray) -> tuple[int, int]:
     """(misses, phantoms): occupied read as empty, empty read as occupied."""
@@ -126,21 +89,18 @@ def _counts(trues: np.ndarray, preds: np.ndarray) -> tuple[int, int]:
 
 
 def phantoms_at_miss_target(trues: np.ndarray, probs: np.ndarray, target: int) -> tuple[int, int, float]:
-    """Fewest phantoms reachable while keeping misses <= `target`.
-
-    misses(t) grows and phantoms(t) shrinks with the threshold t on P(occupied), so the answer is
-    the LARGEST t whose miss count is still within budget. Returns (phantoms, misses, t).
+    """Fewest phantoms while keeping misses <= `target`: the LARGEST threshold t still within
+    budget. Returns (phantoms, misses, t).
     """
     occ = np.sort(probs[trues])
     if occ.size == 0:
-        # No occupied cell at all: every threshold keeps the budget, so the most permissive one
-        # wins — and its phantom count is COUNTED, not short-circuited to a flattering 0.
+        # No occupied cell: the most permissive threshold wins, and its phantoms are COUNTED, not
+        # zeroed.
         t = 0.0
     elif target < occ.size:
         t = float(occ[target])
     else:
-        # The budget exceeds the occupied cells there are: no threshold matches the operating
-        # point, and `misses` says so (`sweep_warp_resolution.report` marks such cells).
+        # The budget exceeds the occupied cells: no threshold matches, and `misses` says so.
         t = float(occ[-1]) + 1e-9
     preds = probs >= t
     misses, phantoms = _counts(trues, preds)
@@ -148,12 +108,8 @@ def phantoms_at_miss_target(trues: np.ndarray, probs: np.ndarray, target: int) -
 
 
 def margin(trues: np.ndarray, probs: np.ndarray) -> tuple[float, float]:
-    """`(p99.9, max)` of P(occupied) over the truly EMPTY crops — how close the model comes to
-    inventing a piece.
-
-    The phantom count says whether the model crossed the line at ITS threshold; this says how much
-    room was left. Two models can both be phantom-free while one sits at 0.34 and the other at 0.63,
-    and the second is the one that will produce phantoms on material neither has seen.
+    """`(p99.9, max)` of P(occupied) over truly EMPTY crops: how much room was left before inventing
+    a piece — two phantom-free models can sit at 0.34 and 0.63.
     """
     emp = probs[~trues]
     if emp.size == 0:
@@ -162,10 +118,8 @@ def margin(trues: np.ndarray, probs: np.ndarray) -> tuple[float, float]:
 
 
 def misses_phantom_free(trues: np.ndarray, probs: np.ndarray) -> tuple[int, float]:
-    """Fewest misses reachable at ZERO phantoms = the most permissive phantom-free threshold.
-
-    The spec says "the largest phantom-free threshold", which is degenerate (t=1 is phantom-free
-    and misses everything) — the informative end is the smallest such t. Returns (misses, t).
+    """Fewest misses at ZERO phantoms: the SMALLEST phantom-free threshold (the largest, t=1, misses
+    everything). Returns (misses, t).
     """
     emp = probs[~trues]
     t = float(emp.max()) + 1e-6 if emp.size else 0.0
@@ -174,14 +128,9 @@ def misses_phantom_free(trues: np.ndarray, probs: np.ndarray) -> tuple[int, floa
     return misses, t
 
 
-# --- model handling -----------------------------------------------------------------------
-
 def load_torch_run(run_dir: Path):
-    """(model, cfg) from the checkpoint — deliberately NOT via `serving.load_run`.
-
-    `serving.load_run` prefers a `model.onnx` when one exists, and this exporter bakes a static
-    `[64, 3, 128, 128]` input into the graph (`evaluate.ONNX_BATCH`, no dynamic axes). A sweep over
-    input sizes has to run the weights.
+    """(model, cfg) from the checkpoint, NOT `serving.load_run`: its preferred `model.onnx` has a
+    static input shape.
     """
     from chesslab.training.evaluate import load_run as _load_run
 
@@ -190,17 +139,9 @@ def load_torch_run(run_dir: Path):
 
 
 def install_at_size(run_dir: Path, model, cfg: dict, size: int) -> dict:
-    """Make `serving.predict_arrays` treat `size` as this run's input size, and return the cfg.
-
-    `predict_arrays` reads its target size from `infer_size_of(cfg)` and would resize freshly sliced
-    s x s crops straight back, erasing the very thing this sweep measures. Seeding the module cache
-    is the only seam.
-
-    **Both keys, not just `out_size`.** When this was written `infer_size` did not exist and
-    `out_size` was the whole story; specs/22 then added the key and `infer_size_of` PREFERS it. From
-    that moment a run carrying an `infer_size` — every model shipped since — silently ignored the
-    swept size and served everything at its own. It went unnoticed because the sweeps that mattered
-    ran at the size the model already declared, where the two agree. Found by specs/26 phase 02.
+    """Make `serving.predict_arrays` treat `size` as this run's input size by seeding the module
+    cache. BOTH keys: `infer_size_of` prefers `infer_size`, and seeding only `out_size` swept
+    nothing.
     """
     from chesslab import serving
 
@@ -210,14 +151,9 @@ def install_at_size(run_dir: Path, model, cfg: dict, size: int) -> dict:
 
 
 def occupancy_reader(cfg: dict) -> Callable[[Sequence[float]], tuple[float, bool]]:
-    """`probs -> (P(occupied), read as occupied)` for this run's class list.
-
-    An identity run (13 or 14 classes) has no `occupied` column, so P(occupied) is the summed
-    mass of the piece classes — `1 - P(empty) - P(occluded)`, clamped at 0 against float drift —
-    and the square reads as occupied when that mass beats P(empty). This is not a new metric: it is
-    `cnn_recovery.observation_from_probs` plus `OccupancyObservation.occupied`, i.e. exactly what
-    the tracker concludes from the same softmax (`Observations.kt:17` is the port of it and agrees).
-    Deriving a second definition here would measure a model nobody runs.
+    """`probs -> (P(occupied), read as occupied)`: the summed piece mass against P(empty), exactly
+    what the tracker concludes (`Observations.kt`). A second definition would measure a model
+    nobody runs.
     """
     classes = list(cfg["classes"])
     if "empty" not in classes:
@@ -234,8 +170,6 @@ def occupancy_reader(cfg: dict) -> Callable[[Sequence[float]], tuple[float, bool
     return read
 
 
-# --- path A: re-sliced from the session frames --------------------------------------------
-
 def frames_for_split(rows: list[dict]) -> list[tuple[str, str, dict[str, str]]]:
     """[(session_id, frame, {square: label})] in manifest order — the labels for path A."""
     order: list[tuple[str, str]] = []
@@ -250,11 +184,8 @@ def frames_for_split(rows: list[dict]) -> list[tuple[str, str, dict[str, str]]]:
 
 
 def session_index(groups: list[tuple[str, str, dict[str, str]]]) -> np.ndarray:
-    """The session id of every crop in `sweep_path_a`'s accumulated arrays, aligned element-wise.
-
-    Derived rather than threaded through the sweep: `sweep_path_a` extends its arrays group by
-    group, `len(labels)` entries at a time, in exactly this order. Recomputing that here keeps the
-    sweep's return shape untouched — and the alignment is checked by length at the call site.
+    """The session id of every crop in `sweep_path_a`'s arrays, recomputed in the sweep's group
+    order; the alignment is checked by length at the call site.
     """
     return np.array([sid for sid, _, labels in groups for _ in labels], dtype=object)
 
@@ -263,17 +194,8 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
                  device: str, log: Log,
                  pad_side: float | None = None,
                  ) -> dict[tuple[str, int], tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """Cut the crops out of the session frames at every size and predict — the serving path.
-
-    Frames are decoded ONCE and re-cropped per (size, box) — the warp is size-independent, only
-    `crop_square`'s resize is not — so the sweep costs one PNG decode per frame, not seven, and
-    runs that declare the same box share their crops.
-
-    `pad_side` overrides what the crops CONTAIN, for the one question `--infer-size` cannot ask:
-    a crop is `board_size / 8 * (1 + 2 * pad_side)` px of board scaled to the model's input, so
-    the pad decides the picture and the size only decides its resolution. It outranks the run's
-    own declaration (specs/45) — that is the point of the flag, and the reason the run's declared
-    value is printed beside it. None = every path cuts what its model declares.
+    """Cut crops from the session frames at every size and predict — the serving path. Frames decode
+    ONCE; runs declaring the same box share crops. `pad_side` overrides what the crops CONTAIN.
     """
     from chesslab import serving
 
@@ -335,8 +257,6 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
             for k, (t, p, q) in acc.items()}
 
 
-# --- path B: the 128 px crops resized a second time ---------------------------------------
-
 def sweep_path_b(model, cfg: dict, rows: list[dict], sizes: tuple[int, ...],
                  device: str, batch_size: int, num_workers: int,
                  log: Log) -> dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]]:
@@ -380,8 +300,6 @@ def sweep_path_b(model, cfg: dict, rows: list[dict], sizes: tuple[int, ...],
     return out
 
 
-# --- reporting -----------------------------------------------------------------------------
-
 _HEAD = (f"{'size':>5} | {'A miss':>7} {'A phan':>7} | {'A ph@m':>7} {'A m@ph':>7} "
          f"| {'B miss':>7} {'B phan':>7} | {'B ph@m':>7} {'B m@ph':>7}")
 
@@ -417,11 +335,8 @@ def report(log: Log, name: str, split: str, sizes: tuple[int, ...], a, b, target
 
 
 def report_by_session(log: Log, name: str, sizes: tuple[int, ...], a, sids: np.ndarray) -> None:
-    """Per-session misses/phantoms plus the empty-crop margin — the scoreboard's decisive columns.
-
-    Split by session because the two test sessions are not interchangeable: one is the USB rig, one
-    is a phone game, and the phone column is the deployment-near one. A model can be phantom-free on
-    the anchor and not on the phone, and only the anchor number would be reported by a total.
+    """Per-session misses/phantoms plus the empty-crop margin: the USB rig and the phone session are
+    not interchangeable, and a total would report only the anchor.
     """
     for s in sizes:
         res = a.get(s)
@@ -481,7 +396,7 @@ def main() -> None:
     for name in run_names:
         run_dir = config.DATA.models / name
         model, cfg = load_torch_run(run_dir)
-        occupancy_reader(cfg)                 # refuse a run we cannot score, before any GPU work
+        occupancy_reader(cfg)  # refuse an unscorable run before any GPU work
         model.to(device)
         runs[name] = (run_dir, model, cfg)
         log(f"loaded {name}: backbone={cfg['backbone']} norm={cfg.get('norm')} "
@@ -489,10 +404,8 @@ def main() -> None:
             f"classes={len(cfg['classes'])}")
 
     if args.dataset:
-        # A dataset whose TRAIN split differs from the run's would leak; the caller is trusted to
-        # know that, so the override is logged loudly rather than guessed at. The real use is a
-        # corpus extended by a held-out session — occ-real6 is occ-real5nd plus one phone session,
-        # with byte-identical train and val lists.
+        # A dataset with another TRAIN split would leak; the caller is trusted and the override
+        # logged loudly.
         log(f"[OVERRIDE] evaluating on dataset '{args.dataset}' instead of the runs' own "
             f"{sorted({cfg['dataset'] for _, _, cfg in runs.values()})} — verify the train split "
             "matches, or the numbers are leaked.")
@@ -524,8 +437,7 @@ def main() -> None:
                 f"warped to {warp_px_per_square(prof):.1f} px/square "
                 f"(profile '{prof.profile}', board_size={prof.board_size})")
 
-        # Path B does not see the pad at all (it resizes the crops on disk), so it runs ONCE
-        # however many pads path A is asked for.
+        # Path B never sees the pad, so it runs ONCE however many pads path A gets.
         b_all = ({name: sweep_path_b(model, cfg, rows, sizes, device, args.batch_size,
                                      args.num_workers, log)
                   for name, (_run_dir, model, cfg) in runs.items()}
@@ -534,8 +446,8 @@ def main() -> None:
             a_all = (sweep_path_a(runs, rows, sizes, device, log, pad_side=pad)
                      if "a" in args.paths else {})
             for name in runs:
-                # One label per (run, pad): the pads have to be compared inside ONE run, because a
-                # path-A number is only valid against the profile it was measured with.
+                # Pads are compared inside ONE run: a path-A number is only valid against its
+                # profile.
                 label = name if pad is None else f"{name}@pad{pad:g}"
                 a = {s: a_all[(name, s)] for s in sizes} if a_all else {}
                 verdict[(label, split_name)] = report(log, label, split_name, sizes, a,

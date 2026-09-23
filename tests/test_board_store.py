@@ -84,8 +84,9 @@ def test_a_stored_board_is_cut_without_asking_the_markers(slice_fixture, tmp_pat
 
 
 def test_a_session_without_a_board_store_is_still_cut_from_its_frame(slice_fixture, tmp_path):
-    """The pre-2026-08-17 shape. No exporter writes it any more, so nothing else covers the
-    branch — and it is the only thing standing between an old session and a crash."""
+    """The shape before the board store. No exporter writes it any more, so nothing else covers the
+    branch.
+    """
     from chesslab.labeling import slice_session
 
     sdir, prof, _ = slice_fixture([{"frame": "frames/000001.png", "fen": START_FEN, "ply": 1}],

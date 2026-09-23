@@ -1,13 +1,11 @@
 """Das billige Ja/Nein vor der Auswahl: liegt eine Hand auf diesem Brett?
 
-Destilliert aus SAM 3 — dessen Alpha ist der Lehrer, dieser Kopf der Zeuge, der in Millisekunden
-statt Sekunden antwortet. Warum die drei Scan-Sensoren das nicht können: `docs/session-mattes.md`.
+Destilliert aus SAM 3, dessen Alpha der Lehrer ist (`docs/session-mattes.md`).
 """
 
 from __future__ import annotations
 
 import json
-import os
 from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -22,11 +20,8 @@ from .session_store.names import MATTE_FILE, log_path
 GATE_AREA_MIN = 0.25
 #: Wohin Gewichte und Modellkarte gehen. `bn` im Namen ist Pflicht (CLAUDE.md, Model Guidelines).
 GATE_DIR = "hand-gate-bn"
-#: Der Lauf, den die Pipeline benutzt, wenn niemand einen anderen nennt. NICHT der namenlose
-#: Ordner: dort liegt der erste Versuch mit global gepooltem Kopf, den `GateNet` gar nicht laden
-#: kann — und ein leerer Vorgabewert hat genau deshalb einen ganzen Korpus-Rescan gekostet.
-#: Gegen `eff-b0-448-v2` auf DEMSELBEN Holdout: 2 statt 4 verpasste Haende, 13 statt 14
-#: Fehlalarme — und 0,85 statt 4,28 ms je Brett (`docs/offene-entscheidungen.md`, Punkt 15).
+#: Vorgabelauf. NICHT der namenlose Ordner: dessen global gepoolten Kopf laedt `GateNet` nicht.
+#: Gegen `eff-b0-448-v2`: 2 statt 4 verpasste Haende, 0,85 statt 4,28 ms je Brett.
 DEFAULT_GATE = "mnv3s-448-v3"
 CARD_FILE = "card.json"
 WEIGHTS_FILE = "gate.pt"
@@ -38,9 +33,8 @@ def gate_label(row: dict) -> bool | None:
     Beides muss zusammenkommen: ein Konzept, das feuert, UND Fläche. Ein Konzept ohne Fläche ist
     eine verworfene Box, Fläche ohne Konzept ein Maskenrand.
     """
-    # Eine uebersprungene Zeile (`zone too big`, Brett unlesbar) traegt WEDER Konzepte NOCH
-    # Coverage — als "kein Konzept, keine Flaeche" gelesen lehrte sie den Schueler, genau die
-    # verdecktesten Bretter des Korpus handfrei zu nennen.
+    # Eine uebersprungene Zeile (`zone too big`) traegt WEDER Konzepte NOCH Coverage: ungemessen,
+    # nicht handfrei.
     if row.get("skipped") or row.get("coverage") is None:
         return None
     concepts = {k for k, v in (row.get("concepts") or {}).items() if v}
@@ -82,19 +76,16 @@ def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dic
         log = read_jsonl(log_path(session_dir))
         boards = {Path(r["frame"]).stem: r.get("board") for r in log}
         borders = {Path(r["frame"]).stem: r.get("board_border") for r in log}
-        # Die HISTORIE je Frame auf ihre juengste Zeile (Punkt 28): roh gelesen lehrte eine
-        # laengst zurueckgenommene Messung weiter, und ein zweimal gemattetes Brett zaehlte
-        # zweimal in denselben Satz.
+        # Die Historie je Frame auf ihre juengste Zeile: roh gelesen lehrte eine zurueckgenommene
+        # Messung weiter, und ein zweimal gemattetes Brett zaehlte doppelt.
         for row in effective_rows(read_rows(session_dir)).values():
             said = verdicts.get((session, str(row["frame"])))
-            # Das Wort des Menschen ist das letzte: `matte-bad` heisst "diese Matte ist falsch",
-            # und dann taugt weder ihr Ja noch ihr Nein als Lehre (22 SAM-Zeilen lehrten trotzdem).
+            # `matte-bad` vom Menschen: dann taugt weder Ja noch Nein dieser Matte als Lehre.
             if said == "matte-bad":
                 tally["matte_bad"] += 1
                 continue
-            # Sonst NUR SAMs eigenes Urteil — eine adoptierte `temporal`/`upsert`-Zeile stammt vom
-            # Drei-Bilder-Sensor und macht aus dem Lehrer einen zweiten Schueler. Ausser der Mensch
-            # hat sie ausdruecklich freigegeben; dann buergt er dafuer.
+            # Nur SAMs eigenes Urteil: `temporal`/`upsert` stammt vom Drei-Bilder-Sensor. Ausser der Mensch
+            # hat die Zeile freigegeben.
             if row.get("source") in ("temporal", "upsert") and said != "matte-ok":
                 tally["not_sams_own"] += 1
                 continue
@@ -103,9 +94,7 @@ def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dic
             if rel is None:
                 tally["no_board_in_log"] += 1
                 continue
-            # SAMs ABSAGE ist kein Zwischenstreifen: ohne `coverage` gaebe `unclear` dem Schueler
-            # 64 erfundene Nullen und `float(bool(None))` als "keine Hand" — derselbe Griff, der
-            # ihm schon einmal die verdecktesten Bretter des Korpus als handfrei beibrachte.
+            # SAMs Absage ist kein Zwischenstreifen: ohne `coverage` gaebe es 64 erfundene Nullen.
             cover = row.get("coverage")
             if cover is None:
                 tally["not_measured"] += 1
@@ -136,10 +125,9 @@ def holdout_sessions(rows: list[dict], count: int, pinned: Sequence[str] | None 
 
 
 def _read_board(path: Path, size: int, border: int = 0):
-    """Ein gespeichertes Brett als RGB-Array in der Größe, die der Kopf sieht — OHNE seinen Rand.
+    """Ein gespeichertes Brett als RGB in Kopfgroesse — OHNE seinen Rand.
 
-    Der Rand muss weg, weil der 8x8-Kopf sein Raster über das Bild legt: 12 px auf 952 sind ein
-    Viertel Feld Versatz, und dann sagt jede Zelle etwas über die Nachbarzelle.
+    Der 8x8-Kopf legt sein Raster ueber das Bild: 12 px Rand auf 952 sind ein Viertel Feld Versatz.
     """
     import cv2
 
@@ -158,11 +146,7 @@ STD = (0.229, 0.224, 0.225)
 
 
 def _augment(image, rng):
-    """Was zwischen zwei Aufnahmen wirklich variiert: das Licht.
-
-    Kein Versatz, keine Drehung, keine Spiegelung — das Ziel sind 64 Werte auf FESTEN Feldern, und
-    schon 8 px Verschiebung sind ein Fünftel Feld. Die Kamera steht ohnehin still.
-    """
+    """Nur das Licht variiert: 8 px Versatz waeren ein Fuenftel Feld, und die Kamera steht still."""
     import numpy as np
 
     out = image.astype(np.float32) * rng.uniform(0.75, 1.3) + rng.uniform(-25, 25)
@@ -178,10 +162,7 @@ def worker_seed(seed: int) -> int:
 
 
 class BoardSet:
-    """Die gespeicherten Bretter als Ja/Nein-Paare, von Platte gelesen.
-
-    Kein Memmap-Pack wie beim Zell-Training: 11.000 Bilder sind zu wenig, um dafür eins zu bauen.
-    """
+    """Die gespeicherten Bretter als Ja/Nein-Paare; 11.000 Bilder lohnen keinen Memmap-Pack."""
 
     def __init__(self, rows: list[dict], size: int, train: bool, seed: int = 0):
         self.rows, self.size, self.train = rows, size, train
@@ -190,9 +171,9 @@ class BoardSet:
 
     @property
     def rng(self):
-        """Erst im Worker gezogen: ein im Elternteil gebauter RNG wird mitgeforkt, und vier
-        Prozesse zogen dieselbe Helligkeits-Folge — ein Viertel der Vielfalt, die es zu sein
-        schien, und gegen `seed` nicht reproduzierbar."""
+        """Erst im Worker gezogen: ein im Elternteil gebauter RNG wird mitgeforkt, und alle Worker
+        ziehen dieselbe Helligkeits-Folge.
+        """
         import numpy as np
 
         if self._rng is None:
@@ -209,8 +190,7 @@ class BoardSet:
         row = self.rows[i]
         path = self.root / row["board"]
         image = _read_board(path, self.size, row.get("border", 0))
-        # Nullen hiessen "schwarzes Brett MIT diesem Label" — der Schueler lernte Bilder, die es
-        # nie gab. Gemessen 2026-09-16: 0 von 11 647 Brettern fehlen, Abweisen kostet nichts.
+        # Nullen hiessen "schwarzes Brett MIT diesem Label"; gemessen fehlen 0 von 11 647 Brettern.
         if image is None:
             raise FileNotFoundError(f"{path} laesst sich nicht als Brett lesen")
         if self.train:
@@ -291,9 +271,7 @@ class GateNet:
 
         from .training.model import _convert_bn_to_primitive
 
-        # `is_model_pretrained` gibt fuer einen UNBEKANNTEN Namen einfach False zurueck. Die
-        # Warnung darunter meldete deshalb "zufaellige Initialisierung" fuer ein Modell, das es
-        # gar nicht gibt, und `create_model` starb eine Zeile spaeter.
+        # `is_model_pretrained` gibt fuer einen UNBEKANNTEN Namen still False zurueck.
         if not timm.is_model(backbone):
             near = timm.list_models(f"*{backbone.replace('_', '')[:10]}*")[:5]
             raise ValueError(f"{backbone} ist kein timm-Modell" + (f" — vielleicht {near}" if near else ""))
@@ -378,10 +356,9 @@ def _run_epoch(model, loader, device, criterion, optimizer=None) -> tuple[float,
 
 
 def gate_score(cover: dict) -> float:
-    """Wonach ein Lauf seine beste Epoche wählt: das F1 über die Felder.
+    """Wonach ein Lauf seine beste Epoche waehlt: das F1 ueber die Felder.
 
-    Das Veto liegt in jeder Epoche über 0,99 und trennt deshalb nicht; die 64 Werte sind ohnehin
-    das Produkt. Ein Lauf ohne diese Wahl behält die letzte Epoche, auch wenn sie die schlechteste war.
+    Das Veto liegt in jeder Epoche ueber 0,99 und trennt deshalb nicht.
     """
     r, p = cover["recall"], cover["precision"]
     return round(2 * r * p / max(r + p, 1e-9), 4)
@@ -480,9 +457,8 @@ def train_gate(*, backbone: str = "mobilenetv3_small_100", size: int = 320, epoc
             "ms_per_board": speed, "perfect_recall": pick_threshold(best["sweep"], 1.0),
             "history": history, "written_at": datetime.now(UTC).isoformat(),
             "best": {k: v for k, v in best.items() if k not in ("weights", "sweep")}}
-    # Lieber abbrechen als unadressierbar schreiben: `load_gate` und `framescan` loesen
-    # `tag or DEFAULT_GATE` auf, ein tagloser Lauf landete unter `hand-gate-bn` und wurde nie
-    # geladen — der Scan servierte still den alten und stempelte den neuen Namen.
+    # Ohne Tag landete der Lauf unter `hand-gate-bn` und wurde nie geladen: `load_gate` und
+    # `framescan` loesen `tag or DEFAULT_GATE` auf.
     if not tag:
         raise ValueError(
             f"gate-train braucht einen --tag: `load_gate` und `framescan` lesen "
@@ -491,8 +467,7 @@ def train_gate(*, backbone: str = "mobilenetv3_small_100", size: int = 320, epoc
         )
     out = config.DATA.models / f"{GATE_DIR}-{tag}"
     out.mkdir(parents=True, exist_ok=True)
-    # Gespeichert wird die BESTE Epoche, nicht die letzte: auf 20-40-33 lag Epoche 8 deutlich
-    # unter Epoche 4, und ein Lauf, der dort endet, verschenkt sein eigenes Ergebnis.
+    # Die BESTE Epoche, nicht die letzte: auf 20-40-33 lag Epoche 8 deutlich unter Epoche 4.
     torch.save(best["weights"], out / WEIGHTS_FILE)
     torch.save(model.state_dict(), out / "last.pt")
     write_json(out / CARD_FILE, card)
@@ -502,10 +477,9 @@ def train_gate(*, backbone: str = "mobilenetv3_small_100", size: int = 320, epoc
 
 
 def miopen_fast() -> None:
-    """ROCm sucht auf Windows sonst je Conv-Form erschöpfend nach Kerneln — 20 Minuten für nichts.
+    """ROCm sucht auf Windows sonst je Conv-Form erschoepfend nach Kerneln — 20 Minuten fuer nichts.
 
-    Muss stehen, BEVOR die erste Faltung läuft, deshalb hier und nicht im Aufrufer: den Scan hätte
-    es sonst genauso getroffen wie das Training, nur ohne dass es jemandem auffällt.
+    Muss vor der ersten Faltung stehen; deshalb hier und nicht im Aufrufer.
     """
     import os
 
@@ -555,61 +529,9 @@ def read_gate(model, device, paths: list[Path], size: int, batch: int = 24,
 
 
 def read_boards(model, device, boards: list, size: int, batch: int = 16) -> list:
-    """Schon gewarpte Bretter durch den Kopf — der Frame-Scan hält sie ohnehin in der Hand.
-
-    Ohne Randschnitt: `scan_video` gibt das reine Brett weiter, den Rand schneidet `_read_board`
-    nur dort ab, wo er auf der Platte mitgespeichert ist.
-    """
+    """Schon gewarpte Bretter durch den Kopf, OHNE Randschnitt: `scan_video` reicht das reine Brett."""
     import cv2
 
     images = [cv2.cvtColor(cv2.resize(b, (size, size), interpolation=cv2.INTER_AREA),
                            cv2.COLOR_BGR2RGB) for b in boards]
     return _forward(model, device, images, batch)
-
-
-def write_gate(path: Path, lines: list[str]) -> Path:
-    """TODO: `write_text` KUERZT zuerst — ein abgebrochener Scan liess den vorigen, vollstaendigen
-    Gate halb da, und ein toleranter Leser (`ioutil.read_jsonl`) verwirft die halbe letzte Zeile
-    stumm: ein halber Lauf liest sich dann als ganzer, ohne `veto` fuer die fehlenden Frames.
-    """
-    tmp = path.with_name(path.name + ".tmp")
-    try:
-        tmp.write_text("".join(x + "\n" for x in lines), encoding="utf-8")
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    os.replace(tmp, path)
-    return path
-
-
-def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:
-    """Eine Session durch den Schüler -> `gate.jsonl` neben `matte.jsonl`.
-
-    Getrennte Datei mit Absicht: SAMs Messung und die des Schülers dürfen nie in derselben Zeile
-    stehen, sonst weiß später niemand mehr, wessen Zahl in den Trainingssatz gelaufen ist.
-    """
-    from .ioutil import read_jsonl
-    from .labeling import all_squares
-    from .session_store.recording import game_dir
-
-    session_dir = game_dir(name)
-    model, card, device = load_gate(tag)
-    rows = [r for r in read_jsonl(log_path(session_dir)) if r.get("board")]
-    said = read_gate(model, device, [session_dir / r["board"] for r in rows], card["size"], batch,
-                     borders=[int(r.get("board_border") or 0) for r in rows])
-    squares = all_squares()
-    thr = card["perfect_recall"]["thr"]
-    lines = []
-    for row, got in zip(rows, said, strict=True):
-        if got is None:
-            continue
-        lines.append(json.dumps({
-            "frame": Path(row["frame"]).stem, "ply": row.get("ply"),
-            "hand": round(got[0], 4), "veto": got[0] >= thr,
-            "coverage": {sq: round(v, 4) for sq, v in zip(squares, got[1:], strict=True) if v > 0.01},
-        }))
-    path = write_gate(session_dir / "gate.jsonl", lines)
-    # Ein unlesbares Brett FEHLT in der Datei, und das ist richtig — aber der Bericht muss es
-    # sagen, sonst liest sich ein halber Lauf wie ein ganzer.
-    return {"path": path, "frames": len(lines), "unreadable": sum(1 for x in said if x is None),
-            "veto": sum(1 for x in lines if '"veto": true' in x)}

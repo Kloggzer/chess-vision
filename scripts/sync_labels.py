@@ -29,8 +29,9 @@ Cell = tuple[str, str, str]
 
 
 def ledger() -> dict[Cell, str]:
-    """Das letzte Wort des Menschen je Zelle. `reviewed` und `corrections` in EINER Reihenfolge:
-    spaeter schlaegt frueher, damit eine Ruecknahme die fruehere Zusage aufhebt."""
+    """Das letzte Wort des Menschen je Zelle: `reviewed` und `corrections` in EINER Reihenfolge,
+    damit eine Ruecknahme die fruehere Zusage aufhebt.
+    """
     rows: list[dict] = []
     for rec in sorted(RECORDINGS.iterdir()):
         if not rec.is_dir():
@@ -42,8 +43,8 @@ def ledger() -> dict[Cell, str]:
     rows.sort(key=lambda r: str(r.get("ts", "")))
     out: dict[Cell, str] = {}
     for row in rows:
-        # `occluded` ist zurueckgezogen (`config.IDENTITY_CLASSES`); es zu schreiben baut eine
-        # Klasse wieder auf, die der Verlust als Regressionsziel fuehrt.
+        # `occluded` ist zurueckgezogen; es zu schreiben baute eine Klasse wieder auf, die ein
+        # Regressionsziel ist.
         if row.get("label") in IDENTITY_CLASSES:
             out[(row["session_id"], str(row["frame"]), str(row["square"]))] = row["label"]
     return out

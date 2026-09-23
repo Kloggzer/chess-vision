@@ -1,8 +1,4 @@
-"""Woher ein fertiger Kettenlauf stammt — der Stempel, den `platform/app/lib/chain.ts` nachrechnet.
-
-Die Kette schloss ihre Sprossen auf DATEIEXISTENZ: ein Reads-Lauf von vor dem letzten Re-Export
-hielt sie so fest zu wie ein frischer, derselbe Riss wie bei der driftenden `coverage`.
-"""
+"""Der `_source`-Stempel eines Kettenlaufs, den `platform/app/lib/chain.ts` nachrechnet."""
 
 from __future__ import annotations
 
@@ -42,10 +38,10 @@ class Stale(RuntimeError):
 
 
 def same_log(stamped: str, current: str | None) -> bool:
-    """Wie `sameLog` in `platform/app/lib/chain.ts`: Groesse exakt, Millisekunde auf 1 genau.
+    """Wie `sameLog` in `chain.ts`: Groesse exakt, Millisekunde auf 1 genau.
 
-    Python rundet denselben Zeitstempel ueber ein float in SEKUNDEN ab, die Millisekunde kann
-    also um eins danebenliegen; ein Neuschreiben bewegt sie um mehr, und die Groesse faengt den Rest.
+    Python rundet den Zeitstempel ueber ein float in SEKUNDEN ab; die Millisekunde kann um eins
+    abweichen.
     """
     if current is None:
         return False
@@ -98,8 +94,8 @@ def _check_inputs(session_dir: Path, path: Path) -> None:
 def check(session_dir: Path, path: Path) -> None:
     """Wirft `Stale`, wenn `path` aus einem aelteren Schnitt der Aufnahme stammt.
 
-    Ungestempelt gilt weiter (alles auf der Platte ist es), und eine unlesbare `log.jsonl` ist
-    kein Urteil — wie `stillCurrent` in `platform/app/lib/chain.ts` lehnt nur ein FALSCHER ab.
+    Ungestempelt gilt weiter, eine unlesbare `log.jsonl` ist kein Urteil — nur ein FALSCHER
+    Stempel lehnt ab.
     """
     stamps = _stamps(Path(path))
     if not stamps:

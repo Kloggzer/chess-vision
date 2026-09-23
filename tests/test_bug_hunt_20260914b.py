@@ -1,4 +1,4 @@
-"""Bug-Hunt 2026-09-14 (zweite Runde, Python-Seite)."""
+"""Bug-Hunt, zweite Runde, Python-Seite."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -101,7 +101,8 @@ def test_a_clock_jump_does_not_free_a_live_training_lock(tmp_path, monkeypatch):
 
 def test_a_reboot_still_frees_the_lock(tmp_path, monkeypatch):
     """Die Gegenprobe: nach einem Neustart faellt die Laufzeit zurueck, und das Lock muss weg —
-    Windows vergibt die PID neu, `pid_alive` sagt dann brav ja (2026-09-11)."""
+    Windows vergibt die PID neu, `pid_alive` sagt dann ja.
+    """
     import json
     from datetime import datetime
 
@@ -142,12 +143,8 @@ def test_subsample_classes_is_deterministic_from_its_seed():
 
 
 def test_the_symbols_without_readers_stay_removed():
-    """Am 2026-09-14 entfernt, weil sie niemand las — wer sie zurueckholt, bringt den Leser mit.
-
-    `occluded_model.all_probs` und `dataset.subsample_empty` hatten null Aufrufer. `moved_ply`
-    stand in jeder `timing`-Karte und wurde von keinem Leser in Python, TypeScript oder Kotlin
-    wieder herausgeholt. Die Grid-Correction-Maschinerie beschrieb eine LIVE-Aufgabe und war an
-    nichts verdrahtet; nur ihre eigenen Tests hielten sie am Leben.
+    """Entfernt, weil sie niemand las — wer sie zurueckholt, bringt den Leser mit (`all_probs`,
+    `subsample_empty`, `moved_ply`, die unverdrahtete Grid-Correction).
     """
     import chesslab.alignment as al
     import chesslab.dataset as ds

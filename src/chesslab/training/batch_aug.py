@@ -1,7 +1,6 @@
-"""ColorJitter, Gamma, Blur und Cutout als EINE Batch-Operation auf dem Geraet.
-
-Overhead- statt rechengebunden: gebatcht 66x billiger, aber float statt PILs uint8 — statistisch
-dasselbe Rezept, nicht bitgleich (`docs/training-speed.md`)."""
+"""ColorJitter, Gamma, Blur und Cutout als EINE Batch-Operation auf dem Geraet: 66x billiger, aber
+float statt uint8 — statistisch dasselbe Rezept, nicht bitgleich.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +13,10 @@ import torch.nn.functional as F
 BLUR_P = 0.3
 #: Seitenverhaeltnis-Spanne von `torchvision.transforms.RandomErasing`.
 ERASE_RATIO = (0.3, 3.3)
-#: Ihr Logarithmus, EINMAL: im Rumpf gerechnet ist es ein CPU-Tensor mitten im Graphen, und ohne
-#: Host-Compiler kann Inductor den nicht erzeugen. Werte bleiben Bit fuer Bit dieselben.
+#: EINMAL gerechnet: im Rumpf waere es ein CPU-Tensor im Graphen, den Inductor ohne Host-Compiler
+#: nicht erzeugen kann.
 ERASE_LOG_RATIO = tuple(torch.tensor(ERASE_RATIO).log().tolist())
-#: Luminanz nach ITU-R BT.601, dieselbe Gewichtung, die `torchvision` fuer Kontrast und
-#: Saettigung nimmt.
+#: Luminanz nach ITU-R BT.601, wie `torchvision` fuer Kontrast und Saettigung.
 GREY = (0.299, 0.587, 0.114)
 
 
@@ -54,8 +52,7 @@ def _blur(v: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
     k = torch.exp(-(off**2) / (2 * sigma.view(n, 1) ** 2))
     k = (k / k.sum(dim=1, keepdim=True)).repeat_interleave(c, dim=0)
     flat = v.reshape(1, n * c, h, w)
-    # Separabel: erst senkrecht, dann waagerecht. `reflect` ist die Randbehandlung von
-    # `torchvision.transforms.GaussianBlur`.
+    # Separabel; `reflect` ist die Randbehandlung von `torchvision.transforms.GaussianBlur`.
     flat = F.conv2d(F.pad(flat, (0, 0, 1, 1), mode="reflect"),
                     k.view(n * c, 1, 3, 1), groups=n * c)
     flat = F.conv2d(F.pad(flat, (1, 1, 0, 0), mode="reflect"),
@@ -64,8 +61,7 @@ def _blur(v: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
 
 
 def _erase(v: torch.Tensor, p: float, scale: tuple[float, float]) -> torch.Tensor:
-    """Cutout je Bild, vektorisiert. Gefuellt wird mit 0 — im [0,1]-Raum der neutrale Wert, den
-    `build_transform` meint, wenn es das Erase VOR die Normalisierung haengt."""
+    """Cutout je Bild, vektorisiert, gefuellt mit 0 — der neutrale Wert im [0,1]-Raum."""
     n, _, h, w = v.shape
     area = h * w * _factors(n, *scale, v.device, v.dtype).view(-1)
     ratio = torch.exp(_factors(n, *ERASE_LOG_RATIO, v.device, v.dtype)).view(-1)
@@ -100,10 +96,8 @@ def _flip(v: torch.Tensor, p: float, dims: tuple[int, ...]) -> torch.Tensor:
 
 
 class BatchGeometry:
-    """Affine und Spiegelungen je BILD, gebatcht — damit die Photometrie wieder DAVOR laeuft.
-
-    Bleibt die Geometrie im Loader, kippt `--batch-aug` die Reihenfolge von `build_transform`:
-    beim Blur ist das nicht folgenlos (`docs/training-speed.md`).
+    """Affine und Spiegelungen je BILD, gebatcht, damit die Photometrie wie in `build_transform`
+    DAVOR laeuft — beim Blur ist die Reihenfolge nicht folgenlos.
     """
 
     def __init__(self, policy) -> None:
@@ -122,8 +116,8 @@ class BatchGeometry:
     def __call__(self, v: torch.Tensor) -> torch.Tensor:
         n, _, h, w = v.shape
         if self.translate or self.scale:
-            # `RandomAffine.get_params` zieht GANZE Pixel; ohne das Runden waere es eine andere
-            # Verteilung als die Kette, die hier ersetzt wird.
+            # `RandomAffine.get_params` zieht GANZE Pixel; ohne Runden waere es eine andere
+            # Verteilung.
             mx, my = self.translate * w, self.translate * h
             tx = _factors(n, -mx, mx, v.device, v.dtype).view(-1).round()
             ty = _factors(n, -my, my, v.device, v.dtype).view(-1).round()
@@ -145,20 +139,16 @@ class BatchGeometry:
 
 
 class BatchPhotometric:
-    """Die photometrische Haelfte der Kette, auf normalisierten Batches.
-
-    Je BILD eine eigene Ziehung, nicht je Batch — sonst waere es eine andere Augmentierung."""
+    """Die photometrische Haelfte der Kette, je BILD eine eigene Ziehung."""
 
     def __init__(self, policy, mean, std, erase: bool = True, from_uint8: bool = False,
                  geometry: BatchGeometry | None = None) -> None:
-        # Die Geometrie haengt HIER und nicht beim Aufrufer, damit die Reihenfolge nicht zweimal
-        # gewusst werden muss: Photometrie, dann Affine/Flip, dann Rauschen und Cutout.
+        # Hier, damit die Reihenfolge nur einmal gewusst wird: Photometrie, Affine/Flip, Rauschen,
+        # Cutout.
         self.geometry = geometry
-        # Kommt der Batch als uint8, gibt es keine Normalisierung zurueckzurechnen — nur /255.
         self.from_uint8 = from_uint8
         self.noise_std = float(getattr(policy, "noise_std", 0.0)) if erase else 0.0
-        # Das Erase MUSS mitkommen: es fuellt mit 0, und wuerde die Photometrie danach laufen,
-        # faerbte Kontrast die geloeschte Flaeche und der Blur schmierte sie aus.
+        # Das Erase MUSS mitkommen: danach liefe die Photometrie ueber die geloeschte Flaeche.
         self.erase_p = float(policy.erase_p) if erase else 0.0
         self.erase_scale = tuple(policy.erase_scale)
         self.brightness = float(policy.brightness)
@@ -199,31 +189,30 @@ class BatchPhotometric:
 
     @staticmethod
     def _order(n: int) -> list[int]:
-        """Die Reihenfolge der Jitter-Operationen — gezogen VOR dem Graphen, weil ein Index aus
-        einem Tensor `ops[i]` datenabhaengig macht und `fullgraph` daran bricht."""
+        """Gezogen VOR dem Graphen: ein Index aus einem Tensor macht `ops[i]` datenabhaengig, und
+        `fullgraph` bricht daran.
+        """
         return torch.randperm(n).tolist()
 
     def compile(self, *, preserve_rng: bool = True) -> None:
-        """Experimental fusion: retain eager RNG draws, but arithmetic may round differently.
-
-        Static shapes avoid a host C++ compiler on Windows. Four board batch sizes and six
-        jitter orders require more than Dynamo's default eight specializations.
+        """Experimental fusion: eager RNG draws kept, arithmetic may round differently. Static
+        shapes avoid a host C++ compiler on Windows; board sizes x jitter orders exceed Dynamo's
+        8 specialisations.
         """
         compiled = torch.compile(self._device, fullgraph=True, dynamic=False,
                                  options={'fallback_random': preserve_rng})
-        # Scope the limit to this invocation; do not change the model compiler's settings.
+        # Scoped to this invocation; the model compiler's settings stay.
         self._compiled = torch._dynamo.config.patch(recompile_limit=32)(compiled)
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         if not self.active:
             return x
-        # The CPU generator draws this, the augmentation's own factors come from the device one,
-        # so hoisting it out of the graph leaves both sequences untouched.
-        # CPU factors share the permutation's RNG: preserve their original draw order there.
+        # The CPU generator draws the order, the device one the factors, so hoisting it changes
+        # neither sequence; on CPU both share one RNG in the original draw order.
         order = self._order(self._n_jitter) if x.device.type != "cpu" else None
         if self._compiled is not None:
-            # Compile over crops: even a one-board final batch then has a dynamic size >= 64.
-            # Otherwise Dynamo specializes the board dimension at 1 and duplicates every order.
+            # Compile over crops, or Dynamo specialises the board dimension at 1 and duplicates
+            # every order.
             flat = x.flatten(0, 1) if x.dim() == 5 else x
             return self._compiled(flat, order).view_as(x)
         return self._device(x, order)
@@ -232,7 +221,7 @@ class BatchPhotometric:
         shape = x.shape
         # Der Brettkopf liefert `(B, 64, C, H, W)`; gewuerfelt wird je CROP, wie im Loader.
         v = x.flatten(0, 1) if x.dim() == 5 else x
-        # ERST nach float wandeln: mean/std im uint8-dtype des Eingangs zu bilden macht std zu 0.
+        # ERST nach float wandeln: mean/std im uint8-dtype macht std zu 0.
         if self.from_uint8:
             v = v.float().div_(255.0)
         key = (v.device, v.dtype)
@@ -252,8 +241,7 @@ class BatchPhotometric:
             v = torch.where(hit.view(-1, 1, 1, 1), _blur(v, sigma), v)
         if self.geometry is not None and self.geometry.active:
             v = self.geometry(v)
-        # Reihenfolge wie in `build_transform`: erst das Rauschen, dann das Cutout — sonst
-        # traegt die geloeschte Flaeche Rauschen statt der neutralen 0.
+        # Erst das Rauschen, dann das Cutout, sonst traegt die geloeschte Flaeche Rauschen statt 0.
         if self.noise_std:
             hit = (torch.rand(v.shape[0], device=v.device) < 0.5).view(-1, 1, 1, 1)
             v = torch.where(hit, v + torch.randn_like(v) * self.noise_std, v).clamp_(0.0, 1.0)

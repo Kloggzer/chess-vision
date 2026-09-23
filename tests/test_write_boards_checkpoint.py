@@ -28,8 +28,9 @@ def _rows(n: int) -> list[dict]:
 
 
 def test_a_killed_write_boards_leaves_the_straightened_flag_on_disk(tmp_path, monkeypatch):
-    """Row 0's board is straight on the platter; if the log never says so, the next run pulls it
-    a second time and the store is over-corrected — the 2026-08-21 incident, verbatim."""
+    """Row 0's board is straight on disk; if the log never says so, the next run pulls it a second
+    time and the store is over-corrected.
+    """
     import cv2
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))

@@ -1,12 +1,5 @@
-"""Welche Aufstellung fehlt dem Korpus — als FEN, Brettbild und fertiger Ingest-Befehl.
-
-Nicht die Zahl der Crops entscheidet, sondern wie viele VERSCHIEDENE (Figur, Feld)-Kombinationen
-der Datensatz kennt: `wK` hat 6 640 Crops, aber nur zehn Felder — 201 Aufnahmen je Situation.
-Und die Feldfarbe ist schief verteilt (`wK` 28 von 33 auf dunkel), was genau die Verwechslungen
-erzeugt, die die Konfusionsmatrix zeigt.
-
-Das Skript zaehlt die vorhandene Abdeckung, gewichtet nach Seltenheit und stellt daraus Bretter
-zusammen, die MOEGLICHST viel Neues zeigen — im Rahmen dessen, was ein echtes Figurenset hergibt.
+"""Welche Aufstellung fehlt dem Korpus — als FEN, Brettbild und Ingest-Befehl. Es zaehlen
+VERSCHIEDENE (Figur, Feld)-Kombinationen, nicht Crops, gewichtet nach Seltenheit und Feldfarbe.
 """
 
 from __future__ import annotations
@@ -25,8 +18,8 @@ INVENTORY = {"K": 1, "Q": 1, "R": 2, "B": 2, "N": 2, "P": 8}
 RARE = ("K", "Q", "B", "N", "R")
 
 
-# Der 1-basierte Rang drehte hier jede Feldfarbe um: a1 hiess "light", und die Abdeckungstabelle
-# meldete die dunklen Felder als helle. `labeling.square_color` ist die eine Definition (a1=dark).
+# `labeling.square_color` ist die eine Definition (a1=dark); ein 1-basierter Rang drehte jede Farbe
+# um.
 
 
 def squares() -> list[str]:
@@ -128,8 +121,7 @@ def write_html(out: Path, cards, occluders: str) -> None:
              "<h1>Aufstellungen fuer die seltenen Klassen</h1>"]
     for i, fen, used, gain in cards:
         board = chess.Board(fen + " w - - 0 1")
-        # `squares=` malt ein X ueber das Feld — das sah aus, als waeren die Figuren
-        # durchgestrichen. `fill=` faerbt stattdessen den Untergrund, was gemeint war.
+        # `squares=` malt ein X ueber das Feld; `fill=` faerbt den Untergrund.
         marks = {chess.parse_square(sq): "#f0b03288" for sq in used}
         svg = chess.svg.board(board, size=340, fill=marks, coordinates=True)
         bs = chr(92)                      # Zeilenfortsetzung, ohne Escape-Ebenen zu stapeln

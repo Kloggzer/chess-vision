@@ -1,22 +1,7 @@
 """The trained model as a SECOND proposer — suggestions for a human, never labels.
 
-`occluded.py` scores pixels against an interval's own quiet frames and takes no model output at
-all, deliberately: a producer that learns from its own reads confirms its own mistakes. That
-argument bounds what a model may do here, it does not forbid it. Proposing is not labelling —
-every row this file emits still has to survive a keypress in the relabel UI, which is the
-standard pre-label-then-correct workflow, not a feedback loop.
-
-Two rules keep it honest, and they are the whole design:
-
-- **Never on the video it was trained on.** Scoring `rg-rec-20260808-*` with a model whose
-  `occluded` class came from exactly those cells reproduces its training labels and measures
-  nothing. The caller is refused when the session is in the model's own training split.
-- **The pixel channel keeps its own column.** `pixel_score` and `model_score` are written
-  separately and `score` is their max, so a disagreement stays visible in the file instead of
-  being averaged into a number nobody can take apart afterwards.
-
-Preprocessing goes through `serving.predict_arrays`, the same path the device serves on — a
-hand-rolled resize here would measure a domain shift instead of the model.
+Never on its own training sessions (a mirror, not a proposer), and preprocessing goes through
+`serving.predict_arrays`, the path the device serves on.
 """
 
 from __future__ import annotations
@@ -62,10 +47,8 @@ def split_path(run_dir: Path) -> Path | None:
 
 
 def trained_on(run_dir: Path) -> set[str]:
-    """Session ids in the model's training split — the sessions it must not be asked about.
-
-    The run's OWN `config.json["split"]` wins: it is frozen at training time, while the dataset
-    directory can be rebuilt or deleted underneath it (`real13-mix-v4` is gone, 2026-09-14).
+    """Session ids in the model's training split. The run's OWN `config.json["split"]` wins: the
+    dataset directory can be rebuilt or deleted underneath it.
     """
     embedded = (run_config(run_dir).get("split") or {}).get("splits")
     if embedded:
@@ -78,16 +61,15 @@ def trained_on(run_dir: Path) -> set[str]:
 
 
 def _names_session(entry: str, session_id: str) -> bool:
-    """Crops enter datasets under variant prefixes (`occ-rg-…`), which walked past the literal
-    match — the guard then ALLOWED exactly the trained-on sessions (found 2026-08-15)."""
+    """Crops enter datasets under variant prefixes (`occ-rg-…`); a literal match allowed exactly the
+    trained-on sessions.
+    """
     return entry == session_id or entry.endswith("-" + session_id)
 
 
 def check_not_circular(run_dir: Path, session_id: str) -> None:
-    """Refuse loudly: a model scoring its own training session is a mirror, not a proposer.
-
-    An UNREADABLE split refuses too. `real13-mix-v4` is gone from disk while three bundled
-    models still name it, and an empty set of hits then read as "held out" (found 2026-09-14).
+    """Refuse loudly: a model scoring its own training session is a mirror. An UNREADABLE split
+    refuses too — no hits there does not mean "held out".
     """
     embedded = (run_config(run_dir).get("split") or {}).get("splits")
     split = split_path(run_dir)
@@ -121,34 +103,25 @@ PROB_FLOOR = 0.01
 
 
 def sparse(probs: list[float], classes: list[str], floor: float = PROB_FLOOR) -> dict[str, float]:
-    """Only what a human would ever filter on.
-
-    A full 14-float vector per cell is ~12 MB per session of mostly `empty: 0.999`, and the UI
-    parses the file on every request. Dropping everything under [floor] keeps the queries the
-    relabel filter actually asks — "occluded > 0.1", "the model disagrees with the FEN" — while
-    the rows stay small. A class absent from the dict is below the floor, not unknown.
+    """Only what a human would ever filter on; the full vector was ~12 MB per session of `empty:
+    0.999`. A class absent from the dict is below the floor, not unknown.
     """
     return {c: round(p, 3) for c, p in zip(classes, probs, strict=True) if p >= floor}
 
 
 def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
-    """The 64 BGR crops of one logged row — through `crops_for_frame`, the slice's own path.
-
-    From the stored BOARD, like `slice_session`: a session has kept no source stills since the
-    board store landed (2026-08-17). A row that has none falls back to its frame, warped.
+    """The 64 BGR crops of one logged row via `crops_for_frame`, from the stored BOARD; a row
+    without one falls back to its frame, warped.
     """
-    # `usable_board` ist die Wache, an der JEDER andere Brettleser haengt (matte,
-    # temporal_matte, sensor_audit, slice_session) — hier stand nur `row.get("board")`. Das Brett
-    # traegt seine eigenen `board_size`/`board_border`; mit dem gerade geladenen Profil geschnitten
-    # sind das bis zu 59 px daneben, still (CLAUDE.md, Board store).
+    # `usable_board` ist die Wache jedes Brettlesers: mit dem gerade geladenen Profil geschnitten
+    # liegt ein Brett anderer Groesse bis zu 59 px daneben, still.
     from_board = usable_board(row, profile)
     path = session_dir / (row["board"] if from_board else row["frame"])
     image = cv2.imread(str(path))
     if image is None:
         raise FileNotFoundError(f"board not readable: {path}")
-    # A row without a usable stored board (`--no-fit`, or one written at another scale) names a
-    # RAW camera frame, and handing that in as `board=` cuts 64 board-coordinate boxes out of an
-    # unwarped picture. Its quad is on the row, so warp it.
+    # Without a usable stored board the row names a RAW frame; cutting board boxes from it is wrong,
+    # so warp it.
     if from_board:
         return crops_for_frame(None, row["corners"], profile, board=image)
     return crops_for_frame(image, row["corners"], profile)
@@ -158,10 +131,8 @@ def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
 def read_session(name: str, model_dir: Path, *, device: str = "cpu",
                  progress: bool = True, weights: str | None = None,
                  out: str | None = None) -> dict:
-    """Every square of every board, as the model reads it, into `model-reads.jsonl`.
-
-    EVERY row, not only the dirty ones: a wrong piece on a clean board is what the p8 stock
-    trains on, and the proposer only ever looked at the pile (`docs/frame-scan.md`).
+    """Every square of every board, as the model reads it, into `model-reads.jsonl` — EVERY row: a
+    wrong piece on a clean board is what the p8 stock trains on.
     """
     from .realgames.progress import PROGRESS_EVERY
     from .session_store.recording import game_dir
@@ -175,14 +146,12 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     classes = model_classes(model_dir)
     squares = all_squares()
     rows = [r for r in read_log(session_dir) if r.get("board") or r.get("frame")]
-    # What one model saw on every square — `occluded-proposals.jsonl` carried this as a side
-    # effect of hunting occlusion, which SAM 3 measures now, so the reads travel alone.
-    # A side measurement (the per-model `coverage_gate`) must not overwrite the canonical
-    # file: the labeling lane, audit-flags, chain-steps and provenance all read it.
+    # A side measurement (`out`, e.g. a `coverage_gate` run) must not overwrite the canonical file
+    # the lane, audit-flags and chain read.
     path = game_dir(name) / (out or READS_FILE)
     written = 0
-    # Atomar: die Kette prueft von dieser Datei nur die EXISTENZ (`chain.ts`), eine halbe haelt
-    # die Sprosse also fuer immer geschlossen — und die Labeling-Lane liest sie als Wahrheit.
+    # Atomar: eine halbe Datei haelt die Kette fuer fertig, und die Labeling-Lane liest sie als
+    # Wahrheit.
     temp = path.with_suffix(path.suffix + ".tmp")
     try:
         with temp.open("w", encoding="utf-8") as fh:
@@ -193,20 +162,20 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
             for n, row in enumerate(rows, 1):
                 cells = frame_cells(session_dir, row, profile)
                 reads = all_reads(model_dir, cells, device, weights)
-                # der Filter oben laesst Zeilen OHNE `frame` durch (`board` reicht),
-                # `row["frame"]` warf dort KeyError. Brett und Frame teilen den Stamm.
+                # Zeilen OHNE `frame` kommen durch (`board` reicht); Brett und Frame teilen den
+                # Stamm.
                 stem = Path(row.get("frame") or row["board"]).stem
                 labels = GameState(row["fen"]).labels()
                 for sq, read, crop in zip(squares, reads, cells, strict=True):
-                    # `cov` rides along only where the run carries an occlusion head: `hand_flags`
-                    # needs the model's claim beside the matte's measurement, and a re-read is an hour.
+                    # Only where the run carries an occlusion head: `hand_flags` needs the model's
+                    # claim.
                     cov = read.get("coverage")
                     fh.write(json.dumps({
                         "session_id": meta["session_id"], "frame": stem, "square": sq,
                         "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
                         **({"model_cov": cov} if cov is not None else {}),
                         # Die Helligkeit DIESER Zelle auf DIESEM Frame: ein Schatten zieht b4 von 32
-                        # auf 5, und ein Widerspruch dort misst das Licht statt das Label.
+                        # auf 5.
                         "bright": round(float(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).mean()), 1),
                         "probs": sparse(read["probs"], classes)}) + "\n")
                     written += 1

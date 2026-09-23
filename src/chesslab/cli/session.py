@@ -1,7 +1,5 @@
-"""`chesslab session` — everything that edits a recorded session before it is sliced.
-
-`slice` warps every crop through its log row's `corners`, so these verbs decide where the 64 crops
-of a frame get cut. Placing corners by hand is absent on purpose: it needs an image to click on.
+"""`chesslab session` — everything that edits a recorded session before it is sliced. Placing
+corners by hand is absent on purpose: it needs an image to click on.
 """
 
 from __future__ import annotations
@@ -55,8 +53,7 @@ def session_scan(
     """
     from .. import sessions as sessions_mod
 
-    # Ein geparkter Frame-Satz kommt als ERROR-DICT zurueck, nicht als Ausnahme — `_session_call`
-    # sieht das nicht, und die Erfolgsschluessel darauf ergaben einen Traceback statt [FAIL].
+    # Ein geparkter Frame-Satz kommt als ERROR-DICT zurueck, nicht als Ausnahme.
     r = _session_call(sessions_mod.scan_alignment, session)
     if r.get("error"):
         print(f"[FAIL] {session}: {r['error']}")
@@ -238,17 +235,6 @@ def session_temporal_pass(
     print(f"[OK] pass -> {report}")
 
 
-@session_app.command("temporal-prune")
-def session_temporal_prune(
-    session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
-) -> None:
-    """Drop temporal rows SAM has since re-cut — SAM's later row already wins in read_matte."""
-    from ..temporal_matte import prune_dead_rows
-
-    r = prune_dead_rows(session)
-    print(f"[OK] {r['dropped']} superseded temporal rows dropped, {r['kept']} rows kept -> {r['path']}")
-
-
 @session_app.command("boards")
 def session_boards(
     session: str = typer.Argument(None, help="Session ID."),
@@ -293,8 +279,8 @@ def session_pack_cmd(
     from ..training import pack_session, packs
 
     side = size or packs.DEFAULT_PACK_SIDE
-    # `--pool` re-decodes crops the slice already cut, so the pad is the POOL's. Accepted and
-    # dropped it would put two framings in one training set (CLAUDE.md 0.1).
+    # `--pool` re-decodes crops the slice already cut, so the pad is the POOL's; accepting one would
+    # put two framings in one training set.
     if pool and pad_side is not None:
         print("[FAIL] --pad-side does not apply to --pool: the pool's crops are already cut, "
               "and their pad is whatever `slice` used. Re-slice the pool to change it.")
@@ -368,7 +354,7 @@ def session_delete(
 
     counts = _session_call(session_lifecycle.deletion_cost, session_id)
     if dry_run:
-        # The UI shows THIS, then runs the same command without the flag — one count, one truth.
+        # The UI shows THIS, then runs the same command without the flag.
         print(json.dumps(counts))
         raise typer.Exit(0)
     print(f"[--] {session_id}: {counts['frames']} Zeilen, {counts['crops']} Crops, "
@@ -529,22 +515,6 @@ def session_flag(
     r = _session_call(store_log.flag_frame, session, index, not usable)
     print(f"[OK] {r['session_id']} frame {r['index']}: "
           f"unusable={'yes' if r['unusable'] else 'no'}")
-
-
-@session_app.command("review")
-def session_review(
-    session: str = typer.Argument(..., help="Session ID."),
-    undo: bool = typer.Option(False, "--undo", help="Mark it unreviewed again."),
-) -> None:
-    """Mark a session as reviewed — the flag `session list` shows.
-
-    It had no writer outside the web UI, and a field that is read but cannot be set is worse
-    than no field: `list` would have shown "-" forever with no way to change it.
-    """
-    from .. import session_lifecycle
-
-    _session_call(session_lifecycle.set_session_reviewed, session, not undo)
-    print(f"[OK] {session}: reviewed={'no' if undo else 'yes'}")
 
 
 @session_app.command("archive")

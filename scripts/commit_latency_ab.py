@@ -26,11 +26,7 @@ def score(log):
 
 
 def compare(base, cand):
-    """One row per recording of the BASE batch — an unpaired one is named, never dropped.
-
-    A silent `continue` kept every printed number honest and the SUM wrong: the reader added up
-    a different set of recordings than the header promised.
-    """
+    """One row per recording of the BASE batch; an unpaired one is named, never dropped."""
     out = []
     for trace in sorted(base.glob("*.jsonl")):
         name = trace.stem

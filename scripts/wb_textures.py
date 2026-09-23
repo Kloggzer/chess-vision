@@ -1,21 +1,11 @@
-"""Weißabgleich + sanfte Ton-Korrektur für die Figuren-Texturen in synth_pieces/.
+"""Weissabgleich + sanfte Ton-Korrektur fuer die Figuren-Texturen in synth_pieces/ (nur
+Pipeline-Kopien): Perzentil-Weissabgleich gegen den Kunstlicht-Stich, Gamma-Lift fuer sehr dunkle
+Texturen.
 
-Usage: uv run python scripts/wb_textures.py [--pieces-dir synth_pieces] [--strength 1.0]
+Volle Staerke kippt einzelne Figuren ins Blaue/Orange: konservativ (0.3-0.5) und im Render
+pruefen; fuer Schwarztoene besser `match_texture_tone.py`.
 
-Die RealityScan-Texturen tragen den Farbstich der Aufnahme-Beleuchtung (Kunstlicht:
-helles Holz gelbstichig, dunkles Holz säuft grau-schwarz ab). Korrektur:
-1. Percentile-Weißabgleich: Kanal-Gains so, dass das 95. Helligkeits-Perzentil
-   neutral (grau) wird — entfernt den Gelbstich, erhält die Holztöne.
-2. Schatten-Lift für sehr dunkle Texturen (mittlere Luminanz < 0.18): milde
-   Gamma-Aufhellung, damit Schwarz als dunkles BRAUN lesbar bleibt statt Grau/Schwarz.
-Arbeitet NUR auf den Pipeline-Kopien (v1.png), nie auf den Scan-Originalen.
-
-ACHTUNG (Erfahrung 2026-07-04): Volle Stärke (1.0) überdreht — der Perzentil-Abgleich
-rät pro Figur an den Glanzlichtern, einzelne Figuren kippen ins Blaue/Orange und die
-Sets werden UNEINHEITLICH. Konservativ einsetzen (--strength 0.3–0.5), Ergebnis im
-Render prüfen; `synth prepare` stellt die Original-Texturen jederzeit wieder her.
-Für einheitliche Schwarztöne besser scripts/match_texture_tone.py (Referenz-Figur).
-"""
+Usage: uv run python scripts/wb_textures.py [--pieces-dir synth_pieces] [--strength 1.0]"""
 
 from __future__ import annotations
 
@@ -32,15 +22,13 @@ def white_balance(path: Path, strength: float = 1.0) -> None:
     a = np.asarray(img).astype(np.float32) / 255.0
     lum = a.mean(axis=2)
 
-    # 1. Kanal-Gains am hellen Ende (95. Perzentil der Luminanz als Referenzregion).
     thr = np.quantile(lum, 0.95)
     ref = a[lum >= thr].reshape(-1, 3).mean(axis=0)          # mittlere Farbe der Glanzlichter
     target = float(ref.mean())
     gains = target / np.maximum(ref, 1e-4)
-    gains = 1.0 + (gains - 1.0) * strength                   # Stärke skalierbar
+    gains = 1.0 + (gains - 1.0) * strength
     out = a * gains
 
-    # 2. Schatten-Lift nur für insgesamt sehr dunkle Texturen (schwarze Figuren).
     mean_lum = float(lum.mean())
     note = ""
     if mean_lum < 0.18:

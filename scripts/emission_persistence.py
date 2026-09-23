@@ -17,8 +17,8 @@ def measure(session):
         if "square" not in r or not r["probs"]:
             continue
         probs = r["probs"]
-        # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle
-        # als sichtbar. Dieselbe Stelle wie in `emission_lag.py`.
+        # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle als
+        # sichtbar.
         cov = r.get("model_cov", r.get("cov"))
         if cov is None:
             continue
@@ -59,10 +59,8 @@ def ratio(t):
 
 
 def main(argv: list[str]) -> int:
-    """Summiert nur ueber Aufnahmen, die auch gemessen wurden — und nennt die uebrigen.
-
-    Vorher liefen Aufnahmen ohne `model-reads.jsonl` still aus der Schleife; die Quoten galten
-    danach fuer eine Teilmenge, die niemand ablesen konnte, und null Aufnahmen druckten nan.
+    """Summiert nur ueber gemessene Aufnahmen und nennt die uebrigen; null Aufnahmen druckten sonst
+    nan.
     """
     W = [0, 0, 0, 0]
     A = [0, 0, 0, 0]

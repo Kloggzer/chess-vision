@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-#: LEER seit 2026-09-16: alle acht Leser pruefen auf `None`. Nur kleiner werden lassen — also
-#: bleibt sie leer, und jede neue truthy-Stelle macht die Suite rot.
+#: LEER: alle Leser pruefen auf `None`. Nur kleiner werden lassen — jede neue truthy-Stelle macht
+#: die Suite rot.
 BUDGET: dict[str, int] = {}
 
 #: `or {}` ist eine VORGABE und kein Wahrheitstest; `is None` ist die richtige Frage.

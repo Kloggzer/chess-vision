@@ -1,4 +1,4 @@
-"""Skript-Jagd 2026-09-22: Messwerkzeuge, die Ungemessenes als Messwert weiterreichten."""
+"""Skript-Jagd: Messwerkzeuge, die Ungemessenes als Messwert weiterreichten."""
 from __future__ import annotations
 
 import json
@@ -93,11 +93,8 @@ def test_chain_gate_liest_keine_fremden_modell_lesungen(tmp_path, monkeypatch):
 
 
 def test_emission_lag_erfindet_keine_dreissig_bilder_je_sekunde(tmp_path, monkeypatch):
-    """`FPS = 30.0` stand fest, waehrend nur 9 der 27 Aufnahmen mit Lesungen so laufen.
-
-    Zehn laufen mit ~15 fps: die Spalte "Sekunden" war dort um den Faktor zwei falsch. Und weil
-    die Tabelle ueber ALLE uebergebenen Aufnahmen gepoolt wird, hat ein gemischter Aufruf
-    ueberhaupt keine gemeinsame Zeitbasis. `commit_lag.py` weist denselben Fall seit 2026-09-21 ab.
+    """`FPS = 30.0` stand fest, waehrend zehn Aufnahmen mit ~15 fps laufen; eine gepoolte Tabelle
+    braucht EINE gemeinsame Zeitbasis.
     """
     import emission_lag
 

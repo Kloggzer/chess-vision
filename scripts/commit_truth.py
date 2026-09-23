@@ -1,9 +1,5 @@
-"""Every commit a replay made, with its commit-time confidence and whether it was right.
-
-`decision:` gives the SAN, `decision-conf:` the signals the engine had AT THAT MOMENT — no future.
-Correctness comes from an LCS backtrace against the recording's reference: a committed ply inside
-the LCS is a hit, one outside it is a fabrication. Transpositions land on the wrong side of that
-line; they are counted here the way the replay scorer counts them, so the numbers stay comparable.
+"""Every commit a replay made, with its commit-time confidence and whether it was right (inside the
+LCS against the reference = hit, outside = fabrication, as the replay scorer counts).
 """
 import json
 import re
@@ -95,8 +91,7 @@ def main() -> int:
     if not rows:
         print("[FAIL] kein Commit bewertet — nichts zu schreiben.")
         return 1
-    # `candidate.json` ist die Zugliste EINES frueheren Trackerlaufs, kein unabhaengiger Zeuge;
-    # die Zeile traegt `ref_kind` mit, damit beides nicht zu einer Zahl verschmilzt.
+    # `candidate.json` ist die Zugliste EINES frueheren Trackerlaufs, kein unabhaengiger Zeuge.
     print(f"\n[i] Referenz: {kinds['pgn']} Aufnahmen aus reference.pgn, "
           f"{kinds['candidate']} aus candidate.json")
     write_rows(Path("tmp/calib/commits.jsonl"), rows)

@@ -113,12 +113,8 @@ def test_cli_memory_stop_releases_lock_and_exits_with_failure(monkeypatch):
 
 
 def test_the_run_records_its_patience(tmp_path, monkeypatch):
-    """`patience` bestimmt, WANN ein Lauf endet — und stand in keiner config.json.
-
-    Gemessen 2026-09-17: alle Basislaeufe zeigen `patience: None`, und ob einer frueh ausstieg
-    liess sich nur daran ablesen, dass er 60 von 60 Epochen hatte. Bei einem Vergleich haengt der
-    Unterschied sonst am Ausstiegszeitpunkt statt am Verfahren (Nutzer: "bei solchen vergleichen
-    machen wir eigentlich immer patience 60").
+    """`patience` bestimmt, WANN ein Lauf endet, und stand in keiner config.json: ein Vergleich
+    haengt sonst am Ausstieg statt am Verfahren.
     """
     import inspect
 

@@ -1,12 +1,5 @@
-"""Erzeugt `parity/_geometry/axis_fit.json` — den geteilten Fall fuer `_fit_axis` / `AxisFit.kt`.
-
-Der Grid-Fit traegt das gesamte Genauigkeitsbudget (Mesh 0,9-1,1 px gegen 15-16 px roh) und
-existiert zweimal. Bis 2026-09-15 pruefte jede Seite gegen ihre EIGENE synthetische Wahrheit,
-nie gegeneinander.
-
-`clean` traegt die ANALYTISCHE Wahrheit: die Punkte liegen exakt auf `intercept_k + (a + b*k)*lever`,
-also muss der Fit sie zurueckgeben. Die robusten Faelle koennen das nicht — dort steht, was diese
-Seite rechnet, und die Behauptung ist, dass die andere Seite dasselbe rechnet.
+"""Erzeugt `parity/_geometry/axis_fit.json`, den geteilten Fall fuer `_fit_axis` / `AxisFit.kt`.
+`clean` traegt die ANALYTISCHE Wahrheit, die robusten Faelle das, was diese Seite rechnet.
 
     uv run python scripts/emit_axis_fit_parity.py
 """
@@ -57,8 +50,8 @@ def main() -> None:
               nudge=lambda k, lev: 6.0 if (k == 4 and lev == 100.0) else 0.0),
         # Zwei Zeilen unter `MIN_BAND_SAMPLES` — keine Linie, ein Punktpaar im Schatten.
         build("sparse_lines", {**full, 2: LEVERS[:2], 7: LEVERS[:1]}),
-        # Eine Linie, deren Baender sich WIDERSPRECHEN: ein gleichmaessiger Versatz wird vom
-        # Achsenabschnitt geschluckt, ein wechselndes Vorzeichen nicht. Ausgezaehlt, nicht gemessen.
+        # Ein gleichmaessiger Versatz verschwindet im Achsenabschnitt, ein wechselndes Vorzeichen
+        # nicht.
         build("outvoted_line", full,
               nudge=lambda k, lev: (40.0 if lev > 0 else -40.0) if k == 6 else 0.0),
     ]

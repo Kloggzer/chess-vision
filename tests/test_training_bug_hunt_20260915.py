@@ -1,4 +1,4 @@
-"""Vier Funde vom 2026-09-15 in `training/` — je ein Test, der VOR dem Fix rot ist."""
+"""Vier Funde in `training/` — je ein Test, der VOR dem Fix rot ist."""
 
 from __future__ import annotations
 

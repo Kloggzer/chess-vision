@@ -1,14 +1,8 @@
-"""Drei Verdeckungssensoren gegen dieselbe Wahrheit — SAM 3s Matte, auf ungesehenem Material.
+"""Drei Verdeckungssensoren gegen dieselbe Wahrheit, SAM 3s Matte: der Coverage-Ausgang am CNN, der
+Hand-Schueler (`hand_gate.py`) und die Matte als Obergrenze. Die Session muss fuer BEIDE Holdout
+sein.
 
-Zur Wahl stehen der Coverage-Ausgang am Figuren-CNN (heute im APK), der destillierte Hand-Schueler
-(`hand_gate.py`, heute nur Ingest) und die Matte selbst als Obergrenze. CLAUDE.md haelt fest, dass
-die Arme nie gegeneinander gemessen wurden; ohne das ist "Kopf raus, Spezialist rein" eine Meinung.
-
-Die Session muss fuer BEIDE Modelle Holdout sein — `rg-2026-08-16-20-41-33` ist es (Val des
-Figurenmodells, Holdout in der Karte des Schuelers).
-
-    uv run python scripts/coverage_arms.py [--session rg-2026-08-16-20-41-33] [--run ...]
-"""
+    uv run python scripts/coverage_arms.py [--session rg-2026-08-16-20-41-33] [--run ...]"""
 import argparse
 from pathlib import Path
 
@@ -40,8 +34,7 @@ def curve(truth: np.ndarray, said: np.ndarray, name: str, thrs) -> None:
     for t in thrs:
         hit = said > t
         tp = int((want & hit).sum())
-        # `max(1, …)` machte aus "nichts geflaggt" / "nichts zu finden" eine GEMESSENE 0,000 —
-        # bei Flags=0 las sich die Zeile wie ein miserabler Arm statt wie eine leere Stichprobe.
+        # `max(1, …)` machte aus einer leeren Stichprobe eine GEMESSENE 0,000.
         p = tp / int(hit.sum()) if hit.any() else None
         r = tp / int(want.sum()) if want.any() else None
         f1 = 2 * p * r / (p + r) if p is not None and r is not None and p + r else None
@@ -53,12 +46,7 @@ def curve(truth: np.ndarray, said: np.ndarray, name: str, thrs) -> None:
 
 
 def cnn_coverage(reads: list[dict]) -> list[float]:
-    """Die Coverage-Spalte der Reads — oder eine Absage.
-
-    Ohne Occlusion-Kopf schreibt `all_reads` den Schluessel gar nicht. Als 0,0 gelesen entstand
-    die Kurve dieses Arms auf lauter Nullen und sah gemessen aus; `occlusion_gate.py` verweigert
-    denselben Fall seit jeher laut.
-    """
+    """Die Coverage-Spalte der Reads oder eine Absage: ohne Occlusion-Kopf fehlt der Schluessel."""
     if not any("coverage" in r for r in reads):
         raise SystemExit("[FAIL] der Lauf traegt keinen Occlusion-Kopf — hier ist nichts zu messen")
     return [float(r.get("coverage") or 0.0) for r in reads]
@@ -100,9 +88,8 @@ def main():
         cells = (crops_for_frame(None, r["corners"], profile, board=board) if stored
                  else crops_for_frame(board, r["corners"], profile))
         reads = occluded_model.all_reads(Path(args.run), cells)
-        # Ueber `read_gate` mit dem Rand der ZEILE: `read_boards` schneidet ihn nicht ab, das
-        # CNN daneben schneidet ihn sehr wohl — 12 px auf 952 sind ein Viertel Feld Versatz, und
-        # jede Zelle meldete die Nachbarin. Genau der Vergleich, der hier gemessen wird.
+        # Mit dem Rand der ZEILE: 12 px auf 952 sind ein Viertel Feld Versatz, jede Zelle meldete
+        # die Nachbarin.
         said = ([0.0] * 65 if gate is None
                 else hand_gate.read_gate(gate, dev, [sdir / (r.get("board") or r["frame"])],
                                          card["size"],

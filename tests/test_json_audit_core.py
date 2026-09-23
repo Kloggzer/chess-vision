@@ -80,11 +80,8 @@ def test_extract_does_not_count_a_tile_it_could_not_write(tmp_path, monkeypatch)
 
 
 def test_the_board_writer_refuses_instead_of_dropping_a_review_picture(tmp_path, monkeypatch):
-    """`_write_boards` stagt jedes Brett und loescht danach ALLE alten. Scheitert ein
-    `imwrite`, faellt der Frame stumm aus `staged` — und die Aufraeumschleife nimmt ihm gleich
-    darauf sein altes Bild weg. Die Confirm-Ansicht meldet dann "kein Bild", ohne dass irgendwo
-    ein Fehler stand. Derselbe Defekt wie beim falschen Staging-Namen (2026-09-15), nur diesmal
-    als ungelesener Rueckgabewert.
+    """Scheitert ein `imwrite`, faellt der Frame stumm aus `staged`, und die Aufraeumschleife nimmt
+    ihm sein altes Bild — die Confirm-Ansicht meldet "kein Bild" ohne Fehler.
     """
     cv2 = pytest.importorskip("cv2")
     np = pytest.importorskip("numpy")

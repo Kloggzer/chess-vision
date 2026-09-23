@@ -1,7 +1,5 @@
-"""Das Brett ohne ArUco finden — Takt aus den Linien, Lage aus der Paritaet.
-
-Gemessen und begründet in `docs/markerless.md`: ArUco allein besteht `alignment_of` nie, die
-Genauigkeit kommt aus dem Grid-Fit — markerlos braucht nur einen einfangbaren Startquad.
+"""Das Brett ohne ArUco finden: Takt aus den Linien, Lage aus der Paritaet
+(`docs/markerless.md`).
 """
 
 from __future__ import annotations
@@ -38,12 +36,11 @@ PHASE_CELL = 32
 #: Wie viele Zellen Versatz die Lagekorrektur durchsucht.
 PHASE_RANGE = 1
 
-#: Wie die Homographie ueber die 81 Schnittpunkte geschaetzt wird. Der Bauch ist SYSTEMATISCH,
-#: kein Ausreisser — Konsens waehlt dann eine Bildregion aus, kleinste Quadrate mitteln ihn.
+#: Homographie ueber die 81 Schnittpunkte. Der Bauch ist SYSTEMATISCH, kein Ausreisser: Konsens
+#: waehlte eine Bildregion, kleinste Quadrate mitteln ihn.
 GRID_FIT, GRID_FIT_THR = cv2.LMEDS, 0.0
 
-#: Der Ring, aus dem die Feldfarbe kommt, als Anteil der Zelle vom Rand nach innen.
-#: Weiter aussen liegt die Rille und bei ungenauem Quad die Nachbarzelle, weiter innen die Figur.
+#: Ring der Feldfarbe, als Zellanteil vom Rand: aussen Rille und Nachbarzelle, innen die Figur.
 PHASE_RING = (0.10, 0.32)
 
 
@@ -60,10 +57,8 @@ def _segments(bgr):
 
 
 def grid_angle(segs) -> float:
-    """Die Richtung des GITTERS, 0..90 Grad.
-
-    VIERFACHER Winkel: ein Gitter hat zwei senkrechte Familien, und die legt der doppelte Winkel
-    aufeinander — 0 und 90 werden beide zu 0. Mit `2θ` lag der Wert *zwischen* den Familien.
+    """Die Richtung des GITTERS, 0..90 Grad, ueber den VIERFACHEN Winkel: mit `2θ` lag der Wert
+    zwischen den zwei Familien.
     """
     ang = (np.degrees(np.arctan2(segs[:, 3] - segs[:, 1], segs[:, 2] - segs[:, 0])) + 180) % 180
     w = np.hypot(segs[:, 2] - segs[:, 0], segs[:, 3] - segs[:, 1])
@@ -82,10 +77,8 @@ def _offsets(segs, normal):
 
 
 def _axis(pos, weight, spacings=None):
-    """Takt UND Lage einer Achse: neun Linien sollen tragen, die nullte und zehnte nicht.
-
-    Das Karo kann den Takt bestimmen, aber nicht die Lage — verschoben ist es nur invertiert
-    (`docs/markerless.md`). Wo das Gitter AUFHOERT, steht dagegen in den Linien selbst.
+    """Takt UND Lage einer Achse: das Karo bestimmt den Takt, aber nicht die Lage; wo das Gitter
+    AUFHOERT, steht in den Linien selbst.
     """
     if len(pos) < LINES:
         return None
@@ -112,10 +105,8 @@ def _axis(pos, weight, spacings=None):
 
 
 def _fit_family(segs, normal, targets, d, along):
-    """Die neun Linien der Familie, jede aus IHREN Segmenten angepasst statt aus dem Raster.
-
-    Das Raster sagt nur, welche Segmente zusammengehören. Ein Parallelogramm kann keine
-    Perspektive; geschnittene Linien schon.
+    """Die neun Linien, jede aus IHREN Segmenten angepasst: ein Parallelogramm kann keine
+    Perspektive.
     """
     mid = np.stack([(segs[:, 0] + segs[:, 2]) / 2, (segs[:, 1] + segs[:, 3]) / 2], 1)
     w = np.hypot(segs[:, 2] - segs[:, 0], segs[:, 3] - segs[:, 1])
@@ -144,10 +135,8 @@ def _intersect(l1, l2):
 
 
 def _quad_from_grid(la, lb):
-    """Die Ecken aus ALLEN 81 Schnittpunkten, nicht aus den vier aeussersten.
-
-    Die vier sind die am staerksten tonnenverzeichneten Punkte im Bild (roh 15-17 px Bauch);
-    eine Homographie ueber das ganze Gitter mittelt den Bauch statt ihn dort abzulesen.
+    """Die Ecken aus ALLEN 81 Schnittpunkten: die vier aeussersten sind die am staerksten
+    tonnenverzeichneten (15-17 px Bauch).
     """
     src, dst = [], []
     for i, a in enumerate(la):
@@ -166,9 +155,8 @@ def _quad_from_grid(la, lb):
 
 
 def _canonical(quad):
-    """[a8, h8, h1, a1] — links oben zuerst, dann im Uhrzeigersinn.
-
-    Die Rollen sind eine ANNAHME: welche Ecke a8 ist, sagt das Karo nicht (`docs/markerless.md`).
+    """[a8, h8, h1, a1], links oben zuerst. Welche Ecke a8 ist, ist eine ANNAHME — das Karo sagt es
+    nicht.
     """
     pts = np.array(quad, float)
     c = pts.mean(0)
@@ -191,10 +179,8 @@ _PARITY = (np.indices((CELLS, CELLS)).sum(0) % 2) * 2 - 1
 
 
 def _parity_fit(m, i, j, pad):
-    """Wie gut die SCHWAECHSTE Reihe des 8x8 dem Karo folgt — vorzeichenrichtig.
-
-    Der Betrag reicht nicht: ein beschrifteter Rand variiert von den Buchstaben ebenso stark,
-    nur nicht im Takt (`docs/markerless.md`).
+    """Wie gut die SCHWAECHSTE Reihe dem Karo folgt, vorzeichenrichtig: ein beschrifteter Rand
+    variiert ebenso stark, nur nicht im Takt.
     """
     f = m[pad + i:pad + i + CELLS, pad + j:pad + j + CELLS]
     g = np.sign((f - f.mean()) * _PARITY).sum() or 1.0
@@ -204,10 +190,8 @@ def _parity_fit(m, i, j, pad):
 
 
 def fix_phase(bgr, quad, rng: int = PHASE_RANGE):
-    """`quad` um ganze Zellen verschieben, bis keine Randreihe mehr drin liegt.
-
-    Der Detektor trifft den Takt zuverlaessig, aber nicht immer die Lage — die verbleibenden
-    Fehler sind fast alle genau eine Zelle. Gemessen in `docs/markerless.md`.
+    """`quad` um ganze Zellen verschieben, bis keine Randreihe mehr drin liegt; die Restfehler des
+    Detektors sind fast alle genau eine Zelle.
     """
     q = np.array(quad, float)
     du, dv = (q[1] - q[0]) / CELLS, (q[3] - q[0]) / CELLS
@@ -241,8 +225,7 @@ def find_board(bgr, phase: bool = True):
     b = _axis(*_offsets(fb, nv))
     if a is None or b is None:
         return None
-    # Dieselbe Zellgroesse auf beiden Achsen: ein Brett ist quadratisch, und die Bedingung
-    # verwirft die meisten Loesungen, die sich an einer Fremdkante festgehalten haben.
+    # Ein Brett ist quadratisch; die Bedingung verwirft die meisten Loesungen an einer Fremdkante.
     d = (a[2] + b[2]) / 2
     near = np.arange(d * (1 - SPACING_SLACK), d * (1 + SPACING_SLACK), SPACING_STEP)
     a = _axis(*_offsets(fa, nu), near) or a

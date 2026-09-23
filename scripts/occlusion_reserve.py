@@ -20,8 +20,7 @@ from chesslab.ioutil import read_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
 
-#: Was eine Trace-Zeile ueber den Schutz sagt. `changed` ist der Nenner: ohne geaendertes Feld
-#: gibt es nichts zu vetoisieren, ein Anteil an ALLEN Frames waere also der falsche Bruch.
+#: `changed` ist der Nenner: ohne geaendertes Feld gibt es nichts zu vetoisieren.
 ACHSEN = ("occlVetoed", "shadowVetoed", "changed")
 
 
@@ -69,8 +68,7 @@ def main() -> int:
             print(f"  ! {c['occlVetoed_ungemessen']} Zeilen ohne die Achse — aelterer Binary?")
 
     if {"champion", "alt"} <= set(je_arm):
-        # Ein abgebrochener Replay laesst seinen Trace einfach fehlen. Zwei Arme ueber
-        # VERSCHIEDENE Aufnahmen ergeben trotzdem eine Prozentzahl, und die misst dann den
+        # Ein abgebrochener Replay fehlt einfach; zwei Arme ueber VERSCHIEDENE Aufnahmen maessen den
         # fehlenden Lauf statt der Schwelle.
         fehlt = recs["alt"] ^ recs["champion"]
         a, b = je_arm["alt"], je_arm["champion"]

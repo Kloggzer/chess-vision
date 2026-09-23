@@ -1,7 +1,4 @@
-"""Der Futterweg eines Laufs: Datensatz-Dateien, Zeilen, Datensaetze, Sampler, Loader, Geraet.
-
-Alles zwischen `manifest.jsonl` und dem Batch auf dem Geraet. Die Pixel liefert `pack`/`packs`.
-"""
+"""Der Futterweg eines Laufs: alles zwischen `manifest.jsonl` und dem Batch auf dem Geraet."""
 
 from __future__ import annotations
 
@@ -14,16 +11,14 @@ from ..dataset import load_manifest, load_split
 from .data import dataset_paths, filter_rows_by_split, unnamed_pin
 from .train_recipe import Refused
 
-#: Loader-Worker, wenn `--batch-aug` den Feed schlank macht. Gemessen 2026-09-07: 1 reicht warm
-#: (104 us gegen 127 Budget), ist kalt aber zu langsam (129); 2 sind cold-safe (79).
+#: Loader-Worker mit `--batch-aug`: 1 reicht warm (104 us gegen 127 Budget), ist kalt zu langsam; 2
+#: sind cold-safe (79).
 BATCH_AUG_WORKERS = 2
 
 
 def _require_pack(dataset: str | None, n_rows: int, allow_unpacked: bool) -> None:
-    """Ohne Memmap gar nicht erst starten, sobald der Datensatz gross genug zum Packen ist.
-
-    Ein verworfener Pack fiel bisher still auf den Datei-Loader zurueck: die Folds und der
-    SWA-Lauf liefen dreifach langsam an einem veralteten Pack vorbei, ohne dass es jemand sah.
+    """Ohne Memmap gar nicht erst starten, sobald der Datensatz packbar ist: ein verworfener Pack
+    fiel still auf den dreifach langsameren Datei-Loader zurueck.
     """
     from ..dataset_build import _PACK_MIN_CROPS
 
@@ -45,10 +40,8 @@ def _channels_last_batch(x):
 
 
 def _device_batches(loader, device, *, channels_last=False):
-    """Yield batches with the next host-to-device copy overlapped with model work.
-
-    The copy stream changes scheduling only: values, random draws and batch order stay. It matters
-    for the small cell models, where a synchronous ``.to(device)`` leaves the GPU waiting.
+    """Yield batches with the next host-to-device copy overlapped with model work; only scheduling
+    changes, not values, draws or order.
     """
     from .memory import guarded_batches
 
@@ -94,9 +87,8 @@ def data_files(dataset: str | None, split_file: str | None) -> tuple[Path, Path]
     """`(manifest, split)` the run trains on — refused when a file is missing or a pin unnamed."""
     manifest_path, split_path = dataset_paths(dataset, split_file)
     if dataset:
-        # One packed corpus, several splits over it (cross-validation folds): the memmap is
-        # 9 GB and packing it per fold copies the same crops four times. `occluded_model.
-        # trained_on` reads the name back out of config.json, so the circularity guard follows.
+        # One packed corpus, several splits (folds): packing per fold copies 9 GB four times. The
+        # circularity guard reads the split name from config.json.
         dd = manifest_path.parent
         pinned = unnamed_pin(dataset, split_file)
         if pinned is not None:
@@ -136,15 +128,13 @@ def read_data(manifest_path: Path, split_path: Path, strict_verdicts: bool):
 
 def train_size(input_size: str | None, dataset: str | None, manifest: list[dict]):
     """`(out_size, packed)`: the size the MODEL trains at, and the dataset's pack (or None)."""
-    # The FILE's size and the MODEL's size stopped being the same thing when the crop store went
-    # to 128 px for the label view (2026-08-17). Reading the manifest silently made the store
-    # decide the recipe; `input_size` says it out loud, and `build_transform` scales in memory.
+    # The crop store's size (128 px for the label view) is not the MODEL's; `input_size` says it out
+    # loud.
     from ..labeling import parse_out_size
 
     out_size = parse_out_size(input_size) if input_size else None
-    # A pack built with `--pack-size` already holds the model's resolution, and it is what the
-    # loader will actually serve — reading the manifest instead would scale 80 px pixels back up
-    # to the 128 px the FILES are, which is worse than either.
+    # A `--pack-size` pack already holds the model's resolution; the manifest would scale 80 px back
+    # up.
     src = "--input-size"
     from .packs import open_dataset_pack, packed_shape
 
@@ -167,13 +157,11 @@ def train_size(input_size: str | None, dataset: str | None, manifest: list[dict]
 def training_rows(manifest: list[dict], split: dict, seed: int, dataset: str | None,
                   backbone: str, scales, head: str, no_empty_cap: bool, neighbour_p):
     """`(train_rows, val_rows, priority_paths, board_mode)` — train re-balanced, val full."""
-    # Balancing ONLY applied to train (policy is in split.json); val/test stay full.
     from ..dataset import load_priority_paths, subsample_classes
 
     ts = split.get("train_subsample") or {}
-    # The mined hard negatives have to be protected HERE too, not only in the build: the
-    # dataset's manifest holds the uncapped rows, so this re-draw is what actually decides
-    # which `empty` crops a batch ever sees.
+    # Mined hard negatives are protected HERE too: the manifest holds uncapped rows, and this
+    # re-draw decides which `empty` crops a batch sees.
     priority_paths = load_priority_paths()
     if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
@@ -186,13 +174,12 @@ def training_rows(manifest: list[dict], split: dict, seed: int, dataset: str | N
               "der Batch traegt eine Zellachse, die beides nicht kennt.")
         raise Refused
     if no_empty_cap and ts.get("max_empty_ratio"):
-        # Der Brett-Arm MUSS ohne Kappe laufen; ein Zell-Arm mit Kappe saehe dann einen anderen
-        # Datenpool. Fuer einen gepaarten Sweep gehoert der Schalter auf beide Seiten.
+        # Der Brett-Arm MUSS ohne Kappe laufen; fuer einen gepaarten Sweep gehoert der Schalter auf
+        # beide Seiten.
         print("[i] --no-empty-cap: die empty-Kappe des Splits bleibt aus.")
         ts = {**ts, "max_empty_ratio": None}
     if board_mode and ts.get("max_empty_ratio"):
-        # Aus einem Brett laesst sich keine Zelle wegwerfen. Das Ausduennen bleibt hier also aus,
-        # und `empty` wird ueber die Verlustgewichte ausgeglichen statt ueber den Sampler.
+        # Aus einem Brett laesst sich keine Zelle wegwerfen: `empty` geht ueber die Verlustgewichte.
         print("[board] --max-empty-ratio wird ignoriert: der Brettkopf braucht alle 64 Zellen.")
         ts = {**ts, "max_empty_ratio": None}
     train_rows = subsample_classes(
@@ -217,10 +204,8 @@ def training_rows(manifest: list[dict], split: dict, seed: int, dataset: str | N
 
 
 def check_fused(train_rows: list[dict], packed, dataset: str | None) -> None:
-    # Packed memmap loader (training.packs): if the dataset was `chesslab dataset pack`ed, read
-    # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck).
-    # Fused datasets (dataset build-synth) have NO crop files at all — manifest paths are virtual
-    # mm:// keys into the memmap. The per-PNG loader would crash on the first batch there.
+    # Fused datasets have NO crop files, only mm:// keys: the per-PNG loader would crash on the
+    # first batch.
     fused = bool(train_rows) and str(train_rows[0].get("path", "")).startswith("mm://")
     if fused and packed is None:
         print(f"[FAIL] dataset '{dataset}' has mm:// paths — a fused synth build or a pack-built "
@@ -230,8 +215,6 @@ def check_fused(train_rows: list[dict], packed, dataset: str | None) -> None:
 
 
 def rotations(dataset: str | None, want_rot: bool | None) -> bool:
-    # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
-    # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
     rot90 = False
     if dataset:
         from ..dataset_build import _read_yaml, dataset_dir
@@ -241,10 +224,8 @@ def rotations(dataset: str | None, want_rot: bool | None) -> bool:
             print("[aug] on-the-fly 90-degree rotations (dataset built with rotations="
                   f"{list(ds_rot)})")
     if want_rot is not None and want_rot != rot90:
-        # Am Lauf statt am Build: jeder Datensatz steht heute auf rotations=[0]. Auf einem
-        # achsenparallelen Zellcrop bleibt bei Vielfachen von 90° die Feldgeometrie gueltig — und
-        # die perspektivische Neigung dreht mit: eine Figur der Reihe 8 neigt nach oben, um 90°
-        # gedreht nach rechts, wie eine auf der a-Linie. Daran scheitern die Grundreihen.
+        # Am Lauf statt am Build. Bei 90° dreht die perspektivische Neigung mit: eine Figur der
+        # Reihe 8 neigt gedreht wie eine der a-Linie — daran scheitern die Grundreihen.
         rot90 = want_rot
         print(f"[aug] 90-Grad-Drehungen per Flag {'AN' if rot90 else 'AUS'}")
     return rot90
@@ -264,9 +245,8 @@ def build_datasets(recipe: dict, *, packed, out_size, policy, photometric, rot90
         build_transform,
     )
 
-    # Ein gebackener Pack traegt CLAHE schon in den Pixeln (`training/pack_bake.py`). Der LOADER
-    # laesst den Operator dann aus, `config.json` behaelt ihn trotzdem — das Serving bekommt rohe
-    # Kamerabilder und muss ihn selbst rechnen.
+    # Ein gebackener Pack traegt CLAHE schon in den Pixeln; `config.json` behaelt ihn trotzdem, denn
+    # das Serving bekommt rohe Kamerabilder.
     loader_clip = r.clahe_clip
     baked = baked_of(dataset) if dataset else None
     if baked and packed is not None:
@@ -330,11 +310,8 @@ def train_feed(recipe: dict, *, train_ds, val_ds, train_rows, val_rows, num_work
     from .boardnet import CELLS as BOARD_CELLS
     from .torch_data import board_collate
 
-    # DataLoader-Tuning: parallele Worker sind der groesste Hebel auf dem I/O-gebundenen
-    # Crop-Datensatz (Windows bis 8 stabil), persistent_workers spart das Neu-Spawnen je Epoche.
-    # Mit `--batch-aug` kostet der Feed 76 statt 985 us je Crop, 2 Worker liegen dann unter dem
-    # GPU-Budget (kalt 79 us gegen 127) — und Worker sind die Stellschraube, an der die
-    # Speicher-Abstuerze hingen (`docs/training-speed.md`).
+    # Mit `--batch-aug` kostet der Feed 76 statt 985 us je Crop, 2 Worker liegen unter dem
+    # GPU-Budget — und Worker sind die Stellschraube der Speicher-Abstuerze.
     lean_default = BATCH_AUG_WORKERS if photometric is not None else config.DEFAULT_NUM_WORKERS
     nw = num_workers if num_workers is not None else lean_default
     if num_workers is None and photometric is not None:
@@ -346,33 +323,26 @@ def train_feed(recipe: dict, *, train_ds, val_ds, train_rows, val_rows, num_work
                  **config.loader_kwargs(nw, prefetch_factor=prefetch_factor, pin_memory=not r.low_memory)}
     eval_batch = r.batch_size
     if board_mode:
-        # `--batch-size` zaehlt jetzt BRETTER, also 64x so viele Crops. 4 Bretter = 256 Crops.
+        # `--batch-size` zaehlt jetzt BRETTER: 4 Bretter = 256 Crops.
         loader_kw = {**loader_kw, "batch_size": max(1, r.batch_size // BOARD_CELLS),
                      "collate_fn": board_collate}
-        # Die Auswertung baut ihren EIGENEN Loader und muss dieselbe Umrechnung sehen. Ohne sie
-        # las sie 256 BRETTER statt 256 Crops — 3,2 GB je Charge, was den Lauf am 28.08. auf
-        # 10,9 GB Commit trieb, waehrend der Per-Zell-Arm bei 2,5 GB stand.
+        # Die Auswertung baut ihren EIGENEN Loader: ohne die Umrechnung las sie 256 BRETTER, 3,2 GB
+        # je Charge.
         eval_batch = loader_kw["batch_size"]
         print(f"[board] batch_size {r.batch_size} Crops = {loader_kw['batch_size']} Bretter je Schritt")
     sampler = None
-    # Eine SITUATION ist (Session, Feld, Klasse) — dieselbe Figur auf demselben Feld, ueber die
-    # Frames hinweg. Der Korpus traegt 1 643 davon auf 184 735 Crops, und die Gruppen sind 13,6x
-    # ungleich (p10 18, p90 245): die groessten 10 % holen 30 % aller Ziehungen. Gleiche
-    # Ziehungsmasse je Situation laesst die Lichtvariation der Frames drin und nimmt nur die
-    # Schieflage raus.
+    # Eine SITUATION ist (Session, Feld, Klasse). 1 643 davon, 13,6x ungleich gross: gleiche
+    # Ziehungsmasse je Situation nimmt die Schieflage raus und laesst die Lichtvariation drin.
     situation_w = None
     if r.balance != "none":
         import collections
 
         keys = [(r["session_id"], r["square"], r["label"]) for r in train_rows]
         groups = collections.Counter(keys)
-        # Situation: jede (Session, Feld, Klasse) gleich oft, egal wie viele Frames sie traegt.
         situation_w = [1.0 / groups[k] for k in keys]
         if r.balance == "piece":
-            # Wie `class`, aber `empty` behaelt seinen natuerlichen Anteil: `class` drueckt empty
-            # von 54 % auf 7,7 %, und empty-Zellen sind die sauberen NEGATIVBEISPIELE des
-            # Verdeckungskopfs — dessen Precision fiel dadurch von 0,944 auf 0,680 (2026-08-26).
-            # Die zwoelf Figurenklassen teilen sich den Rest zu gleichen Teilen.
+            # Wie `class`, aber `empty` behaelt seinen natuerlichen Anteil: auf 7,7 % gedrueckt fiel
+            # die Precision des Verdeckungskopfs von 0,944 auf 0,680.
             per_piece: dict[str, int] = collections.Counter()
             for _sid, _sq, lab in set(keys):
                 if lab != "empty":
@@ -380,7 +350,6 @@ def train_feed(recipe: dict, *, train_ds, val_ds, train_rows, val_rows, num_work
             n_empty = sum(1 for k in keys if k[2] == "empty")
             situation_w = [w if k[2] == "empty" else w / per_piece[k[2]]
                            for w, k in zip(situation_w, keys, strict=True)]
-            # empty auf seinen Crop-Anteil normieren, damit `piece` nur die Figuren umverteilt.
             share = n_empty / len(keys)
             w_empty = sum(w for w, k in zip(situation_w, keys, strict=True) if k[2] == "empty")
             w_piece = sum(w for w, k in zip(situation_w, keys, strict=True) if k[2] != "empty")
@@ -388,18 +357,15 @@ def train_feed(recipe: dict, *, train_ds, val_ds, train_rows, val_rows, num_work
             situation_w = [w * scale if k[2] == "empty" else w
                            for w, k in zip(situation_w, keys, strict=True)]
         if r.balance == "class":
-            # Der Ausgleich im SAMPLER statt im Verlust: jede Klasse gleich oft, darunter jede
-            # Situation gleich oft. Gewichtete CE skaliert Gradienten und verzerrt damit die
-            # Schrittweite; ein Sampler aendert nur, was im Batch liegt. Gehoert mit
-            # `--weight-cap 1` zusammen, sonst wird zweimal ausgeglichen.
+            # Ausgleich im SAMPLER statt im Verlust: ein Sampler aendert nur den Batch, gewichtete
+            # CE die Schrittweite. Mit `--weight-cap 1` zusammen, sonst doppelt.
             per_class: dict[str, int] = collections.Counter()
             for _sid, _sq, lab in set(keys):
                 per_class[lab] += 1
             situation_w = [w / per_class[k[2]] for w, k in zip(situation_w, keys, strict=True)]
         if r.balance == "session":
-            # Und darueber jede SESSION gleich oft. Val ist eine zurueckgehaltene Session, also
-            # ist Licht und Kamera die Achse, auf der generalisiert werden muss; heute streuen
-            # die Anteile 18,8x (0,8 % bis 15,6 %), mit Situations-Balance noch 2,0x.
+            # Und darueber jede SESSION gleich oft: Val ist eine zurueckgehaltene Session, Licht und
+            # Kamera sind die Achse der Generalisierung.
             per_session: dict[str, int] = collections.Counter()
             for sid, _sq, _lab in set(keys):
                 per_session[sid] += 1
@@ -424,15 +390,12 @@ def train_feed(recipe: dict, *, train_ds, val_ds, train_rows, val_rows, num_work
     elif situation_w is not None:
         sample_weights = torch.tensor(situation_w, dtype=torch.double)
     if r.epoch_frac != 1.0 and situation_w is None and r.hard_negative_multiplier == 1.0:
-        # Ohne Balance und ohne Hard Negatives gibt es noch keinen Sampler — einer mit
-        # Gleichgewichten zieht dieselbe Verteilung, nur weniger davon.
+        # Ein Sampler mit Gleichgewichten zieht dieselbe Verteilung, nur weniger davon.
         sample_weights = torch.ones(len(train_rows), dtype=torch.double)
         situation_w = []
     if r.hard_negative_multiplier != 1.0 or situation_w is not None:
-        # `num_samples` war immer len(train_rows) — Konvention, nicht Notwendigkeit: wer die
-        # 1 643 Situationen gleichmaessig zieht, braucht fuer eine Epoche nicht jede Kopie. Die
-        # Cosine haengt an --epochs, nicht an der Epochengroesse — echte Wanduhrzeit, keine
-        # Verkuerzung des Zeitplans.
+        # Eine Epoche braucht nicht jede Kopie; der Cosine-Plan haengt an --epochs, nicht an der
+        # Epochengroesse.
         n_draw = max(1, int(round(r.epoch_frac * len(train_rows))))
         generator = torch.Generator().manual_seed(r.seed)
         sampler = WeightedRandomSampler(sample_weights, n_draw, replacement=True,
@@ -440,14 +403,13 @@ def train_feed(recipe: dict, *, train_ds, val_ds, train_rows, val_rows, num_work
         if r.epoch_frac != 1.0:
             print(f"[sampler] {n_draw} Ziehungen je Epoche statt {len(train_rows)} "
                   f"({r.epoch_frac:g}x)")
-    # Alles, was Zeilen gegen Vorhersagen haelt, muss die Reihenfolge des DATENSATZES nehmen:
-    # der Brettdatensatz behaelt nur vollstaendige Bretter und sortiert sie nach Feld.
+    # Die Reihenfolge des DATENSATZES: der Brettdatensatz behaelt nur vollstaendige Bretter, nach
+    # Feld sortiert.
     score_rows = getattr(val_ds, "rows", None) or val_rows
 
     if board_mode and sampler is not None:
-        # Ein Brett so oft ziehen, wie der Zell-Sampler es getroffen HAETTE: die Summe der
-        # Zellgewichte ist genau diese Randwahrscheinlichkeit. Exakt zwischen den Brettern,
-        # nicht innerhalb — jeder Besuch trainiert alle 64 Zellen (`docs/evaluation.md`).
+        # Ein Brett so oft ziehen, wie der Zell-Sampler es getroffen haette: die Summe der
+        # Zellgewichte ist genau diese Randwahrscheinlichkeit.
         by_path = dict(zip((r["path"] for r in train_rows), sample_weights.tolist(), strict=True))
         cells = [by_path[r["path"]] for r in train_ds.rows]
         board_w = torch.tensor(

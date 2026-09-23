@@ -106,22 +106,6 @@ def test_a_killed_composite_run_does_not_take_every_earlier_clips_provenance(tmp
     assert [p.name for p in tmp_path.iterdir()] == [composite.PROVENANCE_FILE]
 
 
-def test_a_killed_gate_scan_leaves_the_previous_gate_intact(tmp_path, monkeypatch):
-    """Prueflist 2. Ein toleranter Leser verwirft die halbe letzte Zeile stumm — ein halber Lauf
-    liest sich dann als ganzer, nur ohne `veto` fuer die fehlenden Frames."""
-    path = tmp_path / "gate.jsonl"
-    hand_gate.write_gate(path, [json.dumps({"frame": "000001", "veto": True})])
-    before = path.read_text(encoding="utf-8")
-
-    monkeypatch.setattr(Path, "write_text", _half_write)
-    with pytest.raises(OSError):
-        hand_gate.write_gate(path, ["{}"] * 5)
-
-    monkeypatch.undo()
-    assert path.read_text(encoding="utf-8") == before
-    assert [p.name for p in tmp_path.iterdir()] == ["gate.jsonl"]
-
-
 def test_a_killed_brightness_backfill_leaves_the_shared_manifest_intact(tmp_path, monkeypatch):
     """Prueflist 2. `backfill_brightness` schrieb das GETEILTE Manifest mit `open("w")` neu."""
     backfill = load_script("backfill_brightness")
@@ -156,8 +140,9 @@ def test_the_texture_match_does_not_report_success_on_a_write_that_failed(tmp_pa
 # --- 5. "Nicht gemessen" als gemessener Normalwert -----------------------------------------
 
 def test_sams_refusal_does_not_crash_the_clear_view_audit(tmp_path):
-    """Prueflist 5. Eine `skipped`-Zeile traegt `coverage: null` (CLAUDE.md, 2026-09-15);
-    `.get("coverage", {})` gab dann `None`, und `complete(None)` starb an `None.keys()`."""
+    """Prueflist 5. Eine `skipped`-Zeile traegt `coverage: null`; `.get("coverage", {})` gab `None`,
+    und `complete(None)` starb.
+    """
     audit = load_script("clear_view_audit")
     rec = tmp_path / "r1"
     rec.mkdir()
@@ -180,8 +165,7 @@ def test_sams_refusal_does_not_crash_the_clear_view_audit(tmp_path):
 # --- 7. Stilles Ueberspringen --------------------------------------------------------------
 
 def test_the_gate_teacher_set_says_what_it_dropped(tmp_path, monkeypatch):
-    """Prueflist 7. 318 von 9 423 Matte-Zeilen fielen stumm heraus; `gate_scan` nebenan sagt
-    selbst, dass ein halber Lauf sich sonst als ganzer liest."""
+    """Prueflist 7. 318 von 9 423 Matte-Zeilen fielen stumm heraus."""
     from collections import Counter
 
     paths = config.Paths(root=tmp_path / "data")
@@ -195,8 +179,8 @@ def test_the_gate_teacher_set_says_what_it_dropped(tmp_path, monkeypatch):
     (rec / "matte.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [
         {"frame": "000001", "concepts": {"hand": 0.9}, "coverage": {"a1": 0.9}},
         {"frame": "000002", "concepts": {"hand": 0.9}, "coverage": {"a1": 0.9}},
-        # Eigener Frame, nicht noch einmal 000001: `gate_rows` liest die Datei seit 2026-09-21 als
-        # HISTORIE, und eine zweite Zeile ueberschriebe die erste, statt daneben zu stehen.
+        # Eigener Frame: `gate_rows` liest die Datei als HISTORIE, eine zweite Zeile ueberschriebe
+        # die erste.
         {"frame": "000003", "source": "temporal", "concepts": {}, "coverage": {}},
     ]), encoding="utf-8")
     monkeypatch.setattr(config, "DATA", paths)
@@ -237,8 +221,7 @@ def test_the_brightness_backfill_says_how_many_rows_it_never_found(tmp_path, mon
     assert backfill.main() == 0
 
     out = capsys.readouterr().out
-    # Auf die ZUSAGE pruefen, nicht auf den Wortlaut: seit `--from-crops` (2026-09-22) heisst die
-    # Quelle mal Pack, mal Datei. Die Abschlusszeile muss die nicht gefundene Zeile nennen.
+    # Auf die ZUSAGE pruefen, nicht den Wortlaut: die Quelle heisst mal Pack, mal Datei.
     schluss = next(z for z in out.splitlines() if z.startswith("[OK]"))
     assert "1 Zeilen nachgetragen" in schluss and "1 ohne" in schluss, schluss
 

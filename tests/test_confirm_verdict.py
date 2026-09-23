@@ -1,5 +1,6 @@
-"""Die Bestaetigung aus der Web-App laeuft seit 2026-09-23 durch Python (`docs/web-ruft-python.md`):
-dieselben Riegel wie `lib/session-store/recordings.ts` sie hatte, jetzt an EINER Stelle."""
+"""Die Bestaetigung aus der Web-App laeuft durch Python (`docs/web-ruft-python.md`): dieselben
+Riegel wie `lib/session-store/recordings.ts` sie hatte, an EINER Stelle.
+"""
 from __future__ import annotations
 
 import json

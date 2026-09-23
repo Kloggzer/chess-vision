@@ -1,9 +1,5 @@
-"""Minimal scan preparation: pre-cut OBJ/GLB -> upright, render-ready OBJ + Blender preview.
-
-The user provides already-reduced-and-smoothed OBJs from RealityScan.
-This pipeline does NOT decimate, smooth, fill-holes, isolate, or crop -
-the input is assumed ready. Only: largest component, upright, clean OBJ export,
-and an orthographic Blender preview.
+"""Minimal scan preparation: pre-cut OBJ/GLB -> render-ready OBJ + Blender preview. The input is
+assumed ready: no decimation, smoothing or hole filling here.
 """
 
 from __future__ import annotations
@@ -30,20 +26,10 @@ def prepare_scan(
     make_preview: bool = True,
     smooth_iters: int = 0,
 ) -> dict:
-    """Import a scanned piece into the render pipeline.
+    """Import a scanned piece verbatim as `<out_dir>/<name>/<variant>.{obj,mtl,png,...}`.
 
-    Output layout is one folder per canonical piece with one file-set per
-    variant: ``<out_dir>/<item.name>/<item.variant>.{obj,mtl,png,_report.json,
-    _preview.png,_preview_clay.png}``.  This lets several scans of the same piece
-    (e.g. two white pawns, one black) coexist as ``v1``/``v2``/… inside ``wP/``.
-
-    A **verbatim import**: the model the user supplies is copied unchanged and rendered
-    as-is — no uprighting, no component filtering, no re-export.
-
-    ``smooth_iters > 0`` (verbatim mode only) additionally runs shrink-free Taubin
-    smoothing over the vertices — for raw RealityScan exports whose reconstruction
-    noise shows as extreme surface roughness.  Faces/UVs/orientation are untouched;
-    only vertex positions relax.
+    `smooth_iters > 0` adds shrink-free Taubin smoothing for raw RealityScan exports; faces, UVs
+    and orientation stay untouched.
     """
     piece_dir = Path(out_dir) / item.name
     piece_dir.mkdir(parents=True, exist_ok=True)
@@ -55,29 +41,20 @@ def prepare_scan(
     return _import_verbatim(item, piece_dir, stem, make_preview=make_preview)
 
 
-# ==============================================================================
-# Verbatim import (no geometry processing — the default)
-# ==============================================================================
 def _import_smoothed(item: ScanItem, piece_dir: Path, stem: str, iters: int, *,
                      make_preview: bool) -> dict:
-    """Verbatim import + Taubin smoothing (lambda/nu band-pass, no shrinkage).
-
-    Unlike ``process=True`` this does NOT upright, filter components or rescale —
-    it is the verbatim path with relaxed vertex positions.  Taubin over Laplacian
-    because pure Laplacian smoothing shrinks thin features (knight ears, cross on
-    the king); Taubin's negative second pass compensates.
+    """Verbatim import plus Taubin smoothing: pure Laplacian shrinks thin features (knight ears, the
+    king's cross); Taubin's negative pass compensates. No uprighting.
     """
     import trimesh
 
-    # `upright=False`: dieser Zweig ist der VERBATIM-Weg mit entspannten Punkten, und
-    # `prepare_scan` verspricht "no uprighting". Sonst haengt die Ausrichtung einer Figur an
-    # einem Glaettungsschalter. Gezaehlt 2026-09-16: null der zwoelf Meshes sind so entstanden.
+    # `upright=False`: der VERBATIM-Weg verspricht "no uprighting"; sonst haengt die Ausrichtung an
+    # einem Glaettungsschalter.
     mesh, tex_img = _load_and_extract(item, upright=False)
     tris = len(mesh.faces)
     _log.info("smoothing %s/%s: %d tris, taubin x%d", item.name, stem, tris, iters)
-    # Smooth on a WELDED copy, then map positions back to the original (UV-split) vertices.
-    # OBJ exports duplicate every vertex along a UV seam; smoothing the duplicates
-    # independently tears the seams open (visible dark crack lines in the render).
+    # Smooth a WELDED copy and map back: OBJ duplicates every vertex along a UV seam, and smoothing
+    # the duplicates independently tears the seams open.
     v = np.asarray(mesh.vertices)
     uniq, inv = np.unique(np.round(v, 6), axis=0, return_inverse=True)
     welded = trimesh.Trimesh(vertices=uniq.copy(), faces=inv[np.asarray(mesh.faces)])
@@ -99,12 +76,8 @@ def _import_smoothed(item: ScanItem, piece_dir: Path, stem: str, iters: int, *,
 
 
 def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview: bool) -> dict:
-    """Place a render-ready model as ``<piece>/<variant>`` WITHOUT touching geometry.
-
-    ``.obj`` → byte-for-byte copy (only the ``mtllib``/``usemtl`` lines are
-    normalised so a sibling ``<stem>.mtl`` + ``<stem>.png`` are found).  ``.glb`` →
-    a one-off convert-to-OBJ (geometry preserved, texture extracted; still no
-    uprighting).  Then a Blender preview of the written file.
+    """Place a render-ready model as `<piece>/<variant>` WITHOUT touching geometry: `.obj` copied
+    byte for byte, `.glb` converted once (no uprighting).
     """
     import shutil
 
@@ -118,17 +91,16 @@ def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview
         loaded = trimesh.load(str(item.obj), force="mesh")
         if isinstance(loaded, trimesh.Scene):
             loaded = max(loaded.geometry.values(), key=lambda m: len(m.vertices))
-        # Priority as in _load_and_extract: GLB reference → associated diffuse texture
-        # (debug patterns are content-sorted out) → embedded texture.
+        # GLB reference -> associated diffuse texture (debug patterns sorted out) -> embedded
+        # texture.
         tex_img = _first_real_texture(_texture_candidates(item)) \
             or _extract_glb_texture(loaded)
-        # _write_trimesh_obj re-exports faces/normals/UVs but applies NO transform.
         _write_trimesh_obj(loaded, stem, piece_dir, tex_img, tex_dst)
     else:
         _copy_obj_verbatim(item.obj, obj_dst, stem)
         _write_clean_mtl(piece_dir, stem)
-        # Same chain as the GLB branch. Straight from `item.tex` this copied RealityScan's UV
-        # debug pattern whenever it happened to be the largest `*diffuse*` file.
+        # Same chain as the GLB branch: straight from `item.tex` this copied RealityScan's UV debug
+        # pattern.
         src_tex = _first_real_texture(_texture_candidates(item))
         if src_tex is not None:
             shutil.copyfile(src_tex, tex_dst)
@@ -144,11 +116,8 @@ def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview
 
 
 def _copy_obj_verbatim(src: Path, dst: Path, stem: str) -> None:
-    """Copy an OBJ unchanged, only pointing its ``mtllib``/``usemtl`` at ``<stem>``.
-
-    All geometry lines (``v``/``vt``/``vn``/``f``/groups) are preserved exactly;
-    the renderer ignores materials anyway, but a standalone viewer needs the
-    sibling ``<stem>.mtl`` to find the texture.
+    """Copy an OBJ unchanged, only pointing `mtllib`/`usemtl` at `<stem>` so a viewer finds the
+    texture.
     """
     lines = Path(src).read_text(encoding="utf-8", errors="replace").splitlines()
     out: list[str] = []
@@ -170,14 +139,9 @@ def _copy_obj_verbatim(src: Path, dst: Path, stem: str) -> None:
     Path(dst).write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
-# ==============================================================================
-# Internal helpers
-# ==============================================================================
 def _load_and_extract(item: ScanItem, *, upright: bool = True):
-    """Load mesh via trimesh; extract texture from .glb if needed.
-
-    [upright] dreht Y-up nach Z-up. Der verbatim-Weg laesst es aus — er verspricht, die Datei
-    nicht anzufassen, und eine stille Drehung waere genau das.
+    """Load mesh via trimesh; extract texture from .glb if needed. [upright] turns Y-up into Z-up;
+    the verbatim path skips it.
     """
     import trimesh
 
@@ -196,14 +160,12 @@ def _load_and_extract(item: ScanItem, *, upright: bool = True):
     if not isinstance(mesh, trimesh.Trimesh):
         raise RuntimeError(f"Failed to load a single Trimesh from {obj_path}")
 
-    # Normalise Y-up → Z-up (RealityScan exports are Y-up)
-    # trimesh by default does NOT auto-convert, so we apply the transform manually.
+    # RealityScan exports are Y-up, and trimesh does NOT auto-convert.
     if upright:
         mesh = _ensure_z_up(mesh)
 
-    # Extract texture. An EXPLICIT *_diffuse.png in the scan folder ALWAYS wins over the
-    # .glb reference: RealityScan GLBs sometimes reference *_unwrap.png (UV debug pattern,
-    # observed at scans/bP) — otherwise the checkerboard pattern would appear instead of wood.
+    # An EXPLICIT *_diffuse.png wins over the .glb reference: RealityScan GLBs sometimes reference
+    # *_unwrap.png, the UV debug checkerboard.
     tex_img = _first_real_texture(_texture_candidates(item))
     if tex_img is None and item.obj.suffix.lower() in (".glb", ".gltf"):
         tex_img = _extract_glb_texture(mesh)          # last resort: embedded
@@ -212,12 +174,8 @@ def _load_and_extract(item: ScanItem, *, upright: bool = True):
 
 
 def _ensure_z_up(mesh) -> trimesh.Trimesh:
-    """If the mesh appears to be Y-up, rotate to Z-up (-90° around X).
-
-    glTF / .glb spec mandates Y-up.  trimesh loads in the file's native coordinates,
-    so RealityScan glb files will be Y-up.  We only rotate when the Y extent is the
-    clearly dominant axis (≥ 1.5× Z), which covers both native Y-up and already-
-    rotated meshes without false positives.
+    """Rotate a Y-up mesh to Z-up (-90° about X). glTF mandates Y-up; rotate only when Y clearly
+    dominates (>= 1.5x Z).
     """
     import trimesh
 
@@ -233,12 +191,9 @@ def _ensure_z_up(mesh) -> trimesh.Trimesh:
 
 
 def _looks_like_debug_texture(path: Path) -> bool:
-    """True if an image file looks like RealityScan's UV debug pattern (vivid
-    solid-color areas, "Texture 0 / A1…H8" tiles) rather than a real photo texture.
-
-    RealityScan writes a *_diffuse.png even WITHOUT running the texture step —
-    then with the debug pattern as content (observed with wB). Distinction via
-    mean saturation: debug ≈ pure RGB primary colors (S high), wood/photo desaturated."""
+    """True if an image looks like RealityScan's UV debug pattern rather than a photo texture: it
+    writes a *_diffuse.png even without the texture step. Decided by mean saturation.
+    """
     try:
         import PIL.Image
 
@@ -250,11 +205,8 @@ def _looks_like_debug_texture(path: Path) -> bool:
 
 
 def _first_real_texture(candidates) -> Path | None:
-    """First candidate (path) that exists and is NOT a debug pattern.
-
-    The filter may only DESELECT, never leave the piece bare: its saturation cut sits inside the
-    real corpus (measured 2026-09-22 over the twelve shipped scans: 0.422-0.594 against a cut of
-    0.50, four of them flagged), so a sole texture is kept even when it trips.
+    """First candidate that exists and is NOT a debug pattern. The saturation cut sits inside the
+    real corpus (0.422-0.594 against 0.50), so a sole texture is kept even when it trips.
     """
     existing = [Path(c) for c in candidates if c is not None and Path(c).exists()]
     for p in existing:
@@ -264,10 +216,9 @@ def _first_real_texture(candidates) -> Path | None:
 
 
 def _texture_candidates(item: ScanItem) -> list[Path | None]:
-    """Texture candidates in priority order: GLB-referenced tile (UV-correct)
-    → *diffuse* files belonging to the mesh (largest first; covers re-exports like
-    wB_…_diffuse_2.png) → explicitly discovered texture. Evaluation (debug filter)
-    is done by _first_real_texture."""
+    """Texture candidates in priority order: GLB-referenced tile -> the mesh's *diffuse* files
+    (largest first) -> explicitly discovered texture.
+    """
     cands: list[Path | None] = []
     if item.obj.suffix.lower() in (".glb", ".gltf"):
         cands.append(_glb_texture_uri(item.obj))
@@ -283,12 +234,9 @@ def _texture_candidates(item: ScanItem) -> list[Path | None]:
 
 
 def _glb_texture_uri(glb_path: Path) -> Path | None:
-    """Read the externally referenced texture from the GLB JSON (images[].uri).
-
-    RealityScan exports MULTIPLE UV tiles per scan (*_u0_v0_*, *_u1_v1_*) — only the one
-    referenced in the GLB matches the UV layout of the mesh; the wrong tile delivers
-    colors from the wrong atlas location (observed: brown black king).
-    *_unwrap.png references (UV debug) are ignored. None if nothing usable."""
+    """The texture the GLB references (images[].uri): RealityScan exports several UV tiles, and only
+    that one matches the mesh's UV layout. *_unwrap.png is ignored.
+    """
     import struct
 
     try:
@@ -310,10 +258,7 @@ def _glb_texture_uri(glb_path: Path) -> Path | None:
 
 
 def _extract_glb_texture(mesh) -> Path | None:
-    """Try to extract the embedded texture image from a GLB mesh using trimesh.visual.
-
-    Returns a path to a temporary PNG, or None.
-    """
+    """The embedded GLB texture as a temporary PNG, or None."""
     import io
 
     import PIL.Image
@@ -330,7 +275,6 @@ def _extract_glb_texture(mesh) -> Path | None:
                 return PIL.Image.fromarray(tex)
             return PIL.Image.open(io.BytesIO(tex))
 
-    # Try trimesh's own texture extraction
     if isinstance(visual, trimesh.visual.texture.TextureVisuals):
         if visual.material is not None and hasattr(visual.material, "image"):
             img = visual.material.image
@@ -350,7 +294,7 @@ def _vertex_normals(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
         normals[:, 2] = 1.0
         return normals
     tri = verts[faces]
-    fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])  # area-weighted face normals
+    fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     for i in range(3):
         np.add.at(normals, faces[:, i], fn)
     ln = np.linalg.norm(normals, axis=1, keepdims=True)
@@ -360,12 +304,7 @@ def _vertex_normals(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
 
 
 def _write_trimesh_obj(mesh, name: str, out_dir: Path, tex_img, tex_dst: Path):
-    """Write clean OBJ from trimesh directly (no PyMeshLab).
-
-    Writes v, vt (from mesh.visual.uv), vn (via _vertex_normals),
-    single usemtl piece + mtllib <name>.mtl referencing <name>.png.
-    Copies the texture image to <name>.png.
-    """
+    """Write a clean OBJ from trimesh: v, vt, vn, one `usemtl piece`, and `<name>.png` beside it."""
     verts = np.asarray(mesh.vertices)
     faces = np.asarray(mesh.faces, dtype=np.int64)
     normals = _vertex_normals(verts, faces)
@@ -409,7 +348,6 @@ def _write_trimesh_obj(mesh, name: str, out_dir: Path, tex_img, tex_dst: Path):
 
 
 def _write_clean_mtl(out_dir: Path, name: str):
-    """Write a single-material MTL referencing <name>.png."""
     mtl_path = out_dir / f"{name}.mtl"
     content = (
         "newmtl piece\n"
@@ -424,24 +362,18 @@ def _write_clean_mtl(out_dir: Path, name: str):
     _log.info("wrote clean MTL -> %s", mtl_path)
 
 def _cleanup_temp(out_dir: Path, name: str):
-    """Remove temporary files created by trimesh OBJ export (obj, mtl, png).
-
-    Also removes MeshLab/trimesh stray files (material.mtl, material_0.png,
-    <name>.obj.mtl) that the old ``save_current_mesh`` path left behind.
-    """
+    """Remove temporary files of the trimesh OBJ export, and stray MeshLab/trimesh leftovers."""
     for pattern in (f"_{name}_tmp.obj", f"_{name}_tmp.mtl"):
         p = out_dir / pattern
         try:
             p.unlink(missing_ok=True)
         except OSError:
             pass
-    # Also remove any PNGs trimesh may have written alongside the temp OBJ
     for p in out_dir.glob(f"_{name}_tmp*.png"):
         try:
             p.unlink(missing_ok=True)
         except OSError:
             pass
-    # Remove stray MeshLab/trimesh files from old save_current_mesh path
     for stray in ("material.mtl", f"{name}.obj.mtl", "material_0.png"):
         p = out_dir / stray
         try:
@@ -451,7 +383,6 @@ def _cleanup_temp(out_dir: Path, name: str):
 
 
 def _save_texture(tex_img, dst: Path):
-    """Save texture image to *dst* as PNG."""
     if tex_img is None:
         return
     import PIL.Image
@@ -463,16 +394,11 @@ def _save_texture(tex_img, dst: Path):
     elif isinstance(tex_img, (str, Path)):
         import shutil
         shutil.copy2(str(tex_img), str(dst))
-# ---------------------------------------------------------------------------
-# Preview rendering (best-effort, optional)
-# ---------------------------------------------------------------------------
 
 
 def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
-    """Render two orthographic side previews (textured + clay).
-
-    Uses ``synth/render_piece.py`` via Blender (textured + clay).  Falls back to a
-    simple matplotlib trisurf clay preview if Blender is missing or fails.
+    """Two orthographic previews (textured + clay) via Blender `synth/render_piece.py`; matplotlib
+    trisurf fallback.
     """
     import subprocess
 
@@ -484,7 +410,6 @@ def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
     preview_dst = (out_dir / f"{name}_preview.png").resolve()
     clay_dst = (out_dir / f"{name}_preview_clay.png").resolve()
 
-    # ---- Blender path (best-effort) ----------------------------------------
     blender_ok = False
     try:
         result = subprocess.run(
@@ -497,7 +422,6 @@ def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
 
     if blender_ok:
         blender = SYNTH.blender_cmd()
-        # Textured preview
         tex_arg = str(tex_path.resolve()) if tex_path is not None and tex_path.exists() else "-"
         try:
             subprocess.run(
@@ -509,7 +433,6 @@ def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
         except Exception as e:
             _log.warning("Blender textured preview failed (%s)", e)
 
-        # Clay preview
         try:
             subprocess.run(
                 [blender, "--background", "--python", str(render_script), "--",
@@ -522,18 +445,13 @@ def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
     else:
         _log.info("Blender not found — previews via matplotlib fallback")
 
-    # ---- Matplotlib fallback -----------------------------------------------
-    # Verbatim imports pass mesh=None (no in-memory mesh); the Blender path above
-    # renders straight from the OBJ file, so only fall back when we have a mesh.
+    # Verbatim imports pass mesh=None, so only fall back when there is a mesh.
     if mesh is not None:
         _render_previews_matplotlib(mesh, preview_dst, clay_dst)
 
 
 def _render_previews_matplotlib(mesh, preview_dst: Path, clay_dst: Path):
-    """Render a simple clay-style 3D view via matplotlib trisurf (no GPU needed).
-
-    Skips any output that already exists (e.g. from a successful Blender run).
-    """
+    """Clay-style 3D view via matplotlib trisurf; skips outputs that already exist."""
     if preview_dst.exists() and clay_dst.exists():
         return
 

@@ -21,9 +21,9 @@ from ..session_store.recording import (
 def lcs_report(
     truth: list[str], cand: list[str]
 ) -> tuple[list[tuple[int, int]], list[int], list[int]]:
-    """Order-preserving match of candidate SANs.
-    Mirrors `RealGameScore.scoreMoves` (truth advances first).
-    Returns matched pairs, invented indices, missed indices."""
+    """Order-preserving match of candidate SANs, mirroring `RealGameScore.scoreMoves` (truth
+    advances first): matched pairs, invented indices, missed indices.
+    """
     n, m = len(truth), len(cand)
     table = [[0] * (m + 1) for _ in range(n + 1)]
     for i in range(n - 1, -1, -1):
@@ -53,13 +53,11 @@ def lcs_report(
 
 
 def frame_anchor(name: str, move: dict) -> str:
-    """One unmatched ply as a line the human can act on: the ply, and the picture that shows it.
-
-    The replay writes `.webp` (`AnnotatedFrames.REVIEW_SUFFIX`); runs before 2026-08-17 left PNG.
+    """One unmatched ply as a line the human can act on: the ply and its picture (`.webp`, older
+    runs PNG).
     """
-    # `retime._write_boards` rewrites the review pictures around `frame_review` and deletes the
-    # old set, so the entry frame names a file that is gone. `review-cards.ts` reads the same pair.
-    # `is None`, nicht `or`: Frame 0 ist ein Bild, kein fehlender Wert.
+    # `retime._write_boards` replaced the pictures around `frame_review`. `is None`, nicht `or`:
+    # Frame 0 ist ein Bild.
     review = move.get("frame_review")
     stem = f"{int(move['frame'] if review is None else review):06d}"
     frames = game_dir(name) / "frames"
@@ -95,8 +93,9 @@ def reviewed_plies(moves: list[dict], matched: list[tuple[int, int]], kept: list
 
 
 def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) -> dict:
-    """Compare candidate to reference game, write verdict.
-    `ask` decides invented plies one at a time; under `yes`, unmatched plies rejected."""
+    """Compare candidate to reference game and write the verdict; `ask` decides invented plies one
+    at a time, under `yes` unmatched plies are rejected.
+    """
     candidate = load_candidate(name)
     truth, reference_md5 = read_reference(name)
     moves = candidate["moves"]
@@ -122,8 +121,8 @@ def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) 
 def confirm_kept(name: str, kept: Sequence[int], drop: Sequence[int] = (), *,
                  shown_reference: str | None = UNCHECKED) -> list[int]:
     """The web's verdict: `kept` = unmatched candidate INDICES kept, `drop` = PLIES struck from the
-    matched set (a transposition matches SANs, not positions); struck stays struck, `/api/zuege`
-    never resends `drop`. `shown_reference`: md5 the page showed, `None` = it showed none.
+    matched set (a transposition matches SANs, not positions). `shown_reference`: md5 the page
+    showed.
     """
     candidate = load_candidate(name)
     data = read_reference_bytes(name)

@@ -25,10 +25,8 @@ TILE, PAD, BAR = 232, 6, 30
 
 
 def cell_box(square: str, entry: dict, white_pov: bool, tile: int) -> tuple[float, float, float]:
-    """`(x, y, Zellweite)` im Kachelbild — mit Rand und Blickrichtung aus Log-Zeile und Profil.
-
-    Wie `matte_audit` vor 2026-09-21: `tile / 8` ueber das ganze Bild ignoriert den mitgespeicherten
-    Rand, und ohne `white_pov` markiert das Blatt bei Schwarz unten die gespiegelten Felder.
+    """`(x, y, Zellweite)` im Kachelbild, mit Rand und Blickrichtung aus Log-Zeile und Profil: sonst
+    markiert das Blatt bei Schwarz unten die gespiegelten Felder.
     """
     scale = tile / (entry["board_size"] + 2 * entry["board_border"])
     cell = entry["board_size"] / 8 * scale

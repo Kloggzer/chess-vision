@@ -1,4 +1,4 @@
-"""Bug-Jagd 2026-09-16 (e): ingest, occluded_model, meshprep."""
+"""Bug-Jagd (e): ingest, occluded_model, meshprep."""
 from __future__ import annotations
 
 import json

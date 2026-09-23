@@ -1,8 +1,5 @@
-"""Alte Laeufe gegen DENSELBEN Massstab - sonst vergleicht man Splits, nicht Modelle.
-
-Ein Lauf wird gegen den v7-Satz SEINER Aufloesung gestellt (80-px-Modelle gegen `-80`, 128er
-gegen `-128`): Zeilen und Split sind in beiden identisch, nur der Pack unterscheidet sich. Wer
-den v7-Val im eigenen Training hatte, wird abgewiesen statt geschoent.
+"""Alte Laeufe gegen DENSELBEN Massstab, den v7-Satz ihrer Aufloesung — sonst vergleicht man Splits.
+Wer den v7-Val trainiert hat, wird abgewiesen.
 
     uv run python scripts/cross_eval.py
 """
@@ -19,9 +16,8 @@ CHESSLAB = str(Path(".venv/Scripts/chesslab.exe").resolve())
 TCC = str(Path(".venv/Lib/site-packages/triton/runtime/tcc/tcc.exe").resolve())
 
 VAL = "rg-2026-09-06-20-27-33"
-#: `data/models/p4a-80-clahe` ist der EXPORT (nur config.json und model.onnx). Der Lauf dahinter
-#: traegt die Gewichte, und nur der laesst sich mit `chesslab eval --run` gegen einen fremden
-#: Datensatz stellen.
+#: Der EXPORT traegt nur config.json und model.onnx; nur der Lauf dahinter laesst sich mit `chesslab
+#: eval --run` gegen einen fremden Datensatz stellen.
 RUNS = [
     ("data/models/_arch/real13-mix-v4/p4a80-clahe2-s42", "real13-mix-v7-80"),
     ("data/models/p4a-80-v5-head256", "real13-mix-v7-80"),
@@ -37,17 +33,15 @@ RUNS = [
 def trained_on_val(run: Path) -> bool:
     cfg = json.loads((run / "config.json").read_text(encoding="utf-8"))
     sp = Path("data/datasets") / str(cfg.get("dataset")) / (cfg.get("split_file") or "split.json")
-    # `return False` meldete UNBEKANNTE Herkunft als saubere — und zwar bei den aeltesten
-    # Laeufen, deren Datensatz am ehesten weg ist, also genau dort, wo der Wall gebraucht wird.
+    # Unbekannte Herkunft ist nicht sauber — gerade die aeltesten Laeufe haben keinen Datensatz
+    # mehr.
     if not sp.exists():
         raise SystemExit(f"[FAIL] {run}: {sp} fehlt — Herkunft nicht pruefbar")
     return VAL in set(json.loads(sp.read_text(encoding="utf-8"))["splits"].get("train") or [])
 
 
 def main() -> int:
-    # `check=False` ohne Auswertung liess einen abgestuerzten `eval` als gelungen durchgehen: die
-    # Zeile fehlte in der Tabelle, der Rueckgabecode blieb 0, und die Luecke sah aus wie ein Lauf,
-    # der nichts zu melden hatte.
+    # Ein abgestuerzter `eval` darf nicht als gelungen durchgehen.
     failed = []
     for run, dataset in RUNS:
         p = Path(run)

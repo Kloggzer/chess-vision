@@ -1,6 +1,6 @@
 """`dirty` reaches the SLICE — a hand in the frame means a move is in flight, so the whole board is
-suspect until the commit, not just the cells under the hand (measured 2026-08-16: 5 132 of 15 417
-exported rows are dirty and every one of them was sliced with a FEN label)."""
+suspect until the commit, not just the cells under the hand.
+"""
 
 
 import pytest

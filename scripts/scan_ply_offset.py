@@ -1,18 +1,7 @@
 """Traegt jeder Frame die FEN, die sein Brett zeigt — oder die vom Nachbar-Ply?
 
-ZURUECKGENOMMEN, 2026-08-25: dieses Skript vergleicht gegen `fen`, die Stellung des PLY. Trainiert
-wird aber auf `label`, und eine menschliche Korrektur ueberschreibt nur das Label. Auf den 304
-Frames, die es hier meldet, stimmt das Modell zu **98 %** mit dem Label ueberein — gegen ~89 % im
-Schnitt. Sie sind BESSER gelabelt als der Rest, nicht schlechter. Von 1 889 Abweichungen zwischen
-`fen` und `label` im ganzen Datensatz ist keine einzige unerklaert; `tests/test_manifest_fen_label.py`
-haelt das fest.
-
-Was das Skript weiterhin richtig misst, ist der Versatz der FEN-SPALTE: 1 004 zu 4 nach vorn, 86 %
-der Treffer in den letzten 20 % ihres Ply-Intervalls, 61 % im allerletzten Frame. Ursache ist die
-Commit-Latenz — das Intervall endet beim Commit, nicht beim Zug (Median 0,29 s, p75 0,50 s,
-`docs/tracker-flow.md`). Das ist eine Inkonsistenz der Metadaten, kein Fehler in den Trainingslabels.
-
-Wer es benutzt, vergleiche also gegen `label`, nicht gegen `fen`.
+Vergleicht gegen `fen`; trainiert wird auf `label`, und dort stimmen die gemeldeten Frames zu 98
+%. Gemessen wird also der Versatz der FEN-SPALTE (Commit-Latenz), kein Labelfehler.
 """
 
 import argparse
@@ -45,16 +34,13 @@ def board_of(fen: str) -> dict[str, str]:
 
 
 def offsets(per_frame: dict, boards: dict, pred: dict) -> tuple[list[dict], int]:
-    """Frames, die zu einem Nachbar-Ply besser passen — und wie viele WIRKLICH geprueft wurden.
-
-    Ein Frame ohne 32 sichtbare Zellen oder ohne Nachbar-FEN wird uebersprungen; als geprueft
-    gezaehlt schoenten diese Zeilen den Nenner der gemeldeten Quote.
+    """Frames, die zu einem Nachbar-Ply besser passen, und wie viele WIRKLICH geprueft wurden: ohne
+    32 sichtbare Zellen oder Nachbar-FEN zaehlt ein Frame nicht in den Nenner.
     """
     hits, checked = [], 0
     for (sess, frame, ply), rs in per_frame.items():
-        # Nur GEMESSEN sichtbare: `coverage is None` heisst un-mattet, nicht frei. Als 0,0
-        # gelesen hob eine ungemattete Zelle den Frame ueber die 32er-Huerde, und der frisch
-        # korrigierte Nenner zaehlte ihn danach als WIRKLICH geprueft.
+        # Nur GEMESSEN sichtbare: als 0,0 gelesen hob eine ungemattete Zelle den Frame ueber die
+        # 32er-Huerde.
         vis = [r for r in rs
                if r.get("coverage") is not None and float(r["coverage"]) <= VMAX]
         if len(vis) < 32:
@@ -87,7 +73,6 @@ def main():
     mm, index = open_packed_rows(args.dataset, manifest)
     n, h, w = mm.shape[:3]
 
-    # Die FEN je (Session, Ply) — alle Zeilen eines Ply teilen sie.
     fen_of = {(r["session_id"], int(r["ply"])): r["fen"] for r in manifest}
     boards = {k: board_of(v) for k, v in fen_of.items()}
 
@@ -96,7 +81,7 @@ def main():
     pred: dict[str, str] = {}
     for i in range(0, len(rows), args.batch):
         chunk = rows[i:i + args.batch]
-        # Die Memmap liegt RGB, `predict_arrays` will BGR — wie im Mining-Reader.
+        # Die Memmap liegt RGB, `predict_arrays` will BGR.
         cells = [np.array(mm[index[r["path"]]])[:, :, ::-1] for r in chunk]
         for r, rd in zip(chunk, occluded_model.all_reads(Path(args.run), cells), strict=True):
             pred[r["path"]] = rd["pred_label"]

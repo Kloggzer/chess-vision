@@ -1,13 +1,7 @@
-"""Canonical inference entry point: run specification, loading & prediction.
+"""The one public facade for model inference: the same crop pipeline as training, so train/serve
+parity.
 
-This is the **only** supported public facade for model inference.
-Consumers (CLI evaluation, the training sweeps, anything that reads a model)
-use exclusively this module. It ensures that the **same** crop pipeline is
-used as during training — thus train/serve parity is guaranteed.
-
-Rules:
-- torch/PIL only lazy-imported in function bodies (ROCm-Windows: CLI/web must start
-  without GPU stack).
+torch/PIL are imported lazily: on ROCm-Windows the CLI must start without the GPU stack.
 """
 
 from __future__ import annotations
@@ -25,10 +19,6 @@ from . import config
 
 log = logging.getLogger("chesslab.serving")
 
-# ---------------------------------------------------------------------------
-# Cache
-# ---------------------------------------------------------------------------
-
 _CACHE: dict[str, tuple] = {}
 _GRAPH_CACHE: dict[str, object] = {}  # run key+device -> _CudaGraphPredictor | None (=failed)
 
@@ -39,24 +29,16 @@ def clear_cache() -> None:
     _GRAPH_CACHE.clear()
 
 
-# ---------------------------------------------------------------------------
-# Run specification
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class RunSpec:
-    """Self-describing specification of a trained model run.
-
-    Tells all consumers how to crop a frame for this model."""
+    """Self-describing specification of a trained model run: how to crop a frame for it."""
     run_dir: Path
     classes: list[str]
     out_size: tuple[int, int]   # (W, H) the crops on disk were built at — a DATASET property
     infer_size: tuple[int, int]  # (W, H) the exported graph takes — a MODEL property (specs/22)
-    #: What the crop CONTAINS, in cells around the square — a MODEL property (specs/45), and the
-    #: reason `infer_size` alone is not enough: 128 px of a 1.10-cell box and 128 px of a 1.20-cell
-    #: box are different photographs of the same square. None = the run predates the key and the
-    #: caller's profile decides, which is legacy and must be reported as such.
+    #: What the crop CONTAINS, in cells around the square (specs/45): 128 px of a 1.10 and of a 1.20
+    #: box are different photographs. None = legacy run, the caller's profile decides.
     pad_side: float | None = None
 
 
@@ -71,8 +53,7 @@ def run_spec(run_dir: Path) -> RunSpec:
     classes = cfg.get("classes", config.CLASSES)
     out_size_raw = cfg.get("out_size", [96, 128])
     out_size = (int(out_size_raw[0]), int(out_size_raw[1]))
-    # The one reader of the inference size. Imported here, not at module level: `torch_data` pulls
-    # in the torch stack and this module must stay importable without it.
+    # Imported here: `torch_data` pulls in the torch stack.
     from .training.torch_data import infer_size_of
 
     infer_size = infer_size_of({**cfg, "out_size": out_size})
@@ -89,22 +70,20 @@ def run_spec(run_dir: Path) -> RunSpec:
 
 
 def model_classes(run_dir: Path) -> list[str]:
-    """Class list of a run (short wrapper around run_spec)."""
     return run_spec(run_dir).classes
 
 
 class _ONNXModel:
-    """Wrapper that makes an ONNX InferenceSession behave like a PyTorch model
-    (callable, .eval(), .to(device))."""
+    """Makes an ONNX InferenceSession behave like a PyTorch model (callable, .eval(),
+    .to(device)).
+    """
 
     def __init__(self, onnx_path: str, device: str = "cpu"):
         import onnxruntime
         providers = (["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda"
                      else ["CPUExecutionProvider"])
-        # Errors only: models exported with a batch-1 example carry a static {1,N}
-        # output shape in their metadata; ORT then warns on every batched call
-        # (VerifyOutputSizes). Numerically harmless — silence it for existing models
-        # (new exports use a batch-2 example and are properly dynamic).
+        # Errors only: batch-1 exports carry a static {1,N} output shape, and ORT warns on every
+        # batched call (VerifyOutputSizes). Numerically harmless.
         opts = onnxruntime.SessionOptions()
         opts.log_severity_level = 3
         self._sess = onnxruntime.InferenceSession(str(onnx_path), sess_options=opts,
@@ -130,23 +109,13 @@ class _ONNXModel:
         return torch.from_numpy(out).to(batch.device)
 
 
-# ---------------------------------------------------------------------------
-# Model loading
-# ---------------------------------------------------------------------------
-
 
 def load_run(run_dir: Path, device: str = "cpu", weights: str | None = None):
-    """Load model + run config from a run directory and cache them.
-    Prefers ONNX when available (model.onnx) — ONNX Runtime is 2-4× faster
-    than raw PyTorch inference.
+    """Load model + run config from a run directory and cache them; prefers `model.onnx` (2-4x
+    faster).
 
-    Returns (model, cfg). The model is in eval() mode and on `device`.
-
-    [weights] asks for a named checkpoint (`swa.pt`) rather than the run's default. It joins the
-    cache key — one run holds several checkpoints and a key of the directory alone would hand the
-    second caller the first one's model — and it skips `model.onnx`, which is an export of
-    whatever was current when it was written, not of the checkpoint being asked for.
-    """
+    [weights] names a checkpoint (`swa.pt`): it joins the cache key and skips `model.onnx`, which
+    exports whatever was current, not that checkpoint."""
     key = (str(Path(run_dir).resolve()), weights)
     if key in _CACHE:
         model, cfg = _CACHE[key]
@@ -157,10 +126,8 @@ def load_run(run_dir: Path, device: str = "cpu", weights: str | None = None):
     if onnx_path.exists() and not weights:
         try:
             import onnxruntime
-            # ONNX is only a win when it can actually serve the REQUESTED device. This
-            # onnxruntime build ships CPU-only providers on Windows — preferring ONNX for a
-            # device="cuda" caller silently downgraded tracker inference to CPU while torch
-            # (ROCm/HIP) had a perfectly good GPU path. GPU wanted + no GPU provider -> torch.
+            # This onnxruntime build ships CPU-only providers on Windows: ONNX for a device="cuda"
+            # caller silently downgraded inference to CPU. GPU wanted + no GPU provider -> torch.
             gpu_wanted = str(device).startswith("cuda")
             gpu_providers = {"CUDAExecutionProvider", "ROCMExecutionProvider",
                              "DmlExecutionProvider", "MIGraphXExecutionProvider"}
@@ -185,36 +152,16 @@ def load_run(run_dir: Path, device: str = "cpu", weights: str | None = None):
     return model, cfg
 
 
-# ---------------------------------------------------------------------------
-# Prediction
-# ---------------------------------------------------------------------------
-
-# Fixed capture size for the CUDA/HIP-graph fast path: the tracker's hot path is
-# always the full board (64 crops); smaller local-verify batches reuse the same
-# graph by writing into the head of the static buffer.
+# Fixed CUDA/HIP-graph capture size: the hot path is the full board; smaller batches fill the head.
 _GRAPH_BATCH = 64
 
 
 class _CudaGraphPredictor:
     """CUDA/HIP-graph replay of a fixed-shape fp16 forward pass.
 
-    On the Windows-ROCm wheels an eager forward launches hundreds of tiny
-    kernels, so for the tracker models GPU inference is almost pure launch/
-    framework overhead (tiny 0.64M: ~6.4 ms eager vs ~2.2 ms graph replay for
-    64 crops @128; medium 8.45M: ~19 ms vs ~13 ms). Capturing the forward once
-    and replaying it removes the per-kernel launch cost.
-
-    Details:
-    - Runs an fp16 copy of the model — same precision class as the autocast
-      fp16 the eager CUDA path already used (measured argmax parity vs fp32 on
-      real crops: 100% tiny / 99.8% medium, max prob delta ~0.005).
-    - Static input of ``_GRAPH_BATCH`` rows. Smaller batches fill only the head;
-      stale tail rows are harmless (eval-mode batchnorm — no cross-sample
-      interaction) and are sliced off the output.
-    - Preprocessing: one ``np.stack`` into a pinned staging buffer, async H2D
-      copy, then BGR->RGB flip + normalize on the GPU (folded to one mul+sub) —
-      ~0.8 ms vs ~8 ms for the per-crop numpy path.
-    """
+    On the Windows-ROCm wheels an eager forward is mostly kernel-launch overhead (~6.4 ms eager
+    vs ~2.2 ms replay for 64 crops). fp16 argmax parity 99.8-100 %; stale tail rows are harmless
+    in eval BN."""
 
     def __init__(self, model, out_h: int, out_w: int, device: str):
         import copy
@@ -232,7 +179,7 @@ class _CudaGraphPredictor:
         self._shift = (mean / std).to(device=device, dtype=torch.float16)
         self._static_in = torch.zeros((_GRAPH_BATCH, 3, out_h, out_w),
                                       dtype=torch.float16, device=device)
-        # Warm-up on a side stream, then capture (standard torch.cuda.graph recipe).
+        # Warm-up on a side stream, then capture (the standard torch.cuda.graph recipe).
         stream = torch.cuda.Stream()
         stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(stream), torch.no_grad():
@@ -244,8 +191,9 @@ class _CudaGraphPredictor:
             self._static_out = self._model(self._static_in)
 
     def __call__(self, crops: list[np.ndarray]):
-        """``crops``: up to ``_GRAPH_BATCH`` BGR uint8 HWC arrays at the model's inference size.
-        Returns float32 logits ``(len(crops), n_classes)`` on the GPU."""
+        """`crops`: up to `_GRAPH_BATCH` BGR uint8 HWC arrays at inference size -> float32 logits on
+        the GPU.
+        """
         import torch
 
         n = len(crops)
@@ -258,16 +206,15 @@ class _CudaGraphPredictor:
 
 
 def graph_key(run_dir, device: str, weights: str | None) -> str:
-    """One graph per run, device AND checkpoint — a run holds several and they are not the same
-    model. Without `weights` a graph captured for the default replayed for every later one."""
+    """One graph per run, device AND checkpoint: without `weights` the default's graph replayed for
+    all.
+    """
     return f"{Path(run_dir).resolve()}|{device}|{weights or ''}"
 
 
 def _graph_predictor(key: str, model, out_h: int, out_w: int, device: str):
-    """Cached _CudaGraphPredictor for a run, or None when capture is unavailable.
-
-    A failed capture is cached as None so we do not retry (and re-log) per frame.
-    Opt-out: set CHESSLAB_DISABLE_CUDA_GRAPH=1 to always use the eager path.
+    """Cached _CudaGraphPredictor for a run, or None when capture is unavailable (cached, no
+    per-frame retry). CHESSLAB_DISABLE_CUDA_GRAPH=1 forces the eager path.
     """
     if os.environ.get("CHESSLAB_DISABLE_CUDA_GRAPH") == "1":
         return None
@@ -285,12 +232,7 @@ def _graph_predictor(key: str, model, out_h: int, out_w: int, device: str):
 
 
 def board_cells(cfg: dict) -> int | None:
-    """`CELLS`, wenn der Lauf ein BRETT-Netz ist — sonst None.
-
-    Ein Brettkopf schaut ueber alle 64 Zellen zugleich und verlangt die Zellachse im Batch. Bis
-    2026-09-07 hat `predict_arrays` nur Zell-Modelle gesehen und den Batch flach gebaut; ein
-    Brett-Lauf starb an `BoardNet erwartet (B, 64, C, H, W)`.
-    """
+    """`CELLS`, wenn der Lauf ein BRETT-Netz ist (Zellachse im Batch), sonst None."""
     if not str(cfg.get("backbone", "")).startswith(("board:", "boardattn:")):
         return None
     from .training.boardnet import CELLS
@@ -299,14 +241,10 @@ def board_cells(cfg: dict) -> int | None:
 
 
 def _is_plain_rgb(cfg: dict) -> bool:
-    """Whether the run's preprocessing is the one `_CudaGraphPredictor` bakes in.
-
-    That path folds a FIXED 3-channel mean/std into a single mul+sub. A run trained on another
-    input representation (`--input-repr`) or on per-crop statistics does not fit the fold, and
-    feeding it the wrong preprocessing silently is worse than losing the fast path.
+    """Whether the run's preprocessing is the fixed 3-channel mean/std the graph path folds into
+    mul+sub; wrong preprocessing silently is worse than losing the fast path.
     """
-    # Der gefaltete mul+sub traegt config.NORMALIZE_*; ein Lauf mit EIGENEN festen Statistiken
-    # wuerde still mit fremder Normalisierung bedient — das Modell-config.json entscheidet.
+    # Ein Lauf mit EIGENEN festen Statistiken wuerde still mit fremder Normalisierung bedient.
     norm = cfg.get("normalize", {})
     mean = tuple(float(v) for v in norm.get("mean", config.NORMALIZE_MEAN))
     std = tuple(float(v) for v in norm.get("std", config.NORMALIZE_STD))
@@ -314,19 +252,15 @@ def _is_plain_rgb(cfg: dict) -> bool:
             and norm.get("mode", "fixed") != "per_crop"
             and mean == tuple(config.NORMALIZE_MEAN)
             and std == tuple(config.NORMALIZE_STD)
-            # CLAHE sitzt in der PIL-Kette; der gefaltete mul+sub kennt es nicht und wuerde es
-            # STILL weglassen — dieselbe Regel, die `build_transform` fuer `_EvalRgbTransform` zieht.
+            # CLAHE sitzt in der PIL-Kette; der gefaltete mul+sub liesse es STILL weg.
             and float(cfg.get("clahe_clip", 0.0)) <= 0
             and board_cells(cfg) is None)
 
 
 def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                    return_probs: bool = False, weights: str | None = None) -> list[dict]:
-    """Prediction for in-memory crops (BGR np.ndarray) — for live inference.
-
-    Returns per crop {'pred_label', 'confidence'} in input order.
-    `return_probs=True` adds 'probs': list[float] (full softmax,
-    order = classes from the run config).
+    """Prediction for in-memory BGR crops: per crop {'pred_label', 'confidence'} in input order;
+    `return_probs=True` adds the full softmax in run-class order.
     """
     if not crops:
         return []
@@ -336,20 +270,17 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
 
     model, cfg = load_run(run_dir, device, weights)
     classes = cfg["classes"]
-    # The size the graph takes (specs/22) — comparing against the crops' build size would send
-    # every already-correctly-sized crop down the slow PIL path forever.
+    # The size the graph takes (specs/22): the crops' build size would send every crop down the slow
+    # path.
     infer_size = infer_size_of(cfg)
     out_h, out_w = infer_size[1], infer_size[0]
 
-    # Fast path: when all crops are already at the inference size, vectorize preprocessing.
-    # NICHT mit CLAHE: der Pfad normalisiert von Hand und ruft die Kette nie auf, der Operator
-    # fiele still weg — und ein Modell ohne sein CLAHE ist ein anderes Modell (2026-09-07).
+    # Fast path when all crops are at inference size — NICHT mit CLAHE: der Pfad ruft die Kette nie
+    # auf, und ein Modell ohne sein CLAHE ist ein anderes Modell.
     all_at_size = (float(cfg.get("clahe_clip", 0.0)) <= 0
                    and all(c.shape[0] == out_h and c.shape[1] == out_w for c in crops))
 
-    # CUDA-graph fast path (torch model on GPU, uniform crops, <= capture size):
-    # replays a pre-captured fp16 forward — removes the eager per-kernel launch
-    # overhead that dominates tracker inference on the Windows-ROCm wheels.
+    # CUDA-graph fast path: removes the eager per-kernel launch overhead of the Windows-ROCm wheels.
     logits = None
     if (all_at_size and len(crops) <= _GRAPH_BATCH and _is_plain_rgb(cfg)
             and device.startswith("cuda") and not isinstance(model, _ONNXModel)):
@@ -367,9 +298,8 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
 
     if logits is None:
         if all_at_size:
-            # BGR uint8 HWC -> RGB NCHW float/255 + the run's normalisation, no PIL/torchvision.
-            # One stack of the raw BGR crops + torch flip: same numerics as the
-            # previous per-crop `[..., ::-1].copy()` loop, ~3x cheaper.
+            # BGR uint8 HWC -> RGB NCHW float/255 + the run's normalisation; one stack + torch flip,
+            # same numerics as the per-crop loop, ~3x cheaper.
             from .training.torch_data import normalize_batch
 
             stacked = np.stack(crops)  # (N,H,W,3) BGR uint8
@@ -386,9 +316,8 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                 [tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]
             ).to(device)  # BGR->RGB
 
-        # NUR der Torch-Pfad: der ONNX-Export eines Brett-Netzes traegt die Brettachse selbst
-        # (`_BoardExport` macht `unsqueeze(0)`, `training/evaluate.py`), sein Graph nimmt
-        # (64, C, H, W). Hier umzuformen hat am 2026-09-07 jeden `retime`-Lauf blockiert.
+        # NUR der Torch-Pfad: der ONNX-Export eines Brett-Netzes traegt die Brettachse selbst und
+        # nimmt (64, C, H, W).
         cells = None if isinstance(model, _ONNXModel) else board_cells(cfg)
         if cells is not None:
             if batch.shape[0] % cells:
@@ -407,14 +336,12 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                 logits = model(batch)
 
     with torch.no_grad():
-        # The occlusion head carries ONE sigmoid coverage unit beside the classes. Softmaxing it
-        # together with them bends every probability, and `classes[argmax]` runs off the end as
-        # soon as the argmax lands on it (`training/occlusion.py`).
+        # The occlusion head's ONE sigmoid coverage unit sits beside the classes: softmaxed with
+        # them it bends every probability, and `classes[argmax]` runs off the end.
         cover = None
         if logits.shape[1] == len(classes) + 1:
             logits, cover = logits[:, :-1], torch.sigmoid(logits[:, -1].float()).cpu()
-        # ONE device->host transfer for the whole batch: per-row `probs[i].tolist()`
-        # on a GPU tensor forced 64 separate syncs (~5 ms of the observation).
+        # ONE device->host transfer: per-row `.tolist()` on a GPU tensor forced 64 syncs (~5 ms).
         probs = torch.softmax(logits.float(), dim=1).cpu()
         conf, idx = probs.max(dim=1)
     probs_np = probs.numpy()
@@ -429,24 +356,14 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     return results
 
 
-# ---------------------------------------------------------------------------
-# Reading a model's output as a statement about the board
-#
-# Between `predict_arrays` (probabilities) and anything that decides (mining hard negatives,
-# sweeping an inference size, a tracker verifying a move) sits one question: what does this
-# softmax say about occupancy, and can it name a piece at all? That is the same question for
-# every consumer, so it is answered once, here.
-# ---------------------------------------------------------------------------
+# What a softmax says about occupancy, and whether it names a piece — answered once for every
+# consumer.
 
 
 @dataclass(frozen=True)
 class OccupancyObservation:
-    """A model's view of the board.
-
-    Carries occupancy (`p_occ`/`p_empty`/`p_occluded`) and — when the run has an identity axis —
-    the predicted class and its confidence per square. Occupancy is DERIVED from identity;
-    identity is what makes captures, promotions and "which piece moved" separable, and what
-    tells a shadow (identity unchanged) from a real move.
+    """A model's view of the board: occupancy DERIVED from identity, plus class and confidence per
+    square where the run has an identity axis — identity tells a shadow from a real move.
     """
 
     p_occ: dict[str, float]
@@ -454,12 +371,11 @@ class OccupancyObservation:
     p_occluded: dict[str, float]
     label: dict[str, str] | None = None
     conf: dict[str, float] | None = None
-    # Raw probability mass assigned to labels which the position prior says cannot occur on the
-    # square. This is the explicit "none of the allowed labels fits" escape hatch; it is derived
-    # from the unmodified softmax, never from the already-conditioned distribution.
+    # Raw mass on labels the position prior forbids — the "none of the allowed labels fits" escape
+    # hatch, from the unconditioned softmax.
     invalid_mass: dict[str, float] = field(default_factory=dict)
-    # Present only on a conditioned observation. Recovery/resync must read this view so a wrong
-    # committed FEN cannot suppress the very visual contradiction needed to repair it.
+    # Only on a conditioned observation. Recovery must read this, or a wrong committed FEN
+    # suppresses the contradiction needed to repair it.
     raw: OccupancyObservation | None = None
 
     def occupied(self, sq: str) -> bool:
@@ -477,10 +393,8 @@ class OccupancyObservation:
 
 def invalid_mass(probs: list[float], classes: list[str],
                  allowed: set[str] | None) -> float:
-    """Raw mass on context-forbidden identity labels.
-
-    ``occluded`` is sight state rather than a chess identity and the optional coverage value sits
-    past ``classes``; neither is an invalid chess placement.
+    """Raw mass on context-forbidden identity labels; `occluded` and the coverage value past
+    `classes` are not chess placements.
     """
     if allowed is None:
         return 0.0
@@ -490,11 +404,10 @@ def invalid_mass(probs: list[float], classes: list[str],
 
 def apply_prior(probs: list[float], classes: list[str], allowed: set[str] | None,
                 lam: float) -> list[float]:
-    """Reweight a square's classes by what chess allows there, then renormalise.
+    """Reweight a square's classes by what chess allows there, then renormalise: `logit + lam *
+    log_prior`.
 
-    The head emits log-probabilities, so this IS `logit + lam * log_prior` under the original
-    softmax. `lam` stays FINITE: a wrongly committed move must stay arguable by the pixels.
-    `occluded` is never penalised — a hand is a statement about SIGHT, not about chess.
+    `lam` stays FINITE so a wrong committed move stays arguable; `occluded` is never penalised.
     """
     if lam <= 0.0 or allowed is None:
         return probs
@@ -515,13 +428,11 @@ def observation_from_probs(per_square_probs: dict[str, list[float]],
                            classes: list[str],
                            possible: dict[str, set[str]] | None = None,
                            prior_lambda: float = 0.0) -> OccupancyObservation:
-    """Full softmax per square to occupancy plus identity.
+    """Full softmax per square to occupancy plus identity (Kotlin twin: `Observations.kt`).
 
-    Class indices are ALWAYS derived from the run's own `classes` list — 13- and 14-class runs
-    both exist and their positions differ, so a guessed index is a silently transposed reading.
-    `possible` (from `state.possible_labels`) plus a positive `prior_lambda` folds in what chess
-    allows per square; at the default 0.0 the pixels decide alone. Kotlin twin: `Observations.kt`.
-    """
+    Indices come from the run's own `classes`: 13- and 14-class runs differ, a guessed index
+    transposes. A positive `prior_lambda` with `possible` folds in chess legality; at 0.0 the
+    pixels decide alone."""
     i_empty = classes.index("empty")
     i_occl = classes.index("occluded") if "occluded" in classes else None
 

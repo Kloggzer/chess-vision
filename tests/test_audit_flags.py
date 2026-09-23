@@ -9,9 +9,8 @@ from chesslab import config
 from chesslab.audit_flags import class_thresholds, confident_class, session_flags
 from chesslab.session_store.recording import game_dir
 
-#: Deliberately NOT a run on disk: these tests are about flag selection, and the guard has
-#: its own. A real path would be read under the monkeypatched data root, where its split
-#: is absent — which `check_not_circular` refuses since 2026-09-14.
+#: Deliberately NOT a run on disk: a real path would be read under the patched data root, where its
+#: split is absent, and `check_not_circular` refuses that.
 MODEL = "data/models/_not-on-disk-audit-fixture"
 
 
@@ -196,7 +195,7 @@ def test_a_later_ledger_retracts_an_earlier_one(tmp_path):
     assert mod.ledger_labels(reviewed, corrections) == {}
 
 
-# --- Klassen, die das Modell gar nicht ausgibt (gefunden 2026-09-08) --------------------------
+# --- Klassen, die das Modell gar nicht ausgibt ------------------------------------------------
 
 def test_a_class_the_model_cannot_output_never_wins():
     """Ein Label aus dem Ledger, fuer das das Modell keine Einheit hat — `occluded` aus der Zeit,

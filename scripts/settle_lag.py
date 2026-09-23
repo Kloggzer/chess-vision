@@ -1,9 +1,5 @@
-"""Why the engine stays in `moving` after the piece landed: board motion or the ROI around it?
-
-Reads a replay's `motiondump=<file>` (ROI score per processed frame) and the `<file>.status.csv`
-beside it (engine state, combined motion, stuck reason per frame), and for every retimed ply
-walks from the frame its position first stood on to the first `waiting`, counting which signal
-kept the score over `motionThr`.
+"""Why the engine stays in `moving` after the piece landed: board motion or the ROI around it? Per
+retimed ply, which signal kept the score over `motionThr` until the first `waiting`.
 
     uv run python scripts/settle_lag.py 2026-08-30-16-20-19 tmp/batch/motion/2026-08-30-16-20-19.csv
 """
@@ -46,8 +42,8 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
                 combined = float(r["motion"])
             except ValueError:
                 continue
-            # Ein Frame ohne ROI-Zeile ist NICHT GEMESSEN und zaehlt als `blind`; als 0,0 gelesen
-            # fiel er auf die Seite des Bretts — die Achse, die hier entschieden wird.
+            # Ein Frame ohne ROI-Zeile ist NICHT GEMESSEN (`blind`); als 0,0 fiele er auf die Seite
+            # des Bretts.
             roi_i = roi.get(int(r["frame"]))
             if combined > thr:
                 over += 1
@@ -67,12 +63,12 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
         print(f"{m['ply']:>3}   {m['san']:<7} {truth:>6} {quiet:>6} {lag:6.2f}  {over:>10}  {board:>9}  {roi_alone:>12}  {','.join(sorted(stucks))}")
     if lags:
         s = sorted(lags)
-        # p90 wie in `commit_lag.py`: `int(n * 0.9)` ist bei n = 10 der Index 9, also das Maximum.
+        # `int(n * 0.9)` ist bei n = 10 das Maximum.
         print(f"\nlag to quiet: median {st.median(s):.2f} s · "
               f"p90 {s[max(0, math.ceil(0.9 * len(s)) - 1)]:.2f} s · frames over thr: "
               f"board-led {board_only}, roi-only {roi_only}, ohne ROI-Messung {unmeasured}")
     if never:
-        # Die laengsten Lags fallen sonst still aus dem Median — er waere eine Untergrenze.
+        # Die laengsten Lags fielen sonst still aus dem Median.
         print(f"[!] {len(never)} von {len(plies)} Plies nie `waiting` binnen 600 Frames, "
               f"nicht im Median: Plies {', '.join(map(str, never))}")
     return 0

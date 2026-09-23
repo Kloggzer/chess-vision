@@ -1,4 +1,4 @@
-"""Bug-Jagd 2026-09-16 (c): Python-Trainingsweg, `training/` und `dataset_build.py`."""
+"""Bug-Jagd (c): Python-Trainingsweg, `training/` und `dataset_build.py`."""
 from __future__ import annotations
 
 import json

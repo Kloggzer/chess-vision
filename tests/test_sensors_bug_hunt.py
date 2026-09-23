@@ -6,38 +6,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from chesslab import composite, config, hand_gate, ingest, position_flags, temporal_matte
+from chesslab import composite, config, ingest, position_flags, temporal_matte
 
 FEN = "8/8/8/8/8/8/8/K6k w - - 0 1"
-
-
-def test_gate_scan_removes_the_stored_board_border_used_only_for_crops(tmp_path, monkeypatch):
-    rec = tmp_path / "recordings" / "g"
-    (rec / "boards").mkdir(parents=True)
-    board = np.zeros((12, 12, 3), np.uint8)
-    board[2:10, 2:10] = 255
-    cv2.imwrite(str(rec / "boards" / "000001.png"), board)
-    (rec / "log.jsonl").write_text(json.dumps({
-        "frame": "frames/000001.png", "board": "boards/000001.png", "board_border": 2,
-    }) + "\n", encoding="utf-8")
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
-    monkeypatch.setattr("chesslab.session_store.recording.game_dir", lambda _name: rec)
-    monkeypatch.setattr(hand_gate, "load_gate", lambda _tag: (object(), {"size": 8,
-                         "perfect_recall": {"thr": 0.5}}, "cpu"))
-    seen = []
-
-    def fake_forward(_model, _device, images, _batch):
-        seen.extend(images)
-        return [[0.0] * 65 for _ in images]
-
-    monkeypatch.setattr(hand_gate, "_forward", fake_forward)
-
-    hand_gate.gate_scan("g")
-
-    assert seen and np.all(seen[0] == 255), (
-        "gate training strips each row's board_border, but gate_scan calls read_gate with paths "
-        "only; inference therefore resized the black crop padding into the model input"
-    )
 
 
 def test_position_report_does_not_call_an_unmatted_frame_provably_clear(tmp_path, monkeypatch):

@@ -113,8 +113,8 @@ def main() -> int:
     (out / "dataset.yaml").write_text(yaml.safe_dump({
         "name": out.name, "created_at": datetime.now(UTC).isoformat(),
         "class_mode": "pieces13", "session_ids": sorted(want),
-        # Ohne `packs:` haelt `resolve_dataset_packs` den Satz fuer klassisch und `eval` bricht
-        # auf den mm://-Zeilen ab — sechs Laeufe scheiterten daran, bevor einer gemessen hatte.
+        # Ohne `packs:` haelt `resolve_dataset_packs` den Satz fuer klassisch, und `eval` bricht auf
+        # den mm://-Zeilen ab.
         "packs": [f"{s}-{args.size}" for s in sorted(want)],
         "purpose": "eval-only", "counts": {"raw": len(rows), "final": len(rows)},
     }, sort_keys=False, allow_unicode=True), encoding="utf-8")

@@ -1,7 +1,7 @@
-"""Zellen, die das MODELL fuer verdeckt haelt und die MATTE fuer frei, nach
-`data/reports/hand-flags.jsonl` — DERIVED, jeder Lauf schreibt sie ganz neu. Der Mensch
-beantwortet dort eine Frage (liegt eine Hand drauf?), der Dirty-Pinsel schreibt `dirty-frame`.
-Nicht die Audit-Lane: die entscheidet Figurenklassen.
+"""Zellen, die das MODELL fuer verdeckt haelt und die MATTE fuer frei ->
+`data/reports/hand-flags.jsonl`.
+
+DERIVED, jeder Lauf schreibt sie ganz neu.
 """
 
 from __future__ import annotations
@@ -14,8 +14,7 @@ from .ioutil import read_jsonl, write_rows
 from .session_store.matte import read_matte
 
 FLAGS_FILE = "hand-flags.jsonl"
-#: Ab hier behauptet der Occlusion-Kopf eine Verdeckung. Tief angesetzt, weil ein verpasster
-#: Handframe seine 64 Labels verdirbt, ein Fehlalarm dagegen einen Blick kostet.
+#: Tief angesetzt: ein verpasster Handframe verdirbt 64 Labels, ein Fehlalarm kostet einen Blick.
 DEFAULT_CUT = 0.3
 
 
@@ -27,20 +26,17 @@ def measured_coverage(session_dir: Path) -> dict[tuple[str, str], float]:
 
 def session_flags(reads: list[dict], measured: dict[tuple[str, str], float], *,
                   cut: float, visible_max: float) -> list[dict]:
-    """Eine Session: jede Zelle, deren `model_cov` ueber `cut` liegt und die die Matte frei nennt.
-
-    Eine Zeile je ZELLE, denn der Pinsel malt zellweise — das Urteil gilt danach dem Frame.
+    """Eine Session: jede Zelle mit `model_cov` ueber `cut`, die die Matte frei nennt — eine Zeile
+    je ZELLE.
     """
     out = []
     for row in reads:
-        # `cov` ist die Schreibweise vor 2026-09-16 und bleibt lesbar — die Dateien liegen
-        # auf der Platte und werden nicht neu gerechnet.
+        # `cov` ist die alte Schreibweise; die Dateien liegen so auf der Platte.
         cov = row.get("model_cov", row.get("cov"))
         if cov is None or float(cov) <= cut:
             continue
         seen = measured.get((row["frame"], row["square"]))
-        # Kein Matte-Eintrag heisst NICHT "frei": dann hat die Matte diesen Frame nie angesehen,
-        # und genau der gehoert vorgelegt.
+        # Kein Matte-Eintrag heisst NICHT "frei": genau diesen Frame hat die Matte nie angesehen.
         if seen is not None and seen > visible_max:
             continue
         out.append({
@@ -56,24 +52,20 @@ def session_flags(reads: list[dict], measured: dict[tuple[str, str], float], *,
 
 
 def write_flags(path: Path, rows: list[dict], header: dict) -> Path:
-    """Atomar, weil das der GLOBALE Bericht ist: ein abgebrochener Lauf beschaedigte sonst die
-    Strittig-Lane fuer ALLE Sessions, und `present: true` verbirgt genau das."""
+    """Atomar: ein abgebrochener Lauf beschaedigte sonst die Strittig-Lane fuer ALLE Sessions."""
     path.parent.mkdir(parents=True, exist_ok=True)
     write_rows(path, [header, *rows])
     return path
 
 
 def hand_flags(cut: float = DEFAULT_CUT) -> dict:
-    """Ueber jede Session mit `model-reads.jsonl`. -> Zusammenfassung und Pfad."""
     from .occluded_model import READS_FILE
     from .training.occlusion import PIECE_VISIBLE_MAX
 
     rows, per_session, without, stale = [], {}, [], []
     for reads_path in sorted(config.DATA.recordings.glob(f"*/{READS_FILE}")):
         session_dir = reads_path.parent
-        # Der Kopf traegt den Stempel des Schnitts, unter dem gelesen wurde; die Kette vergleicht
-        # ihn, dieser Leser nahm ihn nur mit. Lesarten von vorgestern gegen die Matte von heute
-        # sind keine Strittig-Karten, sondern Rauschen.
+        # Lesarten aus einem aelteren Schnitt gegen die Matte von heute sind Rauschen, keine Karten.
         try:
             provenance.check(session_dir, reads_path)
         except provenance.Stale as exc:

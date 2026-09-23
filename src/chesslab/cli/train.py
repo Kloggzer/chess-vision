@@ -345,10 +345,8 @@ def train_cmd(
     except MemoryError as exc:
         print(f"[FAIL] {exc}")
         code = 1
-    # ROCm-Windows wedges in teardown: a finished 60-epoch run spun one core for minutes with
-    # every checkpoint, metric and the fitted temperature already written. Leave without
-    # unwinding, like `matte` does for the same wedge — but hand the lock back by hand, atexit
-    # does not run.
+    # ROCm-Windows wedges in teardown with everything already written: leave without unwinding, and
+    # hand the lock back by hand since atexit does not run.
     _release_train_lock()
     sys.stdout.flush()
     os._exit(code)

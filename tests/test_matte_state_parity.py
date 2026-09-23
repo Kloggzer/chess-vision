@@ -37,11 +37,8 @@ def test_a_refused_row_is_not_a_matte(tmp_path):
 
 
 def test_an_empty_measurement_is_a_measurement(tmp_path):
-    """Gemessen UND frei ist nicht dasselbe wie ungemessen — seit 2026-09-16 auf beiden Seiten.
-
-    Python filterte mit `if r.get("coverage")`, ein leeres Dict ist falsy und die Zeile fiel weg;
-    die TS-Seite behielt sie ausdruecklich ("Nullen BLEIBEN"). Alle acht Leser pruefen jetzt auf
-    `None`, und `tests/test_matte_coverage_rule.py` haelt es so.
+    """Gemessen UND frei ist nicht dasselbe wie ungemessen, auf beiden Seiten: ein leeres Dict ist
+    falsy, also pruefen alle Leser auf `None`.
     """
     case = _case()
     matte = read_matte(_session(tmp_path, case["rows"]))

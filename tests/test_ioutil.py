@@ -86,11 +86,9 @@ def test_iter_jsonl_carries_the_same_tail_policy(tmp_path):
 
 
 def test_a_held_iter_jsonl_blocks_the_rewrite_on_windows(tmp_path):
-    """Der Preis des Stroemens: solange der Generator LEBT, haelt er die Datei offen.
-
-    Gemessen 2026-09-17: ein festgehaltener Generator laesst `write_rows` mit `WinError 5`
-    scheitern. Kein Aufrufer tut das heute — jeder verbraucht ihn in einer Schleife oder verlaesst
-    die Funktion, was ihn in CPython sofort schliesst. Der Test haelt die Falle sichtbar.
+    """Der Preis des Stroemens: solange der Generator LEBT, haelt er die Datei offen, und
+    `write_rows` scheitert mit `WinError 5`. Kein Aufrufer tut das; der Test haelt die Falle
+    sichtbar.
     """
     import sys
 

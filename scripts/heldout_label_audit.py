@@ -101,10 +101,8 @@ def _pieces(fen: str) -> dict[str, str]:
 
 
 def moves_between(before: str, after: str) -> list[tuple[str, str, str]]:
-    """(Figur, von, nach) aus dem UNTERSCHIED zweier Stellungen — wir haben keine Zugliste.
-
-    Bei einer Schlagung steht auf dem Zielfeld schon etwas; gesucht ist die Figur, die GEHT,
-    nicht die, die verschwindet. Sonst folgt die Spur der geschlagenen und endet im Nichts.
+    """(Figur, von, nach) aus dem UNTERSCHIED zweier Stellungen. Bei einer Schlagung ist die GEHENDE
+    Figur gesucht, sonst endet die Spur bei der geschlagenen.
     """
     a, b = _pieces(before), _pieces(after)
     left = {sq: what for sq, what in a.items() if b.get(sq) != what}
@@ -120,15 +118,13 @@ def moves_between(before: str, after: str) -> list[tuple[str, str, str]]:
 
 
 def trace_path(fens: dict[int, str], at_ply: int, square: str) -> list[Station]:
-    """Alle Stationen DER Figur, die zum Ply `at_ply` auf `square` steht.
-
-    Die Schwelle je Fenster findet den ANFANG einer Kette, nicht ihr Ende: `c8` lag bei 61 % und
-    fiel durch, obwohl beide Folds dort dieselbe fremde Figur lasen (2026-09-17).
+    """Alle Stationen DER Figur, die zum Ply `at_ply` auf `square` steht: die Schwelle je Fenster
+    findet nur den Anfang einer Kette.
     """
     plies = sorted(fens)
     if at_ply not in fens:
         return []
-    # Gemerkt je Stellungsfolge: die Spur wird je Fund gefragt, die Zuege aendern sich nicht.
+    # Gemerkt je Stellungsfolge: die Zuege aendern sich nicht.
     key = id(fens)
     steps = _STEPS.get(key)
     if steps is None:
@@ -156,7 +152,6 @@ def trace_path(fens: dict[int, str], at_ply: int, square: str) -> list[Station]:
                 here = to_sq
                 break
 
-    # Das Ende jeder Station ist der Ply vor dem Beginn der naechsten.
     fixed = []
     for i, station in enumerate(out):
         last = out[i + 1].first - 1 if i + 1 < len(out) else plies[-1]
@@ -165,10 +160,8 @@ def trace_path(fens: dict[int, str], at_ply: int, square: str) -> list[Station]:
 
 
 def inventory_gap(fen_counts: dict[str, int], read_counts: dict[str, int]) -> dict[str, int]:
-    """Figuren, die das BRETT zeigt und der Mitschnitt nicht mehr fuehrt.
-
-    Die Gegenrichtung ist KEIN Befund: eine Figur, die in den Lesungen fehlt, steht meist unter
-    einer Hand. Eine, die der Mitschnitt gar nicht mehr kennt, ist eine Schlagung zu viel.
+    """Figuren, die das BRETT zeigt und der Mitschnitt nicht mehr fuehrt. Die Gegenrichtung ist kein
+    Befund: fehlende Figuren stehen meist unter einer Hand.
     """
     return {what: n - fen_counts.get(what, 0)
             for what, n in read_counts.items() if n > fen_counts.get(what, 0)}
@@ -183,7 +176,7 @@ def station_disagrees(shares: dict[str, float], label: str, min_share: float) ->
 
 
 def covered(cov: dict[str, dict[str, float]], stem: str, square: str) -> bool:
-    """Liegt eine Hand darauf? Ohne Messung lautet die Antwort NEIN, nicht "vielleicht"."""
+    """Liegt eine Hand darauf? Ohne Messung lautet die Antwort NEIN."""
     return float((cov.get(stem) or {}).get(square, 0.0)) > PIECE_VISIBLE_MAX
 
 
@@ -196,9 +189,8 @@ def reads(session: Session, source: str) -> dict[tuple[str, int, int, str], Coun
         if not probs:
             continue
         stem, square = str(row.get("frame")), str(row.get("square"))
-        # Die Coverage steht in `matte.jsonl`, NICHT in der Lesung: `row.get("coverage")` war bei
-        # allen 209 962 gehaltenen Lesungen `None`, der Filter griff also nie und der Audit zaehlte
-        # verdeckte Zellen mit, auf denen das Modell zu 75 % irrt (gemessen 2026-09-17).
+        # Die Coverage steht in `matte.jsonl`, NICHT in der Lesung: dort war sie immer `None`, und
+        # der Filter griff nie.
         if covered(session.coverage, stem, square):
             continue
         ply = session.ply.get(stem)
@@ -281,10 +273,8 @@ def follow(session: Session, votes: dict, square: str, ply: int,
 
 
 def phantom_reads(votes: dict, min_reads: int, min_share: float) -> dict[int, dict[str, int]]:
-    """Je Ply die Figuren, die das Brett auf einem BELEGTEN Fenster zeigt.
-
-    Nur Fenster, die selbst die Schwelle reissen. Jede Mehrheitslesung zu zaehlen liess Stufe 3
-    auf 18 von 22 Aufnahmen anschlagen — ein Bestand, der immer anschlaegt, sagt nichts.
+    """Je Ply die Figuren auf einem BELEGTEN Fenster, nur Fenster ueber der Schwelle — jede Mehrheit
+    zu zaehlen schlug fast ueberall an.
     """
     out: dict[int, dict[str, int]] = {}
     for (_square, first, last, label), counted in votes.items():
@@ -299,10 +289,8 @@ def phantom_reads(votes: dict, min_reads: int, min_share: float) -> dict[int, di
 
 
 def inventory(session: Session, votes: dict, min_reads: int, min_share: float) -> dict[str, int]:
-    """Stufe 3: Figuren, die das Brett zeigt und der Mitschnitt nicht mehr fuehrt.
-
-    Je Ply verglichen, gemeldet wird das GROESSTE Defizit — `2026-09-06-21-29-35` fuehrt ab Ply 40
-    keinen weissen Springer mehr, waehrend beide Folds einen lesen.
+    """Stufe 3: Figuren, die das Brett zeigt und der Mitschnitt nicht mehr fuehrt; gemeldet wird das
+    GROESSTE Defizit je Ply.
     """
     per_ply = phantom_reads(votes, min_reads, min_share)
     worst: dict[str, int] = {}

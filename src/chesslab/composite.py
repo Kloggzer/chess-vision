@@ -22,13 +22,10 @@ from .labeling import _replace_session_in_manifest, all_squares, crops_for_frame
 from .occluders import WORK_SIZE
 from .realgames.mesh import measured_board_size
 
-#: The occluder clips were shot on the SAME rig as the board, only with the camera moved closer —
-#: so the plate already carries the right size and only needs that one distance correction, not a
-#: free scale. Set by eye against the board footage; the jitter covers the rest.
+#: The occluder clips were shot on the SAME rig, camera closer: one distance correction, not a free
+#: scale. Set by eye; the jitter covers the rest.
 RIG_SCALE = 0.60
 SCALE_JITTER = (0.85, 1.15)
-#: Frames between two boards. The turntable turns 0.43 deg/frame, so this is ~3.4 deg —
-#: the historical ingest step, and below it consecutive crops shift by under a pixel.
 #: Grad je Frame auf dem Drehteller — steht so in der CLI-Hilfe von `occluders composite`.
 DEG_PER_FRAME = 0.43
 STRIDE = 8
@@ -47,8 +44,8 @@ class Placement:
 
 #: Threads fuer Encode und Platte. Acht ist gemessen: 4 -> 52 ms, 8 -> 33, 16 -> 36 je 64 Crops.
 WRITE_THREADS = 8
-#: Vorlauf und Lader fuer die Kacheln. Gemessen auf 4K: 1 Lader 130 ms je Brett, 4 -> 120, 8 -> 117;
-#: 12 Bretter Vorlauf brachten nichts mehr und kosteten auf 1080p 20 % (`docs/occluder-plates.md`).
+#: Kachel-Vorlauf und Lader. 4K: 1 Lader 130 ms je Brett, 8 -> 117; mehr Vorlauf kostete auf 1080p
+#: 20 % (`docs/occluder-plates.md`).
 TILE_LOOKAHEAD = 6
 TILE_WORKERS = 8
 #: Dateinamen, die den Clip NICHT benennen — dann steht die Kennung im Ordner darueber.
@@ -56,19 +53,15 @@ GENERIC_STEMS = frozenset({"video", "clip", "input", "out"})
 
 
 def clip_id(video: Path) -> str:
-    """Woran ein Clip im geteilten Pool erkennbar ist — Dateiname, sonst der Ordner darueber.
-
-    Vier Quellen heissen `video.mp4`: ueber den Stem benannt wurden sie alle zu `comp-video`, und
-    die Crops ueberschrieben sich auf der Platte, weil auch der Dateiname daraus kommt.
+    """Woran ein Clip im geteilten Pool erkennbar ist — Dateiname, sonst der Ordner darueber: vier
+    Quellen heissen `video.mp4`.
     """
     return video.parent.name if video.stem in GENERIC_STEMS else video.stem
 
 
 def plate_long_side(plate_dir: Path, fallback: int = max(WORK_SIZE)) -> int:
-    """Die längste Kante der Aufnahme, aus der die Kacheln geschnitten wurden — aus dem Index.
-
-    Deklariert, nicht geraten: bis 2026-08-23 lagen Kacheln auf `WORK_SIZE`, danach in
-    Quellauflösung. Wer das verwechselt, setzt jede Hand um den Faktor zwei falsch ins Bild.
+    """Die laengste Kante der Aufnahme, aus der die Kacheln geschnitten wurden — DEKLARIERT im
+    Index. Aeltere Kacheln liegen auf `WORK_SIZE`, neuere in Quellaufloesung: Faktor zwei.
     """
     import json
 
@@ -84,10 +77,8 @@ def plate_long_side(plate_dir: Path, fallback: int = max(WORK_SIZE)) -> int:
 
 
 def _measured_long_side(plate_dir: Path, fallback: int) -> int:
-    """Ohne brauchbaren Index die Kacheln selbst messen — nur der Kopf, nicht das Bild.
-
-    `data/occluders/occluders.json` fuehrt `tile: [1200, 1006]` fuer 2400x2012-Dateien; wer eine
-    solche Zahl glaubt statt sie zu messen, komponiert jede Hand um den Faktor zwei falsch.
+    """Ohne brauchbaren Index die Kacheln selbst messen (nur den Kopf): `occluders.json` fuehrt
+    `tile: [1200, 1006]` fuer 2400x2012-Dateien.
     """
     from PIL import Image
 
@@ -106,10 +97,8 @@ def load_tiles(plate_dir: Path) -> list[Path]:
 
 
 def read_tile(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """(bgr, alpha 0..255) of one RGBA plate, cropped to what the alpha actually covers.
-
-    A plate is the whole stage, and the hand may sit in a corner of it — scaling the TILE then
-    makes the occluder itself far too small, which is what the first composites showed.
+    """(bgr, alpha 0..255) of one RGBA plate, cropped to what the alpha covers — a plate is the
+    whole stage, and scaling it shrinks the hand.
     """
     t = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if t is None or t.shape[2] != 4:
@@ -123,10 +112,10 @@ def read_tile(path: Path) -> tuple[np.ndarray, np.ndarray]:
 def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: float,
           rng: np.random.Generator, target: tuple[int, int, int, int]
           ) -> tuple[np.ndarray, np.ndarray, tuple[int, int], Placement]:
-    """Drop one tile at a random pose over `target` (x0,y0,x1,y1) -> `(rgb, alpha, (x0,y0), pose)`.
+    """Drop one tile at a random pose over `target` -> `(rgb, alpha, (x0,y0), pose)`.
 
-    Zurueck kommt NUR der Kasten der Kachel plus sein Versatz: ins Vollformat gewarpt kostete sie
-    32 ms Warp und 308 ms Ueberblendung fuer Pixel, von denen 99 % unberuehrt bleiben (4K, 2026-08-23).
+    Nur der Kasten der Kachel plus Versatz: ins Vollformat gewarpt kostete sie 340 ms fuer 99 %
+    unberuehrte Pixel.
     """
     h, w = shape
     scale = native * float(rng.uniform(*SCALE_JITTER))
@@ -142,8 +131,7 @@ def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: f
     m[0, 2] += cx - tw / 2
     m[1, 2] += cy - th / 2
 
-    # Die vier gedrehten Ecken sagen den Kasten exakt — ihn hinterher im Alpha zu suchen waere
-    # teurer als das, was er spart.
+    # Die vier gedrehten Ecken sagen den Kasten exakt.
     pts = np.array([[0, 0], [tw, 0], [tw, th], [0, th]], np.float64)
     dst = pts @ m[:, :2].T + m[:, 2]
     bx0, by0 = int(max(0, np.floor(dst[:, 0].min()))), int(max(0, np.floor(dst[:, 1].min())))
@@ -162,10 +150,8 @@ def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: f
 
 
 def over(base: np.ndarray, rgb: np.ndarray, alpha: np.ndarray, at: tuple[int, int]) -> None:
-    """Blendet die Kachel AN ORT UND STELLE in `base` — nur ueber ihren eigenen Kasten.
-
-    In uint8 durch OpenCV statt in float32 durch numpy: 16,6 ms je Kachel gegen 4,6 (gemessen
-    2026-08-23). Es rundet dabei anders, verschiebt den Pixel also um bis zu einen Grauwert.
+    """Blendet die Kachel AN ORT UND STELLE in `base`, nur ueber ihren Kasten. OpenCV-uint8 statt
+    numpy (4,6 gegen 16,6 ms) rundet anders: bis zu ein Grauwert.
     """
     if alpha.size == 0:
         return
@@ -178,11 +164,7 @@ def over(base: np.ndarray, rgb: np.ndarray, alpha: np.ndarray, at: tuple[int, in
 
 
 def mesh_for(frame: np.ndarray, corners, profile: CalibrationProfile) -> GridMesh | None:
-    """The board's OWN grid lines, measured on the clean frame before anything is laid over it.
-
-    ArUco only says where the board is; cutting at the nominal eighth bakes in the lens' barrel.
-    Measured first, because an occluder covers the very lines the fit reads.
-    """
+    """The board's OWN grid lines, measured on the clean frame before an occluder covers them."""
     from .realgames.mesh import grid_line_fracs
 
     return mesh_from_lines(grid_line_fracs(frame, corners, profile.board_size, profile))
@@ -193,15 +175,11 @@ def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile,
                     rng: np.random.Generator, rig: float = RIG_SCALE,
                     mesh: GridMesh | None = None, plate_long: int = max(WORK_SIZE)
                     ) -> tuple[list[np.ndarray], dict[str, float], list[Placement]]:
-    """One board frame with occluders on it: (64 crops, coverage per square, what was placed).
-
-    Coverage is cut by the SAME `crops_for_frame` call as the image, so the label region IS the
-    crop region — mesh and pads included.
+    """One board frame with occluders: (64 crops, coverage per square, what was placed). Coverage is
+    cut by the SAME `crops_for_frame` call, so the label region IS the crop region.
     """
     h, w = frame.shape[:2]
-    # Wie groß die Kachel in DIESEM Frame sein muss: das Verhältnis der beiden Aufnahmen, dann die
-    # Abstandskorrektur des Aufbaus. `plate_long` sagt, worin die Kachel geschnitten wurde — bis
-    # 2026-08-23 war das immer `WORK_SIZE`, weil sie mit der Maske heruntergerechnet wurde.
+    # Kachelgroesse in DIESEM Frame: Verhaeltnis der Aufnahmen, dann die Abstandskorrektur.
     native = (max(h, w) / plate_long) * rig
     pts = np.array(corners, np.float32)
     target = (int(pts[:, 0].min()), int(pts[:, 1].min()),
@@ -229,17 +207,15 @@ def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile,
 
 
 def read_forward(video: Path, stride: int, depth: int = 3) -> Iterator[tuple[int, np.ndarray]]:
-    """Jeden `stride`-ten Frame liefern — vorwaerts gelesen, in einem eigenen Thread.
-
-    `grab` spart den uebersprungenen Frames die BGR-Umrechnung: 235 ms je genutztem Frame mit
-    `cap.set`, 39 so. Auch warum die Hardware verliert, misst `docs/occluder-plates.md`.
+    """Jeden `stride`-ten Frame, vorwaerts gelesen in einem eigenen Thread. `grab` spart die
+    BGR-Umrechnung: 39 statt 235 ms mit `cap.set` je genutztem Frame.
     """
     q: Queue = Queue(maxsize=depth)
     stop = Event()
 
     def offer(item) -> bool:
-        # Ein blockierendes `q.put` hielt den Strang fuer immer fest, wenn der Verbraucher den
-        # Generator vorzeitig verliess — das `VideoCapture` kam nie zurueck. Wie in `tile_stream`.
+        # Ein blockierendes `q.put` hielt den Strang fuer immer, wenn der Verbraucher den Generator
+        # vorzeitig verliess — das `VideoCapture` kam nie zurueck.
         while not stop.is_set():
             try:
                 q.put(item, timeout=0.2)
@@ -274,10 +250,8 @@ def read_forward(video: Path, stride: int, depth: int = 3) -> Iterator[tuple[int
 def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int, stride: int,
                 depth: int = TILE_LOOKAHEAD, workers: int = TILE_WORKERS
                 ) -> Iterator[tuple[int, list[tuple[str, np.ndarray, np.ndarray]]]]:
-    """Die Kacheln der naechsten Bretter schon dekodiert bereithalten — endlos, eine Liste je Brett.
-
-    Von der Platte kostet eine Kachel 89 ms, mehr als das Brett selbst; alle 1440 im Speicher
-    waeren 18,7 GB. Zieht aus einem EIGENEN Strang, damit das Vorauslaufen die Posen nicht dreht.
+    """Die Kacheln der naechsten Bretter vordekodiert, endlos, eine Liste je Brett (Platte: 89 ms je
+    Kachel; alle im Speicher: 18,7 GB). EIGENER Strang, damit Vorlauf die Posen nicht dreht.
     """
     q: Queue = Queue(maxsize=depth)
     stop = Event()
@@ -289,16 +263,16 @@ def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int, stride
                 idx = 0
                 while not stop.is_set():
                     # An der FRAME-ID, nicht an einer Ordnungszahl: ein uebersprungenes Brett
-                    # darf die Kacheln aller folgenden nicht verschieben, und ein zweiter Lauf
-                    # mit anderem `stride` trifft fuer dieselbe ID dieselbe Wahl.
+                    # verschiebt sonst alle folgenden, und ein anderer `stride` traefe andere
+                    # Wahlen.
                     rng = np.random.default_rng([seed, idx])
                     k = int(rng.integers(per_frame[0], per_frame[1] + 1))
                     picks = rng.choice(names, size=k, replace=False) if k else []
                     q.put((idx, [(Path(x).name, pool.submit(read_tile, Path(x))) for x in picks]))
                     idx += stride
         except BaseException as e:  # noqa: BLE001 - re-raised in the consumer, see below
-            # A dead pump used to leave the consumer on `q.get()` forever: the composite build
-            # hung with no message. The failure travels the queue and is raised where it is read.
+            # A dead pump left the consumer on `q.get()` forever; the failure travels the queue
+            # instead.
             q.put(e)
 
     Thread(target=pump, daemon=True).start()
@@ -316,10 +290,8 @@ def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int, stride
 
 
 def median_mesh(cap, profile: CalibrationProfile, samples: int = 40) -> GridMesh | None:
-    """One mesh for the whole clip: the per-line median of what the frames measure.
-
-    A single frame's fit puts the back-rank lines where the tall pieces are (see
-    `sessions._repair_mesh_outliers`), and a turntable clip has no other frame to borrow from.
+    """One mesh for the whole clip, the per-line median: a single frame puts the back-rank lines
+    where the tall pieces are, and a turntable has no other frame to borrow from.
     """
     from .calibration import detect_board_corners_aruco
     from .realgames.mesh import grid_line_fracs
@@ -363,9 +335,7 @@ def _write_provenance(out_root: Path, clip: str, entry: dict) -> None:
     path = out_root / PROVENANCE_FILE
     all_of = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     all_of[clip] = entry
-    # Lesen-aendern-schreiben auf EINE Datei — `write_text` kuerzte sie zuerst, ein Abbruch
-    # nahm also die Herkunft JEDES frueheren Clips im Pool mit und `read_provenance` wirft danach.
-    # Der Pool-Riegel haelt zwar zwei Laeufe auseinander, nicht aber einen getoeteten.
+    # `write_text` kuerzt zuerst: ein getoeteter Lauf nahm die Herkunft JEDES frueheren Clips mit.
     tmp = path.with_name(path.name + ".tmp")
     try:
         write_json(tmp, all_of, indent=1)
@@ -389,10 +359,8 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
                     profile_name: str = "desktop", stats: dict | None = None,
                     pad_side: float | None = None
                     ) -> Iterator[tuple[int, list, dict[str, float], CalibrationProfile]]:
-    """Jedes Brett des Clips, fertig komponiert: (frame_id, 64 Crops, coverage, Profil).
-
-    DIE Schleife — wer Crops braucht, nimmt sie hier und schreibt selbst. Ohne `plate_dir`
-    liegt nichts auf dem Brett: dann ist es schlicht Video -> 64 Crops.
+    """Jedes Brett des Clips, fertig komponiert: (frame_id, 64 Crops, coverage, Profil). Ohne
+    `plate_dir` schlicht Video -> 64 Crops.
     """
     from dataclasses import replace
 
@@ -419,9 +387,8 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
                 skipped += 1
                 continue
             if prof is None:
-                # Die QUELLE setzt die Brettgroesse, nicht eine Konstante: 1280 fest bedeutete auf
-                # den 1080p-Clips einen Warp um 1,93x hoch, dessen erfundene Pixel der 80er Schnitt
-                # sofort wieder wegwarf (62 % des Pretrains, gemessen 2026-08-23).
+                # Die QUELLE setzt die Brettgroesse: 1280 fest warpte 1080p um 1,93x hoch, und der
+                # 80er Schnitt warf die erfundenen Pixel wieder weg.
                 board_size = board_size or measured_board_size(corners)
                 prof = replace(base, frame_size=(frame.shape[1], frame.shape[0]),
                                board_size=board_size, image_corners=corners,
@@ -463,8 +430,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                      pad_side: float | None = None) -> dict:
     """A whole clip into crops with TWO targets per cell: the piece, and how much is covered.
 
-    `blocks`, `angle_buckets`, `clean`: `docs/occluder-plates.md`. `pad_side` uebersteuert das
-    Profil und muss zum Rand der ECHTEN Crops passen — sonst zwei Rahmungen im Training.
+    `pad_side` uebersteuert das Profil und muss zum Rand der ECHTEN Crops passen.
     """
     import json
 
@@ -507,9 +473,8 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                              "square_color": square_color(sq), "fen": fen,
                              "out_size": list(out_size), "pad_side": prof.crop.pad_side})
                 written += 1
-            # Der Rueckstau ist die Bremse, nicht der Puffer: haelt man alle Crops eines Clips fuer
-            # einen Lauf am Ende, liegen 60k davon im Speicher (~3 GB). Vier Bretter reichen, weil
-            # Encode (33 ms je Brett auf acht Threads) unter der Rechnung (250 ms) bleibt.
+            # Der Rueckstau ist die Bremse: alle Crops eines Clips bis zum Ende halten waeren ~3 GB.
+            # Vier Bretter reichen, Encode (33 ms) bleibt unter der Rechnung (250 ms).
             while len(pending) > 4 * 64:
                 if not pending.popleft().result():
                     raise OSError("Cannot write composite crop")
@@ -520,13 +485,12 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
         pool.shutdown(wait=True)
     skipped = stats.get("skipped", 0)
     board_size = prof.board_size if prof is not None else board_size
-    # Upsert by clip, not overwrite: a second clip into the same pool used to discard the first
-    # one's rows while its crops stayed on disk — which is why every clip got its own tag.
+    # Upsert by clip, not overwrite: a second clip into the pool discarded the first one's rows
+    # while its crops stayed on disk.
     _replace_session_in_manifest(manifest, stem_sid,
                                  [json.dumps(r) for r in rows], field="split_group")
-    # Die Herkunft je Clip, damit ein Pixel-Pass die Komposition NEU schneiden kann statt
-    # sie aus dem 128er Pool zu skalieren. Reproduzierbar, weil Kachel und Pose an der
-    # Frame-ID haengen (`docs/data-pipeline.md` 3.1).
+    # Die Herkunft je Clip, damit ein Pixel-Pass die Komposition NEU schneidet statt den 128er Pool
+    # zu skalieren (`docs/data-pipeline.md` 3.1).
     _write_provenance(out_root, stem_sid, {
         "video": Path(video).resolve().as_posix(), "fen": fen, "seed": int(seed),
         "board_size": int(board_size), "stride": int(stride), "blocks": int(blocks),

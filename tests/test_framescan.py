@@ -84,7 +84,7 @@ def test_eight_clean_frames_come_out_spread_over_the_position():
 
 
 def test_a_position_without_eight_clean_frames_gives_what_it_has():
-    """Fewer is fine (User, 2026-08-18) — inventing one would mean a hand in the clean pool."""
+    """Fewer is fine — inventing one would mean a hand in the clean pool."""
     scan = _scan(hands=range(12, 120))
     clean, _ = fs.select(fs.classify(SEG, scan))
     assert clean == [0, 3, 6, 9]
@@ -258,11 +258,8 @@ def test_deleting_a_session_counts_the_handwork_first(tmp_path, monkeypatch):
 
 
 def test_the_gate_is_the_witness_and_the_old_sensors_only_answer_for_old_scans():
-    """Seit 2026-08-22 entscheidet der destillierte Kopf, ob eine Hand auf dem Brett liegt.
-
-    Gemessen gegen SAM auf vier zurueckgehaltenen Sessions: Gate 0,9988/0,9920 gegen 0,9618/0,9509
-    der drei alten Sensoren zusammen. Alte Scans tragen kein `gate` und werden weiter so gelesen,
-    wie sie geschrieben wurden — sonst gaelte ein ganzer Korpus ueber Nacht als handfrei.
+    """Der destillierte Kopf entscheidet, ob eine Hand auf dem Brett liegt (gegen SAM 0,9988/0,9920
+    statt 0,9618/0,9509). Alte Scans ohne `gate` werden gelesen, wie sie geschrieben wurden.
     """
     assert fs.occupied({"gate": fs.GATE_THR + 0.1}) is True
     assert fs.occupied({"gate": fs.GATE_THR - 0.1}) is False

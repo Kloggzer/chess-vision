@@ -9,8 +9,8 @@ from conftest import load_script
 ROOT = Path(__file__).resolve().parents[1]
 LIST = ROOT / "android/config/tuned-constants.txt"
 
-#: Stand 2026-09-19. Darf nur kleiner werden — wer eine Zahl misst, notiert die Messung an ihrem
-#: Feld, regeneriert die Liste und zieht diese Zahl nach.
+#: Darf nur kleiner werden: wer eine Zahl misst, notiert die Messung an ihrem Feld, regeneriert die
+#: Liste und zieht diese Zahl nach.
 UNGEPRUEFT_BUDGET = 27
 
 

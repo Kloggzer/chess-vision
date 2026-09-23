@@ -1,8 +1,6 @@
-"""Writing side of a session pack — `packs.py` reads and stays frozen.
-
-A session with a directory is cut from its BOARDS (`write_session_pack`), one without — composite,
-turntable — from its crop pool, which is all it has (`write_pool_pack`). `import_pack` adopts what
-the Kotlin writers produce. Why each takes the source it takes: `docs/packs.md`."""
+"""Writing side of a session pack: from its BOARDS, or from its crop pool when there is no directory
+(composite, turntable); `import_pack` adopts Kotlin's (`docs/packs.md`).
+"""
 
 from __future__ import annotations
 
@@ -31,9 +29,9 @@ def ledger_stamps(session_path: Path) -> dict[str, str | None]:
 
 
 def write_meta(dir_: Path, rows: list[dict], h: int, w: int) -> None:
-    """Ohne `crop_fingerprint`, also bytegleich zu vorher. `synth_build` schreibt fuer dieselbe
-    Lage (`mm://`-Zeilen) ein leeres dict, weil FEHLEND "Altpack, nimm die Mtime" heisst — bei
-    reinen `mm://`-Zeilen liefern heute beide Zweige dasselbe, darum steht es in TODO.md."""
+    """Ohne `crop_fingerprint`, also bytegleich zu vorher; `synth_build` schreibt fuer
+    `mm://`-Zeilen ein leeres dict (siehe TODO.md).
+    """
     write_packed_meta(dir_ / packs._META, rows, h, w)
 
 
@@ -52,7 +50,7 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
     name = f"{session_id}-{size}"
     session_path, _ = session_dir(session_id, paths)
     prof = _profile_for_session(read_session_meta(session_path), profile)
-    # BEFORE the cut: a verdict written while it runs then reads as a mismatch, never as frozen.
+    # BEFORE the cut: a verdict written meanwhile reads as a mismatch, never as frozen.
     stamp = {"ledgers": ledger_stamps(session_path)}
     crops = ((crop[:, :, ::-1], row) for crop, row in
              iter_session_crops(session_path, profile=prof, pad_side=pad_side,
@@ -62,11 +60,9 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
 
 def write_pool_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *, pool: str,
                     paths: config.Paths = config.DATA, replace: bool = False) -> dict:
-    """Pack `session_id` from crop pool `pool` — the way for a session with no directory.
-
-    The pool file IS the source for these, and `decode_crop` is what read it into the monolithic
-    pack, so the bytes match. It also freezes whatever the slice resampled (`docs/packs.md`).
-    `pool` stays explicit: 54 composites sit in two pools at once."""
+    """Pack `session_id` from crop pool `pool`, the way for a session with no directory,
+    byte-identical via `decode_crop`. `pool` stays explicit: composites sit in two pools.
+    """
     from ..dataset import load_manifest
 
     name = f"{session_id}-{size}"
@@ -78,10 +74,8 @@ def write_pool_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *, poo
 
 def _cut(name: str, size: int, crops, what: str, paths: config.Paths, replace: bool,
          stamp: dict | None = None) -> dict:
-    """`_write_rows` into a fresh directory; with `replace`, over an existing pack.
-
-    The old pack is only removed once the new one is complete — an interrupted rewrite must never
-    leave the session without pixels, because the datasets that cite it would all break at once.
+    """`_write_rows` into a fresh directory; with `replace`, the old pack goes only once the new one
+    is complete — every citing dataset would break at once.
     """
     out_dir = packs.pack_dir(name, paths)
     old = None
@@ -108,10 +102,8 @@ def _cut(name: str, size: int, crops, what: str, paths: config.Paths, replace: b
 
 
 def _write_rows(name: str, out_dir: Path, size: int, crops, what: str) -> dict:
-    """Consume `(RGB crop, row)` into the pack at `out_dir`; the row's `mm://` path is set here.
-
-    The image is written under `.partial` and renamed last, so an interrupted cut leaves a
-    directory `read_pack` refuses instead of a pack that is short of rows.
+    """Consume `(RGB crop, row)` into the pack, setting the `mm://` path; written as `.partial` and
+    renamed last, so an interrupted cut is refused by `read_pack`.
     """
     partial = out_dir / (packs._IMAGE + ".partial")
     rows: list[dict] = []
@@ -121,9 +113,8 @@ def _write_rows(name: str, out_dir: Path, size: int, crops, what: str) -> dict:
         for crop, row in crops:
             row["path"] = packs.mm_path(name, str(row["frame"]), str(row["square"]))
             h, w = crop.shape[:2]
-            # Der Pack veroeffentlicht EINE Geometrie fuer alle Zeilen. Zwei Formen gleicher
-            # Pixelzahl (2x3 gegen 3x2) rutschen sonst durch und jede fruehere Zeile wird
-            # spaeter mit der Form der letzten gelesen.
+            # EINE Geometrie fuer alle Zeilen: zwei Formen gleicher Pixelzahl (2x3, 3x2) rutschten
+            # sonst durch.
             if shape is None:
                 shape = (h, w)
             elif (h, w) != shape:
@@ -147,10 +138,9 @@ def _write_rows(name: str, out_dir: Path, size: int, crops, what: str) -> dict:
 
 
 def import_pack(src: Path, *, paths: config.Paths = config.DATA) -> dict:
-    """Move a pack the Kotlin writers produced (`labeled-video-pack`) under `data/packs/`.
-
-    Its rows name the pack — a Kotlin one says `mm://<session_id>/…` and keeps the plain id here.
-    Validated at the SOURCE, so a truncated image is refused before anything moves."""
+    """Move a Kotlin-written pack under `data/packs/`, validated at the SOURCE so a truncated image
+    is refused before anything moves.
+    """
     src = Path(src)
     rows = read_jsonl(src / "manifest.jsonl")
     if not rows:

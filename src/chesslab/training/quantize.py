@@ -1,27 +1,7 @@
-"""Stage 5 — INT8 static quantization for the on-device NPU (Qualcomm Hexagon).
+"""Stage 5 — INT8 static quantization for the Hexagon NPU (QNN Execution Provider).
 
-The Android tracker runs the per-square classifier through ONNX Runtime. On a
-Snapdragon phone (dev target: Poco F7 Pro / SD 8 Gen 3) the fastest, lowest-power
-backend is the **QNN Execution Provider**, which offloads the graph to the Hexagon
-NPU (HTP). The HTP backend runs **quantized models only** — a float32 graph would
-silently fall back to CPU. So we produce a QDQ (Quantize-Dequantize) ONNX next to
-the FP32 `model.onnx`:
-
-    model.onnx       — FP32, the CPU/NNAPI fallback (unchanged).
-    model.qnn.onnx   — INT8 static-quantized QDQ, loaded by the QNN EP on-device.
-
-The quantization uses ONNX Runtime's own QNN QDQ config helper (`get_qnn_qdq_config`),
-which enforces the HTP constraints (per-tensor scales, supported op set), calibrated
-on a small, class-balanced sample of the run's OWN training crops. Preprocessing for
-calibration is identical to inference/eval (`build_transform(..., train=False)`), so
-the recorded activation ranges match what the phone actually feeds the model.
-
-The device stays model-agnostic: whatever backbone `train` produced, export → quantize
-just walks its graph. No weights need to be final.
-
-The scheme being produced is integer-arithmetic-only inference (docs/references.md#jacob-2017);
-note that this is POST-TRAINING static quantization with a calibration set, not that paper's
-quantization-aware training. Per-channel weights are docs/references.md#krishnamoorthi-2018.
+The HTP runs quantized models only; a float graph silently falls back to CPU. So a QDQ
+`model.qnn.onnx` sits next to the FP32 `model.onnx`, calibrated on the run's OWN training crops.
 """
 
 from __future__ import annotations
@@ -34,8 +14,7 @@ import numpy as np
 
 from .. import config
 
-# Map CLI-friendly names to ONNX Runtime QuantType members (resolved lazily so this
-# module imports without onnxruntime present).
+# Resolved lazily so the module imports without onnxruntime.
 _QUANT_TYPES = {"quint8", "qint8", "quint16", "qint16"}
 
 #: Below this the INT8 graph is not the model any more (`_parity`); above it is still no proof.
@@ -54,21 +33,21 @@ def _quant_type(name: str):
 
 
 def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
-    """A small, class-balanced sample of the run's TRAIN crops (never test — no eval
-    leak). ``empty`` dominates massively (see CLAUDE.md), so a flat random draw would
-    starve the piece classes of calibration range; we round-robin across labels."""
+    """A small, class-balanced sample of the run's TRAIN crops (never test); round-robin across
+    labels, because `empty` dominates.
+    """
     from ..dataset import load_manifest, load_split
     from .data import dataset_paths, filter_rows_by_split
 
-    # Der Split des LAUFS: ein Fold traegt `split-f<i>.json`; `split.json` naennte, was er zurueckhielt.
+    # Der Split des LAUFS: ein Fold traegt `split-f<i>.json`.
     manifest_path, split_path = dataset_paths(cfg.get("dataset"), cfg.get("split_file"))
     if not manifest_path.exists() or not split_path.exists():
         raise FileNotFoundError(f"manifest/split missing ({manifest_path}) — build/split the dataset first.")
 
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
-    # NUR der Trainings-Split: das `or` schob bei leerem Train-Satz still den Val-Satz unter die
-    # Kalibrierung — genau der Eval-Leak, den der Docstring ausschliesst.
+    # NUR der Trainings-Split: ein `or` schob bei leerem Train-Satz still den Val-Satz unter die
+    # Kalibrierung.
     rows = filter_rows_by_split(manifest, split, "train")
     if not rows:
         return []
@@ -80,7 +59,6 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
     for bucket in by_label.values():
         rng.shuffle(bucket)
 
-    # Round-robin over labels until we hit the limit or exhaust every bucket.
     picked: list[dict] = []
     cursors = dict.fromkeys(by_label, 0)
     labels = sorted(by_label)
@@ -100,9 +78,9 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
 
 
 def _make_reader(rows: list[dict], input_name: str, cfg: dict):
-    """A rewindable CalibrationDataReader yielding preprocessed crops in `ONNX_BATCH`-sized
-    groups, matching the on-device preprocessing exactly — `eval_transform_for` IS what serving
-    reproduces, including the run's input representation."""
+    """A rewindable CalibrationDataReader in `ONNX_BATCH` groups, preprocessed exactly as serving
+    does.
+    """
     packed = [r["path"] for r in rows if str(r.get("path", "")).startswith("mm://")]
     if packed:
         raise ValueError(
@@ -116,15 +94,8 @@ def _make_reader(rows: list[dict], input_name: str, cfg: dict):
     from .evaluate import ONNX_BATCH
     from .torch_data import eval_transform_for, infer_size_of
 
-    # The FP32 graph is traced at a FIXED batch (`evaluate.ONNX_BATCH`) because a dynamic one
-    # breaks the Android session — so calibration has to feed that exact batch, not one crop at a
-    # time. A short final group is padded by repeating its own crops rather than with zeros: black
-    # squares would widen every activation range the calibrator measures.
-    #
-    # And at the size the GRAPH takes, not the size the crops were built at: `eval_transform_for`
-    # defaults to `out_size`, so a run serving at 96 fed the calibrator 128 px tensors and ORT
-    # refused them outright ("index: 2 Got: 128 Expected: 96"). That dropped `model.qnn.onnx` from
-    # a ship once (specs/23 phase 02) — the calibration set must live in the graph's own geometry.
+    # The graph takes a FIXED batch, so a short final group is padded with its own crops (zeros
+    # would widen every range). At the GRAPH's size: 128 px into a 96 px graph was refused outright.
     tf = eval_transform_for(cfg, out_size=infer_size_of(cfg))
     crops = []
     for r in rows:
@@ -152,15 +123,10 @@ def _make_reader(rows: list[dict], input_name: str, cfg: dict):
 
 
 def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
-    """Fraction of calibration crops where the quantized argmax matches FP32. A rough
-    on-parity sanity gate (INT8 rounding shifts logits but should rarely flip argmax).
+    """Fraction of calibration crops where the quantized argmax matches FP32.
 
-    **It does not detect the failure that matters.** specs/26 phase 02 measured a pure-INT8
-    (A8W8, per-tensor) export of `occ-v6-f5nd` at parity **1.000** here and 5 phantoms on the
-    veto metric, against the float model's 1. The calibration set is TRAIN crops the model
-    already fits; phantoms live on empty squares in a held-out session. Parity below 0.9 is a
-    reason to stop, but parity 1.0 is not a reason to ship — score the graph on the
-    regression set first.
+    It does NOT detect the failure that matters: an A8W8 graph scored parity 1.000 here and 5
+    phantoms on the veto metric. Below 0.9 stop; at 1.0 still score the regression set first.
     """
     import onnxruntime as ort
 
@@ -168,9 +134,8 @@ def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
     so.log_severity_level = 3
     ref = ort.InferenceSession(str(fp32_path), so, providers=["CPUExecutionProvider"])
     q = ort.InferenceSession(str(quant_path), so, providers=["CPUExecutionProvider"])
-    # Counted per CROP, not per batch: a feed now carries `ONNX_BATCH` of them, and scoring a
-    # 64-crop batch as one all-or-nothing vote would report a far harsher number than the docstring
-    # promises and than the threshold below was chosen against.
+    # Per CROP: a 64-crop all-or-nothing vote per batch would be far harsher than the threshold
+    # assumes.
     agree = total = 0
     for feed in samples[:min(len(samples), 32)]:
         a = np.asarray(ref.run(None, feed)[0]).argmax(-1)
@@ -182,36 +147,11 @@ def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
 
 def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
                  weight_type: str = "quint8", per_channel: bool = True) -> int:
-    """FP32 ``model.onnx`` → INT8-weight QDQ ``model.qnn.onnx`` for the QNN/Hexagon NPU EP.
+    """FP32 `model.onnx` -> QDQ `model.qnn.onnx` for the QNN/Hexagon NPU EP.
 
-    Default is A16W8 (16-bit activations, INT8 weights) — the Hexagon HTP's recommended
-    accuracy/performance balance. MobileNet's depthwise convs are very sensitive to 8-bit
-    *activation* rounding: pure quint8/quint8 collapsed argmax parity to ~0.34 on the dev
-    model, while quint16 activations held it at 1.0 with the same INT8 weights. Pass
-    ``activation_type='quint8'`` for pure INT8 if a given model tolerates it.
-
-    ``per_channel`` gives every output channel of a weight its own scale instead of one scale
-    per tensor. It is the literature's largest single lever for MobileNet-class models — the
-    quantization whitepaper measures MobileNet v1/v2 collapsing to 0.001 top-1 under per-layer
-    weight quantization and recovering to ~0.70 per-channel, because batch norm leaves the kernels
-    of one layer with wildly different dynamic ranges (docs/references.md#krishnamoorthi-2018).
-    That stated mechanism does NOT apply to this model, which is GroupNorm, so the far milder
-    effect measured below is not a contradiction of the paper. It measures the same direction here
-    (specs/26 phase 02, `occ-v6-f5nd` on `occ-real6` test at 80 px,
-    path A — phantoms / margin p99.9 / max):
-
-        per-tensor A8W8      5 · 0.406 / 0.802      per-channel A8W8   2 · 0.382 / 0.622
-        per-tensor A16W8     1 · 0.314 / 0.549      per-channel A16W8  0 · 0.284 / 0.431
-
-    The bottom right is the only phantom-free graph in that set — better than the FP32 weights
-    it was quantized from (1 · 0.312 / 0.508). Hence the default.
-
-    **Not verified on the device.** Per-tensor scales were historically an HTP constraint; ORT's
-    QNN config builder accepts ``per_channel`` but whether the HTP assigns the resulting graph or
-    silently leaves it on CPU is an on-device question (`disable_cpu_ep_fallback`). Confirm
-    placement before swapping a bundled asset — a graph that fell off the NPU is far slower for a
-    margin gain nobody can spend.
-    """
+    Default A16W8 per-channel: 8-bit activations collapsed parity to ~0.34, and per-channel A16W8
+    was the only phantom-free graph measured. NOT verified on the device: confirm NPU placement
+    first."""
     run_dir = Path(run)
     if not (run_dir / "config.json").exists():
         print(f"[FAIL] no config.json in {run_dir}.")
@@ -245,10 +185,8 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
 
     prep = run_dir / "model.prep.onnx"
     out = run_dir / "model.qnn.onnx"
-    # `skip_symbolic_shape`: die symbolische Ableitung ist fuer Graphen mit dynamischen
-    # Dimensionen da, und unserer hat keine — der Exporter nagelt die Charge auf 64.
-    # Ohne den Schalter stirbt sie an `nn.MultiheadAttention`s eigenem Reshape, dessen
-    # Zielform aus `Shape`/`Concat` kommt (`_infer_Reshape`, `assert is_literal`).
+    # `skip_symbolic_shape`: unser Graph hat keine dynamischen Dimensionen, und die Ableitung stirbt
+    # an `nn.MultiheadAttention`s eigenem Reshape (`_infer_Reshape`, `assert is_literal`).
     quant_pre_process(str(fp32), str(prep), skip_symbolic_shape=True)
     try:
         qnn_config = get_qnn_qdq_config(

@@ -1,5 +1,4 @@
-"""Bug hunt 2026-09-21: stille Rueckfallebenen, die einen UNGEMESSENEN Fall als gemessenen
-ausgeben. Jeder Test hier faellt auf dem Code von vorher."""
+"""Stille Rueckfallebenen, die einen UNGEMESSENEN Fall als gemessenen ausgeben."""
 
 import json
 

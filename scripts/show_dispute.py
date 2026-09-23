@@ -26,10 +26,8 @@ def episode_key(row: dict) -> tuple:
 
 
 def disputed(rows: list[dict], preds_a: list[int], preds_b: list[int]) -> tuple[list[int], int]:
-    """Indizes strittiger, GEMESSEN benotbarer Zellen, dazu die Zahl der ungemessenen.
-
-    `coverage is None` heisst nicht gemessen, nicht null (CLAUDE.md, Coverage Matte Trap);
-    als 0,0 gelesen waren 161 536 Zeilen eines Turntable-Satzes stillschweigend "sichtbar".
+    """Indizes strittiger, GEMESSEN benotbarer Zellen, dazu die Zahl der ungemessenen: `coverage is
+    None` ist nicht null.
     """
     from chesslab.training.occlusion import classification_eligible
 
@@ -101,8 +99,7 @@ def main() -> int:
     print(f"{len(hits)} strittige Zellen in {len(best)} Episoden — "
           f"{args.a.split('/')[-1]} hat in {a_right} recht, {len(hits) - a_right} mal nicht")
 
-    # Session-Packs: die Zeile traegt `_pack_at`, ein Monolith `_packed_idx` — eine Abfrage,
-    # zwei Herkuenfte, sonst haette dieses Blatt seinen eigenen Lesepfad.
+    # Session-Packs: die Zeile traegt `_pack_at`, ein Monolith `_packed_idx`.
     maps = [np.memmap(f, dtype=np.uint8, mode="r", shape=(s[0], s[1], s[2], 3))
             for f, s in packed.files] if hasattr(packed, "files") else None
 

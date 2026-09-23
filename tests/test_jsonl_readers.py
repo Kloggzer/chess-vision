@@ -66,11 +66,9 @@ def _loads_loop(loop: ast.AST, bound: set[str]) -> bool:
 
 
 def _iterated_lines(text: str) -> int:
-    """`for line in fh:` mit `json.loads(line)` darin — Schleife WIE Comprehension.
-
-    Zwei Schreibweisen rutschten frueher durch (2026-09-20): `[json.loads(l) for l in fh]` und
-    `for i, line in enumerate(fh)`. Ueber den Syntaxbaum, weil `json.loads(p.read_text())` in einer
-    Glob-Schleife KEIN Schnitt ist.
+    """`for line in fh:` mit `json.loads(line)` darin — Schleife WIE Comprehension, auch mit
+    `enumerate`. Ueber den Syntaxbaum, weil `json.loads(p.read_text())` in einer Glob-Schleife
+    KEIN Schnitt ist.
     """
     return sum(1 for loop, bound, _ in _loops(ast.walk(ast.parse(text))) if _loads_loop(loop, bound))
 

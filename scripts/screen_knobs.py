@@ -30,8 +30,7 @@ RESULTS = OUT / "results.jsonl"
 RECORDINGS = ["2026-08-08-11-55-19", "VID_20260727_233929",
               "VID_20260726_233432", "VID_20260824_153751"]
 
-#: knob -> (unten, oben). Plausible Raender, nicht Extremwerte: ein Lauf, der die Engine
-#: unbrauchbar macht, beweist nur, dass die Zahl existiert.
+#: Plausible Raender, nicht Extremwerte: ein Lauf, der die Engine unbrauchbar macht, beweist nichts.
 RANGES: dict[str, tuple[float, float]] = {
     "motionThr": (0.15, 0.40), "motionPxThr": (10.0, 35.0), "zThr": (2.0, 4.5),
     "ambiguityMarginLl": (1.0, 4.0), "nudgeTimeoutS": (2.0, 10.0), "driftWindowS": (15.0, 60.0),
@@ -62,9 +61,8 @@ def score_of(log: str) -> dict[str, int]:
 
 
 def run_one(tag: str, extra: list[str], rec: str) -> dict[str, int]:
-    # `trace=` schreibt JEDEN Frame mit `cnnCoverageMax`, `gate` und der Verify-Leiter. Das Log
-    # kennt nur Entscheidungen, und genau die Verdeckungs-Achse fehlt dort — sie ist nachtraeglich
-    # nicht zu rekonstruieren. ~15 MB je Arm, `docs/engine-fuzz.md`.
+    # `trace=` schreibt JEDEN Frame mit `cnnCoverageMax`, `gate` und der Verify-Leiter; das Log
+    # kennt nur Entscheidungen, und die Verdeckungs-Achse ist nachtraeglich nicht rekonstruierbar.
     trace = OUT / "traces" / f"{tag}--{rec}.jsonl"
     trace.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
@@ -78,12 +76,11 @@ def run_one(tag: str, extra: list[str], rec: str) -> dict[str, int]:
 def run_arm(tag: str, extra: list[str], jvms: int) -> dict:
     OUT.mkdir(parents=True, exist_ok=True)
     total, started = {"found": 0, "missed": 0, "invented": 0, "beyond": 0, "alarms": 0}, time.time()
-    # Zwei JVMs sind ~12 GB; mehr lohnt nicht, weil vier Prozesse an derselben Platte anstehen.
+    # Zwei JVMs sind ~12 GB; mehr stehen an derselben Platte an.
     with ThreadPoolExecutor(max_workers=jvms) as pool:
         scores = list(pool.map(lambda r: run_one(tag, extra, r), RECORDINGS))
     for rec, score in zip(RECORDINGS, scores, strict=True):
-        # `max(value, 0)` addierte das `-1` fuer "kein Score im Log" als gemessene Null: der Arm
-        # landete mit 20 fehlenden Zuegen in `results.jsonl` und galt danach als erledigt.
+        # Ein `-1` fuer "kein Score" darf nicht als gemessene Null in `results.jsonl` landen.
         missing = sorted(k for k, v in score.items() if v < 0)
         if missing:
             raise SystemExit(f"[FAIL] {tag}--{rec}: kein {', '.join(missing)} im Log — "

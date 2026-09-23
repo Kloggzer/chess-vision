@@ -71,10 +71,8 @@ def profile_of(candidate: dict) -> CalibrationProfile:
 
 
 def bow_of(frame, quad, profile, mesh=None) -> tuple[float, int]:
-    """(median |c|, lines unread) of one frame's 18 grid lines, in warped px.
-
-    With `mesh`, the board is pulled straight GLOBALLY first — the operation `straighten_board`
-    would perform in the store — and the SAME ruler is then laid against the result.
+    """(median |c|, lines unread) of one frame's 18 grid lines in warped px; with `mesh` the board
+    is straightened globally first and the SAME ruler laid against it.
     """
     warped, pad = warp_for_grid(frame, profile, quad)
     if mesh is not None:
@@ -90,10 +88,8 @@ def frame_index(row: dict) -> int:
 
 
 def sample_rows(recording: Path, want: int) -> list[dict]:
-    """Evenly spaced log rows carrying a quad, half of them with a hand on the board.
-
-    Hand frames are a sixth of a recording and the whole question here, so an even sweep would put
-    two or three in the sample and decide nothing.
+    """Evenly spaced rows with a quad, half with a hand: hand frames are the whole question and
+    rare.
     """
     rows = [r for r in read_jsonl(recording / "log.jsonl") if r.get("corners")]
     out: list[dict] = []
@@ -105,21 +101,16 @@ def sample_rows(recording: Path, want: int) -> list[dict]:
 
 
 def undistorted_quad(frame, seed, profile):
-    """The board on an undistorted frame: refined from the raw seed, or the seed when that fails.
-
-    Undistortion moves the corners, so the raw quad is a seed and never the answer; `improve_quad`
-    returns nothing unless it beats what it was given, which is the guarantee wanted here.
+    """The board on an undistorted frame, refined from the raw seed (undistortion moves the
+    corners), or the seed when refining does not beat it.
     """
     fixed, _before, _after = improve_quad(frame, seed, profile)
     return fixed if fixed is not None else seed
 
 
 def local_mesh(pool: dict[int, object], idx: int, k: int = 5):
-    """The median of the `k` clean frames NEAREST IN TIME, never the frame itself.
-
-    On a fixed rig this is the recording's mesh; on a handheld phone it follows the drift a
-    whole-recording median would average away (measured: session median 5.65 px against 0.76 for
-    the frame's own mesh). One rule, both cameras.
+    """The median of the `k` clean frames NEAREST IN TIME, never the frame itself: on a handheld
+    phone it follows drift a whole-recording median would average away.
     """
     near = sorted((i for i in pool if i != idx), key=lambda i: (abs(i - idx), i))[:k]
     return pooled_mesh([pool[i] for i in near])
@@ -132,9 +123,7 @@ def report(arms: dict[str, dict[str, list[tuple[float, int]]]]) -> None:
         cells = ""
         for g in groups:
             v = by_group.get(g) or []
-            # Ein Frame ohne gelesene Linie kommt als `nan` zurueck, und `nanmedian` wirft ihn
-            # weg. Der Nenner steht daneben: sonst steht ein Arm mit einer Messung so breit da
-            # wie einer mit zwoelf.
+            # `nanmedian` wirft Frames ohne gelesene Linie weg; der Nenner steht daneben.
             read = [a for a, _ in v if a == a]
             got = f"{np.median(read):.2f}" if read else "-"
             cells += f"{got + f' ({len(read)}/{len(v)})':>18}" if v else f"{'-':>18}"
@@ -172,8 +161,7 @@ def main() -> int:
 
     wanted = {frame_index(r): r for r in rows}
     video = video_path(args.recording.name)
-    # The export's own judge, not a flag: a phone decode arrives portrait while the quad was
-    # measured landscape, and against an unrotated frame every line below reads as noise.
+    # The export's own judge: a phone decode arrives portrait while the quad was measured landscape.
     rotate = detect_rotation(video, candidate, set(wanted))
     frames = {}
     with contextlib.closing(Recording(video).frames()) as stream:
@@ -191,11 +179,9 @@ def main() -> int:
     elif args.undist:
         print(f"kein lens.json unter {args.undist} — der Fit wurde abgelehnt, Linsen-Arme entfallen")
 
-    # Both session meshes pool the CLEAN frames only, each on its own side of the lens: a mesh
-    # measured on a raw board does not describe an undistorted one.
+    # Both session meshes pool CLEAN frames only, each on its own side of the lens.
     raw_pool, und_pool, und = {}, {}, {}
-    # From EVERY clean row of the log, not just the sampled ones: the meshes are already in
-    # `grid_lines`, so a neighbour costs a dict lookup rather than a decode.
+    # From EVERY clean row: the meshes sit in `grid_lines`, a neighbour costs a lookup.
     for row in read_jsonl(args.recording / "log.jsonl"):
         if row.get("grid_lines") and not row.get("hand_squares"):
             raw_pool[frame_index(row)] = mesh_from_lines(row["grid_lines"])
@@ -221,8 +207,8 @@ def main() -> int:
         group = "Hand" if row.get("hand_squares") else "sauber"
         quad = [[float(x), float(y)] for x, y in row["corners"]]
         own = mesh_from_lines(row["grid_lines"]) if row.get("grid_lines") else None
-        # The rule this measurement exists to propose: a frame's own mesh only when nothing was
-        # on the board, otherwise its clean neighbours'.
+        # The rule under test: a frame's own mesh only when nothing was on the board, else its
+        # neighbours'.
         fix = own if own is not None and group == "sauber" else local_mesh(raw_pool, idx)
         todo = {"roh": (frame, quad, None), "mesh (eigener)": (frame, quad, own),
                 "mesh-session": (frame, quad,

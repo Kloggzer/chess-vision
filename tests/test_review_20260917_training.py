@@ -1,4 +1,4 @@
-"""Gegenlesen der Trainings-Aenderungen vom 2026-09-17: Null-Regel in `run_train`, Loader-Tests."""
+"""Gegenlesen der Trainings-Aenderungen: Null-Regel in `run_train`, Loader-Tests."""
 from __future__ import annotations
 
 import inspect
@@ -16,13 +16,9 @@ NULL_ROW = {"label": "wP", "path": "p0", "coverage": None, "brightness": None}
 
 
 def test_the_class_weight_count_survives_a_null_coverage():
-    """Vierte Stelle derselben Null-Regel — und die einzige im REZEPT-Pfad.
-
-    Die Gewichte landen in `split.json`; ein ausgeschriebenes `null` warf hier `TypeError` kurz
-    vor dem Training. Seit 2026-09-22 zaehlt `visible_class_counts` ueber
-    `classification_eligible` statt inline ueber `coverage_of` — also ueber GENAU die Zellmenge,
-    die der Verlust gewichtet. Die Regel wurde damit strenger, nicht loser, und die Pruefung
-    fragt jetzt das Verhalten statt den Quelltext von `run_train`.
+    """Vierte Stelle derselben Null-Regel, die einzige im REZEPT-Pfad: ein ausgeschriebenes `null`
+    warf `TypeError`. Geprueft wird das Verhalten von `visible_class_counts`, nicht der
+    Quelltext.
     """
     raw = re.search(r'r\.get\("coverage"[^)]*\) <= PIECE_VISIBLE_MAX',
                     inspect.getsource(train_mod))

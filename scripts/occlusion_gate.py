@@ -1,14 +1,9 @@
-"""Die Occlusion-Schwelle aus einem Verlustverhaeltnis ableiten, statt sie zu setzen.
+"""Die Occlusion-Schwelle aus einem Verlustverhaeltnis: kostet eine Erfindung lambda Treffer, lohnt
+ein Read ab p(richtig) >= lambda/(1+lambda) — PRO ZELLE, also im Band um die Schwelle.
 
-Ein Read ist Evidenz, wenn er mehr nuetzt als schadet. Kostet eine Erfindung lambda-mal so viel
-wie ein Treffer nuetzt, lohnt er ab p(richtig) >= lambda/(1+lambda). Die Regel gilt PRO ZELLE, also
-zaehlt die Trefferquote im schmalen Band um die Schwelle, nicht der Schnitt darunter.
+Gegen die SAM-Matte, gebuendelt nach der VORHERGESAGTEN Coverage, die zur Laufzeit vorliegt.
 
-Gemessen wird gegen die SAM-Matte (Wahrheit) und gebuendelt nach der VORHERGESAGTEN Coverage —
-das ist die Groesse, die zur Laufzeit vorliegt (`P_OCCLUDED_THR` in Taint.kt).
-
-    uv run python scripts/occlusion_gate.py <reads-datei> [<sessions...>]
-"""
+    uv run python scripts/occlusion_gate.py <reads-datei> [<sessions...>]"""
 import math
 import sys
 from pathlib import Path
@@ -22,7 +17,7 @@ LAMBDAS = (1, 2, 3, 5)
 
 
 def wilson_lower(k, n, z=1.96):
-    """Untere Grenze des Wilson-Intervalls — bei n=120 ist der Punktwert allein wertlos."""
+    """Untere Grenze des Wilson-Intervalls; bei n=120 ist der Punktwert wertlos."""
     if n == 0:
         return 0.0
     p = k / n
@@ -44,14 +39,12 @@ def collect(reads_name, sessions):
         for r in read_jsonl(reads):
             if "square" not in r or not r["probs"] or r["fen_label"] == "empty":
                 continue
-            # Ein fehlendes Feld heisst "der Frame ist gar nicht gemessen", nie "dieses Feld
-            # nicht": `coverage_of` zippt alle 64 unter `strict=True`
-            # (`tests/test_coverage_is_dense.py`).
+            # Ein fehlendes Feld heisst "Frame nicht gemessen": `coverage_of` zippt alle 64 strikt.
             if truth.get(r["frame"], {}).get(r["square"]) is None:
                 continue
-            # Ohne Occlusion-Kopf schreibt `read_session` kein `cov`. Als 0,0 gelesen fiele
-            # jeder Read ins unterste Band und das Skript leitete eine Schwelle aus nichts ab.
-            cov = r.get("model_cov", r.get("cov"))   # `cov`: Schreibweise vor 2026-09-16
+            # Ohne Occlusion-Kopf gibt es kein `cov`; als 0,0 leitete das Skript eine Schwelle aus
+            # nichts ab.
+            cov = r.get("model_cov", r.get("cov"))  # `cov`: alte Schreibweise
             if cov is None:
                 continue
             out.append((cov, max(r["probs"], key=r["probs"].get) == r["fen_label"]))
@@ -59,11 +52,8 @@ def collect(reads_name, sessions):
 
 
 def schwelle(bands, need):
-    """Die Baender, die die Schwelle tragen — der ZUSAMMENHAENGENDE Lauf ab 0.
-
-    Ein spaeteres gutes Band rettet kein durchgefallenes davor, sonst waechst die Schwelle ueber
-    ein Loch hinweg. Gewertet wird die Wilson-Untergrenze: duenne Baender sollen sie nicht
-    aufweichen.
+    """Die Baender der Schwelle: der ZUSAMMENHAENGENDE Lauf ab 0, gewertet nach Wilson-Untergrenze.
+    Ein spaeteres gutes Band rettet kein durchgefallenes davor.
     """
     good = []
     for b in bands:
@@ -104,6 +94,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # `main()` blank: die `[FAIL]`-Absage gab 1 zurueck und der Prozess trotzdem 0 — ein
-    # aufrufendes Skript las den Lauf ohne Occlusion-Kopf als gelungene Ableitung.
+    # Sonst gab die `[FAIL]`-Absage 1 zurueck und der Prozess trotzdem 0.
     raise SystemExit(main())

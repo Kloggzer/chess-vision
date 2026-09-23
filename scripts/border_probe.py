@@ -1,13 +1,8 @@
-"""Wie viel Figur liegt ausserhalb des gespeicherten Bretts?
+"""Wie viel Figur liegt ausserhalb des gespeicherten Bretts? Die Figur neigt sich radial nach
+aussen, auf den Grundreihen faellt ihr Kopf aus dem 12-px-Rand. Warpt EIN Frame mit grossem Rand
+daneben.
 
-Die Bretter liegen mit `board_border` = 12 px auf einer 116-px-Zelle, also 10 %. Eine stehende
-Figur neigt sich in der Draufsicht radial nach aussen; auf den Grundreihen faellt ihr Kopf damit
-aus dem Raster. Ein groesserer Pad kann das nicht holen — die Pixel sind gar nicht da.
-
-Warpt EIN Frame aus dem Quellvideo mit grossem Rand und legt beide nebeneinander.
-
-    uv run python scripts/border_probe.py [--session 2026-08-08-00-39-57] [--pad 220]
-"""
+    uv run python scripts/border_probe.py [--session 2026-08-08-00-39-57] [--pad 220]"""
 import argparse
 from pathlib import Path
 
@@ -36,8 +31,7 @@ def main():
     if row is None:
         raise SystemExit("kein sauberes Brett mit Frame-Nummer")
     idx = int(Path(str(row["frame"])).stem)
-    # Vorwaerts dekodiert und gedreht wie der Export: ein Seek landet NEBEN dem Index, und die
-    # Ecken der Zeile saessen dann auf einem fremden Bild.
+    # Vorwaerts dekodiert wie der Export: ein Seek landet NEBEN dem Index.
     video = store_rec.video_path(a.session)
     rotation = rg_decode.detect_rotation(video, store_rec.load_candidate(a.session), {idx})
     frame = next((f for _, f in rg_decode.stream_frames(video, [row], rotation)), None)
@@ -58,7 +52,6 @@ def main():
     cv2.imwrite(f"{a.out}/border-wide.png", marked)
     print(f"[OK] {a.out}/border-wide.png  ({wide.shape[1]}x{wide.shape[0]})")
 
-    # Wie viel Figur steht ueber der Kante? Spalte d, Reihe 8 und 1, gross ausgeschnitten.
     cell = bs / 8.0
     tiles = []
     for sq, col, rank in (("a8", 0, 8), ("d8", 3, 8), ("h8", 7, 8),
@@ -67,7 +60,6 @@ def main():
         cy = pad + int((8 - rank + 0.5) * cell)
         r = int(cell * 1.6)
         tile = wide[max(0, cy - r):cy + r, max(0, cx - r):cx + r].copy()
-        # Die eigene Zelle einzeichnen — was drumherum liegt, holt heute kein Crop.
         h_, w_ = tile.shape[:2]
         c = int(cell / 2)
         cv2.rectangle(tile, (w_ // 2 - c, h_ // 2 - c), (w_ // 2 + c, h_ // 2 + c),

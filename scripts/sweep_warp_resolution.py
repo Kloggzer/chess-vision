@@ -1,49 +1,14 @@
 """Sweep the WARP resolution against the network's input size (specs/23, phase 00).
 
-Every accuracy number this project has is a number about a **110 px crop box**. `crops_for_frame`
-rectifies the board to `profile.board_size` BEFORE it cuts a square out, and the rig profile
-`data/calibration/phone.yaml` has `board_size: 800` with `pad_side: 0.05`, so each crop carries
-`800/8 * 1.10 = 110` px of real detail whatever the camera delivered — the 4K val session (173
-px/square at the sensor) loses 42 % of its linear resolution at that warp.
-
-Two questions, one sweep:
-
-1. **Is the discarded detail worth anything at inference alone?** The models trained on crops built
-   at 800. Serving them from a 1200 or 1600 warp gives *sharper* crops than they ever saw — a domain
-   shift that may help or hurt, and has never been measured.
-2. **Which `infer_size` should ship?** 96 px won on 110 px boxes (specs/22). The phone warps at
-   `boardSize = 1600`, which downsamples to 128 instead of upsampling.
-
-Only the path that actually serves is measured: crops are re-sliced from the session frames at each
-(warp, size) pair via `labeling.crops_for_frame` and pushed through `serving.predict_arrays`. The
-128 px crops on disk are never touched — they carry the 800 warp baked in and cannot answer this.
-
-**`board_size` is overridden IN MEMORY ONLY.** `data/calibration/phone.yaml` is not this phase's to
-change: it is what the corpus was sliced at, and a new value decouples the crops on disk from the
-crops served, which is a retraining question (specs/23 entry.md).
-
-Two things to keep straight when reading the table:
-
-- `pad_side` stays the profile's **0.05**, so the box is `board_size/8 * 1.10` = 110 / 165 / 220 px.
-  Android's 240 px box comes from its own `padSide = 0.10` at `boardSize = 1600`
-  (`BoardGeometry`), so the 1600 row is the closest available **proxy** for the phone, not the phone.
-- `SIZES` holds TRAINED scales only. Both runs have `scales: [32, 64, 96, 128]`, and the curve is
-  violently non-monotone off them: 80 px costs `occ-v4-f3e20` 133 misses against 96 px's 19. An
-  untrained size is not a data point, it is a trap.
-
-Reported per run x split x warp x size, for the two-class occupancy models:
-
-- argmax misses (true occupied read as empty) / phantoms (true empty read as occupied),
-- phantoms at the threshold that holds misses at `--miss-target` (the MATCHED operating point),
-- misses at the most permissive phantom-free threshold.
+Every crop carries `board_size/8 * 1.10` px of detail whatever the camera delivered. This
+measures, on the serving path only, whether sharper warps help at inference and which
+`infer_size` should ship. `board_size` is overridden IN MEMORY ONLY, and only TRAINED sizes are
+swept.
 
 Usage:
     .venv/Scripts/python.exe scripts/sweep_warp_resolution.py --log data/_perf/sweep_warp.log
         [--warps 800,1200,1600] [--sizes 64,96,128] [--runs occ-v4-f3e20,occ-r3s-f3]
-        [--splits test,val] [--device cuda|cpu] [--miss-target 43] [--max-frames N]
-
-Evaluation only: no training, no export, no rendering, no profile write. One process.
-"""
+        [--splits test,val] [--device cuda|cpu] [--miss-target 43] [--max-frames N]"""
 
 from __future__ import annotations
 
@@ -57,8 +22,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Must be set BEFORE `serving` captures anything: the CUDA/HIP-graph fast path bakes one fixed
-# input shape into a per-run cache entry, which is exactly wrong for a resolution sweep.
+# BEFORE `serving` captures anything: the CUDA/HIP graph bakes one input shape per run.
 os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -84,8 +48,7 @@ from sweep_infer_size import (  # noqa: E402
 #: The profile's own 800, the `config.DEFAULT_BOARD_SIZE` / Android 1600, and one in between.
 WARPS = (800, 1200, 1600)
 
-#: TRAINED scales only (`scales: [32, 64, 96, 128]` in both runs' config.json). 32 is in the
-#: recipe but far below any deployment; 48 and 80 are not in it at all and collapse.
+#: TRAINED scales only; 48 and 80 are not in the recipe and collapse.
 SIZES = (64, 96, 128)
 
 #: The multi-scale GroupNorm candidate, and the run currently bundled in the app.
@@ -98,22 +61,15 @@ MISS_TARGET = 43
 
 
 def crop_box_px(profile) -> float:
-    """Linear px the crop box carries before it is resized to the network input.
-
-    `board_size / 8 * (1 + 2 * pad_side)` — the quantity that decides whether the resize is an
-    upsample or a downsample. NOT px/square at the sensor: the warp lands on `board_size`
-    whatever the camera delivered.
+    """Linear px the crop box carries before the resize — up- or downsample; NOT px/square at the
+    sensor.
     """
     return profile.board_size / 8.0 * (1.0 + 2.0 * profile.crop.pad_side)
 
 
 def profile_at_warp(profile, board_size: int):
-    """A COPY of the profile that rectifies to `board_size`. Never written back to disk.
-
-    `crop.cell` and `homography` are derived values that no crop path currently reads (the warp
-    recomputes the homography from the per-frame corners, and `square_to_crop_box` derives the cell
-    from `board_size`), but they are re-derived here so the object cannot hand a stale number to a
-    future reader.
+    """A COPY of the profile rectifying to `board_size`, never written back; derived fields
+    re-derived so it cannot hand out stale numbers.
     """
     return replace(
         profile,
@@ -123,8 +79,6 @@ def profile_at_warp(profile, board_size: int):
     )
 
 
-# --- model handling -----------------------------------------------------------------------
-
 def occupied_index(cfg: dict) -> int:
     classes = list(cfg["classes"])
     if classes != ["empty", "occupied"]:
@@ -132,15 +86,11 @@ def occupied_index(cfg: dict) -> int:
     return classes.index("occupied")
 
 
-# --- the sweep: re-sliced from the session frames -----------------------------------------
-
 def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], sizes: tuple[int, ...],
           device: str, max_frames: int | None, log: Log,
           ) -> dict[tuple[str, int, int], tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """Cut the crops out of the session frames at every (warp, size) pair and predict.
-
-    Frames are decoded ONCE and re-cropped per pair, so the sweep costs one PNG decode per frame
-    rather than one per cell.
+    """Cut crops from the session frames at every (warp, size) pair and predict; frames decode
+    ONCE.
     """
     from chesslab import serving
 
@@ -190,8 +140,6 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
             for k, (t, p, q) in acc.items()}
 
 
-# --- reporting -----------------------------------------------------------------------------
-
 _HEAD = (f"{'warp':>5} {'box px':>7} {'size':>5} | {'miss':>6} {'phan':>6} "
          f"| {'ph@miss':>8} {'miss@0ph':>9}")
 
@@ -212,8 +160,8 @@ def report(log: Log, name: str, split: str, warps: tuple[int, ...], sizes: tuple
             ph_at_m, miss_at_t, _ = phantoms_at_miss_target(trues, probs, target)
             m_at_pf, _ = misses_phantom_free(trues, probs)
             cells[(w, s)] = (miss, phan, ph_at_m, m_at_pf)
-            # `!` = the budget does not BIND here (fewer occupied cells than `target`), so the
-            # threshold sits above every probability and the 0 phantoms are vacuous.
+            # `!` = the budget does not BIND (fewer occupied cells than `target`): the 0 phantoms
+            # are vacuous.
             marked = f"{ph_at_m}!" if miss_at_t != target else str(ph_at_m)
             unmatched = unmatched or miss_at_t != target
             log(f"  {w:>5} {box:>7.0f} {s:>5} | {miss:>6} {phan:>6} "

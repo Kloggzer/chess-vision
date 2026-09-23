@@ -1,12 +1,7 @@
-"""Vorbereitete Figuren-OBJs (synth_pieces/<Figur>/v1.obj) auf Ziel-Dreieckszahl dezimieren.
+"""Vorbereitete Figuren-OBJs (synth_pieces/<Figur>/v1.obj) auf Ziel-Dreieckszahl dezimieren, nur auf
+Pipeline-Outputs, nie auf Scan-Originalen. 50k+ je Figur crasht Blender 5.1 auf der RX 7900 XTX.
 
 Usage: uv run python scripts/decimate_pieces.py [--target-tris 35000]
-
-35k je Figur ist das empirisch höchste stabile Budget: 50k+ (×32 Figuren) crasht
-Blender 5.1 auf der RX 7900 XTX (nativer C++-Crash beim Board-Render, 2026-07-04).
-
-Arbeitet NUR auf den Pipeline-Outputs in synth_pieces/ (nie auf den Scan-Originalen).
-UVs bleiben erhalten (pymeshlab Quadric Edge Collapse mit Textur-Erhalt).
 """
 
 from __future__ import annotations
@@ -27,9 +22,7 @@ def decimate(obj: Path, target_tris: int, smooth_steps: int = 0) -> None:
         print(f"  {obj}: {before} Dreiecke — nichts zu tun")
         return
     if smooth_steps > 0:
-        # Taubin-Glättung VOR dem Dezimieren: nimmt die Scan-„Bumps" raus, ohne das
-        # Volumen zu schrumpfen (der naive Laplace zieht die Figur zusammen). UVs
-        # bleiben unberührt (nur Vertex-Positionen bewegen sich).
+        # Taubin VOR dem Dezimieren: nimmt die Scan-Bumps raus, ohne das Volumen zu schrumpfen.
         ms.apply_coord_taubin_smoothing(stepsmoothnum=smooth_steps)
     if before > target_tris:
         has_uv = m.has_wedge_tex_coord() or m.has_vertex_tex_coord()
@@ -39,11 +32,9 @@ def decimate(obj: Path, target_tris: int, smooth_steps: int = 0) -> None:
         else:
             ms.meshing_decimation_quadric_edge_collapse(
                 targetfacenum=target_tris, preserveboundary=True, preservenormal=True)
-    # Smooth-Shading: Vertex-Normalen nach der Dezimierung neu berechnen und MIT
-    # exportieren — sonst rendern Viewer die Figur facettiert. save_wedge_texcoord
-    # EXPLIZIT an: sonst können die UVs verloren gehen (bP wurde dadurch strukturlos
-    # grau — ohne UVs sampelt jede Fläche denselben Texel).
-    ms.compute_normal_per_vertex(weightmode=2)      # 2 = by angle (glatteste Übergänge)
+    # Normalen neu MIT exportieren (sonst facettiert), und save_wedge_texcoord EXPLIZIT: sonst gehen
+    # die UVs verloren und die Figur rendert strukturlos grau.
+    ms.compute_normal_per_vertex(weightmode=2)
     ms.save_current_mesh(str(obj), save_textures=False, save_vertex_normal=True,
                          save_wedge_texcoord=True)
     if (m.has_wedge_tex_coord() or m.has_vertex_tex_coord()) is False:

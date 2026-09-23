@@ -1,10 +1,8 @@
 
 
 def test_the_plate_carries_its_own_resolution_and_the_composite_reads_it(tmp_path):
-    """Die Kachel wird seit 2026-08-23 in QUELLauflösung geschnitten, die Maske weiter klein.
-
-    Wer die beiden verwechselt, setzt jede Hand um den Faktor zwei falsch ins Bild — deshalb steht
-    die Quellgröße im Index und wird gelesen, statt aus `WORK_SIZE` erschlossen zu werden.
+    """Die Kachel wird in QUELLaufloesung geschnitten, die Maske klein: die Quellgroesse steht im
+    Index und wird gelesen, sonst sitzt jede Hand um Faktor zwei falsch.
     """
     import json
 
@@ -23,11 +21,8 @@ def test_the_plate_carries_its_own_resolution_and_the_composite_reads_it(tmp_pat
 
 
 def test_the_source_sets_the_warp_size_so_nothing_is_invented_and_thrown_away():
-    """Der Composite warpte fest auf 1280 — auf einem 1080p-Clip ist das Brett aber nur 668 px
-    breit, also 1,93x hoch, und der 80er Schnitt warf die erfundenen Pixel sofort wieder weg.
-
-    62 % des Pretrains kamen 2026-08-23 aus solchen Clips. An `out_size` koppeln waere derselbe
-    Fehler von der anderen Seite: dann skaliert man zweimal statt einmal.
+    """Fest auf 1280 warpte der Composite einen 1080p-Clip 1,93x hoch, und der 80er Schnitt warf die
+    erfundenen Pixel weg. An `out_size` koppeln skalierte dagegen zweimal.
     """
     from chesslab.realgames.mesh import measured_board_size
 

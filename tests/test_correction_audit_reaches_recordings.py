@@ -22,8 +22,9 @@ def _recording(root, name):
 
 
 def test_the_rule_audit_sees_a_second_king_in_a_recording(tmp_path):
-    """Genau der Fund vom 2026-08-16 (zwei schwarze Koenige), nur in `recordings/` statt
-    `sessions/` — wo jede der 47 Aufnahmen heute liegt."""
+    """Zwei schwarze Koenige im Ledger, in `recordings/` statt `sessions/`, wo jede Aufnahme heute
+    liegt.
+    """
     _recording(tmp_path, "2026-09-01-10-00-00")
     paths = replace(config.Paths(), root=tmp_path)
 

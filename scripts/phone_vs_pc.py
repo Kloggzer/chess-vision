@@ -1,8 +1,5 @@
-"""Same video, same engine, two hosts: the phone live and the PC replay, against the board's truth.
-
-Per ply (retimed `frame` = the position first stood): when each host said the board was quiet
-(`state … -> waiting`) and when it committed. The PC side comes from a `replay … score` log, the
-phone side from the session's `timeline.jsonl`; both in video frames.
+"""Same video, same engine, two hosts: per ply, when the phone live and the PC replay saw the board
+quiet and committed, in video frames against the board's truth.
 
     uv run python scripts/phone_vs_pc.py 2026-08-24-22-43-46 tmp/batch/phone-vs-pc/2026-08-24-22-43-46.log
 """
@@ -34,8 +31,7 @@ def fps_of(session: Path, frames: int) -> float:
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
                              capture_output=True, text=True).stdout.strip()
         total += float(out or 0)
-    # Kein Rueckfall auf 30: jede Zahl dieses Skripts ist eine Sekundenangabe, und 38 der 51
-    # Aufnahmeverzeichnisse tragen heute gar kein `video*.mp4` mehr. Wie `commit_lag.py`.
+    # Kein Rueckfall auf 30: jede Zahl hier ist eine Sekundenangabe.
     if not total:
         raise SystemExit(f"{session}: keine messbare Video-Dauer — ohne sie gibt es keine "
                          f"Zeitbasis, nur eine erfundene")
@@ -43,8 +39,9 @@ def fps_of(session: Path, frames: int) -> float:
 
 
 def pts_table(name: str, session: Path) -> np.ndarray:
-    """Every decoded frame's PTS in ms, continuous across the segments — the replay's own clock.
-    Cached under tmp/retime/<name>.pts.npy: a phone recording is VFR, one rate does not map it."""
+    """Every decoded frame's PTS in ms across segments, cached under tmp/retime/<name>.pts.npy: a
+    phone recording is VFR.
+    """
     cache = ROOT / "tmp" / "retime" / f"{name}.pts.npy"
     if cache.is_file():
         return np.load(cache)
@@ -56,8 +53,8 @@ def pts_table(name: str, session: Path) -> np.ndarray:
         while cap.grab():
             prev, last = last, cap.get(cv2.CAP_PROP_POS_MSEC)
             pts.append(since + last)
-        # What the decoder WALKED, like `ConcatFrameSource`: the next segment continues one
-        # interval after the last delivered frame, not after the container's declared duration.
+        # What the decoder WALKED: the next segment continues one interval after the last delivered
+        # frame, not after the declared duration.
         since += last + (last - prev)
         cap.release()
     table = np.array(pts)
@@ -67,11 +64,12 @@ def pts_table(name: str, session: Path) -> np.ndarray:
 
 
 def pc_side(log: Path, pts: np.ndarray, nominal: float) -> tuple[dict[int, int], list[int]]:
-    """{label frame: run frame} of the found plies, and every moving->waiting frame — both as VIDEO
-    frame indices: the replay's clock is the frame's PTS, its `run frame` is `PTS × nominal fps − 1`."""
+    """{label frame: run frame} of the found plies and every moving->waiting frame, as VIDEO frame
+    indices (`run frame` = PTS x nominal fps - 1).
+    """
     at = lambda seconds: int(np.searchsorted(pts, seconds * 1000.0))  # noqa: E731
     text = log.read_text(encoding="utf-8", errors="replace")
-    # A binary from 2026-09-07 on prints the decoded index itself; then nothing is converted.
+    # Newer binaries print the decoded index itself.
     indexed = " frame=" in text
     commits, settles = {}, []
     for line in text.splitlines():
@@ -83,10 +81,9 @@ def pc_side(log: Path, pts: np.ndarray, nominal: float) -> tuple[dict[int, int],
 
 
 def phone_side(session: Path, moves: list[dict], pts: np.ndarray) -> tuple[dict[int, int], dict[int, int]]:
-    """{label frame: phone commit frame} and {label frame: phone settle frame}, off the timeline.
-    The frame is found on the video's own clock — real time since the encoder's base (the median of
-    `video_sync` elapsed − duration), looked up in the PTS table — not `frame_phone`: the candidate
-    placed that with a decoder clock that lost one frame interval per segment seam (2026-09-07)."""
+    """{label frame: phone commit/settle frame}, found on the video's own clock via the PTS table —
+    not `frame_phone`, which lost one frame interval per segment seam.
+    """
     settles, decisions, bases = [], {}, []
     for row in read_jsonl(session / "timeline.jsonl"):
         if row.get("kind") == "state" and row.get("to") == "waiting":
@@ -97,8 +94,8 @@ def phone_side(session: Path, moves: list[dict], pts: np.ndarray) -> tuple[dict[
             bases.append(row["elapsedNs"] - row["durationNs"])
     settles.sort()
     if not bases:
-        # Ohne `video_sync` gibt es keine Encoder-Basis. Die 0,0 war keine: sie verschob JEDEN
-        # Handy-Frame um die ganze Laufzeit der Aufnahme, und die Tabelle sagte es nirgends.
+        # Ohne `video_sync` gibt es keine Encoder-Basis; 0,0 verschob jeden Handy-Frame um die ganze
+        # Laufzeit.
         raise SystemExit(f"[FAIL] {session}: keine `video_sync`-Zeile ohne `final` — die "
                          f"Zeitbasis des Encoders ist nicht gemessen, die Handy-Spalten waeren "
                          f"erfunden")
@@ -117,8 +114,7 @@ def phone_side(session: Path, moves: list[dict], pts: np.ndarray) -> tuple[dict[
 
 
 def p90(values: list[float]) -> float:
-    """Dieselbe Formel wie `commit_lag.py`/`commit_budget.py`: `int(0,9 * n)` ist bei n = 10 der
-    Index 9 und damit das MAXIMUM — die Spalte log dann dieselbe Zahl wie `max` daneben."""
+    """`int(0,9 * n)` ist bei n = 10 das MAXIMUM, nicht das p90."""
     s = sorted(values)
     return s[max(0, math.ceil(0.9 * len(s)) - 1)]
 

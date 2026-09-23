@@ -1,4 +1,4 @@
-"""Bug-Hunt 2026-09-23: die bis dahin unberuehrten Skripte, nach Entscheidungsgewicht."""
+"""Bug-Hunt: die bis dahin unberuehrten Skripte, nach Entscheidungsgewicht."""
 
 from __future__ import annotations
 
@@ -190,7 +190,7 @@ def test_worker_probe_reports_warm_epochs(monkeypatch, capsys):
     assert "10.7s" in line and "30.5s" not in line
 
 
-# === Runde 2 (2026-09-23): die Skripte, die keine Jagd angefasst hatte =============================
+# === Runde 2: die Skripte, die keine Jagd angefasst hatte ===
 
 # --- profile_training_gpu: A/B abwechselnd statt fester Reihenfolge, Paritaet ohne Bezug ungemessen -
 
@@ -489,7 +489,7 @@ def test_audit_montage_picks_a_measured_visible_crop(tmp_path, monkeypatch):
     assert taken == [2]
 
 
-# === Runde 3 (2026-09-23): die vier offenen Punkte aus Nr. 50 =====================================
+# === Runde 3: die vier offenen Punkte aus Nr. 50 ===
 
 # --- sweep_report: Rauschen aus dem Sweep selbst, gemittelt ueber 20 statt 5 Epochen --------------
 

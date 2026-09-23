@@ -34,7 +34,7 @@ def test_the_full_policy_keeps_every_op():
 
 
 def test_zeroed_photometry_leaves_the_chain():
-    """Gemessen 2026-09-07: die drei Ops kosten 930 us je Crop, 73 % der Kette."""
+    """Die drei Ops kosten 930 us je Crop, 73 % der Kette."""
     lean = replace(FULL, brightness=0.0, contrast=0.0, color_jitter=0.0,
                    blur_sigma_max=0.1, gamma=(1.0, 1.0))
     have = names(lean)

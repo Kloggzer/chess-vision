@@ -32,11 +32,8 @@ _read_meta = partial(read_session_meta, missing_ok=True)
 
 
 def all_sessions(paths: config.Paths | None = None) -> list[tuple[str, Path]]:
-    """`(session_id, directory)` for everything that has a `log.jsonl`, recordings first.
-
-    The inverse of `session_dir`: a recording lives in `recordings/<ts>` and answers to `rg-<ts>`,
-    a `collect`/`ingest` session is its own name under `sessions/`. Enumerating only one root is
-    how `slice --all` came to see none of the 43 recordings.
+    """`(session_id, directory)` for everything with a `log.jsonl`, recordings first. BOTH roots:
+    `recordings/<ts>` answers to `rg-<ts>`, others live under `sessions/`.
     """
     paths = paths or config.DATA
     out = [(f"rg-{d.name}", d) for d in sorted(paths.recordings.iterdir())
@@ -48,26 +45,19 @@ def all_sessions(paths: config.Paths | None = None) -> list[tuple[str, Path]]:
 
 
 def active_session_dir(session_id: str, paths: config.Paths) -> Path:
-    """Wo eine Session aktiv liegt — ob sie dort schon existiert, sagt das nicht.
-
-    Eine Aufnahme (`rg-`) gehoert unter `recordings/` ohne den Praefix, alles andere unter
-    `sessions/`. Wer den Ort selbst zusammensetzt, findet Aufnahmen nicht: `archive_session` tat
-    genau das und meldete jede Aufnahme als "not found", waehrend `all_sessions` sie einsammelte
-    und `slice --all` ihre Zeilen schnitt (2026-08-30).
+    """Wo eine Session aktiv liegt (ob sie existiert, sagt das nicht): `rg-` unter `recordings/`
+    ohne Praefix, alles andere unter `sessions/`.
     """
     sid = _safe_id(session_id)
     return paths.recordings / sid[3:] if sid.startswith("rg-") else paths.sessions / sid
 
 
 def session_dir(session_id: str, paths: config.Paths | None = None) -> tuple[Path, bool]:
-    """`(directory, archived)` for an active or archived session.
-
-    An `rg-` id is a recording and lives in `recordings/<id without the prefix>`; everything else
-    is a `collect`/`ingest` session under `sessions/`. The id is the join key in every manifest,
-    so it keeps the prefix the directory dropped.
+    """`(directory, archived)` for an active or archived session; the id keeps the `rg-` prefix the
+    directory dropped.
     """
-    # Resolved at CALL time, not bound as a default: the module-level `config.DATA` is what the
-    # tests monkeypatch, and a default argument would freeze the pre-patch object at import.
+    # Resolved at CALL time: tests monkeypatch `config.DATA`, a default argument freezes it at
+    # import.
     paths = paths or config.DATA
     safe_sid = _safe_id(session_id)
     active = active_session_dir(safe_sid, paths)
@@ -94,12 +84,8 @@ def frame_path(sdir: Path, entry: dict) -> Path:
 
 
 def session_profile(sdir: Path, *, allow_standin: bool = True):
-    """The calibration profile a session was captured against, or a neutral stand-in.
-
-    The stand-in matters: a session whose profile file is gone must still be reviewable, and a
-    board-sized identity quad makes the geometry maths well defined without pretending to be a
-    measurement. `allow_standin=False` is for the callers that MEASURE or MUTATE geometry — dort
-    ist der Ersatz keine Ansicht, sondern eine erfundene Kamera, und die Zahl landet im Log.
+    """The calibration profile a session was captured against, or a neutral stand-in so it stays
+    reviewable. `allow_standin=False` for callers that MEASURE or MUTATE geometry.
     """
     from .. import calibration
 

@@ -1,16 +1,8 @@
-"""Ist eine schlechte Session falsch GELABELT oder nur schwer?
+"""Ist eine schlechte Session falsch GELABELT oder nur schwer? Dieselbe falsche Antwort mit hoher
+Konfidenz in JEDEM Frame derselben (Feld, Label)-Situation ist ein Labelverdacht; Wackeln ist
+hartes Material.
 
-`fold_per_session.py` benotet je Session das Modell, das sie nie gesehen hat — 0,58 bis 0,99.
-Das trennt aber nicht, WORAN es liegt. Hier ist der Test: eine Zelle, die in JEDEM Frame
-derselben Situation dieselbe falsche Antwort mit hoher Konfidenz bekommt, ist kein schweres
-Bild, sondern ein Verdacht auf ein falsches Label. Eine Zelle, die von Frame zu Frame wackelt,
-ist schweres Material.
-
-Gruppiert wird nach (Feld, Label) je Session: dieselbe Figur auf demselben Feld ist dieselbe
-physische Situation, egal wie viele Frames darauf zeigen.
-
-    uv run python scripts/audit_sessions.py [--dataset ...] [--min-n 20] [--conf 0.7]
-"""
+    uv run python scripts/audit_sessions.py [--dataset ...] [--min-n 20] [--conf 0.7]"""
 import argparse
 import collections
 import json
@@ -69,7 +61,6 @@ def main():
             rows = by_sess.get(sess, [])
             if not rows:
                 continue
-            # (Feld, Label) -> Liste (Vorhersage, Konfidenz)
             groups = collections.defaultdict(list)
             for i in range(0, len(rows), args.batch):
                 ch = rows[i:i + args.batch]

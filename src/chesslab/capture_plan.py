@@ -1,7 +1,6 @@
-"""Aus gemessenen Korpusluecken werden Aufnahmeauftraege — und aus Brettecken eine Kamerapose.
+"""Aus gemessenen Korpusluecken werden Aufnahmeauftraege, aus Brettecken eine Kamerapose.
 
-Ein Auftrag ist ein BUENDEL, und das Band macht die LAMPE, nicht das Feld — dasselbe Feld mass 6
-bis 207. Der Plan schlaegt Felder nur vor, die App misst. `docs/capture-axes.md`.
+Das Band macht die LAMPE, nicht das Feld — dasselbe Feld mass 6 bis 207 (`docs/capture-axes.md`).
 """
 
 from __future__ import annotations
@@ -14,15 +13,13 @@ from typing import TypedDict
 
 from .ioutil import iter_jsonl
 
-#: Die ZIELDOMAENE des Zell-Mittelwerts, in fuenf gleich breite Gruppen. 92,8 % aller sichtbaren
-#: Figurenzellen liegen darin. Gleich breit und NICHT nach Quantilen: Quantilgrenzen verschoeben
-#: sich mit jedem neuen Datensatz und machten alte Lueckenzahlen unvergleichbar.
+#: Die Zieldomaene des Zell-Mittelwerts in fuenf gleich breiten Gruppen (92,8 % der sichtbaren
+#: Figurenzellen). Nicht nach Quantilen: die wanderten mit jedem Datensatz.
 BANDS: tuple[tuple[int, int, str], ...] = (
     (40, 68, "dunkel"), (68, 96, "halbdunkel"), (96, 124, "mittel"),
     (124, 152, "halbhell"), (152, 180, "hell"))
-#: Die Raender. Sie werden GEMESSEN, aber nie beauftragt (`coverage_gaps.gaps` laeuft ueber
-#: `BANDS`): unter 40 faellt der Kontrast auf 28,7 gegen 69,2 in der Mitte, ueber 180 liegen
-#: 0,4 % des Korpus. Beides entsteht durch Schatten und Spotlight — als Beifang, nicht auf Ansage.
+#: Die Raender werden GEMESSEN, nie beauftragt: unter 40 faellt der Kontrast auf 28,7 gegen 69,2,
+#: ueber 180 liegen 0,4 % des Korpus.
 OUTSIDE: tuple[tuple[int, int, str], ...] = ((0, 40, "zu dunkel"), (180, 256, "zu hell"))
 PIECES = ("wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")
 #: Ab hier gilt eine Zelle als belegt. 200 sichtbare Crops sind rund drei Verweil-Episoden.
@@ -33,12 +30,10 @@ UNREACHABLE = 500
 ORIENTATION_STEPS = 8
 #: Hoehenstufen als NAMEN — der Nutzer stellt keine Messlatte auf.
 HEIGHTS = ("tief", "normal", "hoch")
-#: Wie oft eine Figur im Kasten liegt. Sie ist die Buendelgrenze: `bQ` fehlt in fuenf Baendern,
-#: es gibt aber nur eine schwarze Dame — also braucht es fuenf Aufnahmen, nicht fuenf Auftraege.
+#: Wie oft eine Figur im Kasten liegt — die Buendelgrenze: es gibt nur eine schwarze Dame.
 SET_BUDGET = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1}
-#: Wie viele Felder EINER Farbe gleichzeitig in einer Gruppe liegen (p90 ueber 15 235 volle
-#: Bretter). Ohne diese Grenze verlangte der Plan 12 Figuren in einer Gruppe, die ein Feld
-#: hergibt — die Anweisung wurde nie gruen, weil sie es nicht werden konnte.
+#: Wie viele Felder EINER Farbe gleichzeitig in einer Gruppe liegen (p90 ueber 15 235 Bretter). Ohne
+#: die Grenze verlangte der Plan Unmoegliches.
 BAND_CAPACITY: dict[tuple[str, str], int] = {
     ("light", "dunkel"): 3, ("light", "halbdunkel"): 8, ("light", "mittel"): 11,
     ("light", "halbhell"): 16, ("light", "hell"): 14,
@@ -49,9 +44,9 @@ UNKNOWN = "unbekannt"
 
 
 def band_of(value: float | None) -> str:
-    """`None` ist NICHT dunkel. 376 640 Komposit-Zeilen tragen keine `brightness`, und ein
-    `or 0.0` warf sie geschlossen ins dunkelste Band — der Rest des Codes nimmt umgekehrt 255.0
-    an (`training/data.py:186`). Beides waere geraten, also bekommen sie ein eigenes Band."""
+    """`None` ist NICHT dunkel: 376 640 Komposit-Zeilen tragen keine `brightness`. `or 0.0` waere
+    geraten, also bekommen sie ein eigenes Band.
+    """
     if value is None:
         return UNKNOWN
     for lo, hi, name in BANDS + OUTSIDE:
@@ -61,15 +56,15 @@ def band_of(value: float | None) -> str:
 
 
 def band_middle(name: str) -> float:
-    """Die Mitte eines Bandes. Die Feldwahl haengt daran: „das hellste bzw. dunkelste Feld" ist
-    fuer `mittel` nicht entscheidbar, „am naechsten an der Mitte" fuer alle fuenf."""
+    """Die Mitte eines Bandes; „am naechsten an der Mitte" ist fuer alle fuenf Baender
+    entscheidbar.
+    """
     lo, hi = band_range(name)
     return (lo + hi) / 2
 
 
 def band_range(name: str) -> tuple[int, int]:
-    """Die Grenzen selbst. Sie reisen im Auftrag mit, weil die App gegen sie MISST — eine Mitte
-    allein sagt nicht, ob ein Feld gerade drin liegt."""
+    """Die Grenzen reisen im Auftrag mit, weil die App gegen sie MISST."""
     for lo, hi, band in BANDS + OUTSIDE:
         if band == name:
             return lo, hi
@@ -88,16 +83,16 @@ class Gap(TypedDict):
 
 
 class Placement(TypedDict):
-    """Ein Vorschlag, kein Befehl: `square` ist das Feld, dessen Median dem Band am naechsten
-    liegt, `lo`/`hi` das Band. Die App misst live und haengt um."""
+    """Ein Vorschlag, kein Befehl: das Feld mit dem Median naechst am Band. Die App misst live und
+    haengt um.
+    """
 
     square: str
     piece: str
     band: str
     lo: int
     hi: int
-    #: Die p5/p95 DIESES Feldes. Der Median sagt, wo es ueblicherweise sitzt; erst die
-    #: Spannweite sagt, ob es das Band je erreicht hat — `a8` mass 6 bis 207.
+    #: p5/p95 DIESES Feldes: erst die Spannweite sagt, ob es das Band je erreicht hat.
     seen_lo: float
     seen_hi: float
 
@@ -127,23 +122,21 @@ class Pose(TypedDict):
 
 
 def slug(*parts: str) -> str:
-    """Kleinbuchstaben mit Bindestrich. Das Band gehoert in jede `id`: 58 Luecken verteilen sich
-    auf nur 24 Paare aus Figur und Feldfarbe, 22 davon kollidieren ueber die Baender."""
+    """Kleinbuchstaben mit Bindestrich. Das Band gehoert in jede `id`: 22 von 24 Paaren aus Figur
+    und Feldfarbe kollidieren ueber die Baender.
+    """
     return "-".join("-".join(p.lower().split()) for p in parts)
 
 
 def square_colour(square: str) -> str:
-    """`a1` ist dunkel. Feld und Reihe gleicher Paritaet heisst dunkel — dieselbe Regel wie
-    ueberall sonst im Projekt, hier nur ohne Umweg ueber ein Brettobjekt."""
+    """`a1` ist dunkel: Feld und Reihe gleicher Paritaet."""
     return "dark" if (ord(square[0]) - 97 + int(square[1]) - 1) % 2 == 0 else "light"
 
 
 def square_stats(manifest: Path | str) -> dict[str, SquareStat]:
-    """Feld -> Median UND Spannweite, aus dem Manifest gestreamt.
-
-    Der Median waehlt ein Feld, sagt aber nicht, ob das Band dort je erreicht wurde: `a8` mass 6
-    bis 207, seine Bandlage haengt an der Lampe. Zeilen ohne `brightness` zaehlen NICHT mit —
-    376 640 von 979 363 haben keine, und eine Vorgabe waere eine erfundene Beleuchtung."""
+    """Feld -> Median UND Spannweite, aus dem Manifest gestreamt; Zeilen ohne `brightness` zaehlen
+    NICHT.
+    """
     seen: dict[str, list[float]] = {}
     for row in iter_jsonl(Path(manifest)):
         value = row.get("brightness")
@@ -160,19 +153,16 @@ def square_stats(manifest: Path | str) -> dict[str, SquareStat]:
 
 
 def board_spread(bright: dict[str, float]) -> float:
-    """Wie weit das Brett bei EINER Lampeneinstellung spannt: hellster minus dunkelster Feldmedian.
-
-    Gemessen 112 (a7 bei 45, g4 bei 157). Die Lampe verschiebt alle Felder zusammen, der Abstand
-    zwischen ihnen ist der Gradient des Bretts und bleibt — das macht ihn zur Buendelgrenze."""
+    """Hellster minus dunkelster Feldmedian (gemessen 112). Die Lampe verschiebt alle Felder
+    zusammen, der Abstand bleibt — deshalb eine Buendelgrenze.
+    """
     return max(bright.values()) - min(bright.values()) if bright else 0.0
 
 
 def bundles(gaps: Sequence[Gap], spread: float) -> list[list[Gap]]:
-    """So viele Luecken je Aufnahme, wie Figurenset, Brett UND Lampe hergeben.
-
-    Drei Grenzen: der Figurenkasten (`SET_BUDGET`), wie viele Felder einer Farbe gleichzeitig in
-    die Gruppe fallen (`BAND_CAPACITY` — ohne sie verlangte der Plan zwoelf Figuren fuer ein
-    Feld), und die Brettspanne gegen die Gruppenmitten. Die Reihenfolge von `gaps()` bleibt."""
+    """So viele Luecken je Aufnahme, wie `SET_BUDGET`, `BAND_CAPACITY` und die Brettspanne hergeben.
+    Die Reihenfolge von `gaps()` bleibt.
+    """
     rest = list(gaps)
     out: list[list[Gap]] = []
     while rest:
@@ -201,9 +191,9 @@ def bundles(gaps: Sequence[Gap], spread: float) -> list[list[Gap]]:
 def _assign(
     group: Sequence[Gap], stats: dict[str, SquareStat],
 ) -> tuple[list[Placement], list[Gap]]:
-    """Jede Luecke bekommt ihr EIGENES Feld — das der Bandmitte naechste, das noch frei ist.
-    Ohne die Sperre stuenden zwoelf Figuren auf demselben `a8`. Zurueck kommt auch, wofuer kein
-    Feld mehr da war: diese Luecken sind NICHT geschlossen und gehoeren in die naechste Aufnahme."""
+    """Jede Luecke bekommt ihr EIGENES freies Feld, das der Bandmitte naechste. Zurueck kommt auch,
+    was keinen Platz fand: nicht geschlossen, naechste Aufnahme.
+    """
     out: list[Placement] = []
     missed: list[Gap] = []
     taken: set[str] = set()
@@ -215,9 +205,8 @@ def _assign(
         if not free:
             missed.append(gap)
             continue
-        # Erst die Felder, deren Spannweite das Band WIRKLICH erreicht: ein Vorschlag, der
-        # unter dieser Lampe nie eintritt, kostet eine ganze Aufnahme. Bleibt keines uebrig,
-        # entscheidet wieder der Median allein.
+        # Erst Felder, deren Spannweite das Band WIRKLICH erreicht; sonst entscheidet der Median
+        # allein.
         reaches = [sq for sq in free if stats[sq]["p5"] <= hi and stats[sq]["p95"] >= lo]
         square = min(reaches or free, key=lambda sq: abs(stats[sq]["median"] - mid))
         taken.add(square)
@@ -228,11 +217,11 @@ def _assign(
 
 
 def shots(gaps: Sequence[Gap], stats: dict[str, SquareStat], limit: int = 10) -> list[Shot]:
-    """Luecken zu BUENDELN, in der Reihenfolge, die `coverage_gaps.gaps()` schon liefert.
+    """Luecken zu BUENDELN, in der Reihenfolge von `coverage_gaps.gaps()` — nicht umsortieren.
 
-    Nicht umsortieren — dort steht `fix="Stellung"` vor `fix="Licht"` und darin aufsteigend nach
-    `have`. `limit` schneidet BUENDEL ab, nicht Luecken. Die Hoehe rotiert, damit ueber die
-    Auftraege alle drei Stufen vorkommen: der Korpus kennt bisher genau eine."""
+    `limit` schneidet Buendel, nicht Luecken. Die Hoehe rotiert, der Korpus kennt bisher nur
+    eine.
+    """
     if not stats:
         raise ValueError("keine gemessene Helligkeit — erst scripts/backfill_brightness.py")
     spread = board_spread({sq: s["median"] for sq, s in stats.items()})
@@ -241,8 +230,7 @@ def shots(gaps: Sequence[Gap], stats: dict[str, SquareStat], limit: int = 10) ->
     while rest and len(out) < limit:
         group = bundles(rest, spread)[0]
         place, missed = _assign(group, stats)
-        # Nichts platzierbar heisst: die Felder dieser Farbe sind alle. Ein leerer Auftrag waere
-        # `id='01-'` und „0 Figuren" — er bestuende die Schema-Pruefung und hiesse nichts.
+        # Ein leerer Auftrag bestuende die Schema-Pruefung und hiesse nichts.
         if not place:
             break
         closes = [g for g in group if not any(g is m for m in missed)]
@@ -262,9 +250,9 @@ def shots(gaps: Sequence[Gap], stats: dict[str, SquareStat], limit: int = 10) ->
 def pose_of(corners: Sequence[Sequence[float]]) -> Pose:
     """Die Kamerapose aus den Brettecken `[a8, h8, h1, a1]` (`SessionRecorder.kt:70-72`).
 
-    `foreshorten` ist die hintere Kante `a8-h8` durch die vordere `a1-h1`; 1,0 heisst senkrecht
-    von oben. Gemessen ueber alle 24 Aufnahmen: 0,955 bis 1,025, Median 0,986 — der Korpus hat
-    EINE Pose, und ohne diese Spalte ist das nicht nachpruefbar."""
+    `foreshorten` = hintere Kante durch vordere, 1,0 heisst senkrecht; der Korpus liegt bei
+    0,955-1,025.
+    """
     a8, h8, h1, a1 = (tuple(map(float, c)) for c in corners)
     edges = [math.dist(a8, h8), math.dist(h8, h1), math.dist(h1, a1), math.dist(a1, a8)]
     front = math.dist(a1, h1)

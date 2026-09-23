@@ -20,8 +20,8 @@ import numpy as np
 from chesslab.ioutil import read_jsonl, write_json
 
 DUMPS = Path("data/reports/episodes")
-#: `rg-2026-09-06-20-27-33` und `rg-VID_20260906_202733` sind derselbe Aufnahmetag. Abgeleitete
-#: Kompositen tragen die Quelle im Namen und gehoeren zur Gruppe ihrer Quelle.
+#: `rg-2026-09-06-20-27-33` und `rg-VID_20260906_202733` sind derselbe Tag; Kompositen gehoeren zu
+#: ihrer Quelle.
 DATE = re.compile(r"(\d{4})-?(\d{2})-?(\d{2})")
 
 
@@ -85,9 +85,8 @@ def main() -> int:
               "   INNERHALB dieser Aufnahme, nicht die zwischen Aufnahmen — die braucht Folds\n"
               "   (3.3) oder die Testgruppe.")
 
-    # Vektorisiert: eine Ziehung ist ein Multinomialvektor ueber die Einheiten, die Genauigkeit je
-    # Seed danach ein Matrixprodukt. Erst das macht Millionen Ziehungen bezahlbar. Die Seeds werden
-    # MITGEZOGEN — sonst stuende ihre Streuung ueberhaupt nicht im Intervall.
+    # Eine Ziehung ist ein Multinomialvektor, die Genauigkeit je Seed ein Matrixprodukt. Die Seeds
+    # werden MITGEZOGEN, sonst fehlte ihre Streuung im Intervall.
     ok_a = np.array([[e["errors"] == 0 for e in a[s]] for s in seeds], dtype=np.float64)
     ok_b = np.array([[e["errors"] == 0 for e in b[s]] for s in seeds], dtype=np.float64)
     weight = np.zeros((len(units), len(keys)))
@@ -118,8 +117,7 @@ def main() -> int:
     print(f"\nbeobachteter Abstand {obs:+.4f}")
     print(f"95-%-Intervall ueber {len(units)} {unit}n, {args.draws:_} Ziehungen: "
           f"[{lo:+.4f}, {hi:+.4f}]")
-    # Die ANZAHL, nicht eine gerundete Quote: bei einer Million Ziehungen verschwinden zwei
-    # Treffer hinter "0,0000". Und unter 1/Ziehungen loest ein Bootstrap ohnehin nicht auf.
+    # Die ANZAHL: bei einer Million Ziehungen verschwinden zwei Treffer hinter "0,0000".
     print(f"Ziehungen mit Abstand <= 0: {worse} von {args.draws:_}" +
           (f"  (p < {1 / args.draws:g})" if worse == 0 else f"  (p = {worse / args.draws:.3g})"))
 

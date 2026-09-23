@@ -46,7 +46,8 @@ def test_only_the_test_part_of_a_fold_is_read():
 
 
 def test_already_judged_cells_are_skipped():
-    """105 von 106 Funden waren am 2026-09-18 laengst entschieden — ohne diesen Filter misst der
-    Lauf das Modell und nicht die Labels."""
+    """Fast alle Funde waren laengst entschieden; ohne diesen Filter misst der Lauf das Modell,
+    nicht die Labels.
+    """
     src = inspect.getsource(oof.main)
     assert "if key in seen or not classification_eligible(row):" in src

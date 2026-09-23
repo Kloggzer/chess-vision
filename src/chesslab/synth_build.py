@@ -1,21 +1,8 @@
-"""Fused synthetic dataset build: renders -> packed memmap, WITHOUT the crop-PNG middle copy.
+"""Fused synthetic dataset build: renders -> packed memmap, WITHOUT the crop-PNG middle copy (~60 GB
+and millions of files for 100k crops per class).
 
-The classic chain (`ingest synthetic` -> 64 crop PNGs per frame -> `dataset build` -> pack)
-materializes every crop once as a PNG only for the packer to decode it exactly once into the
-memmap. For a 100k-per-class synthetic set that middle copy is ~60 GB and millions of small
-files. This module fuses the two pixel passes into one:
-
-  1. metadata pass  — sessions are synthesized from the render JSONs (frame path + corners +
-     FEN, no pixels), labels derive from the FEN per square; curation (per-cell cap, split,
-     class caps) runs on metadata only. phash is deliberately NOT offered: every synth scene
-     has its own position/camera/lighting, there are no near-duplicates to find.
-  2. pixel pass     — each selected frame is loaded ONCE, warped ONCE, and its selected squares
-     are cropped straight into the final ``packed_images.u8`` memmap (parallel over frames).
-
-Manifest rows carry a virtual ``mm://`` path (unique per crop, digest-able) — there are no crop
-files. Training reads the memmap (``PackedSquareDataset``); rotation augmentation happens
-on-the-fly at train time (``torch_data._RandomRot90``), never on disk.
-"""
+Curation runs on metadata only; each frame is then warped ONCE straight into the memmap. Rows
+carry virtual `mm://` paths. No phash: every synth scene is unique."""
 
 from __future__ import annotations
 
@@ -32,7 +19,6 @@ from .ioutil import write_json
 
 _FILES = "abcdefgh"
 
-# Warp resolution for slicing — single source: config.SYNTH.warp_board_size (rationale there).
 SYNTH_BOARD_SIZE = config.SYNTH.warp_board_size
 
 
@@ -44,10 +30,8 @@ def _virtual_path(name: str, sid: str, frame: str, square: str) -> str:
 
 
 def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
-    """64 metadata rows for one frame: label per square from the FEN (+ occluded override).
-
-    `crop` is the `CropParams` the pixel pass cuts with — the rows say what the picture holds
-    (`pad_side`), not only how large it is (specs/45).
+    """64 metadata rows for one frame, label per square from the FEN (+ occluded override); `crop`
+    makes the rows say what the picture holds (specs/45).
     """
     from .labeling import square_color
     from .state import GameState
@@ -55,7 +39,6 @@ def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
     gs = GameState(entry["fen"])
     occ = set(entry.get("occluded_squares") or ())
     amb = set(entry.get("ambiguous_squares") or ())   # dropped: no true label exists
-    # Match the classic slice naming: frame id = the render's stem.
     stem = Path(str(entry["frame"])).stem
     rows = []
     for file in _FILES:
@@ -80,15 +63,9 @@ def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
     return rows
 
 
-# --- pixel pass (multiprocessing worker) --------------------------------------------------
-
 def _crop_frames_into_memmap(task) -> int:
-    """Worker: warp each frame once and write its selected crops into the shared memmap.
-
-    ``task`` = (mm_path, (n, h, w), name, board_size, frames) with
-    ``frames`` = [(frame_path, corners, [(row_idx, square), ...]), ...].
-    Workers write DISJOINT row indices, so concurrent r+ maps are safe (same scheme as
-    ``training.pack_dataset._pack_chunk``). Returns the number of crops written.
+    """Worker: warp each frame once and write its selected crops into the shared memmap. Workers
+    write DISJOINT row indices, so concurrent r+ maps are safe. Returns the crops written.
     """
     import cv2
 
@@ -107,13 +84,11 @@ def _crop_frames_into_memmap(task) -> int:
         for frame_path, corners, sqs in frames:
             img = cv2.imread(str(frame_path))
             if img is None:
-                # Name the culprit NOW — the caller only sees written != expected at the
-                # very end of a ~30-min pass, and you want to delete one bad pair.
+                # Name the culprit now: the caller only sees the shortfall after a ~30-min pass.
                 print(f"[fuse] WARN unreadable render: {frame_path}", flush=True)
                 continue
-            # BORDERED warp (bs + 2*crop_border_px), the canvas crop_square's boxes are
-            # built for — the borderless warp shifts every crop by +border and diverges
-            # from the classic slice AND live-inference geometry (train/serve mismatch).
+            # BORDERED warp, the canvas crop_square's boxes are built for; borderless shifts every
+            # crop and breaks train/serve parity.
             warped = warp_board_for_crops(img, profile, corners)
             for row_idx, sq in sqs:
                 crop = crop_square(warped, sq, profile, (w, h))
@@ -139,10 +114,9 @@ def build_synth_dataset(
     paths: config.Paths | None = None,
     class_mode: str = "pieces",
 ) -> dict:
-    """Renders -> curated split (metadata only) -> crops packed straight into the memmap.
-
-    Session logs are written INTO the dataset dir (provenance) — they never enter the live
-    ``data/sessions`` pool, which is for real captures (the synthetic-session-leak class)."""
+    """Renders -> curated split (metadata only) -> crops packed straight into the memmap. Session
+    logs live INSIDE the dataset dir, never in the live `data/sessions` pool.
+    """
     import os
     from multiprocessing import Pool
 
@@ -156,8 +130,7 @@ def build_synth_dataset(
     paths = paths or config.DATA
     per_cell_cap = config.DEDUP.per_cell_cap if per_cell_cap is None else per_cell_cap
     from .calibration import CropParams
-    # The SAME defaults the pixel pass cuts with (`ingestion_profile` -> `CropParams.default`),
-    # so the rows describe the crops that are actually packed.
+    # The SAME defaults the pixel pass cuts with, so the rows describe the packed crops.
     crop = CropParams.default(board_size)
     out_size = tuple(crop.out_size)
 
@@ -168,7 +141,6 @@ def build_synth_dataset(
     if not items:
         raise ValueError(f"no render frames (json+jpg/png) found under {renders_root}")
 
-    # ---- metadata pass (directly from adapter items — no session round-trip) -------------
     rows: list[dict] = []
     frame_src: dict[tuple[str, str], tuple[str, list]] = {}     # (sid, stem) -> (path, corners)
     for ply, it in enumerate(items):
@@ -176,9 +148,8 @@ def build_synth_dataset(
         stem = Path(str(it.image_path)).stem
         key = (sid, stem)
         if key in frame_src:
-            # Two frames sharing (session, stem) would collide on the SAME mm:// path — one
-            # frame's labels would silently be served another frame's pixels. This is the
-            # shard-stem-collision class of bug; refuse loudly instead of corrupting.
+            # Two frames sharing (session, stem) collide on the SAME mm:// path, and one frame's
+            # labels would be served another frame's pixels.
             raise ValueError(f"duplicate frame id {key} — two renders map to the same "
                              f"session/stem (shard collision? {it.image_path} vs "
                              f"{frame_src[key][0]}).")
@@ -200,14 +171,13 @@ def build_synth_dataset(
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     rows = train_rows + holdout
     n_after_dedup = len(rows)
-    # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so a
-    # narrowed build keeps exactly the rows a `pieces` build at the same seed would keep.
+    # Collapse LAST, as in `dataset build`: a narrowed build keeps the rows a `pieces` build would
+    # keep.
     rows = collapse_labels(rows, class_mode)
-    # Erst JETZT gezaehlt: `pieces13` wirft `occluded` weg, und Manifest, Memmap und
-    # `packed_meta.json` muessen dieselbe Zahl tragen.
+    # Erst JETZT gezaehlt: `pieces13` wirft `occluded` weg, und Manifest, Memmap und Meta muessen
+    # dieselbe Zahl tragen.
     n_final = len(rows)
 
-    # Disk preflight without reading any file: the memmap size is exact arithmetic here.
     w, h = int(out_size[0]), int(out_size[1])
     need = n_final * h * w * 3
     paths.root.mkdir(parents=True, exist_ok=True)   # `Paths` legt on demand an; `disk_usage` nicht
@@ -220,8 +190,6 @@ def build_synth_dataset(
     if ds.exists():
         shutil.rmtree(ds)
     ds.mkdir(parents=True, exist_ok=True)
-    # Provenance: session logs (frame paths + corners + FENs) live INSIDE the dataset dir —
-    # deleted with it, invisible to the live sessions pool / web session list.
     session_ids = synthesize_sessions(items, tag=name, profile_name=name,
                                       paths=config.Paths(root=ds))
     (ds / "manifest.jsonl").write_text(
@@ -253,18 +221,15 @@ def build_synth_dataset(
     (ds / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                      encoding="utf-8")
 
-    # ---- pixel pass ----------------------------------------------------------------------
     img_path = ds / "packed_images.u8"
     with open(img_path, "wb") as fh:
         fh.truncate(need)
 
-    # Group row indices by frame; rows were emitted frame-by-frame, but dedup/split reordered
-    # them — regroup and chunk into contiguous-ish frame batches for the workers.
+    # Dedup/split reordered the rows: regroup by frame and chunk for the workers.
     by_frame: dict[tuple[str, str], list[tuple[int, str]]] = {}
     for i, r in enumerate(rows):
         by_frame.setdefault((r["session_id"], r["frame"]), []).append((i, r["square"]))
     frame_jobs = [(frame_src[key][0], frame_src[key][1], sqs) for key, sqs in by_frame.items()]
-    # ~64 frames per task: big enough to amortize process dispatch, small enough for progress.
     chunk = 64
     tasks = [(str(img_path), (n_final, h, w), name, int(board_size), frame_jobs[k:k + chunk])
              for k in range(0, len(frame_jobs), chunk)]
@@ -282,13 +247,13 @@ def build_synth_dataset(
                            f"(unreadable renders?) — dataset left WITHOUT packed_meta.json.")
 
     digest = _manifest_digest(rows)
-    # Empty fingerprint, not absent: `mm://` rows have no files to compare, and the absent case
-    # means "legacy pack" and would send `_rewritten_since_pack` down the file-mtime path.
+    # Empty fingerprint, not absent: absent means "legacy pack" and sends `_rewritten_since_pack`
+    # down the file-mtime path.
     write_packed_meta(ds / "packed_meta.json", rows, h, w, digest=digest, crop_fingerprint={})
     gb = need / 1e9
     print(f"[OK] fused build '{name}': {n_final} crops -> {img_path} ({gb:.1f} GB, "
           f"{workers} workers, no crop PNGs)")
-    # The number that decides whether the render was big enough for the class targets:
+    # Whether the render was big enough for the class targets:
     tcc = split.get("train_class_counts") or {}
     if tcc:
         print("[OK] train per class: " + ", ".join(f"{k}={v}" for k, v in sorted(tcc.items())))

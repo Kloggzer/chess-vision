@@ -165,8 +165,7 @@ def occluders_recut_coverage(
                   f"{res['crossed']} Zellen ueber PIECE_VISIBLE_MAX gekippt")
     print(f"[OK] {total} Zeilen neu geschnitten, {crossed} Zellen haben die Schwelle gewechselt "
           f"({len(names) - failed} von {len(names)} Aufnahmen)")
-    # Wie `close-seams`: eine uebersprungene Aufnahme traegt ihre Drift weiter, und ein Exit 0
-    # sagt das Gegenteil.
+    # Eine uebersprungene Aufnahme traegt ihre Drift weiter; ein Exit 0 sagt das Gegenteil.
     _exit_on_bulk_failures(failed)
 
 
@@ -243,30 +242,6 @@ def occluders_gate_train(
           f"MAE {cov['mae']} | {r['ms_per_board']} ms je Brett")
 
 
-@occluders_app.command("gate-scan")
-def occluders_gate_scan(
-    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
-    all_sessions: bool = typer.Option(False, "--all", help="Jede Session mit gespeicherten Brettern."),
-    tag: str = typer.Option("", "--tag", help="Welcher Lauf unter data/models/ gelesen wird."),
-) -> None:
-    """Den Hand-Gate ueber eine Session laufen lassen -> `gate.jsonl` neben `matte.jsonl`.
-
-    Getrennte Datei mit Absicht: SAMs Messung und die des Schuelers duerfen nie in derselben Zeile
-    stehen, sonst weiss spaeter niemand, wessen Zahl in den Trainingssatz gelaufen ist.
-    """
-    from .. import hand_gate
-    from ..realgames.stored import bundles_with_stored
-
-    names = bundles_with_stored() if all_sessions else [name]
-    if not names or names == [None]:
-        raise typer.BadParameter("Name oder --all angeben.")
-    for one in names:
-        r = hand_gate.gate_scan(one, tag=tag)
-        lost = f", {r['unreadable']} Bretter NICHT lesbar" if r["unreadable"] else ""
-        print(f"[OK] {one}: {r['frames']} Bretter, {r['veto']} mit Veto{lost} -> {r['path']}",
-              flush=True)
-
-
 @occluders_app.command("status")
 def occluders_status(
     name: str | None = typer.Argument(None, help="Recording name; ohne Argument alle."),
@@ -284,8 +259,7 @@ def occluders_status(
         try:
             res = matte_mod.matte_status(n)
         except Exception as exc:  # noqa: BLE001
-            # Laut und im Exit-Code: ungezaehlt ist nicht null, und die Summe darunter las eine
-            # unlesbare Aufnahme bisher als "keine Luecken" (wie `recut-coverage` es nicht tut).
+            # Laut und im Exit-Code: ungezaehlt ist nicht null.
             print(f"[FAIL] {n}: {exc}")
             failed += 1
             continue
@@ -348,8 +322,7 @@ def occluders_alpha_worker(
         resolver = (lambda n: matte_mod.flagged_frames(n, **flags)) if any(flags.values()) else None
         res = matte_mod.alpha_worker_all(wanted_names, limit=limit or None, reason=reason,
                                          frames_for=resolver)
-        # `[OK]` neben stundenlangen Ausfaellen war der dritte Fund derselben Form: der
-        # Ausstiegscode ist das einzige, was eine Automation von diesem Lauf liest.
+        # Der Ausstiegscode ist das einzige, was eine Automation von diesem Lauf liest.
         for bad in res["failed"]:
             print(f"[ERR] {bad['session']}: {bad['error']}", flush=True)
         state = "OK" if not res["failed"] else "TEIL"
@@ -370,10 +343,8 @@ def occluders_alpha_worker(
     print(f"[OK] {res['alphas']} Alphas aus {res['frames']} Frames "
           f"({res['already']} lagen schon vor) -> {res['path']}", flush=True)
     print(f"     uebersprungen — {skipped}", flush=True)
-    # Measured twice on 2026-08-19: the run finishes its frames, writes them, and then never
-    # exits — the ROCm teardown wedges. Everything is on disk (each row is appended and flushed),
-    # so leave without unwinding — but drop the weights first, like the `--all` path: a wedge
-    # BEFORE `os._exit` left the worker alive holding its VRAM (measured 2026-08-21).
+    # The ROCm teardown wedges after the run finished and flushed everything, so leave via
+    # `os._exit` — but drop the weights first, or a wedge before it keeps the VRAM.
     matte_mod.unload_models()
     sys.stdout.flush()
     os._exit(0)

@@ -1,7 +1,5 @@
-"""Which classes carry the error that survives a move.
-
-The chain can out-vote an error that resets; it cannot out-vote one that is a property of the
-piece. Persistence per true class says which of the two each class is.
+"""Which classes carry the error that survives a move: the chain can out-vote an error that resets,
+not one that is a property of the piece.
 """
 import sys
 from collections import defaultdict
@@ -16,16 +14,15 @@ conf = defaultdict(lambda: defaultdict(int))
 for session in sys.argv[1:]:
     p = ROOT / session / "model-reads.jsonl"
     if not p.is_file():
-        # 24 von 51 Aufnahmen tragen keine Lesarten; stumm uebersprungen stuenden die
-        # Prozente unten ueber einer Teilmenge, die niemand genannt hat.
+        # Stumm uebersprungen stuenden die Prozente ueber einer ungenannten Teilmenge.
         print(f"[!] {session}: keine model-reads.jsonl — nicht in der Tabelle")
         continue
     rows = defaultdict(dict)
     for r in read_jsonl(p):
         if "square" not in r or not r["probs"]:
             continue
-        # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle
-        # als sichtbar. Dieselbe Stelle wie in `emission_lag.py`.
+        # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle als
+        # sichtbar.
         cov = r.get("model_cov", r.get("cov"))
         if cov is None:
             continue

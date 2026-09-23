@@ -96,12 +96,8 @@ def test_the_worker_resumes_where_it_was_killed(tmp_path, monkeypatch):
 
 
 def test_an_alpha_over_most_of_the_board_is_kept_and_says_how_big_it_is(tmp_path, monkeypatch):
-    """Was SAM findet, wird geglaubt (Nutzer, 2026-09-16) — `MAX_ZONE_FRAC = 0.60` ist weg.
-
-    Der frueher hier gepinnte Fall war echt — auf Ply 55 deckte eine Maske 97 % des Bretts und war
-    eine Lichtaenderung. Er belegt die Grenze aber NICHT: sie fing ihn, weil er gross war, nicht
-    weil er falsch war. Eine Fehlerkennung bei 20 % rutschte immer schon durch. Wer der Matte nur
-    unter einer Flaeche traut, traut ihr nicht (Nutzer, 2026-09-16). `zone` bleibt als Zahl.
+    """Was SAM findet, wird geglaubt: `MAX_ZONE_FRAC` ist weg — sie fing grosse Masken, nicht
+    falsche. `zone` bleibt als Zahl.
     """
     pad = crop_border_px(_profile())
     sdir = _session(tmp_path, monkeypatch, _dirty_rows(pad))
@@ -260,7 +256,7 @@ def test_a_re_export_does_not_let_orphan_rows_eat_the_target(tmp_path, monkeypat
     monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.zeros(b.shape[:2], np.float32), {}))
     monkeypatch.setattr(matte, "coverage_of", lambda *a, **k: {"a8": 0.9})
     monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
-    # Two mattes for frames the next export no longer picks — the shape of 20-48-55 on 2026-08-19.
+    # Two mattes for frames the next export no longer picks.
     (sdir / "matte.jsonl").write_text(
         "".join(json.dumps({"frame": f"{i:06d}", "coverage": {}}) + "\n" for i in (900, 901)),
         encoding="utf-8")
@@ -334,11 +330,8 @@ def test_a_recut_refuses_to_overwrite_the_running_worker(tmp_path, monkeypatch):
 
 
 def test_the_status_names_orphans_and_gaps(tmp_path, monkeypatch):
-    """Ein Re-Export aendert die Frame-Auswahl, `matte.jsonl` wird nur angehaengt.
-
-    Gemessen 2026-09-14 ueber den Korpus: 2 975 Matten-Zeilen ohne Log-Zeile und 2 497 dirty-Frames
-    ohne Matte — und niemand gleicht die beiden ab. Eine Luecke ist dabei die teurere Haelfte:
-    ein Crop ohne Matte bekommt Coverage 0 und sieht aus wie ein nachweislich freies Feld.
+    """Ein Re-Export aendert die Frame-Auswahl, `matte.jsonl` wird nur angehaengt. Eine Luecke ist
+    die teurere Haelfte: ohne Matte gilt Coverage 0, ein nachweislich freies Feld.
     """
     import json
 
@@ -351,8 +344,7 @@ def test_the_status_names_orphans_and_gaps(tmp_path, monkeypatch):
     res = matte.matte_status("s1")
 
     assert res["orphans"] == ["009999"], f"eine Matte ohne Log-Zeile muss auffallen: {res}"
-    # Gemeldet wird er weiterhin — seit 2026-09-16 im ehrlichen Eimer: den `stale`-Frame holt
-    # kein Standardlauf (`--reason occluded`), nur `--reason all`.
+    # Gemeldet wird er weiterhin, im ehrlichen Eimer: den `stale`-Frame holt nur `--reason all`.
     assert res["missing_other"] == ["000002"], f"auch ein `stale`-Frame braucht seine Matte: {res}"
     assert res["missing"] == [], f"der Standardstapel ist vollstaendig: {res}"
 

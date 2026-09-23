@@ -53,9 +53,7 @@ def session_facts(sid: str) -> dict:
 def classify(row: dict | None, reason: str, cov: float, square: str) -> str | None:
     """Welche der vier Lagen - oder `None`, wenn die Zelle unverdaechtig ist."""
     cells = (row or {}).get("coverage") or {}
-    # `concepts` leer heisst GEMESSEN, nichts gefunden. 683 Zeilen mit Schmutzgrund tragen das;
-    # wirksam betroffen waren 514 Frames / 32 896 Zellen, weil die juengere Zeile je Stem gewinnt
-    # (nachgerechnet 2026-09-17). Ungemessen ist allein `coverage is None` — SAMs Absage.
+    # `concepts` leer heisst GEMESSEN, nichts gefunden. Ungemessen ist allein `coverage is None`.
     if row is None or row.get("coverage") is None:
         return "blind"
     if cov > 0.0:
@@ -66,7 +64,7 @@ def classify(row: dict | None, reason: str, cov: float, square: str) -> str | No
 
 
 def share_line(tot: Counter) -> str:
-    """`max(1, tot["train"])` machte aus "keine Zeile im Manifest" eine gemessene 0,000 %."""
+    """Keine Zeile im Manifest ist keine gemessene 0,000 %."""
     if not tot["train"]:
         return "ungeprueft und unmaskiert: nichts gemessen — keine Manifest-Zeile dieser Aufnahmen"
     return (f"ungeprueft und unmaskiert: {tot['RISIKO']} von {tot['train']} "
@@ -84,7 +82,7 @@ def main() -> int:
 
     dd = dataset_dir(args.dataset)
     split = json.loads((dd / args.split_file).read_text(encoding="utf-8"))
-    # Nur Aufnahmen mit Verzeichnis koennen eine Hand tragen: ein Komposit hat kein Brett.
+    # Ein Komposit hat kein Brett, also keine Hand.
     want = {s for s in split["splits"][args.split] if (REC / s.removeprefix("rg-")).is_dir()}
     facts = {s: session_facts(s) for s in want}
     print(f"{args.dataset}/{args.split}: {len(want)} Aufnahmen mit Verzeichnis")

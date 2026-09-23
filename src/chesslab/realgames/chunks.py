@@ -12,24 +12,19 @@ from .boards import FIT_FAILED, FIT_KEPT, FIT_SOURCE, fit_rows_to_grid, rewarp_b
 from .decode import stream_frames
 from .mesh import meshes_for_boards
 
-#: Prozesse für die beiden Frame-Phasen. Vier, nicht mehr: jeder Worker hält Frames von 11 MB und
-#: importiert cv2/numpy für sich, und die Abstürze dieser Maschine sind Speicher. 1 nimmt den
-#: seriellen Weg; dass mehr dasselbe ergeben, halten `plan_chunks` und `merge_fit_stats` eigene
-#: Tests (der hier frueher genannte `test_parallel_export_matches_serial` hat nie existiert).
+#: Prozesse fuer die beiden Frame-Phasen. Vier, nicht mehr: jeder haelt 11-MB-Frames und importiert
+#: cv2/numpy, und die Abstuerze dieser Maschine sind Speicher. 1 nimmt den seriellen Weg.
 EXPORT_WORKERS = 4
 
 
-#: Unter so vielen Zeilen je Worker zahlt sich ein Prozess nicht: er kostet Start (~3 s auf
-#: Windows) und den Vorlauf ab seiner Segmentgrenze.
+#: Darunter zahlt sich ein Prozess nicht: ~3 s Start auf Windows plus der Vorlauf ab der
+#: Segmentgrenze.
 MIN_CHUNK = 40
 
 
 def plan_chunks(rows: list[dict], workers: int) -> list[list[dict]]:
-    """Contiguous stretches of the recording, one per worker — never interleaved.
-
-    Each chunk pays its own walk from the segment holding its first frame, so cutting by index
-    keeps that at one partial segment per worker; a round-robin split would make every one of them
-    walk the whole recording.
+    """Contiguous stretches, one per worker — never interleaved: each chunk walks from its segment
+    start, and round-robin would make every worker walk the whole recording.
     """
     ordered = sorted(rows, key=lambda r: int(Path(r["frame"]).stem))
     if workers <= 1 or len(ordered) < 2 * MIN_CHUNK:
@@ -40,9 +35,8 @@ def plan_chunks(rows: list[dict], workers: int) -> list[list[dict]]:
 
 
 class ChunkProgress:
-    """A worker's only way to say how far it is; the parent owns the single progress line.
-
-    A closure cannot be handed to a process — this carries the manager's proxies, which can.
+    """A worker's only way to report progress: a closure cannot cross a process, manager proxies
+    can.
     """
 
     def __init__(self, counter, lock):
@@ -69,10 +63,8 @@ def _warp_chunk(rows: list[dict], progress, *, session_dir: Path, video: Path, p
 
 
 def run_chunked(fn, chunks: list[list[dict]], total: int, label: str, *, executor=None) -> list:
-    """Run one phase over its chunks and print ONE bar for all of them.
-
-    Returns the workers' results in chunk order. A single chunk runs in THIS process — no pool, no
-    pickling — which is both the small-session path and the reference the equivalence test uses.
+    """Run one phase over its chunks with ONE progress bar; results in chunk order. A single chunk
+    runs in THIS process, the reference path of the equivalence test.
     """
     import multiprocessing as mp
 
@@ -95,16 +87,12 @@ def run_chunked(fn, chunks: list[list[dict]], total: int, label: str, *, executo
 
 
 def merge_fit_stats(parts: list[dict]) -> dict:
-    """One phase's numbers out of the chunks', identical to what one serial pass would report.
-
-    The spread (`median`, `max`) is recomputed from the rows, not averaged from the parts: every
-    fitted row carries its own `align_worst_px`, so the merge is the same sorted list the serial
-    run built — an average of medians would not be.
+    """One phase's numbers from the chunks', identical to one serial pass: median and max are
+    recomputed from the rows, since an average of medians would not be.
     """
     rows = [row for part in parts for row in part["arrived"]]
-    # Nur GEMESSENE, wie der serielle Lauf: ein FIT_FAILED-Row behaelt das `align_worst_px`, das
-    # `carry_repaired_geometry` vom letzten Export uebernahm, und `--workers 4` meldete damit eine
-    # andere Streuung als `--workers 1` auf derselben Aufnahme.
+    # Nur GEMESSENE: ein FIT_FAILED-Row traegt das `align_worst_px` des letzten Exports, und
+    # `--workers 4` meldete sonst eine andere Streuung als `--workers 1`.
     worsts = sorted(row["align_worst_px"] for row in rows
                     if "align_worst_px" in row and row.get("corners_source") != FIT_FAILED)
     merged = {key: sum(part[key] for part in parts)
@@ -124,10 +112,8 @@ def fit_rows_parallel(rows: list[dict], profile_name: str, *, video: Path, rotat
 
 def rewarp_parallel(session_dir: Path, rows: list[dict], profile_name: str, *, video: Path,
                     rotate, lens, workers: int, executor=None) -> tuple[dict, list[dict]]:
-    """`rewarp_boards` in stretches, all of them straightened with the SESSION's one mesh.
-
-    The mesh is pooled here and handed down: a chunk pooling its own would straighten its boards
-    against a different measurement than its neighbour's, and the seam would be invisible.
+    """`rewarp_boards` in stretches, all with the SESSION's one mesh pooled here; per-chunk meshes
+    would leave an invisible seam.
     """
     chunks = plan_chunks(rows, workers)
     fn = partial(_warp_chunk, session_dir=session_dir, video=video, profile_name=profile_name,

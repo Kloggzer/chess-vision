@@ -1,41 +1,14 @@
 """Mine hard-negative `empty` crops: real empty squares the deployed model reads as pieces.
 
-Hard-example mining, offline: the published online form selects hard examples per mini-batch
-inside the training loop (docs/references.md#shrivastava-2016), while this writes a keep-list
-once, from a finished model. The difference matters — a list mined from one model is a hidden
-input to the next, which is why `data/reports/hard_empty.jsonl` is parked between experiments.
-
-Motivation (2026-07-21, live incident): the deployed CNN read the empty dark square h6 as
-bB and a black queen on b6 as wQ with high confidence — the known dark-square domain gap.
-The `empty` class is capped at dataset-build time (`subsample_classes`), and the random cap
-throws away exactly the rare HARD empties (dark corner squares, neighbour pieces bleeding
-into the crop over the pad, shadows). This script finds those hard cases so the build can
-keep them (see `priority_paths` in `dataset.subsample_classes`).
-
-Two selection criteria, because "misread" means different things to a 2-class and an identity run:
-
-- `--criterion argmax` (default, legacy): the argmax names a piece, with confidence >= --conf-thr.
-- `--criterion occupancy`: the crop READS AS OCCUPIED by the tracker's own definition —
-  `p_occ = 1 - P(empty) - P(occluded)` beats `P(empty)` (`cnn_recovery.observation_from_probs`
-  plus `OccupancyObservation.occupied`). This is the phantom condition itself, and on a 13-class
-  run it is the only criterion that finds the whole failure: an undecided identity softmax spreads
-  its mass over 12 piece classes, so a crop can read as occupied while `empty` is still the argmax
-  at a confidence far below any `--conf-thr`. `argmax` mode cannot see those at all.
-
-`--infer-size` matters as much as the criterion: a model is mined at the size it is SERVED at
-(`infer_size`, seeded into `serving._CACHE` the way `sweep_infer_size.install_at_size` does it),
-not at the 128 px the crops happen to sit on disk at.
+Offline mining from one finished model: its keep-list is a hidden input to the next run, so
+`data/reports/hard_empty.jsonl` is parked between experiments. `--criterion occupancy` is the
+phantom condition itself; `argmax` misses undecided softmaxes. Mine at the SERVED `--infer-size`.
 
 Usage:
     python scripts/mine_hard_empty.py --run data/models/p3-finetune [--device cpu]
         [--source data/crops/default/manifest.jsonl] [--conf-thr 0.5] [--batch 256]
         [--criterion argmax|occupancy] [--infer-size 80] [--exclude-sessions A,B]
-        [--out data/reports/hard_empty.jsonl] [--montage data/reports/perf/hard_empty.png]
-
-Output: JSONL of misread empty crops (path, pred, conf, session, square, square_color),
-merged de-duplicated by path into --out, plus a montage of the worst offenders (visual
-probe: what does the model think it is seeing?).
-"""
+        [--out data/reports/hard_empty.jsonl] [--montage data/reports/perf/hard_empty.png]"""
 
 from __future__ import annotations
 
@@ -56,24 +29,15 @@ from chesslab.dataset import load_manifest  # noqa: E402
 from chesslab.ioutil import read_jsonl, write_rows  # noqa: E402
 from chesslab.serving import observation_from_probs  # noqa: E402
 
-# Real capture sessions are timestamped `YYYYMMDD-HHMMSS`. Everything else in the crop
-# manifest (e.g. `pretrain-synth__synth-004`) is a classic-ingested SYNTHETIC pool whose
-# PNGs also live on disk — mining those drowns the deployment-relevant real failures:
-# on 2026-07-21, 697 of 786 mined "hard empties" turned out to be crops of the obsolete
-# unframed ~51 px/square renders, and the headline stats described the wrong problem.
-# Seit der Umbenennung tragen echte Aufnahmen ein `rg-`-Praefix (`rg-2026-08-15-23-01-43`,
-# `rg-VID_20260727_233929`). Das alte Muster `^\d{8}-\d{6}$` traf davon nichts mehr und
-# hat SAEMTLICHE echten Sessions als Synth-Pool verworfen — der Miner lief ins Leere,
-# ohne zu scheitern (2026-08-24: 235 304 uebersprungen, 0 gescannt).
+# Real captures carry `rg-` (or the old `YYYYMMDD-HHMMSS`); everything else is a synthetic pool that
+# drowns the real failures. The pattern once matched nothing and silently skipped every real
+# session.
 _CAMERA_SESSION_RE = re.compile(r"^(rg-.+|\d{8}-\d{6})$")
 
 
 def training_rows_and_reader(name, split_name, which="train"):
-    """Genau die Zeilen und Pixel, die das Training frisst: Trainings-Split + eigene Memmap.
-
-    Der Crop-Pool ist das falsche Ziel — er kennt keinen Split, also lagen rund 30 % der
-    gefundenen Crops in val/test und konnten nie eine Batch erreichen. Und der Pool steht auf
-    128 px, das Modell auf 80: gemessen wurde damit eine andere Skalierung als die trainierte.
+    """Genau die Zeilen und Pixel, die das Training frisst: Trainings-Split und eigene Memmap. Der
+    splitlose 128-px-Pool mass val/test und eine andere Skalierung.
     """
     import numpy as np
 
@@ -94,14 +58,8 @@ def training_rows_and_reader(name, split_name, which="train"):
 
 
 def packed_reader(src, out_size):
-    """Die Crops aus der passenden Memmap statt aus 235 000 Einzeldateien.
-
-    Gemessen 2026-08-24: 9,72 ms je Crop ueber `cv2.imread`, 0,089 ms ueber die Memmap — fuer den
-    vollen Pool 38 Minuten gegen 21 Sekunden. Derselbe Engpass, den `training/pack.py` beschreibt.
-
-    Welche Memmap, sagt der Datensatz selbst (`source_manifest`). Die Groesse MUSS zum Pool passen:
-    vier Packs stammen aus demselben Manifest, drei davon bei 80 px — einen davon zu nehmen wuerde
-    die Crops still herunterskalieren und etwas anderes messen als die Dateien.
+    """Die Crops aus der passenden Memmap: 0,089 statt 9,72 ms je Crop. Die Groesse MUSS zum Pool
+    passen, sonst wird still herunterskaliert.
     """
     import numpy as np
     import yaml
@@ -137,11 +95,8 @@ def packed_reader(src, out_size):
 
 
 def drop_packed_rows(rows: list[dict], have_reader: bool) -> tuple[list[dict], int]:
-    """Drop `mm://` rows only when nothing can read them, and say how many went.
-
-    `--dataset` hands over a memmap index keyed by exactly those paths, and since 2026-09-11 the
-    session-pack datasets carry NOTHING else (841 270 of 841 270 rows in real13-mix-v6-128), so an
-    unconditional drop scanned zero crops and still printed a percent table and exit 0.
+    """Drop `mm://` rows only when nothing can read them, and say how many went: session-pack
+    datasets carry nothing else.
     """
     if have_reader:
         return rows, 0
@@ -240,8 +195,8 @@ def main() -> None:
     if args.limit:
         rows = rows[: args.limit]
 
-    # Serve at the deployment size, not at whatever the crops sit on disk at. Seeding the module
-    # cache is the only seam `predict_arrays` offers (same trick as sweep_infer_size.install_at_size).
+    # Serve at the deployment size; seeding the module cache is the only seam `predict_arrays`
+    # offers.
     classes: list[str] = []
     if args.infer_size:
         from chesslab.training.evaluate import load_run as _load_run
@@ -282,17 +237,14 @@ def main() -> None:
                    "square_color": r.get("square_color"), "run": run_dir.name}
             if want_probs:
                 obs = observation_from_probs({"x": p["probs"]}, classes)
-                # `--occ-thr` widens this past the crops that ALREADY fail. Mining only those is
-                # mining the symptom: on `occ-v10bn35-13c` they are 27 of 73 602 crops, a keep-list
-                # too small to reach a batch. The crops one nudge below the line are the same
-                # failure caught earlier — 99.1 % of empties sit under 0.02, so the band from 0.10
-                # up is not "nearly wrong", it is the whole tail, 150 crops of it.
+                # `--occ-thr` widens past the crops that ALREADY fail (27 of 73 602, too few to
+                # reach a batch): the band from 0.10 up is the whole tail, not "nearly wrong".
                 if obs.p_occ["x"] < args.occ_thr and not obs.occupied("x"):
                     continue
                 rec["p_occ"] = round(obs.p_occ["x"], 4)
                 rec["p_empty"] = round(obs.p_empty["x"], 4)
-                # The scientific split: does the summed piece mass alone cross the line, or does
-                # a piece class actually win the argmax? Only the second is a classic hard example.
+                # Does the summed piece mass alone cross the line, or does a piece win the argmax (a
+                # classic hard example)?
                 rec["kind"] = "piece_argmax" if p["pred_label"] != "empty" else "summed_mass"
                 hard.append(rec)
             elif p["pred_label"] != r["label"] and float(p["confidence"]) >= args.conf_thr:
@@ -307,9 +259,8 @@ def main() -> None:
           f"({100.0 * len(hard) / max(1, n_seen):.1f}%)"
           + (f"; {n_unread} of {len(rows)} rows were UNREADABLE and never scanned"
              if n_unread else ""))
-    # Wie viele EIGENE Situationen stecken dahinter? `wK` hatte 378 Fehler aus VIER
-    # (Session,Feld)-Situationen — sie zu vervielfachen ueberpasst auf vier Stellungen,
-    # statt die Klasse zu lehren. Bei `empty` sind es Tausende, dort traegt es.
+    # Wie viele EIGENE Situationen dahinter stecken: `wK` hatte 378 Fehler aus VIER — vervielfacht
+    # ueberpasst das auf vier Stellungen.
     by_class: dict[str, set] = {}
     for h in hard:
         by_class.setdefault(h["label"], set()).add((h.get("session_id"), h.get("square")))
@@ -337,7 +288,7 @@ def main() -> None:
     conf85 = sum(1 for h in hard if h["conf"] >= 0.85)
     print(f"confidently wrong (>= 0.85, the tracker's conf_thr): {conf85}")
 
-    # Merge, de-duplicated by path (re-running with a newer model updates pred/conf).
+    # Merged by path; a re-run with a newer model updates pred/conf.
     merged: dict[str, dict] = {}
     if not args.fresh:
         for r in read_jsonl(out):
@@ -345,8 +296,7 @@ def main() -> None:
     for h in hard:
         merged[h["path"]] = h
     if not args.include_synthetic:
-        # Migrate legacy non-camera rows out of the keep list (kept, not deleted): they are
-        # crops of obsolete synth PNG pools and would silently distort every future stat.
+        # Legacy non-camera rows leave the keep list (kept, not deleted): obsolete synth pools.
         legacy = {p: r for p, r in merged.items() if not is_camera_session(r.get("session_id"))}
         if legacy:
             side = out.with_suffix(".synthetic.jsonl")
@@ -361,7 +311,6 @@ def main() -> None:
     write_rows(out, merged.values())
     print(f"wrote {len(merged)} rows -> {out}")
 
-    # Visual probe: worst offenders annotated with what the model thinks it sees.
     top = hard[:48]
     if top:
         tiles = []

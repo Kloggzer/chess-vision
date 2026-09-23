@@ -1,7 +1,5 @@
-"""The label ledger checked against the rules of chess — the audit that proves instead of guessing.
-
-`audit_flags` asks a model and skips every cell a human ruled on, so a wrong correction is invisible
-to it. Humans miss things: 2026-08-16, 59 rows vouched for `d8=bQ` where the piece was a king.
+"""The label ledger checked against the rules of chess: `audit_flags` skips every cell a human ruled
+on, so a wrong correction is invisible to it.
 """
 
 from __future__ import annotations
@@ -66,8 +64,7 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
         load_corrections(ledger, corrections)
     squares = all_squares()
     rows: list[dict] = []
-    # Ueber BEIDE Wurzeln: `sessions/` ist seit dem Zusammenlegen 2026-08-20 leer, und die
-    # Ledger sind auf `rg-<name>` gekeyt, nicht auf den Ordnernamen — der Audit fand nie etwas.
+    # Ueber BEIDE Wurzeln, und die Ledger sind auf `rg-<name>` gekeyt, nicht auf den Ordnernamen.
     from .session_store.paths import all_sessions
 
     for sid, session_dir in all_sessions(paths):

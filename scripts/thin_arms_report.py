@@ -1,8 +1,5 @@
-"""Die Arme des Ausduenn-Versuchs gegeneinander, gepaart je Seed.
-
-Vergleiche laufen ueber das MITTEL der letzten 20 Epochen, nicht ueber `best`: das ist das
-Maximum ueber 60 verrauschte Ziehungen und liegt konstruktionsbedingt 2,3-2,9 sd ueber dem
-Niveau des Laufs (`docs/training-speed.md`).
+"""Die Arme des Ausduenn-Versuchs gegeneinander, gepaart je Seed, ueber das MITTEL der letzten 20
+Epochen: `best` liegt konstruktionsbedingt 2,3-2,9 sd ueber dem Niveau.
 
     uv run python scripts/thin_arms_report.py
 """
@@ -30,10 +27,8 @@ EPOCHS = 60
 
 def tail_mean(run: Path, metric: str = METRIC, tail: int = TAIL,
               epochs: int = EPOCHS) -> float | None:
-    """Mittel der letzten `tail` WERTE — oder None, wenn der Lauf nicht rangfaehig ist.
-
-    Rangfaehig heisst: EINDEUTIGE, LUECKENLOSE Epochen 0..epochs-1 (ein fortgesetzter Lauf schreibt
-    seine ersten Epochen doppelt) und mindestens `tail` Werte. `compare_arms` importiert diese.
+    """Mittel der letzten `tail` Werte, oder None, wenn der Lauf nicht rangfaehig ist (EINDEUTIGE,
+    LUECKENLOSE Epochen). `compare_arms` importiert diese.
     """
     if not (run / "metrics.jsonl").is_file():
         return None

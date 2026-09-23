@@ -1,4 +1,4 @@
-"""Mutationsprobe 2026-09-22c: Gegenproben fuer ungedeckte Waechter auf Export- und Label-Weg."""
+"""Mutationsprobe: Gegenproben fuer ungedeckte Waechter auf Export- und Label-Weg."""
 
 from __future__ import annotations
 

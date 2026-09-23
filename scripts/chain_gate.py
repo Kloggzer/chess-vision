@@ -1,14 +1,8 @@
-"""Die Kette als Guetemass hinter einem Trainingslauf — gefunden / verpasst / erfunden.
+"""Die Kette als Guetemass hinter einem Trainingslauf — gefunden / verpasst / erfunden: Genauigkeit
+sagt nicht, ob ein Fehler die Kette mitreisst.
 
-Die einzige Messung, die zwischen gleich genauen Modellen wirklich getrennt hat: `packsource`
-war pro Feld besser und dekodierte 62/20/17, wo `comp13` 82/0/0 schaffte. Genauigkeit sagt
-nicht, ob ein Fehler die Kette mitreisst — Kalibrierung tut es.
-
-Die Einstellung ist ABSICHTLICH fest. Die absolute Zahl haengt an `every` und `beam`
-(every=4/beam=8 gibt bei T=1 noch 58/8/5, beam=16 dagegen 66/0/0); verglichen werden Epochen
-und Laeufe untereinander, nie gegen eine Wahrheit. Wer sie mittendrin dreht, vergleicht nichts.
-T=1 statt 5, weil die Metrik bei 5 saettigt und dann nicht mehr trennt.
-"""
+Die Einstellung ist ABSICHTLICH fest; verglichen werden Laeufe untereinander, nie gegen eine
+Wahrheit. T=1, weil die Metrik bei 5 saettigt."""
 
 from __future__ import annotations
 
@@ -33,9 +27,8 @@ def run(session: str, model_dir: Path, device: str = "cuda", skip_read: bool = F
     """`model-read` (falls noetig) und dekodieren. Wirft, wenn das Modell auf der Session trainierte."""
     reads = Path("data/recordings") / session / "model-reads.jsonl"
     if skip_read and reads.exists():
-        # Die Datei traegt ihr Modell im Kopf, und auf der Platte liegen sechs verschiedene.
-        # Ungeprueft gelesen meldete das Gate einen fremden Lauf unter dem eigenen Namen --
-        # ein warmer Cache, der wie ein Ergebnis aussieht. Ohne Kopf gilt sie weiter.
+        # Die Datei traegt ihr Modell im Kopf; ungeprueft meldete das Gate einen fremden Lauf unter
+        # dem eigenen Namen. Ohne Kopf gilt sie weiter.
         with reads.open(encoding="utf-8-sig") as fh:
             head = json.loads(fh.readline() or "{}")
         had = Path(str(head.get("_model") or "")).name
@@ -84,8 +77,7 @@ def main() -> int:
         out.append(r)
         print(f"  {s}: gefunden {r['found']} / verpasst {r['missed']} / erfunden {r['invented']} "
               f"(von {r['plies']} Plies)")
-    # Uebersprungene Sessions fehlen in der GESAMT-Zeile; ohne sie daneben nennt sie eine
-    # Grundgesamtheit, die der Aufruf nie hatte — und ganz ohne Ergebnis schwieg das Skript.
+    # Uebersprungene Sessions fehlen in der GESAMT-Zeile und gehoeren daneben genannt.
     tail = f" ({len(skipped)} uebersprungen: {', '.join(skipped)})" if skipped else ""
     if out:
         tot = {k: sum(r[k] for r in out) for k in ("found", "missed", "invented", "plies")}

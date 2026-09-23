@@ -1,12 +1,5 @@
-"""Einen Datensatz auf N Bretter je Stellung ausduennen — dieselben Pixel, nur weniger.
-
-Beantwortet „brauchen wir acht Bilder je Stellung oder reichen zwei" OHNE einen Neu-Export: die
-Variante waehlt aus dem vorhandenen Manifest aus, packt per `--from` aus derselben Memmap und ist
-damit bis aufs Bit dieselben Crops. Ein Neu-Export haette andere Bilder gewaehlt und beide
-Aenderungen vermischt.
-
-Sauber und verdeckt getrennt, weil `dirty_per_position` eigenes Material fuer den Occlusion-Kopf
-ist: je Stellung die N saubersten UND die N verdecktesten Bretter.
+"""Einen Datensatz auf N Bretter je Stellung ausduennen: dieselben Pixel aus derselben Memmap, ohne
+Neu-Export. Sauber und verdeckt getrennt (je Stellung die N saubersten UND N verdecktesten).
 
     uv run python scripts/thin_per_position.py <quelle> <ziel> --clean 2 --dirty 2
 """
@@ -39,7 +32,7 @@ def main():
     cover = collections.defaultdict(list)
     for r in rows:
         cover[(r["session_id"], r.get("ply"), r["frame"])].append(r.get("coverage"))
-    # Ungemessen ist nicht sauber: mit `or 0.0` stand ein ungemattetes Brett im sauberen Kopf.
+    # Ungemessen ist nicht sauber.
     unmeasured = [k for k, v in cover.items() if any(c is None for c in v)]
     if unmeasured:
         print(f"[FAIL] {len(unmeasured)} von {len(cover)} Brettern ohne gemessene `coverage` "
@@ -52,14 +45,14 @@ def main():
         per_pos[(sess, ply)].append(frame)
 
     keep = set()
-    # SAUBER heisst hier: im Rang der Stellung vorn. Ein absoluter Coverage-Schnitt taugt
-    # nicht — eine Hand ueber 12 von 64 Zellen ergibt im Mittel auch nur ~0,15.
+    # SAUBER heisst: im Rang der Stellung vorn. Ein absoluter Schnitt taugt nicht — eine Hand ueber
+    # 12 Zellen ergibt im Mittel auch nur ~0,15.
     clean_keys = set()
     for (sess, ply), frames in per_pos.items():
         ordered = sorted(frames, key=lambda f: (mean[(sess, ply, f)], f))
         c, dy = args.clean, args.dirty
-        # `head` ist IMMER nur der saubere Kopf: im Rueckfall stand hier `ordered`, also wurde
-        # das verdeckteste Brett der Stellung als sauber vervielfacht.
+        # `head` ist IMMER nur der saubere Kopf, sonst wurde das verdeckteste Brett als sauber
+        # vervielfacht.
         head, tail = ordered[:c], ordered[max(c, len(ordered) - dy):]
         chosen = head + tail
         clean_keys.update((sess, ply, f) for f in head)
@@ -70,8 +63,8 @@ def main():
         k = (r["session_id"], r.get("ply"), r["frame"])
         if k not in keep:
             continue
-        # Wiederholte Zeilen zeigen auf dieselben Memmap-Eintraege: identische Pixel, nur oefter
-        # gezogen. So variiert die HAEUFIGKEIT sauberer Zellen ohne ihre Vielfalt zu aendern.
+        # Wiederholte Zeilen zeigen auf dieselben Memmap-Eintraege: die HAEUFIGKEIT variiert, nicht
+        # die Vielfalt.
         kept.extend([r] * (args.clean_repeat if k in clean_keys else 1))
     dst.mkdir(parents=True, exist_ok=True)
     write_rows(dst / "manifest.jsonl", kept)

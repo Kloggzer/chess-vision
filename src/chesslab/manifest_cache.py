@@ -1,13 +1,4 @@
-"""mtime-based cache of per-session crop counts over crop manifests (JSONL).
-
-`session_lifecycle.py` asks "how many crops does session X have?" once per listed session, and reading a
-300k-line manifest per question is what made that list slow. Each manifest is scanned ONCE per
-file version ((mtime_ns, size) key); manifests are append-mostly, so any write invalidates the
-entry by itself. Deliberately a cache over the JSONL source of truth — nothing to keep in sync.
-
-Until 2026-08-21 the scan also built `stats_rows`, `by_label` and `frames_by_session` — two dicts
-per crop row, for a web UI that no longer exists. Nobody read them.
-"""
+"""Per-session crop counts over JSONL crop manifests, cached per (mtime_ns, size) file version."""
 
 from __future__ import annotations
 
@@ -41,8 +32,7 @@ def manifest_stats(path: Path) -> dict:
         hit = (key, _scan(path))
         with _LOCK:
             _CACHE[path] = hit
-    # A copy: handing out the cached dict let one caller's mutation become every later answer,
-    # and the read-only convention that prevented it was nowhere written down.
+    # A copy: handing out the cached dict let one caller's mutation become every later answer.
     return {"crops_by_session": dict(hit[1]["crops_by_session"])}
 
 

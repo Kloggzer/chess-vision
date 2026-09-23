@@ -1,7 +1,5 @@
-"""Find work a conventional profiler cannot call semantically redundant.
-
-The observational audit never caches or changes results: callers attach small stable keys to
-expensive work, and a ContextVar-backed report counts repeats, bytes, ranges and call paths.
+"""Find work a conventional profiler cannot call semantically redundant: callers attach small stable
+keys, and a ContextVar-backed report counts repeats. Never caches or changes results.
 """
 
 from __future__ import annotations
@@ -88,8 +86,8 @@ class WorkAudit:
             try:
                 ref = weakref.ref(value, forget)
             except TypeError:
-                # Instrumented image objects (NumPy arrays) support weakrefs. This fallback keeps
-                # other native wrappers usable, though their identity can only be process-local.
+                # NumPy arrays support weakrefs; other native wrappers only get a process-local
+                # identity.
                 return type(value).__name__, ident
             self._objects[ident] = (ref, revision)
             return type(value).__name__, revision
@@ -267,10 +265,8 @@ def record_interval(name: str, resource: Any, start: int, end: int) -> None:
 
 def run_fuzzy(seed: int = 847291, frames: int = 500,
               board_revisions: int = 2) -> WorkAudit:
-    """Exercise the auditor with a deterministic frame-pipeline workload.
-
-    This is a profiler self-test and budget fixture, not a simulation of tracker correctness.
-    The semantic revisions make intentionally redundant operations machine-detectable.
+    """Exercise the auditor with a deterministic frame-pipeline workload — a profiler self-test, not
+    a simulation of tracker correctness.
     """
     if frames < 1 or board_revisions < 1 or board_revisions > frames:
         raise ValueError("frames must be positive and board_revisions must be in 1..frames")
@@ -302,7 +298,6 @@ def run_fuzzy(seed: int = 847291, frames: int = 500,
                 audit.record_work("Legal move generations", legal_key)
                 if rng.random() < 0.055:
                     audit.record_work("Legal move generations", legal_key)
-        # A representative sequence of overlapping settle windows.
         for commit in range(180, frames, 60):
             audit.record_interval("video frames", "fuzzy-video", commit - 180, commit + 40)
     finally:

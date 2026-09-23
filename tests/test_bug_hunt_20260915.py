@@ -1,4 +1,4 @@
-"""Bug hunt 2026-09-15 — four defects in the dataset-build path, each pinned by its own case."""
+"""Bug hunt — four defects in the dataset-build path, each pinned by its own case."""
 
 from __future__ import annotations
 
@@ -89,18 +89,6 @@ def _profile_yaml(paths: config.Paths, name: str = "t", board_size: int = 64) ->
     prof = make_profile(board_size, corners=corners, profile=name, camera_index=-1)
     paths.calibration.mkdir(parents=True, exist_ok=True)
     prof.save(paths.calibration / f"{name}.yaml")
-
-
-def test_reviewed_can_be_set_on_a_recording(tmp_path):
-    """`rg-<ts>` lives under recordings/, so the hand-built sessions/ path never found one."""
-    from chesslab import session_lifecycle
-
-    paths = config.Paths(root=tmp_path)
-    d = paths.recordings / "2026-01-01"
-    d.mkdir(parents=True)
-    (d / "session.yaml").write_text("session_id: rg-2026-01-01\nprofile: t\n", encoding="utf-8")
-    (d / "log.jsonl").write_text("", encoding="utf-8")
-    assert session_lifecycle.set_session_reviewed("rg-2026-01-01", True, paths)["reviewed"] is True
 
 
 def test_write_boards_keeps_the_store_of_rows_it_never_rewrites(tmp_path, monkeypatch):

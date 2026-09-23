@@ -24,11 +24,8 @@ DEFAULT_ROOTS = ("data/models/_arch/real13-mix-v4", "data/models/_arch/real13-mi
 
 
 def _series(run: Path, metric: str, epochs: int = 0) -> list[float] | None:
-    """Die Metrikreihe — oder None, wenn der Lauf nicht 0..epochs-1 durchgelaufen ist.
-
-    `len(s) >= epochs` zaehlte Zeilen: ein fortgesetzter Lauf schreibt seine ersten Epochen ein
-    zweites Mal, kam als voll durch und mittelte danach ueber den falschen Schwanz. Dritte Stelle
-    derselben Regel, neben `compare_arms` und `fold_per_session`.
+    """Die Metrikreihe, oder None, wenn der Lauf nicht 0..epochs-1 lueckenlos durchlief: ein
+    fortgesetzter Lauf schreibt seine ersten Epochen doppelt.
     """
     p = run / "metrics.jsonl"
     if not p.exists():

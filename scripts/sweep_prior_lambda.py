@@ -1,48 +1,15 @@
 """Sweep the legal-placement prior's weight against a dataset manifest.
 
-The prior says, per square, which labels chess allows there after one half-move from the last
-committed position (`state.possible_labels`). `serving.apply_prior` folds it onto the softmax as
-`p * exp(-lambda)` on the disallowed classes — identical to `logit + lambda * log_prior` under the
-original softmax, because the head emits log-probabilities.
-
-**The model runs ONCE.** The probabilities do not depend on lambda, so every value is swept
-arithmetically over the same cached softmax. That is the point of putting the prior after the CNN
-instead of inside it: no retraining, no export, and a sweep that costs one forward pass.
-`--probs-cache` writes those probabilities out so a second sweep needs no model at all.
-
-The prior's base is the FEN of the PREVIOUS ply in the same session — never the frame's own, which
-would be the answer. A frame at ply k is judged by what was known after ply k-1, which is what the
-tracker has when it looks. Rows at a session's first ply have no base and are reported separately.
-
-Reported per lambda, over the crops that survive `--max-coverage` (an occluded cell's label is not
-a statement about what the pixels show):
-
-- `cell` / `board` accuracy — board = all of a frame's judged squares correct.
-- `phantom` — a truly empty square read as a piece. The veto metric: phantoms disqualify, misses
-  are recoverable.
-- `miss` — a truly occupied square read as empty.
-- `illegal` — the argmax landing on a class the prior excludes. At lambda 0 this is the damage the
-  prior exists to undo; it must fall monotonically as lambda rises.
-- `dropped` — squares under `--conf-thr`, which `DeepSearch.channelFor` discards before the beam
-  search ever sees them.
-- `rescued` / `broken` — squares that cross that threshold INTO a correct reading, or out of one.
-  This is the claim the prior is built on and the number that decides whether it holds.
-
-`broken` is necessarily 0 while the prior's base is right: the truth is then always among the
-allowed labels, is never penalised, and can only gain from the renormalisation. It measures
-something only in the RISK case — `--base-offset 2 --keep-unreachable` builds the prior on a
-position the tracker has already fallen behind, so the correct answer is forbidden. That run is
-what a lambda has to survive, and it is where a finite lambda earns its keep over a hard mask.
-
-Evaluation only: no training, no export, no rendering. One process.
+The model runs ONCE; every lambda is arithmetic over the cached softmax (`--probs-cache`). The
+prior's base is the PREVIOUS ply's FEN, never the frame's own. `broken` only measures in the risk
+case, `--base-offset 2 --keep-unreachable`, where the right answer is forbidden.
 
 Usage:
     .venv/Scripts/python.exe scripts/sweep_prior_lambda.py
         [--run comp13-occ-bn-lr1e2-bs512] [--dataset real13-straight-80-v1] [--split test]
         [--lambdas 0,0.5,1,2,4,8] [--max-coverage 0.15] [--conf-thr 0.85] [--limit 0]
         [--device cuda|cpu] [--batch-size 256] [--probs-cache data/_perf/prior-probs.npz]
-        [--out data/reports/sweep-prior-lambda.json]
-"""
+        [--out data/reports/sweep-prior-lambda.json]"""
 
 from __future__ import annotations
 
@@ -72,12 +39,8 @@ RUN = "comp13-occ-bn-lr1e2-bs512"
 
 def prior_by_ply(rows: list[dict], offset: int = 1, keep_unreachable: bool = False,
                  ) -> tuple[dict[tuple[str, int], dict[str, set[str]]], dict]:
-    """{(session, ply): allowed-labels} from the FEN `offset` plies back, plus a consistency report.
-
-    The truth at ply k must be reachable from its base, or the prior rests on an assumption the
-    data does not support. Those plies are counted and EXCLUDED — unless `keep_unreachable`, which
-    is how `--base-offset 2` stages the risk case: a prior built on a position the tracker has
-    already fallen behind, where the right answer IS forbidden and only a finite lambda saves it.
+    """{(session, ply): allowed-labels} from the FEN `offset` plies back; plies whose truth is
+    unreachable are counted and EXCLUDED, unless `keep_unreachable` stages the risk case.
     """
     import chess
 
@@ -125,17 +88,14 @@ def _stamp(f: Path) -> str:
 
 
 def cache_key(run_dir: Path, rows: list[dict], pack: Path, device: str) -> str:
-    """Alles, was die Softmax entscheidet: Graph, `config.json`, Geraet UND die Zeilen selbst.
-
-    Der Replay-Cache schluesselt auf Graph und Config; hier kommen die DATEN dazu, weil sonst zwei
-    Splits mit GLEICHER Zeilenzahl sich den Cache teilen. Die Pixel werden nicht gehasht — ihr Pack
-    steht mit Mtime und Groesse dafuer; Lambda und `--conf-thr` bleiben draussen, sie wirken wie
-    der Engine-Knopf erst HINTER der Softmax.
+    """Alles, was die Softmax entscheidet: Graph, `config.json`, Geraet UND die Zeilen — sonst
+    teilen zwei Splits gleicher Laenge den Cache. Lambda und `--conf-thr` wirken erst hinter der
+    Softmax.
     """
     parts = [Path(run_dir).name, f"device={device}"]
     cfg = Path(run_dir) / "config.json"
     if cfg.exists():
-        # Klein genug zum Lesen, und eine Temperatur-Aenderung laesst Groesse und Mtime-ms gleich.
+        # Eine Temperatur-Aenderung laesst Groesse und Mtime-ms gleich.
         parts.append("config.json=" + hashlib.sha256(cfg.read_bytes()).hexdigest()[:16])
     for name in ("model.onnx", "best.pt", "last.pt"):
         f = Path(run_dir) / name
@@ -150,17 +110,15 @@ def cache_key(run_dir: Path, rows: list[dict], pack: Path, device: str) -> str:
             f = bases[name] / fn
             if f.exists():
                 parts.append(f"{name or '.'}/{fn}={_stamp(f)}")
-    # Die Reihenfolge ist Teil der Antwort: die Ausgabe steht in Manifest-Ordnung.
+    # Die Ausgabe steht in Manifest-Ordnung.
     order = hashlib.sha256("\n".join(str(r["path"]) for r in rows).encode()).hexdigest()
     parts.append(f"rows={len(rows)}:{order[:16]}")
     return "|".join(parts)
 
 
 def cached_probs(cache: Path | None, key: str, n_rows: int) -> np.ndarray | None:
-    """The stored softmax, or None when it belongs to another model or another row set.
-
-    Validated on the row count alone, a second sweep reusing the same `--probs-cache` path
-    reported the FIRST model's probabilities under the second model's name.
+    """The stored softmax, or None when it belongs to another model or row set: validated on the row
+    count alone, it served the FIRST model's probabilities under the second's name.
     """
     if cache is None or not cache.exists():
         return None
@@ -186,8 +144,8 @@ def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
 
     from chesslab.serving import predict_arrays
 
-    # Ein Datensatz aus Session-Packs hat keine eigene Memmap; seine Zeilen zeigen mit `mm://` in
-    # je einen Pack. Vorher starb der Sweep am fehlenden `packed_meta.json` des Datensatz-Ordners.
+    # Ein Datensatz aus Session-Packs hat keine eigene Memmap; seine `mm://`-Zeilen zeigen je in
+    # einen Pack.
     shards: dict[str, tuple[np.memmap, dict[str, int]]] = {}
 
     def shard(path: str) -> tuple[np.memmap, int]:
@@ -203,17 +161,14 @@ def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
             raise SystemExit(f"manifest row is not in its pack: {path}")
         return mm, at
 
-    # BGR on disk (`dataset_build` packs `cv2.imread` output) and BGR is what `predict_arrays`
-    # documents as its input, so the memmap goes in untouched.
+    # BGR on disk and BGR is `predict_arrays`' input, so the memmap goes in untouched.
     order = [shard(str(r["path"])) for r in rows]
 
     out: list[list[float]] = []
     for start in range(0, len(order), batch_size):
         batch_order = order[start:start + batch_size]
         crops = [np.asarray(mm[i]) for mm, i in batch_order]
-        # Older ONNX exports have a static 64-row input. Padding the final partial batch is
-        # numerically inert and lets the same sweep cover every manifest row instead of dying on
-        # the last 1..63 crops after doing all expensive inference work.
+        # Older ONNX exports take exactly 64 rows: padding the last batch is numerically inert.
         actual = len(crops)
         if crops and actual < batch_size:
             crops.extend([crops[-1]] * (batch_size - actual))
@@ -244,8 +199,7 @@ def score(rows: list[dict], probs: np.ndarray, classes: list[str],
         top = max(range(len(classes)), key=lambda j: p[j])
         read, true = classes[top], r["label"]
         is_correct = read == true
-        # Mirrors OccupancyObservation.labelConfident: a confident explicit invalid outcome
-        # withholds the context-forced label. Lambda zero is the unconditioned before case.
+        # Mirrors `OccupancyObservation.labelConfident`; lambda zero is the unconditioned case.
         is_invalid = lam > 0.0 and invalid_mass(list(probs[i]), classes, allowed) >= conf_thr
         is_confident = p[top] >= conf_thr and not is_invalid
         state.append((is_confident, is_correct))

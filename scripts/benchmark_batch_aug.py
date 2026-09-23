@@ -82,7 +82,6 @@ def main():
         same_rng.compile()
         variants.append(('compiled_eager_rng', same_rng))
     # One reset for all: a reset between candidates would recompile the first one mid-timing.
-    # Both share `recompile_limit=32` (6 graphs each here); the board checks reset again below.
     torch._dynamo.reset()
     for name, aug in variants:
         row = {}
@@ -96,7 +95,7 @@ def main():
                    'max_error': float((expected-actual).abs().max()),
                    'cpu_rng_equal': torch.equal(cpu_rng, torch.get_rng_state()),
                    'gpu_rng_equal': torch.equal(gpu_rng, torch.cuda.get_rng_state())}
-            # Exercise all six jitter orders before timing; compilation is excluded.
+            # Exercise all six jitter orders first, so compilation is excluded.
             for _ in range(100):
                 aug(raw)
             report['timing_ms'][name] = row

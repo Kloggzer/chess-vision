@@ -1,4 +1,4 @@
-"""Skript-Jagd 2026-09-22: Werkzeuge, die eine Luecke als Messwert weiterreichten."""
+"""Skript-Jagd: Werkzeuge, die eine Luecke als Messwert weiterreichten."""
 from __future__ import annotations
 
 import json
@@ -128,11 +128,8 @@ def test_drop_dead_rows_benennt_die_fold_datei_die_es_nicht_rechnen_kann(tmp_pat
 
 
 def test_coverage_gaps_nennt_die_ungemessenen_zellen_statt_sie_als_sichtbar_zu_buchen(tmp_path):
-    """`coverage or 0.0` las die UNGEMESSENE Zelle als sauber sichtbaren Beleg.
-
-    Neun Datensaetze auf der Platte tragen Figurenzellen, die zu 100 % ungemessen sind
-    (`labeled-rg-2026-08-08-00-39-57-80`, sechs `phone-stored-*`, zwei `turntable*`). Fuer die
-    meldete der Luecken-Bericht einen gedeckten Korpus ohne eine einzige Messung.
+    """`coverage or 0.0` las die UNGEMESSENE Zelle als sauber sichtbaren Beleg; ganze Datensaetze
+    sind zu 100 % ungemessen.
     """
     import coverage_gaps
 

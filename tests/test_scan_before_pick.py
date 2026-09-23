@@ -242,7 +242,8 @@ def test_a_blurred_frame_is_not_picked_at_all():
 
 def test_a_board_with_too_many_dark_cells_goes_whole():
     """Anders als bei der Verdeckung wird hier nicht maskiert: die dunkle Ecke steht still, ein
-    Brett mit ihr ist auf denselben Feldern immer blind (Nutzer, 2026-09-09)."""
+    Brett mit ihr ist auf denselben Feldern immer blind.
+    """
     hell = [{"idx": 0, "cells": [200.0] * 64}]
     dunkel = [{"idx": 3, "cells": [200.0] * 59 + [5.0] * 5}]
     knapp = [{"idx": 6, "cells": [200.0] * 60 + [5.0] * 4}]

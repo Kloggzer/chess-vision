@@ -1,23 +1,8 @@
-"""The grid-groove hand read — Python mirror of `core-geometry/GridOcclusion.kt`.
+"""The grid-groove hand read — Python mirror of the normative `core-geometry/GridOcclusion.kt`.
 
-The board's own grid lines are the one witness of a hand that needs no model and no reference
-frame: a hand ERASES the grooves beneath it, a shadow does not, and pieces cost scattered single
-segments. The read is the alignment fit's band-wise groove search kept per segment instead of
-collapsed into lines — 2 axes x 9 lines x 8 bands is one segment per cell edge, and a square
-reads occluded at >= 2 missing edges.
-
-Two rules are load-bearing, both measured 2026-08-09/10 (`docs/occluder-plates.md`):
-
-- **Full resolution or nothing.** At detection scale the grooves are 1-2 px and the noise floor
-  is 30-40 of 144 segments; at the crop warp's resolution a clean frame drops ~2.
-- **A hand is an ADJACENT PAIR of flagged squares.** One standing flag is a piece leaning over
-  its own grooves (c8 on VID_20260802_222741: flagged on 73 % of all frames, for minutes at a
-  time); a count threshold fails the other way on the leaving hand's 2-flag tail (h3+h2 — always
-  neighbours). Kotlin's `gridHandSquares` applies the same rule to the tracker's veto.
-
-The Kotlin side is normative; `tests/test_grid_occlusion.py` pins this mirror to the same
-synthetic-board behaviour as `GridOcclusionTest.kt`.
-"""
+A hand ERASES the grooves beneath it, a shadow does not. Full resolution or nothing (at detection
+scale the noise floor is 30-40 of 144 segments), and a hand is an ADJACENT PAIR of flagged
+squares."""
 
 from __future__ import annotations
 
@@ -27,14 +12,12 @@ from .alignment import CENTROID_FRAC, OUTER_SEARCH_FRAC, SEARCH_FRAC, _notch_cen
 
 BOARD_SIDE = 8
 
-#: A square reads occluded at this many missing edge segments (of its four).
 MIN_MISSING_EDGES = 2
 def missing_edges(gray: np.ndarray, board_size: int, pad: int, *, white_pov: bool = True) -> dict[str, int]:
     """Per SQUARE NAME: how many of its four edge segments found no groove (only entries >= 1).
 
-    Mirrors `GridOcclusion.gridSegments` + `squareBit`: bands are cell-sized, the outer lines are
-    read only when the pad fits their search window — otherwise they are treated as FOUND, because
-    here a missing line accuses rather than voids, and an unmeasurable one must not.
+    Outer lines unreadable for lack of pad count as FOUND: a missing line accuses, an unmeasured
+    one must not.
     """
     cell = board_size / BOARD_SIDE
     span = max(4, int(round(cell * SEARCH_FRAC)))
@@ -78,10 +61,8 @@ def missing_edges(gray: np.ndarray, board_size: int, pad: int, *, white_pov: boo
 
 
 def hand_squares(edges: dict[str, int]) -> set[str]:
-    """The flagged squares, but only when they are shaped like a HAND — an adjacent pair.
-
-    `gridHandSquares`' rule: squares at >= MIN_MISSING_EDGES, kept only if at least two of them
-    are orthogonal neighbours. A lone leaning piece (or one plus scattered noise) returns empty.
+    """The flagged squares, only when shaped like a HAND (an orthogonally adjacent pair): one flag
+    alone is a piece leaning over its own grooves.
     """
     flagged = {sq for sq, n in edges.items() if n >= MIN_MISSING_EDGES}
     for sq in flagged:

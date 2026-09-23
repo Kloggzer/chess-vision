@@ -123,8 +123,8 @@ def main() -> int:
                     [rows[i] for i in vis], cfg["classes"],
                     [trues[i] for i in vis], [p[i] for i in vis]),
                 "visible_n": len(vis),
-                # `piece_acc` zaehlt nur BESETZTE Zellen. Mit `visible_n` (das die leeren
-                # mitnimmt) meldete die Spalte 193 statt 73 Fehler — Faktor 2,6 zu hoch.
+                # `piece_acc` zaehlt nur BESETZTE Zellen; mit `visible_n` war die Spalte 2,6x zu
+                # hoch.
                 "visible_occupied_n": sum(1 for i in vis
                                           if cfg["classes"][trues[i]] != "empty"),
             }
@@ -136,7 +136,7 @@ def main() -> int:
               f"{m['visible_occupied_board_acc']:>11.4f}{wrong:>9.0f}")
     if args.dump_preds:
         from chesslab.ioutil import write_rows
-        # Zwei Gruppen liefern dieselbe Zelle zweimal — je Zelle EINE Zeile, Lesarten vereinigt.
+        # Je Zelle EINE Zeile, Lesarten vereinigt.
         merged: dict[tuple, dict] = {}
         for row in dumped:
             key = (row["session_id"], row["frame"], row["square"])

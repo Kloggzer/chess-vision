@@ -1,4 +1,4 @@
-"""Rote Belege aus dem Randgebiet-Audit 2026-09-14: `scripts/`, ungetestet und entscheidungstragend."""
+"""Rote Belege aus dem Randgebiet-Audit: `scripts/`, ungetestet und entscheidungstragend."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def test_coverage_arms_feeds_the_hand_student_a_board_without_its_border(tmp_pat
     """`read_boards` schneidet den Brettrand NICHT ab (`hand_gate.py`, "Ohne Randschnitt").
 
     Der Vergleichslauf liest aber die GESPEICHERTEN Bretter, die `board_border` px Rand tragen —
-    der Produktionsweg `gate_scan` reicht ihn als `borders=` durch. Ohne den Schnitt liegt das
+    `read_gate` nimmt ihn als `borders=` entgegen. Ohne den Schnitt liegt das
     8x8-Raster des Schuelers ein Viertel Feld daneben und jede Zelle meldet ihre Nachbarin.
     """
     import cv2

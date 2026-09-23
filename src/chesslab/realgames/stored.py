@@ -16,11 +16,8 @@ FIT_METHOD = "grid-fit over printed field edges"
 
 def fit_stored_session(session_dir: Path, *,
                        margin: float = config.DEFAULT_MARKER_MARGIN) -> tuple[dict, list[float]]:
-    """The sidecar payload, plus what the LOGGED quad measured before the fit (the honest before).
-
-    The log carries the MARKER quad and one constant outset for it, and the real one varies per
-    session (measured 2026-08-15: up to 14 px, an eighth of a cell). The margin only has to put
-    the grooves inside the first search window; the grid fit supplies the accuracy from there.
+    """The sidecar payload, plus what the LOGGED quad measured before the fit. The log's constant
+    marker outset is off by up to 14 px; it only has to reach the first search window.
     """
     from ..alignment import improve_quad
 
@@ -36,7 +33,7 @@ def fit_stored_session(session_dir: Path, *,
         quad, before, after = improve_quad(
             image, start, _field_profile(start, (image.shape[1], image.shape[0]), size))
         worst = after if quad is not None else before
-        if worst != worst:  # NaN — no square was measurable at all, so nothing here is trustworthy
+        if worst != worst:  # NaN: no square measurable, nothing here is trustworthy
             failed.append(stem)
             continue
         frames[stem] = {"corners": [[round(x, 2), round(y, 2)] for x, y in (quad or start)],

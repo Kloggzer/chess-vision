@@ -1,7 +1,6 @@
-"""Retime a candidate by the board itself: which frames show which position.
-The record's ORDER of positions is confirmed; WHEN each stood on the board is read off the video
-with the CNN and a monotone Viterbi over the position chain (`docs/retime.md`). A position no
-frame ever showed keeps zero frames and collapses into the next, like a multi-commit."""
+"""Retime a candidate by the board itself: the record's ORDER of positions holds, WHEN each stood is
+read with the CNN and a monotone Viterbi (`docs/retime.md`).
+"""
 
 from __future__ import annotations
 
@@ -25,22 +24,21 @@ STRIDE = 3
 BACK_S = 12.0
 #: How far AFTER the next commit a position may still stand (the phone rarely runs ahead).
 FWD_S = 4.0
-#: The log-probability a wrong cell costs at most; below this the CNN is only noisy, not wrong.
+#: The most a wrong cell costs; below this the CNN is only noisy, not wrong.
 LOG_FLOOR = -4.0
-#: Advancing the chain by one position costs this much agreement — one frame's worth, so a single
-#: misread frame cannot open a position, three agreeing ones can.
+#: Advancing the chain costs one frame's worth of agreement: one misread frame cannot open a
+#: position, three agreeing ones can.
 ADVANCE_COST = 6.0
 #: A frame whose reads back no position at all (a hand over the board) says nothing about either.
 COVERED_MAX = 12
-#: How many cells MORE than the hold's cleanest frame make a frame a different board. Measured on
-#: 21-12-56 ply 49: every frame of that hold misreads h2, the retracted ones add e5, e6 and h6.
+#: Cells MORE than the hold's cleanest frame that make a different board: on 21-12-56 ply 49 every
+#: frame misreads h2, the retracted ones add e5, e6 and h6.
 DISPUTED_CELLS = 2
-#: The probability a read needs before it may contradict a position. 0.85 (the engine's
-#: `cnnConfThr`) let the retraction through — a black rook where a white one belongs reads 0.56.
+#: The probability a read needs to contradict a position. 0.85 (`cnnConfThr`) let the retraction
+#: through: a black rook where a white one belongs reads 0.56.
 PICTURE_CONF = 0.5
 #: A ply whose entry frame prefers its position by less than this share of ADVANCE_COST is weak;
-#: when more than WEAK_SHARE of the plies are weak the reads do not match the record and nothing
-#: is written (21-29-35: 3 of 99 weak, median 0.77 — a median gate at 0.85 refused a good game).
+#: over WEAK_SHARE weak plies nothing is written. A median gate at 0.85 refused a good game.
 WEAK_MARGIN = 0.5
 WEAK_SHARE = 0.2
 #: Review boards around a ply's frame, `AnnotatedFrames.REVIEW_CONTEXT`.
@@ -63,8 +61,9 @@ class Retimed:
 
 
 def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = ADVANCE_COST) -> np.ndarray:
-    """The monotone path of positions through the frames — `emissions[t, k]` is how much frame t
-    agrees with position k, `allowed[t, k]` where the phone's own commits let k stand at all."""
+    """The monotone path of positions through the frames: `emissions[t, k]` is agreement,
+    `allowed[t, k]` where the phone's commits let k stand.
+    """
     T, K = emissions.shape
     score = np.full((T, K), -np.inf)
     back = np.zeros((T, K), dtype=np.int32)
@@ -78,7 +77,7 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
         best = np.maximum.accumulate(prev)
         arg = np.zeros(K, dtype=np.int32)
         # Strictly greater: on a tie the EARLIER predecessor wins, so a position opens at the first
-        # frame that shows it, not at the first covered frame where nothing spoke against it.
+        # frame that shows it.
         run, top = 0, -np.inf
         for k in range(K):
             if prev[k] > top:
@@ -99,10 +98,8 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
 
 def review_frames(frames: list[int], path: np.ndarray, covered: list[int],
                   disputes: np.ndarray) -> dict[int, tuple[int, int, int]]:
-    """Choose the middle frame among the least covered, then least contradicting frames.
-    Equal coverage makes contradictions comparable; the middle avoids hands at either edge.
-    A hold may include a retracted position (21-12-56), so coverage alone is insufficient.
-    `disputed` counts frames with DISPUTED_CELLS/64 more contradictions than the chosen picture.
+    """The middle frame among the least covered, then least contradicting; coverage alone does not
+    do, a hold may include a retracted position.
     """
     runs: dict[int, list[tuple[int, int, float]]] = {}
     for i, (t, k, c) in enumerate(zip(frames, path, covered, strict=True)):
@@ -137,8 +134,7 @@ def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: 
 
 
 def windows(phone: list[int], fps: float, back_s: float = BACK_S, fwd_s: float = FWD_S) -> list[tuple[int, int]]:
-    """`[lo, hi]` frame window per position 0..n: position k may stand from `back` before its own
-    commit until `fwd` after the next one; position 0 from the start, position n to the end."""
+    """`[lo, hi]` per position: from `back` before its own commit to `fwd` after the next one."""
     back, fwd = int(back_s * fps), int(fwd_s * fps)
     out = [(-1, phone[0] + fwd if phone else 10**9)]
     for k, frame in enumerate(phone):
@@ -155,18 +151,17 @@ def _labels(fen: str, squares: list[str]) -> list[str]:
 
 
 def _visible(reads: list[dict]) -> np.ndarray:
-    """Welche Zellen die Figur wirklich zeigen. Ein Lauf ohne Occlusion-Kopf schreibt den
-    Schluessel gar nicht — ungemessen ist nicht null, so eine Zelle stimmt gar nicht erst mit.
+    """Welche Zellen die Figur wirklich zeigen. Ohne Occlusion-Kopf fehlt der Schluessel: ungemessen
+    ist nicht null, die Zelle stimmt nicht mit.
     """
     return np.array([r.get("coverage") is not None and r["coverage"] <= PIECE_VISIBLE_MAX
                      for r in reads])
 
 
 def _emission(reads: list[dict], targets: list[list[int]], covered_max: int) -> tuple[np.ndarray, np.ndarray]:
-    """Agreement of one frame's 64 reads with every position, twice over: the summed floored
-    log-probability of each position's label (what the path is found with) and the number of cells
-    that CONTRADICT it confidently (what a picture is chosen with). Visible cells only; a frame
-    mostly under a hand says nothing and contradicts nothing."""
+    """Agreement of one frame's 64 reads with every position: summed floored log-probability (for
+    the path) and confident contradictions (for the picture). Visible cells only.
+    """
     probs = np.array([r["probs"] for r in reads], dtype=np.float64)
     logs = np.maximum(np.log(np.clip(probs, 1e-9, 1.0)), LOG_FLOOR)
     visible = _visible(reads)
@@ -181,8 +176,9 @@ def _emission(reads: list[dict], targets: list[list[int]], covered_max: int) -> 
 
 def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STRIDE,
            write: bool = True, progress: bool = True) -> dict:
-    """Read the recording, move every ply to the frame its position first stood on, write the
-    candidate and the review boards. Refuses (no write) when the reads do not match the record."""
+    """Move every ply to the frame its position first stood on and write candidate and review
+    boards; refuses (no write) when the reads do not match the record.
+    """
     from .calibration import crop_border_px, load_profile
     from .labeling import all_squares, crops_for_frame, effective_profile
     from .occluded_model import all_reads, model_classes
@@ -193,8 +189,8 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     from .session_store.recording import game_dir, load_candidate, video_fps, video_path
     from .training.torch_data import infer_size_of
 
-    # Vor dem Lesen gestempelt: bestaetigt ein Mensch waehrend der Minuten unten, ersetzte der
-    # alte Lesestand sonst sein Urteil (`_write_candidate` prueft dagegen).
+    # Vor dem Lesen gestempelt: bestaetigt ein Mensch waehrend der Minuten unten, ersetzte der alte
+    # Lesestand sonst sein Urteil.
     stamp = stamp_of(game_dir(name) / CANDIDATE_FILE)
     candidate = load_candidate(name)
     moves = candidate["moves"]
@@ -204,16 +200,14 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     phone = [int(m["frame"]) for m in moves]
     profile = load_profile(EXPORT_PROFILE)
     cfg = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
-    # Ohne Coverage-Kopf traegt keine Lesung ein `coverage`, und jede Zelle bliebe ungemessen:
-    # der Pfad haette keine Emission mehr. Laut abbrechen statt still auf null zu laufen.
+    # Ohne Coverage-Kopf bliebe jede Zelle ungemessen und der Pfad ohne Emission: laut abbrechen.
     if cfg.get("head") != "occlusion" and not cfg.get("coverage_output"):
         raise ValueError(
             f"{model_dir.name} has no occlusion head (head={cfg.get('head')!r}) — its reads carry "
             f"no coverage, so retime could not tell a hand from a clear board. Use a "
             f"`--head occlusion` run.")
     prof = effective_profile(profile, cfg.get("pad_side"))
-    # Einmal auf die Groesse schneiden, die das Netz frisst: `serving` haette den Zuschnitt an
-    # `out_size` sonst ein zweites Mal skaliert (specs/22).
+    # Einmal auf die Eingangsgroesse schneiden, sonst skaliert `serving` ein zweites Mal (specs/22).
     out_size = infer_size_of(cfg)
     classes = model_classes(model_dir)
     squares = all_squares()
@@ -234,7 +228,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     told = 0
 
     def flush() -> None:
-        # One frame per call: the exported graph takes a batch of exactly 64 (`model.onnx`).
+        # One frame per call: the exported graph takes a batch of exactly 64.
         for idx, cells in pending:
             sampled.append(idx)
             reads = all_reads(model_dir, cells, device=device)
@@ -244,8 +238,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
             covered.append(int(64 - _visible(reads).sum()))
         pending.clear()
 
-    # Nur die Vielfachen von `stride` in [lo, hi]: der Decoder baut die uebrigen gar nicht erst
-    # und faltet die Drehung mit der aus den Metadaten zusammen.
+    # Nur die Vielfachen von `stride` in [lo, hi]; der Decoder baut die uebrigen gar nicht erst.
     read = range(-(-lo // stride) * stride, hi + 1, stride)
     for idx, frame in Recording(video).take(read, rotate):
         # The quad of the ply the phone stood on around here — the board may have moved since.
@@ -303,8 +296,9 @@ def refused(weak: list[int], entered: int) -> bool:
 
 
 def _agreement(emissions: np.ndarray, sampled: list[int], plies: list[Retimed]) -> float:
-    """How clearly the entry frames prefer their position over the one before — the refusal gate.
-    Each entered ply keeps its own margin (`Retimed.margin`), so a refusal names the plies that failed."""
+    """How clearly the entry frames prefer their position over the one before — the refusal gate;
+    each ply keeps its margin so a refusal names the failures.
+    """
     margins = []
     for p in plies:
         if p.held == 0:
@@ -339,15 +333,15 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
 
 
 def staged_name(out: Path, idx: int) -> Path:
-    """Der Zwischenname beim Umhaengen. Die Endung bleibt `.webp`, weil `cv2.imwrite` den Codec
-    daran waehlt und `<stem>.webp.tmp` mit "could not find a writer" abbricht."""
+    """Die Endung bleibt `.webp`: `cv2.imwrite` waehlt den Codec daran, `.webp.tmp` bricht mit
+    "could not find a writer" ab.
+    """
     return out / f"{idx:06d}.tmp.webp"
 
 
 def stage_board(out: Path, idx: int, image, encode: list) -> tuple[Path, Path]:
-    # das False von `imwrite` fiel stumm aus `staged` — und die Aufraeumschleife loeschte
-    # dem Frame gleich darauf sein ALTES Bild. Die Confirm-Ansicht meldete dann "kein Bild",
-    # ohne dass irgendwo ein Fehler stand.
+    # Das False von `imwrite` fiel sonst stumm aus `staged`, und die Aufraeumschleife loeschte dem
+    # Frame sein ALTES Bild.
     tmp = staged_name(out, idx)
     if not cv2.imwrite(str(tmp), image, encode):
         raise OSError(f"could not write review board: {tmp}")
@@ -366,16 +360,15 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
     from .recording import Recording
 
     out.mkdir(parents=True, exist_ok=True)
-    # `staged_name`, nicht `<stem>.webp.tmp`: cv2 waehlt den Codec an der ENDUNG und lehnt `.tmp`
-    # ab — der Schreiber starb dann bei der ersten Datei (gefunden 2026-09-15).
+    # `staged_name`: cv2 waehlt den Codec an der ENDUNG und lehnt `.tmp` ab.
     wanted: dict[int, int] = {}
     for i, p in enumerate(plies):
         for k in range(-REVIEW_CONTEXT, REVIEW_CONTEXT + 1):
             wanted.setdefault((p.frame_review if p.frame_review is not None else p.frame) + k, i)
     size = profile.board_size
     last = max(wanted)
-    # Neben die alten, umgehaengt wird ZULETZT (wie `_write_candidate`): erst alles zu loeschen und
-    # dann neu zu dekodieren liess einen Dekoder-Abbruch ohne jeden Review-Satz zurueck.
+    # Neben die alten, umgehaengt wird ZULETZT: ein Dekoder-Abbruch liess sonst keinen Review-Satz
+    # zurueck.
     staged: list[tuple[Path, Path]] = []
     try:
         for idx, frame in Recording(video).take(wanted, rotate):

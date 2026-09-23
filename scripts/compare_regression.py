@@ -28,11 +28,8 @@ MUSTER = {
 
 
 def lies(log: Path) -> dict[str, int | None]:
-    """Die Zahlen des Laufs -- `None`, wo er keine geschrieben hat.
-
-    Die `-1`, die hier vorher stand, war als Merkzeichen gedacht und lief danach ungeprueft in
-    die Summe: zwei abgestuerzte Laeufe verglichen sich als (-1, -1) und gingen ohne Marke als
-    unveraendert durch. `None` kann das nicht.
+    """Die Zahlen des Laufs, `None`, wo er keine geschrieben hat: eine `-1` lief ungeprueft in die
+    Summe.
     """
     text = log.read_text(encoding="utf-8", errors="replace")
     out: dict[str, int | None] = {}

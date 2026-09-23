@@ -1,13 +1,5 @@
-"""Grad-CAM — visualize which pixels drove the classifier's decision for a square crop.
-
-Backbone-agnostic: hooks the deepest ``Conv2d`` in the network (works for both
-``smallcnn`` and ``mobilenet_v3_small``, any head). Used by ``scripts/gradcam.py``
-(CLI) and the web Training page (``/api/runs/{run}/gradcam``).
-
-The method is Selvaraju et al. (docs/references.md#selvaraju-2016), which names identifying
-dataset bias among its uses — that is exactly what it was used for here, producing the measurement
-that a knight's prediction relied 8% on the piece and 43% on the board around it. The "reliance"
-number derived from the map is this project's own construction, not the paper's.
+"""Grad-CAM (Selvaraju et al.) on the deepest spatial `Conv2d`: which pixels drove a square's
+decision. The "reliance" number derived from it is this project's own construction.
 """
 
 from __future__ import annotations
@@ -23,13 +15,9 @@ from PIL import Image
 
 
 def _crop_reader(ds_name: str | None, rows: list[dict] | None = None):
-    """Return ``row -> PIL.Image`` that reads from the packed memmap when the dataset has one
-    (required for fused builds, whose mm:// rows have no files) and from disk otherwise.
-
-    `resolve_dataset_packs` FIRST, exactly like `evaluate.run_eval`: a dataset built with
-    `--from-packs` has no memmap of its own, and without that step every one of its rows hit
-    the `mm://` refusal below with advice about a synth build it never was. `.packed` sagt dem
-    Aufrufer, ob die Pixel aus einem Pack kommen — `packs.cfg_for_pack` braucht es.
+    """`row -> PIL.Image` from the packed memmap when there is one (required for mm:// rows), else
+    disk. `resolve_dataset_packs` FIRST, like `run_eval`; `.packed` tells the caller for
+    `cfg_for_pack`.
     """
     from .. import config
     from .packs import open_dataset_pack, open_packed_memmap
@@ -65,16 +53,8 @@ def _crop_reader(ds_name: str | None, rows: list[dict] | None = None):
 
 
 def _diverse_sample(rows: list[dict], per_class: int, seed: int = 42) -> list[dict]:
-    """Pick up to ``per_class`` rows preferring DISTINCT (session_id, square) combos.
-
-    Real test splits are sliced from recorded game sessions: static pieces (kings!)
-    contribute dozens of near-identical frames of the same piece on the same square,
-    so taking the first N manifest rows shows one frame N times. Instead, group rows
-    by (session_id, square) and round-robin across the groups — every distinct
-    piece/lighting situation is represented before any near-duplicate frame repeats.
-    Group order and the frame picked within a group are seeded-shuffled, so the
-    sample is deterministic across reloads but not biased to manifest order. When a
-    class has fewer rows than ``per_class``, all rows are returned.
+    """Up to `per_class` rows, round-robin over DISTINCT (session_id, square) groups: static pieces
+    repeat near-identical frames. Seeded, so deterministic across reloads.
     """
     if len(rows) <= per_class:
         return list(rows)
@@ -96,20 +76,15 @@ def _diverse_sample(rows: list[dict], per_class: int, seed: int = 42) -> list[di
                 added = True
                 if len(picked) >= per_class:
                     break
-        if not added:                       # all groups exhausted (can't happen: len(rows) > per_class)
+        if not added:
             break
         depth += 1
     return picked
 
 
 def last_conv(model: nn.Module) -> nn.Conv2d:
-    """The deepest spatially meaningful Conv2d — Grad-CAM's target layer.
-
-    Skips 1×1 convs (projection/expansion layers common at the end of MobileNet
-    architectures). A 1×1 conv produces no spatial heatmap structure — the CAM
-    becomes a uniform blob that looks like "nothing happened". Instead we pick the
-    deepest conv with kernel > 1 (usually the last 3×3 or 5×5 depthwise/regular conv
-    in the feature extractor).
+    """The deepest Conv2d with kernel > 1: a 1x1 conv gives no spatial structure, the CAM becomes a
+    blob.
     """
     last_spatial: nn.Conv2d | None = None
     last_any: nn.Conv2d | None = None
@@ -125,18 +100,16 @@ def last_conv(model: nn.Module) -> nn.Conv2d:
 
 
 def class_logits(logits: torch.Tensor, n_classes: int | None) -> torch.Tensor:
-    """Nur die Klassenspalten. Der Occlusion-Kopf haengt eine SIGMOID-Coverage daneben, und
-    `run_export` sagt warum sie kein Softmax-Teilnehmer ist: sie mischt sich sonst in JEDE
-    Klassenwahrscheinlichkeit, und ein Argmax kann sie selbst waehlen."""
+    """Nur die Klassenspalten: die SIGMOID-Coverage des Occlusion-Kopfs mischte sich sonst in jede
+    Wahrscheinlichkeit.
+    """
     return logits if not n_classes or logits.shape[1] <= n_classes else logits[:, :n_classes]
 
 
 def compute_cam(model: nn.Module, x: torch.Tensor, target_layer: nn.Conv2d,
                 class_idx: int | None, n_classes: int | None = None):
-    """Return (cam[h,w] in [0,1], chosen_class_idx, prob) for a single input x[1,3,H,W].
-
-    `n_classes` schneidet die Coverage-Spalte eines Occlusion-Laufs ab; ohne sie bleibt die
-    alte Lesart, damit Aufrufer ohne `config.json` unveraendert weiterrechnen.
+    """(cam[h,w] in [0,1], chosen_class_idx, prob) for one input x[1,3,H,W]; `n_classes` cuts an
+    occlusion run's coverage column.
     """
     acts: dict = {}
     grads: dict = {}
@@ -182,14 +155,9 @@ def _center_mask(h: int, w: int, frac: float) -> torch.Tensor:
 
 def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
                      center_frac: float | None = None, seed: int = 42) -> list[dict]:
-    """Measure where each class's evidence lives: piece (center) vs. background (border ring).
-
-    Mask-free occlusion test (Zeiler & Fergus style): for each crop, blank the centered box
-    (where the piece sits) with neutral gray and measure the drop in the true-class probability,
-    then do the same for the border ring. ``piece_frac = drop_center / (drop_center + drop_border)``
-    — high = decision driven by the figure, low = driven by surrounding board.
-
-    Returns one dict per class: mean base prob, mean center/border drop, and piece_frac.
+    """Where each class's evidence lives: blank the centre (the piece), then the border ring, with
+    grey and compare the true-class drops. `piece_frac` high = the figure decides. One dict per
+    class.
     """
     from .. import config
     from ..dataset import load_manifest, load_split
@@ -200,27 +168,22 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     model.eval()
     classes = cfg["classes"]
     if center_frac is None:
-        # Die Figurenregion ist die ZELLE im Crop: Breite = Zelle * (1 + 2*pad_side)
-        # (`labeling.crop_square`). Der Zuschnitt kommt vom LAUF — `train`/`run_export` schreiben
-        # ihn genau deshalb in die config.json (specs/45); das Profil DIESER Maschine waere der
-        # stille Domaenensprung, den die Deklaration beendet.
+        # Die Figurenregion ist die ZELLE im Crop, mit dem Zuschnitt des LAUFS (specs/45), nicht dem
+        # Profil dieser Maschine.
         center_frac = 1.0 / (1.0 + 2.0 * float(cfg.get("pad_side", config.CROP.pad_side)))
-    # Die EINE Transformation des Laufs, nicht von Hand nachgebaut: `eval_transform_for` traegt
-    # CLAHE und die Eingangs-Darstellung mit. Von Hand ImageNet-normalisiert warf ein
-    # `gray+sobel`-Lauf (2 Kanaele gegen 3), und ein CLAHE-Lauf — das Standardmodell — wurde in
-    # einer anderen Domaene gemessen als er trainiert hat. Und an der Groesse, die der GRAPH nimmt.
+    # Die EINE Transformation des Laufs, mit CLAHE und Eingangs-Darstellung, in der Groesse des
+    # GRAPHEN; von Hand nachgebaut mass sie in einer anderen Domaene.
     from .torch_data import eval_transform_for, infer_size_of
     out_w, out_h = infer_size_of(cfg)
     gray = 0.5  # neutral occluder value on the [0,1] scale
 
     ds_name = cfg.get("dataset")
-    # Der Split des LAUFS: ein Fold traegt `split-f<i>.json`; `split.json` naennte, was er zurueckhielt.
+    # Der Split des LAUFS: ein Fold traegt `split-f<i>.json`.
     manifest_path, split_path = dataset_paths(cfg.get("dataset"), cfg.get("split_file"))
     manifest = load_manifest(manifest_path)
     split_data = load_split(split_path)
-    # Benotet wird, was der Verlust auch lernt: ueber `PIECE_VISIBLE_MAX` verdeckt oder unter
-    # `CELL_DARK_MIN` dunkel traegt die Zelle kein Figurensignal. Verdeckung trifft weiss 11-15 %
-    # und schwarz 2-7 %, die Marke je Klasse liefe sonst je Klasse auf einer anderen Zellmenge.
+    # Benotet wird, was der Verlust lernt; Verdeckung trifft Klassen ungleich, sonst liefe jede
+    # Klasse auf einer anderen Zellmenge.
     from .occlusion import classification_eligible
 
     rows = [r for r in filter_rows_by_split(manifest, split_data, split)
@@ -232,8 +195,8 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     border = ~center                                          # background ring
 
     def _prob(t01: torch.Tensor, cls_idx: int) -> float:
-        # Verdeckt wird das BILD, dann laeuft die echte Kette darauf — sonst saehe CLAHE ein
-        # Histogramm, das es nie zu sehen bekaeme.
+        # Verdeckt wird das BILD, dann laeuft die echte Kette darauf — sonst saehe CLAHE ein fremdes
+        # Histogramm.
         with torch.no_grad():
             logits = class_logits(model(tf(to_pil_image(t01)).unsqueeze(0)), len(classes))
             return float(F.softmax(logits, dim=1)[0, cls_idx])

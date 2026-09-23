@@ -20,11 +20,8 @@ def _make_profile(board_size: int = 800, white_pov: bool = True) -> CalibrationP
 
 
 def test_crop_border_covers_the_pad_on_every_edge():
-    """The border must reach as far past the board as an edge square's crop box does.
-
-    The upward pad is gone (2026-09-14), so one symmetric `pad_side` drives both the box and the
-    border. The edge squares are what pins it: a border that trailed the pad gave rank 8
-    replicated border where there is image.
+    """The border must reach as far past the board as an edge square's crop box does: one symmetric
+    `pad_side` drives both, and a border trailing the pad gave rank 8 replicated border.
     """
     from chesslab.calibration import crop_border_px
 
@@ -91,7 +88,7 @@ def test_crop_box_pad_side_symmetric():
 
 
 def test_the_box_stays_square_at_every_pad():
-    """No pad can make the box taller than wide — the upward pad went on 2026-09-14."""
+    """No pad can make the box taller than wide."""
     prof = _make_profile()
     cell = prof.board_size / 8.0
     for pad in (0.0, 0.05, 0.5, 1.0):
@@ -370,11 +367,8 @@ def test_ensure_profile_loads_existing_and_autocreates(tmp_path, monkeypatch):
 
 
 def test_ensure_profile_returns_an_existing_profile_untouched(tmp_path, monkeypatch):
-    """The hand-set values survive because nothing regenerates over them.
-
-    Until 2026-08-20 a lens-stamp mismatch made the profile STALE and `ensure_profile` rebuilt
-    it, carrying the user's settings across by hand. Profiles carry no stamp now, so the file
-    is simply returned — `white_pov` is the one that transposes every label if it resets.
+    """The hand-set values survive because nothing regenerates over them; `white_pov` would
+    transpose every label if it reset.
     """
     import cv2
 

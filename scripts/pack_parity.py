@@ -1,20 +1,10 @@
 """Pool vs session pack on ONE real session: same rows? same pixels? same accuracy?
 
-The pool path resamples twice (board -> 128 px WebP -> model size), the pack path cuts once from
-the board store straight at model size, so the two disagree BY DESIGN. This measures by how much,
-and proves the row sets and labels are identical — the part that must not differ at all.
+The two paths differ BY DESIGN (the pool resamples twice); this measures by how much and proves
+rows and labels identical. The pool arm is sliced into its OWN tag, and val IS the train session:
+the numbers compare the two paths and nothing else.
 
-    uv run python scripts/pack_parity.py --session rg-2026-08-08-11-59-12 [--size 80]
-
-The pool arm is sliced into its OWN tag first. `data/crops/default/` is a cut from whenever the
-session was last sliced, and this one moved since: 53 frames and 8 labels apart from today's log
-(2026-09-05). Against that pool the row comparison measures the pool's age, not the pack path.
-
-One session means the session-based split assigner leaves val and test empty (it never splits a
-session), so both builds are `--allow-degenerate` and both trainings run against a
-`split-parity.json` whose val IS the train session. That measures the two pixel paths against each
-other, never generalisation — the numbers are comparable to each other and to nothing else.
-"""
+    uv run python scripts/pack_parity.py --session rg-2026-08-08-11-59-12 [--size 80]"""
 
 from __future__ import annotations
 
@@ -92,9 +82,8 @@ def row_parity(pool_rows: list[dict], pack_rows: list[dict]) -> tuple[set, dict]
 
 
 def parity_problems(counts: dict, px: dict) -> list[str]:
-    """Was der Nachweis NICHT belegt hat. Eine leere Schnittmenge ist kein Beweis von Gleichheit,
-    und zwei Zeilenlisten koennen als MENGE gleich sein und trotzdem verschieden viele Zeilen
-    tragen — genau der Fall, den ein `--like`-Zwilling schon mit 228 Zeilen Unterschied lieferte.
+    """Was der Nachweis NICHT belegt hat: eine leere Schnittmenge ist kein Beweis, und als MENGE
+    gleiche Zeilenlisten koennen verschieden lang sein.
     """
     bad = []
     if not counts["common"] or not px["n"]:
@@ -132,8 +121,7 @@ def pixel_parity(common: set, pool_at: dict, pack_at: dict) -> dict:
 def train_and_eval(name: str, paths: config.Paths) -> float | None:
     """One epoch, one worker, the default backbone; then eval BOTH arms against the pool corpus."""
     run = str(paths.models / f"sp-parity-{name.rsplit('-', 1)[-1]}")
-    # `--no-empty-cap`: the cap protects the mined hard empties by CROP PATH, which no `mm://`
-    # row can match — with it on, the two arms would train on different rows.
+    # `--no-empty-cap`: the cap protects hard empties by CROP PATH, which no `mm://` row matches.
     _cli("train", "--dataset", name, "--epochs", "1", "--num-workers", "1", "--seed", "42",
          "--split", SPLIT_FILE, "--no-empty-cap", "--out", run)
     _cli("eval", "--run", run, "--dataset", POOL, "--split", "train", "--split-file", SPLIT_FILE)

@@ -1,4 +1,4 @@
-"""Zweite Bug-Jagd vom 2026-09-16; offene Funde als `xfail(strict=True)`."""
+"""Zweite Bug-Jagd; offene Funde als `xfail(strict=True)`."""
 
 from __future__ import annotations
 

@@ -1,7 +1,5 @@
-"""Die Namen der Dateien einer Aufnahme — die EINE Stelle, an der sie woertlich stehen.
-
-Wer den Namen selbst schreibt, baut sich eine zweite Tuer an den Schutzregeln des Stores vorbei;
-`tests/test_recording_files.py` wacht darueber wie `lib/recording-files.test.ts` in der Web-App.
+"""Die Namen der Dateien einer Aufnahme — die EINE Stelle, an der sie woertlich stehen
+(`tests/test_recording_files.py`).
 """
 
 from __future__ import annotations
@@ -24,8 +22,7 @@ INTERVAL_FILE = "interval-check.jsonl"
 #: The session's working picture, rectified and straightened (`boards.write_board`).
 BOARD_DIR = "boards"
 
-#: The dirty pile lives apart so `boards/` is literally the p8 stock — readers follow
-#: `row["board"]`, so a second directory costs them nothing (`docs/frame-scan.md`).
+#: The dirty pile lives apart so `boards/` is literally the p8 stock; readers follow `row["board"]`.
 DIRTY_DIR = "dirty"
 
 #: SAM 3's alpha per frame, in the BOARD's raster — so it follows the board through everything.

@@ -24,7 +24,7 @@ import numpy as np
 
 from chesslab.ioutil import read_jsonl
 
-#: BT.601, wie `cv2.COLOR_BGR2GRAY`. Der Pack haelt RGB, also die Gewichte umgekehrt anlegen.
+#: BT.601, wie `cv2.COLOR_BGR2GRAY`; der Pack haelt RGB, also die Gewichte umgekehrt.
 GRAY = np.array([0.299, 0.587, 0.114], dtype=np.float32)
 
 
@@ -36,9 +36,7 @@ def main() -> int:
                                               "Waehrend ein Lauf den Datensatz liest, hier eine "
                                               "Seitendatei angeben.")
     ap.add_argument("--dry-run", action="store_true")
-    # Ein Monolith (`real13-mix-v6-80-clahe`) zeigt auf `data/crops/…`, nicht auf `mm://`; es
-    # gibt also keinen Pack zum Hineingreifen. Diese Zeilen werden aus der Datei gemessen, auf
-    # die sie zeigen — dieselbe Quelle, aus der `labeling.py` die Spalte urspruenglich schrieb.
+    # Ein Monolith zeigt auf `data/crops/…`, nicht auf `mm://`: dort wird aus der Datei gemessen.
     ap.add_argument("--from-crops", action="store_true")
     ap.add_argument("--only-session", default="", help="Nur diese Aufnahme (Nachweislauf).")
     ap.add_argument("--threads", type=int, default=4)
@@ -79,8 +77,8 @@ def main() -> int:
         for r in group:
             key = f"mm://{name}/{r['frame']}/{r['square']}"
             i = at.get(key)
-            # dieser Sprung fiel ungezaehlt aus — die Zeile behaelt `brightness: None`, und
-            # `{len(group)} Zeilen` plus `[OK]` lasen sich wie ein vollstaendiger Nachtrag.
+            # Dieser Sprung fiel sonst ungezaehlt aus, und `[OK]` las sich wie ein vollstaendiger
+            # Nachtrag.
             if i is None:
                 missed += 1
                 continue
@@ -125,9 +123,8 @@ def _from_crops(todo: list[dict], threads: int, dry_run: bool) -> tuple[int, int
 
 def _write(rows: list[dict], dd: Path, out_arg: str, done: int, gaps: int) -> int:
     out = Path(out_arg) if out_arg else dd / "manifest.jsonl"
-    # `open("w")` KUERZT das GETEILTE Manifest; ein Abbruch liess es halb da, und ein
-    # toleranter Leser verwirft die halbe letzte Zeile stumm — der Datensatz ist dann kuerzer,
-    # ohne dass etwas meckert. Nebendatei plus `os.replace` laesst das alte bis zuletzt stehen.
+    # `open("w")` KUERZT das GETEILTE Manifest; ein toleranter Leser verwirft die halbe letzte Zeile
+    # stumm. Nebendatei plus `os.replace`.
     tmp = out.with_name(out.name + ".tmp")
     try:
         with tmp.open("w", encoding="utf-8") as fh:

@@ -1,8 +1,4 @@
-"""The session on disk: one directory, `session.yaml` + `log.jsonl` + frames.
-
-Split out of `collect` on 2026-08-20: the rig loops need a camera and a display, this does
-not. `scripts/ingest_video_session.py` builds sessions from video and never touches a camera.
-"""
+"""The session on disk: one directory, `session.yaml` + `log.jsonl` + frames, no camera needed."""
 
 from __future__ import annotations
 
@@ -22,12 +18,9 @@ def _now_iso() -> str:
 
 
 def redact_source(source) -> str:
-    """A camera source as a string that is safe to persist: `user:pass@` stripped out.
-
-    An IP-camera URL routinely carries basic-auth credentials, and a session's metadata is
-    long-lived, copied around and read by everyone who looks at the corpus. Only the
-    userinfo part goes — host, port and path stay, because THAT is what identifies the
-    camera a session came from."""
+    """A camera source safe to persist: `user:pass@` stripped, host/port/path kept (they identify
+    the camera).
+    """
     s = str(source if source is not None else "").strip()
     if "://" not in s:
         return s
@@ -56,12 +49,9 @@ class SessionWriter:
         notes: str = "",
         jpeg_quality: int | None = None,
     ) -> None:
-        # Frames are PNG by default because live capture is the ground truth every later stage
-        # re-slices from, and a lossy re-encode there would be baked into the corpus forever.
-        # A VIDEO import is the exception: the source is already H.264, so PNG spends ~5x the disk
-        # losslessly preserving someone else's compression artefacts. `ingest_video_session.py`
-        # therefore passes a quality and gets .jpg — the path lands in log.jsonl either way, and
-        # every consumer reads `entry["frame"]` rather than assuming an extension.
+        # PNG by default: live capture is the ground truth every stage re-slices from. A VIDEO
+        # import passes a JPEG quality, since the source is H.264 already; consumers read
+        # `entry["frame"]`, not the suffix.
         self.jpeg_quality = jpeg_quality
         self.dir = Path(session_dir)
         self.frames_dir = self.dir / "frames"
@@ -71,14 +61,11 @@ class SessionWriter:
         self.profile = profile
         self.mode = mode
         self.camera_index = camera_index
-        # What was ACTUALLY captured from — an index or an IP-cam URL. `camera_index` alone
-        # cannot tell a USB camera from a phone (an env/UI URL override leaves the index at
-        # 0), which makes a corpus impossible to partition by camera after the fact. None =
-        # the caller did not state it; then the field is omitted rather than invented.
+        # What was ACTUALLY captured from: `camera_index` alone cannot tell USB from phone. None =
+        # unstated, and the field is omitted rather than invented.
         self.camera_source = camera_source
-        # Set when the SAVED frames come from a separate high-resolution snapshot URL while
-        # the preview ran over a smaller stream — then this, not `camera_source`, is where the
-        # pixels on disk are from (that is the path behind the 3072x4096 phone sweeps).
+        # Set when the SAVED frames come from a separate high-resolution snapshot URL: then the
+        # pixels on disk come from here, not `camera_source`.
         self.camera_capture_source = camera_capture_source
         self.frame_size = (int(frame_size[0]), int(frame_size[1]))
         self.source_pgn = source_pgn
@@ -86,17 +73,13 @@ class SessionWriter:
         self.created_at = _now_iso()
         self.entries: list[dict] = []
         self._frame_idx = 0
-        # fresh log
         self.log_path.write_text("", encoding="utf-8")
         self._write_session_yaml()
 
     def _write_session_yaml(self) -> None:
 
-        # The session can disappear underneath an open writer: deleting or discarding it in the
-        # UI removes the directory while `COLLECT["writer"]` still points here, and `close()`
-        # then died with FileNotFoundError. Recreating the directory would be worse than
-        # skipping — it resurrects a session that is nothing but a `session.yaml`, with no
-        # frames and no log. There is nothing left to describe, so say so and return.
+        # The directory can vanish under an open writer (deleted in the UI). Recreating it would
+        # resurrect a session of nothing but `session.yaml`, so say so and return.
         if not self.dir.is_dir():
             print(f"[WARN] session {self.session_id}: directory is gone (deleted or discarded) "
                   "— not writing session.yaml.")
@@ -112,13 +95,12 @@ class SessionWriter:
                               else redact_source(self.camera_source)),
             "camera_capture_source": (None if not self.camera_capture_source
                                       else redact_source(self.camera_capture_source)),
-            # `frame_size` is the DELIVERED size (measured on a frame), not a requested mode.
             "frame_size": [self.frame_size[0], self.frame_size[1]],
             "notes": self.notes,
         }
         for k in ("camera_source", "camera_capture_source"):
             if meta[k] is None:
-                del meta[k]                 # unknown is unknown — do not invent a source
+                del meta[k]
         if self.mode == "pgn" and self.source_pgn:
             meta["source_pgn"] = self.source_pgn
         with meta_path(self.dir).open("w", encoding="utf-8") as fh:
@@ -128,9 +110,8 @@ class SessionWriter:
                 corners: list[list[float]] | None = None,
                 labels: dict[str, str] | None = None) -> str:
 
-        # LAUT, nicht uebersprungen: `session.yaml` kann ausfallen, weil es nichts mehr zu
-        # beschreiben gibt — ein Frame ist die Aufnahme selbst. Eine Log-Zeile auf eine Datei, die
-        # es nie gab, faellt erst Wochen spaeter beim Schneiden auf (`session_store.boards.write_board`).
+        # LAUT, nicht uebersprungen: ein Frame ist die Aufnahme selbst, und eine Log-Zeile auf eine
+        # nie geschriebene Datei faellt erst Wochen spaeter beim Schneiden auf.
         if self.jpeg_quality is None:
             rel = f"frames/{self._frame_idx:04d}.png"
             ok = cv2.imwrite(str(self.dir / rel), frame)
@@ -142,22 +123,20 @@ class SessionWriter:
             raise OSError(f"session {self.session_id}: could not write frame {rel}")
         size = (int(frame.shape[1]), int(frame.shape[0]))
         if self._frame_idx == 0 and size != self.frame_size:
-            # The FILES decide what `frame_size` means. A high-resolution snapshot source
-            # saves bigger pixels than the preview the size was measured on, and a profile's
-            # `frame_size` can simply be from another mode — either way the metadata would
-            # describe frames that are not on disk.
+            # The FILES decide `frame_size`: a snapshot source or a profile from another mode would
+            # otherwise describe frames that are not on disk.
             print(f"[INFO] session {self.session_id}: frames are {size[0]}x{size[1]}, "
                   f"not {self.frame_size[0]}x{self.frame_size[1]} — recording the real size.")
             self.frame_size = size
             self._write_session_yaml()
         entry = {"frame": rel, "ply": ply, "fen": fen, "ts": _now_iso(), "move_san": move_san}
         if corners is not None:
-            # Board corners (a8,h8,h1,a1) in frame pixels, verified live at capture time.
-            # `slice` warps the exact same geometry from these (instead of re-detecting).
+            # Board corners (a8,h8,h1,a1) in frame pixels, verified live: `slice` warps exactly
+            # these.
             entry["corners"] = [[float(x), float(y)] for x, y in corners]
         if labels is not None:
-            # Explicit per-square labels (Inference/Active-Learning): `slice` uses these instead
-            # of FEN derivation. Allows classes like `occluded` that don't exist in FEN.
+            # Explicit per-square labels override FEN derivation, including classes the FEN lacks
+            # (`occluded`).
             entry["labels"] = {str(k): str(v) for k, v in labels.items()}
         self.entries.append(entry)
         append_rows(self.log_path, [entry])
@@ -181,11 +160,8 @@ class SessionWriter:
         return len(self.entries)
 
     def close(self, notes: str | None = None) -> bool:
-        """Finish the session. Returns True when it was DISCARDED for being empty.
-
-        `__init__` creates the directory and writes `session.yaml` before anything is captured,
-        so merely opening the collect page used to leave a session behind. One that captured
-        nothing has nothing to park: no frames, no log rows, no pixels. It is removed.
+        """Finish the session. Returns True when it was DISCARDED for being empty (the directory and
+        `session.yaml` exist from `__init__` on).
         """
         if notes is not None:
             self.notes = notes
@@ -197,10 +173,8 @@ class SessionWriter:
     def _discard_if_empty(self) -> bool:
         """Remove the session directory iff it holds nothing we would ever want back.
 
-        Deliberately paranoid: this is the one place that deletes under `data/`, where the rule
-        is park-never-delete. It refuses unless the entry list, the log file AND the frames
-        directory are all empty, and it removes the known files by name instead of a blind
-        recursive delete — an unexpected file means something is there, so keep everything.
+        Paranoid: the one place that deletes under `data/`. Entries, log and frames must all be
+        empty, and known files go by name — an unexpected file keeps everything.
         """
 
         if self.entries or not self.dir.is_dir():

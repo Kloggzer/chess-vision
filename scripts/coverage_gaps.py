@@ -42,12 +42,8 @@ def tally(dataset: str, manifest: str = "") -> Counter:
 
 
 def counts(dataset: str, manifest: str = "") -> tuple[Counter, dict]:
-    """Belege je (Figur, Feldfarbe, Helligkeitsband) — und der Nenner, auf dem sie ruhen.
-
-    `coverage is None` heisst NICHT GEMESSEN. Als 0,0 gelesen ging jede ungemessene Zelle als
-    sauber sichtbarer Beleg durch: neun Datensaetze auf der Platte tragen Figurenzellen, die zu
-    100 % ungemessen sind, und fuer die meldete der Bericht einen gedeckten Korpus ohne Deckung.
-    Sie zaehlen weiter mit — aber die Zahl steht daneben, statt im Wort "vorhanden" zu stecken.
+    """Belege je (Figur, Feldfarbe, Helligkeitsband) und ihr Nenner. `coverage is None` heisst NICHT
+    GEMESSEN: diese Zellen zaehlen mit, aber ihre Zahl steht daneben.
     """
     from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
@@ -88,11 +84,8 @@ def gaps(seen: Counter) -> list[dict]:
 
 
 def _session_facts(session_id: str) -> dict:
-    """Was eine Aufnahme ueber Hoehe, Ausrichtung und Pose hergibt.
-
-    138 der 161 `session_id` sind Komposite ohne Aufnahmeordner — die zaehlen unter `unbekannt`,
-    ohne Warnung; das ist ihre Natur, kein Fehler. Eine `rg-`Aufnahme ohne `capture.json` ebenso:
-    nicht erfasst ist nicht dasselbe wie erfasst und normal.
+    """Was eine Aufnahme ueber Hoehe, Ausrichtung und Pose hergibt. Komposite ohne Ordner und `rg-`
+    ohne `capture.json` zaehlen unter `unbekannt`, ohne Warnung.
     """
     rec = REC / session_id.removeprefix("rg-")
     out: dict = {"height": UNKNOWN, "by_ply": {}, "pose": {}}
@@ -110,7 +103,7 @@ def _session_facts(session_id: str) -> dict:
     if log.is_file():
         for row in read_jsonl(log):
             if row.get("corners"):
-                # Der Manifest-Frame ist der STAMM, das obere Log traegt `frames/000117.png`.
+                # Der Manifest-Frame ist der STAMM, das Log traegt `frames/000117.png`.
                 out["pose"][Path(str(row["frame"])).stem] = pose_of(row["corners"])
     return out
 
@@ -121,11 +114,8 @@ def _bucket(value: float, step: float) -> str:
 
 
 def axes(dataset: str, manifest: str = "") -> dict:
-    """Hoehe je Aufnahme, Ausrichtung je PLY, Pose je FRAME — drei verschiedene Verbunde.
-
-    Der Nenner ist ein anderer als bei `gaps`: dort zaehlen nur sichtbare Figurenzellen, hier
-    ALLE Manifestzeilen, weil Hoehe und Winkel Eigenschaften der Aufnahme sind und nicht der
-    Zelle. `rows_counted` macht das explizit, damit niemand die Bloecke gegeneinander rechnet.
+    """Hoehe je Aufnahme, Ausrichtung je PLY, Pose je FRAME. Der Nenner sind ALLE Manifestzeilen,
+    nicht wie bei `gaps` sichtbare Figurenzellen — `rows_counted` sagt es.
     """
     facts: dict[str, dict] = {}
     height: Counter = Counter()

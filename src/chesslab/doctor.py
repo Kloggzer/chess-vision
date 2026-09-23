@@ -1,12 +1,7 @@
-"""Stage 0 — Pre-flight environment validation.
+"""Stage 0 — pre-flight validation (no installs): Python, app deps, the ROCm/PyTorch GPU stack.
 
-Validates (does NOT install) Python, app dependencies, the ROCm/PyTorch GPU stack
-(AMD Radeon RX 7900 XTX) and the lens state. Reports PASS/WARN/FAIL per check with
-remediation hints. `validate_gpu()` is the reusable path Stage 5 (`train`) calls before
-training so it aborts loudly instead of silently falling back to CPU.
-
-Heavy/optional imports (cv2, torch) are done lazily inside functions so this module is
-importable — and unit-testable — even when those packages are absent.
+`validate_gpu()` lets `train` abort loudly instead of silently falling back to CPU. cv2/torch are
+imported lazily so the module imports without them.
 """
 
 from __future__ import annotations
@@ -27,8 +22,6 @@ class Check:
     detail: str
 
 
-# --- A) Base checks (always) ----------------------------------------------------------
-
 def check_python() -> Check:
     v = sys.version_info
     s = f"{v.major}.{v.minor}.{v.micro}"
@@ -37,7 +30,6 @@ def check_python() -> Check:
     return Check("python.version", FAIL, f"{s} < 3.11 — Python 3.11+ required.")
 
 
-# (import-name, distribution-name) for the mandatory app dependencies.
 _APP_DEPS: list[tuple[str, str]] = [
     ("cv2", "opencv-python"),
     ("numpy", "numpy"),
@@ -71,8 +63,6 @@ def base_checks() -> list[Check]:
     return [check_python(), *check_app_deps(), check_data_dirs()]
 
 
-# --- B) GPU / ROCm checks (--gpu) -----------------------------------------------------
-
 def gpu_checks() -> list[Check]:
     checks: list[Check] = []
 
@@ -91,7 +81,7 @@ def gpu_checks() -> list[Check]:
 
     ver = str(getattr(torch, "__version__", "?"))
 
-    # 1. ROCm vs CUDA build (most common pitfall)
+    # ROCm vs CUDA build (the most common pitfall)
     if "+rocm" in ver:
         checks.append(Check("torch.rocm_build", PASS, ver))
     elif "+cu" in ver:
@@ -106,7 +96,6 @@ def gpu_checks() -> list[Check]:
     else:
         checks.append(Check("torch.rocm_build", WARN, f"Version without +rocm/+cu suffix ({ver}); build unclear."))
 
-    # 2. HIP confirms ROCm build
     hip = getattr(torch.version, "hip", None)
     cuda_ver = getattr(torch.version, "cuda", None)
     if hip:
@@ -116,7 +105,7 @@ def gpu_checks() -> list[Check]:
             Check("torch.version.hip", FAIL, f"torch.version.hip is None (cuda={cuda_ver}) -> no ROCm build.")
         )
 
-    # 3. is_available (ROCm reuses the torch.cuda.* API on purpose)
+    # ROCm reuses the torch.cuda.* API on purpose
     try:
         avail = bool(torch.cuda.is_available())
     except Exception as e:  # noqa: BLE001
@@ -138,14 +127,13 @@ def gpu_checks() -> list[Check]:
         checks.append(Check("gpu.compute", FAIL, "skipped — no usable GPU."))
         return checks
 
-    # 4. device_count
     try:
         n = int(torch.cuda.device_count())
         checks.append(Check("torch.cuda.device_count", PASS if n >= 1 else FAIL, str(n)))
     except Exception as e:  # noqa: BLE001
         checks.append(Check("torch.cuda.device_count", FAIL, repr(e)))
 
-    # 5. device name (generic name -> WARN, not FAIL)
+    # a generic device name is WARN, not FAIL
     try:
         name = str(torch.cuda.get_device_name(0))
         if any(k in name for k in ("7900", "Radeon", "AMD")):
@@ -155,7 +143,6 @@ def gpu_checks() -> list[Check]:
     except Exception as e:  # noqa: BLE001
         checks.append(Check("gpu.name", WARN, repr(e)))
 
-    # 6. total memory (~24 GB erwartet, >= 20 GB Schwelle)
     try:
         total = int(torch.cuda.get_device_properties(0).total_memory)
         gib = total / (1024 ** 3)
@@ -163,7 +150,7 @@ def gpu_checks() -> list[Check]:
     except Exception as e:  # noqa: BLE001
         checks.append(Check("gpu.memory", WARN, repr(e)))
 
-    # 7. Echter Compute-Test (der entscheidende)
+    # Echter Compute-Test: der entscheidende
     try:
         import math
 
@@ -185,7 +172,6 @@ def gpu_checks() -> list[Check]:
             )
         )
 
-    # 8. Optional system check (info only)
     checks.extend(_rocm_system_info())
     return checks
 
@@ -216,8 +202,6 @@ def validate_gpu() -> tuple[bool, list[Check]]:
     ok = not any(c.status == FAIL for c in checks)
     return ok, checks
 
-
-# --- Reporting ------------------------------------------------------------------------
 
 _GLYPH = {PASS: "[PASS]", WARN: "[WARN]", FAIL: "[FAIL]"}
 

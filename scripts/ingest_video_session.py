@@ -1,22 +1,9 @@
 """Import a VIDEO of the physical board as a normal chesslab session.
 
-Use case (2026-07-21): the user films the EMPTY board while varying the lighting —
-each usable frame yields 64 auto-labeled `empty` crops across many light levels,
-exactly the hard-negative material the dark-square/empty domain gap needs. Works for
-any fixed position, not just the empty board (pass --fen).
-
-Per sampled frame the board corners are re-detected from the ArUco markers (frames
-without a confident detection are skipped and counted). The result is a standard
-session directory (frames/ + log.jsonl + session.yaml), so the whole existing
-pipeline applies afterwards:
+Corners are re-detected per sampled frame; the result is a standard session directory:
 
     python scripts/ingest_video_session.py board.mp4 --profile phone
-    # then: uv run chesslab slice --session <printed sid>
-    #       include the sid in the next `dataset build` session list
-
-Frames are stored RAW (no lens remap) — consistent with live capture, which also
-feeds raw frames to slicing (lens state is recorded in session.yaml by SessionWriter).
-"""
+    # then: uv run chesslab slice --session <printed sid>"""
 
 from __future__ import annotations
 
@@ -46,30 +33,9 @@ EMPTY_FEN = "8/8/8/8/8/8/8/8 w - - 0 1"
 def raw_corners(frame, profile, min_markers: int = 4):
     """Board corners from THIS frame's markers alone — no tracker, no smoothing, no seed.
 
-    `board_corners_for_frame` goes through a `MarkerTracker`, which is right for a fixed camera and
-    wrong for a MOVING board. It freezes any marker that moved less than `move_threshold`, EMA-
-    smooths the rest, and falls back to a profile `seed` for markers it has not seen live. While the
-    board rotates, the four markers travel at different speeds — their distance to the centre of
-    rotation differs — so the EMA lags by a different amount per marker and the quad comes out
-    sheared by a few degrees. Measured on the 2026-07-31 rotation video: frame 0 (the calibration
-    pose) rectifies perfectly, every rotated frame lands a few degrees off with the board's edge
-    labels inside the crop area.
-
-    Returns None when fewer than `min_markers` resolve, so a frame is skipped rather than warped
-    through a guess. That sentence was in this docstring since it was written and was NOT true:
-    `resolve_board_corners` answers from two markers up, silently degrading to an affine
-    parallelogram at three and a similarity at two, and the `res[0]` here took whatever came back.
-
-    It cost a full day on 2026-08-03. The 2026-08-02 game video has its fourth marker clipped by
-    the right image border, so exactly three ever decode; every frame was warped through an affine
-    reconstruction of a PERSPECTIVE view, which cannot be right by construction. The quality
-    measurement did not catch it because it compares each frame's quad against the MEDIAN of the
-    same quads: a consistently wrong quad has excellent spread (p90 0.93 px), and "99.9 % of frames
-    yielded a quad" counted the guesses. Precision, reported as accuracy.
-
-    `n_used` is returned alongside so a caller can say WHICH degradation it is accepting. Nothing
-    may report a detection rate without it.
-    """
+    A `MarkerTracker` shears the quad of a MOVING board (per-marker EMA lag).
+    `resolve_board_corners` degrades silently (affine at three, similarity at two), so `n_used`
+    comes back with it."""
     det = detect_board_markers(frame, profile.marker_dict, corner="center")
     res = resolve_board_corners(det, board_size=profile.board_size)
     if res is None or res[1] < min_markers:
@@ -78,11 +44,8 @@ def raw_corners(frame, profile, min_markers: int = 4):
 
 
 def report_alignment(sid: str, profile) -> None:
-    """Print the per-frame square-offset distribution of the session just written.
-
-    Run here rather than left to a separate command because a sheared warp is invisible everywhere
-    else: the frame count, the crop count and the corner count all look healthy while every crop
-    straddles two squares. Seeing the distribution at import is the cheapest moment to notice.
+    """Print the per-frame square-offset distribution: a sheared warp is invisible in every count,
+    and import is the cheapest moment to notice.
     """
     import numpy as np
     from check_alignment import frame_offsets, judge
@@ -149,9 +112,9 @@ def main() -> None:
     profile = load_profile(args.profile)
     tracker = make_tracker(profile)
 
-    sid = time.strftime("%Y%m%d-%H%M%S")            # standard camera-session id format
+    sid = time.strftime("%Y%m%d-%H%M%S")
     if (config.DATA.sessions / sid).exists():
-        # `SessionWriter` leert `log.jsonl` und ueberschreibt `frames/0000.*` einer fremden Aufnahme.
+        # `SessionWriter` leert `log.jsonl` und ueberschreibt die Frames einer fremden Aufnahme.
         raise SystemExit(f"session {sid} exists already — refusing to overwrite it")
     writer = None
     n_read = n_sampled = n_kept = n_nocorners = 0

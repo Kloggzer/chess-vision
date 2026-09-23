@@ -1,4 +1,4 @@
-"""Funde vom 2026-09-21 im Trainingsweg — je ein Test, der OHNE den Fix rot ist."""
+"""Funde im Trainingsweg — je ein Test, der OHNE den Fix rot ist."""
 
 from __future__ import annotations
 

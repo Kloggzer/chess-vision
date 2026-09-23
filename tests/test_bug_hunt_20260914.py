@@ -1,4 +1,4 @@
-"""Red regression proofs from the 2026-09-14 repository audit."""
+"""Red regression proofs from a repository audit."""
 
 from __future__ import annotations
 
@@ -10,12 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_a_numbering_gap_deliberately_ends_the_chain(tmp_path):
-    """WIDERLEGT (2026-09-14): der Abbruch an der Luecke ist Absicht, nicht Datenverlust.
-
-    Ein Audit meldete, `recording-002.mp4` gehe hinter einem fehlenden `-001` still verloren.
-    `tests/test_recording.py` haelt die Gegenregel seit je fest: ein Segment hinter einer Luecke
-    gehoert NICHT zu dieser Aufnahme. Der Gesamt-Index entsteht durch Aneinanderhaengen, ein
-    uebersprungenes Segment verschoebe ihn gegen jeden frueheren Lauf.
+    """WIDERLEGT: der Abbruch an der Luecke ist Absicht — ein Segment hinter einer Luecke gehoert
+    NICHT zu dieser Aufnahme, sonst verschoebe sich der Gesamt-Index gegen jeden frueheren Lauf.
     """
     video = tmp_path / "video.mp4"
     later = tmp_path / "video-002.mp4"

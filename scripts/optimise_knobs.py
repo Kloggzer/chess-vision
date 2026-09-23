@@ -34,22 +34,18 @@ BINARY = ROOT / "android/desktop/build/install/desktop/bin/desktop.bat"
 DESKTOP = ROOT / "android/desktop"
 OUT = ROOT / "tmp/batch/optimise-knobs"
 TRIALS = OUT / "trials.jsonl"
-#: Die visuellen Beobachtungen EINER Aufnahme, einmal gebaut und von allen Versuchen gelesen.
-#: Gemessen 42,7 -> 12,5 s je Lauf (3,4x), 6 MB je Aufnahme. Der Kopf traegt Video, Modell und
-#: eine Signatur ueber Geometrie, Quad und Ausrichtung — ein fremder Cache kann nicht still
-#: gelesen werden. `docs/desktop-replay.md`.
+#: Die visuellen Beobachtungen EINER Aufnahme, einmal gebaut (42,7 -> 12,5 s je Lauf); der Kopf
+#: traegt eine Signatur, ein fremder Cache wird nie still gelesen.
 VISUAL = OUT / "visual"
 
-#: Racing sortiert nach AUSSIEBEN je Sekunde, nicht nach Laenge: `222741` erledigte 6 von 7
-#: Fehlversuchen, stand aber an siebter Stelle — ein Abbruch kostete 37 072 statt 9 576 Frames.
-#: Gesucht wird auf diesen fuenf (20 572 Frames), bestaetigt auf allen zehn (`--voll`).
+#: Sortiert nach AUSSIEBEN je Sekunde, nicht nach Laenge. Gesucht auf fuenf, bestaetigt auf allen
+#: zehn (`--voll`).
 RECORDINGS = ["VID_20260802_222741", "2026-08-08-11-55-19", "VID_20260727_233929",
               "VID_20260726_233432", "VID_20260824_153751"]
 VOLL = RECORDINGS + ["VID_20260802_222203", "2026-08-07-13-52-38", "2026-08-08-00-39-57",
                      "VID_20260824_154327", "2026-08-08-11-59-12"]
 
-#: Die vier Knoepfe, die im Screening die Groessenordnung tragen, plus zwei aus dem Mittelfeld.
-#: Grenzen etwas weiter als die Screening-Raender, damit das Optimum nicht auf der Kante liegt.
+#: Die vier tragenden Knoepfe plus zwei aus dem Mittelfeld, Grenzen etwas weiter als im Screening.
 SPACE: dict[str, tuple[float, float]] = {
     "motionThr": (0.20, 0.60),
     "motionPxThr": (18.0, 45.0),
@@ -60,24 +56,20 @@ SPACE: dict[str, tuple[float, float]] = {
 }
 GANZZAHLIG = {"maxChanged"}
 
-#: Die Regel, unter der eine Zeile gemessen wurde. Ein Versuch, den die ALTE Regel als
-#: unzulaessig verworfen hat, sagt unter der neuen nichts -- ihn zurueckzuspielen zoege TPE aus
-#: einer Region weg, die jetzt erlaubt ist. Hochzaehlen, wenn sich eine Nebenbedingung aendert.
+#: Die Regel, unter der eine Zeile gemessen wurde: alte Verwerfungen zoegen TPE aus jetzt erlaubten
+#: Regionen. Hochzaehlen, wenn sich eine Nebenbedingung aendert.
 REGEL = "w4b-alarmbudget"
 
 #: So viele Kandidaten der Suche werden auf dem vollen Satz nachgefahren.
 BESTAETIGEN = 3
 
-#: Zwei Threads haengen sonst beim Anhaengen ineinander. Der Lauf selbst ist ein Unterprozess,
-#: der das GIL freigibt — die Parallelitaet kostet also nichts ausser diesem Riegel.
+#: Zwei Threads haengen sonst ineinander; der Lauf selbst ist ein Unterprozess.
 SCHREIBEN = threading.Lock()
 
 FOUND = re.compile(r"^\s{4}(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)\s+\((\w+)\)", re.M)
 TALLY = re.compile(r"^  (invented|beyond) (\d+)", re.M)
 
-#: Gezaehlt wird die EPISODE, nicht die abgelehnte Entscheidung. `replay-regression.ps1` zaehlt
-#: `ALARM latched`-Zeilen, also Entscheidungen unter einem stehenden Latch — danach sah der
-#: Champion mit 7 gegen 5 schlechter aus, waehrend er die Episoden von 15 auf 8 senkte.
+#: Gezaehlt wird die EPISODE, nicht die abgelehnte Entscheidung unter einem stehenden Latch.
 ALARM = re.compile(r"board desynced")
 
 
@@ -85,8 +77,7 @@ def replay(rec: str, config: dict[str, float], tag: str) -> dict:
     """Ein Lauf auf einer Aufnahme. Gibt Treffer, Phantome und die Summe der Latenzen zurueck."""
     OUT.mkdir(parents=True, exist_ok=True)
     sets = [f"set:{k}={int(v) if k in GANZZAHLIG else v}" for k, v in config.items()]
-    # `visualcache-partial`: der Beobachter sieht hoechstens jeden zweiten Frame, ein Cache ist
-    # also nie lueckenlos — was fehlt, wird gerechnet statt zu werfen.
+    # Der Beobachter sieht hoechstens jeden zweiten Frame, ein Cache ist nie lueckenlos.
     cache = ["visualcache=" + str(VISUAL / f"{rec}.visual"), "visualcache-partial"]
     proc = subprocess.run(
         [str(BINARY), "replay", str(ROOT / f"data/recordings/{rec}/video.mp4"),
@@ -95,9 +86,8 @@ def replay(rec: str, config: dict[str, float], tag: str) -> dict:
     (OUT / f"{tag}--{rec}.log").write_text(proc.stdout, encoding="utf-8", newline="\n")
     plies = FOUND.findall(proc.stdout)
     tally = {k: int(v) for k, v in TALLY.findall(proc.stdout)}
-    # Ohne Vergleichsblock hat der Lauf NICHTS gemessen. Als `found=0` gelesen wurde daraus eine
-    # Nebenbedingungs-Verletzung, die TPE als unzulaessige Region lernt -- und als Basiszeile
-    # haette sie jede spaetere Pruefung stillgelegt. Wie `screen_knobs.run_arm` laut abweisen.
+    # Ohne Vergleichsblock hat der Lauf NICHTS gemessen; als `found=0` lernte TPE daraus eine
+    # unzulaessige Region.
     if "invented" not in tally:
         raise RuntimeError(f"{tag}--{rec}: kein Ergebnisblock im Log (rc={proc.returncode}) — "
                            f"der Lauf ist nicht gemessen, nicht null: {proc.stderr[-300:]}")
@@ -114,8 +104,8 @@ def race(config: dict[str, float], base: dict[str, dict], tag: str,
     """Aufnahme fuer Aufnahme, Abbruch beim ersten Verstoss — die Werte bleiben aber erhalten."""
     recs = recs or RECORDINGS
     latency, started = 0, time.time()
-    # Der Vergleich laeuft gegen die Summe ueber ALLE Aufnahmen des Rennens: ein frueher Abbruch
-    # ist nur dann richtig, wenn keine spaetere Aufnahme den Ueberschuss mehr einsparen kann.
+    # Gegen die Summe ueber ALLE Aufnahmen des Rennens: ein Abbruch ist nur richtig, wenn keine
+    # spaetere den Ueberschuss einsparen kann.
     alarme, budget = 0, sum(base[r]["alarme"] for r in recs)
     for i, rec in enumerate(recs):
         run = replay(rec, config, tag)
@@ -127,9 +117,8 @@ def race(config: dict[str, float], base: dict[str, dict], tag: str,
             return {"status": "verlust", "at": rec, "nach": i + 1, "sec": sec,
                     "fehlt": base[rec]["found"] - run["found"], "phantome": 0, "latency": 0}
         alarme += run["alarme"]
-        # Alarme sind ein BUDGET ueber den Satz, kein Veto je Aufnahme -- anders als Treffer.
-        # Belegt am eigenen Champion: er holt sich eine Episode in 00-39-57 und spart acht in
-        # 222203, netto 15 -> 8. Die Regel je Aufnahme haette ihn verworfen.
+        # Alarme sind ein BUDGET ueber den Satz, kein Veto je Aufnahme — der Champion spart netto 15
+        # -> 8.
         if alarme > budget:
             return {"status": "alarm", "at": rec, "nach": i + 1, "sec": sec, "fehlt": 0,
                     "phantome": 0, "latency": 0, "extra_alarme": alarme - budget}
@@ -138,27 +127,24 @@ def race(config: dict[str, float], base: dict[str, dict], tag: str,
             "extra_alarme": 0, "sec": round(time.time() - started, 1)}
 
 
-#: Die Netze, die der Regressionssatz NICHT misst: er lieferte 396/3/0/171 mit UND ohne
-#: Verdeckungsschutz. Latenz gewinnt man, indem man Tore aufmacht — also braucht die Freigabe eine
-#: eigene Achse dafuer. `desktop fuzz check` kostet Sekunden, ein Replay Minuten.
+#: Die Netze, die der Regressionssatz NICHT misst (gleiches Ergebnis mit und ohne
+#: Verdeckungsschutz): Latenz gewinnt man durch offene Tore, also eine eigene Achse.
 WACHEN = ("veto:shadow", "veto:occlusion")
 
-#: Einmal je Lauf unter den Vorgabewerten gemessen; nur eine Wache, die HIER feuert, kann
-#: spaeter entwaffnet werden. Gesetzt in `main`, damit der Import nichts startet.
+#: Einmal unter den Vorgabewerten gemessen; nur eine Wache, die HIER feuert, kann entwaffnet werden.
 WACHEN_BASIS: dict[str, int] = {}
 
 
 def wachen(config: dict[str, float]) -> dict[str, int]:
     """Feuern die Vetos unter dieser Konfiguration noch? Synthetisch, ohne Aufnahme."""
-    # OHNE `set:` — das Verb nimmt blanke `<knopf>=<wert>`. Mit Praefix hiess der Knopf
-    # `set:motionThr`, und der Katalog warf; die Basispruefung uebergibt keinen und lief durch.
+    # OHNE `set:`: das Verb nimmt blanke `<knopf>=<wert>`, mit Praefix warf der Katalog.
     words = [f"{k}={v}" for k, v in config.items()]
     proc = subprocess.run([str(BINARY), "fuzz", "check", *words], cwd=DESKTOP,
                           capture_output=True, text=True, errors="replace", check=False)
     letzte = [z for z in proc.stdout.splitlines() if "veto:" in z]
     if not letzte:
-        # Der .bat-Rahmen verschluckt den Exit-Code einer geworfenen Ausnahme, also traegt die
-        # Meldung stderr mit: sonst steht hier eine leere Zeile und niemand weiss, warum.
+        # Der .bat-Rahmen verschluckt den Exit-Code einer Ausnahme, also traegt die Meldung stderr
+        # mit.
         raise RuntimeError(f"fuzz check lieferte keine Achsen (rc={proc.returncode}): "
                            f"{proc.stdout[-200:]} | {proc.stderr[-400:]}")
     return {t.split("=")[0]: int(t.split("=")[1]) for t in letzte[-1].split()}
@@ -171,8 +157,7 @@ def entwaffnet(config: dict[str, float], basis: dict[str, int]) -> list[str]:
 
 
 def constraints(trial: optuna.trial.FrozenTrial) -> tuple[float, float, float]:
-    """<= 0 heisst zulaessig. Alle vier sind HART: kein verlorener Treffer, kein Phantom,
-    kein entwaffnetes Veto, kein zusaetzlicher Alarm."""
+    """<= 0 heisst zulaessig. Alle vier sind HART."""
     return (trial.user_attrs.get("fehlende_treffer", 0.0),
             trial.user_attrs.get("phantome", 0.0),
             trial.user_attrs.get("entwaffnet", 0.0),
@@ -185,7 +170,7 @@ def objective(trial: optuna.Trial, base: dict[str, dict], strafe: float) -> floa
                else round(trial.suggest_float(name, lo, hi), 4))
         for name, (lo, hi) in SPACE.items()
     }
-    # VOR dem Racing: eine entwaffnete Wache spart fuenf Replays und ist ohnehin unzulaessig.
+    # VOR dem Racing: eine entwaffnete Wache spart fuenf Replays.
     tot = entwaffnet(config, WACHEN_BASIS)
     if tot:
         row = {"status": "entwaffnet", "at": ",".join(tot), "nach": 0, "sec": 0.0,
@@ -205,10 +190,8 @@ def objective(trial: optuna.Trial, base: dict[str, dict], strafe: float) -> floa
 
 
 def bestaetige(done: list[dict], base: dict[str, dict]) -> int:
-    """Die besten Kandidaten der Suche auf ALLEN zehn Aufnahmen nachfahren.
-
-    Die Suche laeuft auf fuenf, weil das viermal billiger ist; ob ein Gewinn dort auch auf den
-    anderen fuenf traegt, ist eine eigene Frage und keine Rechnung.
+    """Die besten Kandidaten auf ALLEN zehn Aufnahmen nachfahren: ob ein Gewinn auf fuenf auch auf
+    den anderen traegt, ist eine eigene Frage.
     """
     fehlt = [r for r in VOLL if r not in base]
     if fehlt:
@@ -241,11 +224,10 @@ def main() -> int:
     args = ap.parse_args()
 
     done = list(read_jsonl(TRIALS)) if TRIALS.exists() else []
-    # Eine Basiszeile von VOR der Alarm-Bedingung traegt keine Alarmzahl. Sie stehen zu lassen
-    # haette die Bedingung lautlos abgeschaltet — also fallen sie raus und werden neu gemessen.
+    # Eine Basiszeile ohne Alarmzahl schaltete die Bedingung lautlos ab: neu messen.
     base = {r["rec"]: r for r in done if r.get("kind") == "basis" and "alarme" in r}
-    # NACHEINANDER, vor den parallelen Versuchen: zwei Prozesse, die denselben Cache gleichzeitig
-    # anlegen, streiten sich um dieselbe `.partial`-Datei.
+    # NACHEINANDER: zwei Prozesse, die denselben Cache anlegen, streiten um dieselbe
+    # `.partial`-Datei.
     VISUAL.mkdir(parents=True, exist_ok=True)
     for rec in (VOLL if args.voll else RECORDINGS):
         if not (VISUAL / f"{rec}.visual").exists():
@@ -265,8 +247,7 @@ def main() -> int:
             base[rec] = row
             print(f"   {rec:22s} found={row['found']} inv={row['invented']} "
                   f"lat={row['latency']:+}", flush=True)
-    # NUR ueber die Suchaufnahmen: `base` traegt auch die fuenf, die erst `--voll` braucht, und
-    # ein Massstab aus zehn Aufnahmen gegen ein Ergebnis aus fuenf waere schlicht falsch.
+    # NUR ueber die Suchaufnahmen: ein Massstab aus zehn gegen ein Ergebnis aus fuenf waere falsch.
     WACHEN_BASIS.update(wachen({}))
     print("Wachen unter Vorgabe: "
           + " ".join(f"{a}={WACHEN_BASIS.get(a, 0)}" for a in WACHEN), flush=True)
@@ -279,23 +260,17 @@ def main() -> int:
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=args.seed, constraints_func=constraints),
         storage=f"sqlite:///{(OUT / 'study.db').as_posix()}",
-        # Der Name traegt die BEDINGUNGEN mit, nicht nur den Aufnahmesatz. `w4b`: dieselben vier
-        # Achsen, aber Alarme als Budget ueber den Satz statt als Veto je Aufnahme — was unter
-        # `w4` unzulaessig hiess, kann jetzt zulaessig sein, die Studien sind nicht mischbar.
+        # Der Name traegt die BEDINGUNGEN (`w4b`: Alarme als Budget): Studien unter anderen Regeln
+        # sind nicht mischbar.
         study_name=f"latenz5-{REGEL}", load_if_exists=True,
     )
-    # Unzulaessige Versuche brauchen EINEN Zielwert. Die Strafe liegt weit ueber jedem echten
-    # Ergebnis, damit sie die Verteilung nicht verzerrt — entschieden wird ueber `constraints`.
+    # Unzulaessige Versuche brauchen EINEN Zielwert, weit ueber jedem echten; entschieden wird ueber
+    # `constraints`.
     strafe = abs(basis_lat) * 10 + 100_000.0
-    # Warmstart: die zulaessigen Konfigurationen des Zehn-Satz-Laufs sind teuer erkauft und
-    # bleiben als Startpunkte gueltig, auch wenn ihre Zielwerte es nicht sind.
+    # Warmstart: die teuer erkauften zulaessigen Konfigurationen bleiben als Startpunkte gueltig.
     if not study.trials:
-        # Die ganze Geschichte zurueckspielen, nicht nur die Besten: TPE lernt aus den
-        # GESCHEITERTEN mit, und `trials.jsonl` haelt sie alle. Ein geleerter Studienspeicher
-        # kostet damit nichts ausser dem Zurueckspielen.
-        # NUR Zeilen derselben REGEL. Eine aeltere ist entweder ungeprueft (dann waere
-        # "unbekannt als zulaessig" der teuerste Irrtum) oder unter einer anderen Regel verworfen
-        # (dann zoege sie TPE aus einer Region weg, die jetzt offensteht).
+        # Die ganze Geschichte zurueckspielen, auch die GESCHEITERTEN (TPE lernt daraus), aber NUR
+        # Zeilen derselben REGEL.
         alt = [x for x in done if x.get("kind") == "suche" and "config" in x
                and x.get("regel") == REGEL]
         for r in alt:

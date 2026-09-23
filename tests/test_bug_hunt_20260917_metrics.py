@@ -1,4 +1,4 @@
-"""Metrik-Jagd 2026-09-17: Metriknamen gegen die Zellmenge, ueber die sie rechnen."""
+"""Metrik-Jagd: Metriknamen gegen die Zellmenge, ueber die sie rechnen."""
 from __future__ import annotations
 
 import pytest

@@ -37,8 +37,8 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     from .occlusion import CELL_DARK_MIN
 
     want, hit = cov_true > 0.5, cov_pred > 0.5
-    # Zweiter Grund, dieselbe Zelle nicht zu benoten: zu dunkel zum Lesen. Die Metrik haengt an
-    # der KONSTANTE, nicht am Lauf-Flag — sonst waeren zwei Laeufe nicht mehr vergleichbar.
+    # Die Metrik haengt an der KONSTANTE, nicht am Lauf-Flag, sonst waeren Laeufe nicht
+    # vergleichbar.
     bright = np.array([brightness_of(r) for r in val_rows], dtype=float)
     visible = (cov_true <= visible_max) & (bright >= CELL_DARK_MIN)
     true_occ = true_cls != classes.index("empty")
@@ -57,17 +57,15 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     vis_occ_n = int(vis_occ.sum())
     return {
         "val_coverage_mae": float(np.abs(cov_pred - cov_true).mean()),
-        # Leerer Nenner ist `nan` wie bei den `val_visible_*` darunter: EINE Schreibweise je
-        # Datei, und `metrics.jsonl` hat sie schon — 0,0 hiesse "nichts gefunden" statt
-        # "nichts zu finden". `sweep_report`/`compare_arms` lesen die Spalte bereits als `nan`.
+        # Leerer Nenner ist `nan` wie bei den `val_visible_*`: 0,0 hiesse "nichts gefunden" statt
+        # "nichts zu finden".
         "val_coverage_recall": occ_tp / occ_want if occ_want else float("nan"),
         "val_coverage_precision": occ_tp / occ_hit if occ_hit else float("nan"),
         "val_visible_acc": float((pred_cls[visible] == true_cls[visible]).mean())
         if vis_n else float("nan"),
         "val_visible_occupied_acc": float((pred_occ[visible] == true_occ[visible]).mean())
         if vis_n else float("nan"),
-        # Die Figurenachse, die `CHECKPOINT_WEIGHTS` benotet. `val_piece_acc` daneben zaehlt
-        # verdeckte Zellen mit und haengt damit am Verdeckungsanteil des Splits, nicht am Modell.
+        # `val_piece_acc` zaehlt verdeckte Zellen mit und haengt damit am Split, nicht am Modell.
         "val_visible_piece_acc": float((pred_cls[vis_occ] == true_cls[vis_occ]).mean())
         if vis_occ_n else float("nan"),
         "val_visible_occupied_n": vis_occ_n,
@@ -82,11 +80,8 @@ def score_epoch(val: dict, score_rows: list[dict], classes: list[str]):
     """`(vis_conf, auroc, breakdown, score)` einer Epoche — `score` waehlt den Checkpoint."""
     true_labels = val["trues"].tolist()
     pred_labels = val["preds"].tolist()
-    # Auf denselben Zellen wie die Genauigkeits-Terme: verdeckte Zellen irren zu 55-63 %,
-    # dabei aber unsicher — sie druecken conf_wrong um acht Punkte und schoenen damit
-    # genau das Mass, das ueberzeugte Fehler aufdecken soll (gemessen 2026-08-24).
-    # Die Vorhersagen folgen der Reihenfolge des DATENSATZES, nicht der von `val_rows`:
-    # der Brettdatensatz behaelt nur vollstaendige Bretter und sortiert sie nach Feld.
+    # Auf denselben Zellen wie die Genauigkeit: verdeckte Zellen irren zu 55-63 %, aber unsicher,
+    # und schoenen conf_wrong. Reihenfolge des DATENSATZES (Brettdatensatz sortiert).
     vis_conf = visible_confidence(score_rows, true_labels, pred_labels, val.get("conf") or [])
     auroc = confidence_auroc(*vis_conf)
     _, bd = checkpoint_metrics(score_rows, classes, true_labels, pred_labels,
@@ -120,17 +115,16 @@ def epoch_record(epoch: int, train_loss: float, val: dict, bd: dict, vis_conf, a
         "val_occupied_acc": bd["visible_occupied_acc"],
         "val_occupied_board_acc": bd["occupied_board_acc"],
         "val_piece_acc": bd["visible_piece_acc"],
-        # Die Zahl, die zwei gleich genaue Modelle trennt: ueberzeugte Fehler brechen
-        # die Dekodierung, unsichere lassen sich korrigieren.
+        # Ueberzeugte Fehler brechen die Dekodierung, unsichere lassen sich korrigieren.
         "val_conf_wrong": _conf_mean(vis_conf, wrong=True),
         "val_conf_auroc": auroc,
         "val_conf_right": _conf_mean(vis_conf, wrong=False),
-        # TODO: das ist `visible_piece_acc`, also dieselbe Zahl wie `val_piece_acc` eine
-        # Zeile hoeher — der gewichtete Score aus CHECKPOINT_WEIGHTS wird in `_` verworfen.
+        # TODO: das ist `visible_piece_acc`, dieselbe Zahl wie `val_piece_acc`; der gewichtete Score
+        # wird verworfen.
         "val_checkpoint_score": score[0],
         "lr": lr,
-        # Where the wall clock went. Without it "the GPU idles between epochs" is a guess:
-        # the eval loader, the metric block and the checkpoint are three different suspects.
+        # Where the wall clock went: eval loader, metric block and checkpoint are three different
+        # suspects.
         **timings,
     }
     if occ_diag:

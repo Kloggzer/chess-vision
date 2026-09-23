@@ -1,20 +1,10 @@
-"""Die um ein Ply versetzten Frames ueber `corrections.jsonl` geradeziehen.
+"""Die um ein Ply versetzten Frames (`scan_ply_offset.py`) ueber `corrections.jsonl` geradeziehen:
+nur die ZWEI Felder, die der Zug bewegt.
 
-`scripts/scan_ply_offset.py` findet Frames, deren Brett die Stellung NACH dem Zug zeigt, waehrend
-die FEN die davor traegt — Ursache ist die Commit-Latenz (dort dokumentiert). Betroffen sind nur
-die ZWEI Felder, die der Zug bewegt; der Rest des Bretts stimmt. Statt den Frame zu verwerfen
-schreibt diese Korrektur genau diese Zellen um.
+Nur Frames mit >= 2 Zellen Gewinn, je Feld nur mit Zustimmung des MODELLS, nie ueber ein
+menschliches Urteil. Ohne `--apply` nur ein Bericht.
 
-Drei Sicherungen, weil eine falsche Korrektur schlimmer ist als ein falsches Label:
-  * nur Frames mit >= 2 Zellen Gewinn — ein Ply aendert immer zwei Felder, ein Gewinn von 1 ist
-    von Modellrauschen nicht zu trennen;
-  * je Feld nur, wenn das MODELL der neuen FEN dort zustimmt;
-  * niemals ueber eine bestehende Korrektur eines Menschen.
-
-Ohne `--apply` nur ein Bericht.
-
-    uv run python scripts/fix_ply_offset.py [--apply]
-"""
+    uv run python scripts/fix_ply_offset.py [--apply]"""
 import argparse
 import collections
 import sys
@@ -57,8 +47,7 @@ def main():
 
     mm, index = open_packed_rows(args.dataset, manifest)
 
-    # BEIDE Ledger, auch geparkte: ein "FEN stimmt" in `reviewed.jsonl` ist ebenso ein Urteil,
-    # und nur `corrections.jsonl` zu lesen hiess, die Bestaetigung eines Menschen zu ueberschreiben.
+    # BEIDE Ledger, auch geparkte: ein "FEN stimmt" in `reviewed.jsonl` ist ebenso ein Urteil.
     human = {}
     for ledger in ledger_paths("reviewed.jsonl") + ledger_paths("corrections.jsonl"):
         load_corrections(ledger, human)

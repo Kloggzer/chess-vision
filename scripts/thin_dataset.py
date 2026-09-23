@@ -121,8 +121,8 @@ def main() -> int:
     out = DATASETS / args.name
     out.mkdir(parents=True, exist_ok=True)
     final = keep_as_is + picked
-    # Ein neu geschnittener Pack kann Zeilen verloren haben: 2 von 979 363 bei v7 (2026-09-17).
-    # Der Loader wirft beim ERSTEN Treffer, also raus damit statt einen Lauf daran sterben lassen.
+    # Ein neu geschnittener Pack kann Zeilen verloren haben, und der Loader wirft beim ERSTEN
+    # Treffer.
     alive, dead = [], 0
     for row in final:
         path = str(row.get("path", ""))

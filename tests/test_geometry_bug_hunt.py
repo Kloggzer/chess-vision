@@ -29,12 +29,9 @@ def _profile(**crop_kw) -> CalibrationProfile:
 
 
 def test_there_is_only_one_crop_border_and_one_padded_warp():
-    """Der Scan und der Crop muessen denselben Rand schneiden — und das haelt am billigsten, wenn
-    es nur EINE Funktion gibt.
-
-    `grid_occlusion` trug bis 2026-09-15 eigene Kopien: `crop_border_px` nahm einst das MAXIMUM der
-    beiden Pads, `calibration`s nimmt ihre SUMME, und `warp_padded` hatte dort sogar die Argumente
-    VERTAUSCHT (`frame, corners, profile` gegen `frame, profile, corners`). Beide sind entfernt.
+    """Scan und Crop muessen denselben Rand schneiden, und das haelt am billigsten mit EINER
+    Funktion: die entfernten Kopien in `grid_occlusion` rechneten anders und vertauschten
+    Argumente.
     """
     assert not hasattr(grid_occlusion, "crop_border_px"), (
         "die Kopie ist zurueck — der Scan misst dann auf einem anderen Raster als der Crop schneidet")
@@ -63,12 +60,8 @@ def test_the_sharpness_masks_the_squares_the_hand_sensor_actually_named():
 
 
 def test_both_warp_paths_resample_the_same_way():
-    """Der CROP-Warp resampelt gleich, ob ein Mesh-Fit geklappt hat oder nicht.
-
-    War bis 2026-09-14 verletzt: ohne Mesh bilinear, mit Mesh kubisch — 63 Graustufen, zwei
-    Schaerfe-Domaenen aus derselben Geometrie. Der GITTER-Warp weicht weiterhin ab, und das
-    ist Absicht: kubisch gemessen verschob er das gefittete Quad um 2,78 px
-    (`docs/export-decode.md`).
+    """Der CROP-Warp resampelt gleich, ob ein Mesh-Fit geklappt hat oder nicht (sonst zwei
+    Schaerfe-Domaenen). Der GITTER-Warp weicht absichtlich ab (`docs/export-decode.md`).
     """
     prof = _profile()
     pad = crop_border_px(prof)

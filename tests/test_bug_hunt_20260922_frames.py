@@ -1,4 +1,4 @@
-"""Bug-Jagd 2026-09-22: Frame-Auswahl, Hand-Gate und Matte."""
+"""Bug-Jagd: Frame-Auswahl, Hand-Gate und Matte."""
 
 from __future__ import annotations
 

@@ -1,13 +1,5 @@
-"""Worauf schaut das Modell — gemessen, indem man ihm Bildteile WEGNIMMT.
-
-Grad-CAM ist hier untauglich: die letzte Faltung liefert auf einem 80-px-Crop eine **3x3**-Karte,
-jedes Feld deckt 27x27 px ab. Alles Feinere im bunten Bild ist Interpolation, und der Randanteil
-unterscheidet die Laeufe nicht (50,0 / 50,0 / 48,8 % gegen 51 % bei Gleichverteilung).
-
-Hier wird stattdessen direkt gemessen: ein Fleck in der Farbe des Datensatzmittels wandert ueber
-den Crop, und protokolliert wird, wie weit die Wahrscheinlichkeit der Klasse faellt. Die
-Aufloesung waehlt man selbst, das Verfahren kennt die Architektur nicht, und die Frage ist
-woertlich "was passiert, wenn dieser Bereich fehlt".
+"""Worauf schaut das Modell, gemessen durch WEGNEHMEN: ein Fleck in Datensatz-Mittelfarbe wandert
+ueber den Crop. Grad-CAM taugt hier nicht (3x3-Karte auf 80 px).
 
     uv run python scripts/occlusion_sensitivity.py <lauf> [<lauf> ...] --n 120 --patch 16 --stride 4
 """
@@ -35,12 +27,8 @@ from gradcam_summary import edge_mass  # noqa: E402
 
 def occlusion_map(model, x: torch.Tensor, cls: int, n_cls: int, patch: int,
                   stride: int, device: str) -> tuple[np.ndarray, float, float]:
-    """Wahrscheinlichkeits-ABFALL je Fleckposition, plus der SCHLIMMSTE einzelne Fleck.
-
-    Der schlimmste Fleck ist das Sproedigkeits-Mass: faellt die Wahrscheinlichkeit durch EINEN
-    verdeckten Bereich von 1,0 auf 0,1, dann traegt dieser Bereich die Entscheidung allein — und
-    eine Hand darueber kippt sie. Konzentrierte Aufmerksamkeit ist nur solange gut, wie sie nicht
-    von einem einzelnen Fleck abhaengt.
+    """Wahrscheinlichkeits-ABFALL je Fleckposition, plus der SCHLIMMSTE Fleck: traegt ein Bereich
+    die Entscheidung allein, kippt eine Hand darueber sie.
     """
     _, _, h, w = x.shape
     ys = list(range(0, h - patch + 1, stride))
@@ -48,11 +36,11 @@ def occlusion_map(model, x: torch.Tensor, cls: int, n_cls: int, patch: int,
     batch = x.repeat(len(ys) * len(xs), 1, 1, 1)
     for i, yy in enumerate(ys):
         for j, xx in enumerate(xs):
-            # 0 im normierten Raum IST die Datensatz-Mittelfarbe — ein neutraler Fleck, kein Loch.
+            # 0 im normierten Raum IST die Datensatz-Mittelfarbe.
             batch[i * len(xs) + j, :, yy:yy + patch, xx:xx + patch] = 0.0
     with torch.no_grad():
-        # Nur ueber die KLASSEN normieren: bei `--head occlusion` ist die letzte Spalte der
-        # Coverage-Sigmoid, kein Klassenlogit. Sie mitzunehmen verschoebe jede Wahrscheinlichkeit.
+        # Nur ueber die KLASSEN normieren: die letzte Spalte ist bei `--head occlusion` der
+        # Coverage-Sigmoid.
         base = torch.softmax(model(x.to(device))[:, :n_cls], 1)[0, cls].item()
         out = []
         for k in range(0, batch.shape[0], 256):
@@ -71,11 +59,8 @@ def occlusion_map(model, x: torch.Tensor, cls: int, n_cls: int, patch: int,
 
 
 def pick_rows(manifest, split, n: int) -> list[dict]:
-    """Die Zellen, die das Verfahren oeffnen KANN — und eine Absage, wenn es keine gibt.
-
-    `Image.open` braucht eine Datei; eine `mm://`-Zeile zeigt in einen Pack. Die wurden hier
-    stillschweigend weggefiltert, und da die v6/v7-Saetze nur noch solche Zeilen tragen, blieb
-    fuer `real13-mix-v7-128` von 979 361 Zeilen genau null uebrig.
+    """Die Zellen, die das Verfahren oeffnen KANN, oder eine Absage: `mm://`-Zeilen haben keine
+    Datei, und die v6/v7-Saetze tragen nur solche.
     """
     want = [r for r in manifest if r["session_id"] in split and r["label"] != "empty"]
     rows = [r for r in want if not str(r["path"]).startswith("mm://") and Path(r["path"]).exists()]
@@ -134,7 +119,6 @@ def main() -> int:
                 ex.append((img.resize((80, 80)), m, r["label"], base))
         acc /= max(1, len(ems))
         summary.append((run.name, acc, float(np.mean(ems))))
-        # Beispielstreifen
         s = Image.new("RGB", (len(ex) * 88 + 8, 2 * 88 + 22), (18, 20, 24))
         dr = ImageDraw.Draw(s)
         for i, (img, m, lab, base) in enumerate(ex):

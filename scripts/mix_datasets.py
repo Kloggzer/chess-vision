@@ -1,18 +1,8 @@
-"""Zwei Datensaetze zu einem Trainingssatz zusammenlegen — der Gast geht NUR in train.
-
-Warum es das braucht: alle Rezept-Hebel verteilen eine feste Informationsmenge um, keiner
-erzeugt welche (`docs/evaluation.md`). Der echte Trainingssplit kennt 183 (Figur,Feld)-
-Kombinationen, `wK` davon auf drei Feldern. `comp13-v4-80` bringt 108 neue, +59 %, und trifft
-genau die ausgehungerten Klassen.
-
-Der Gast darf nie nach val oder test: der gehaltene Satz ist eine echte Aufnahme, und Composites
-dazuzumischen wuerde die Zahl schoenrechnen, gegen die alles andere gemessen wurde. Beide Seiten
-muessen dateibasiert sein (kein `mm://`) und dieselbe Klassenliste tragen — dann packt
-`dataset pack` den Mischsatz frisch aus den Quell-Crops.
+"""Zwei Datensaetze zu einem Trainingssatz, der Gast NUR in train: sonst schoente er die gehaltene
+echte Aufnahme. Beide dateibasiert (kein `mm://`) mit derselben Klassenliste.
 
     uv run python scripts/mix_datasets.py real13-straight-80-v3-c8d1 comp13-v4-80 real13-mix-v4
-    uv run chesslab dataset pack real13-mix-v4 --pack-size 80x80
-"""
+    uv run chesslab dataset pack real13-mix-v4 --pack-size 80x80"""
 import argparse
 import collections
 import json
@@ -55,8 +45,7 @@ def main() -> int:
     write_rows(dd / "manifest.jsonl", hrows + grows)
     split = {**hsplit, "splits": {**hsplit["splits"],
                                   "train": sorted(set(hsplit["splits"]["train"]) | set(gsess))}}
-    # Die Klassengewichte des Hosts passen nicht mehr; `train --head occlusion` rechnet sie
-    # ohnehin aus den sichtbaren Zeilen des Mischsatzes neu, also raus statt falsch stehen lassen.
+    # Die Gewichte des Hosts passen nicht mehr; `train --head occlusion` rechnet sie ohnehin neu.
     split.pop("class_weights", None)
     write_json(dd / "split.json", split, indent=1)
 

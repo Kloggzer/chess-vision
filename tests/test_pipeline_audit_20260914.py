@@ -1,4 +1,4 @@
-"""Audit der Session-/Export-Module (2026-09-14)."""
+"""Audit der Session-/Export-Module."""
 
 from __future__ import annotations
 

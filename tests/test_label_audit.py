@@ -10,7 +10,7 @@ def test_a_legal_position_trips_nothing():
 
 
 def test_two_black_kings_are_proof_not_suspicion():
-    """Found on 46 real frames (2026-08-16): the ledger named a second king and nobody noticed."""
+    """Found on 46 real frames: the ledger named a second king and nobody noticed."""
     labels = {**fen_labels(START), "d8": "bK"}
 
     assert "TOO_MANY_KINGS" in violations(labels)

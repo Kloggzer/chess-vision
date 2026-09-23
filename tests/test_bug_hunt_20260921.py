@@ -39,8 +39,9 @@ def test_a_gate_flagged_frame_gives_no_mesh_to_the_pool():
 
 
 def test_a_late_hand_gives_no_mesh_to_the_pool():
-    """`grid-late` ist der Fit-Befund selbst — die Zeile, bei der `skin_patch` die Hand sieht und
-    die Rillen kein Feld benennen (263 von 7 358 Frames, 2026-08-16)."""
+    """`grid-late` ist der Fit-Befund selbst: `skin_patch` sieht die Hand, die Rillen benennen kein
+    Feld.
+    """
     rows = ([_row(i, 0.0) for i in (0, 3, 6)]
             + [_row(i, SHIFT, reason="grid-late") for i in (9, 12, 15)])
     assert meshes_for_boards(rows)[0].x == pytest.approx(EIGHTHS)
@@ -93,8 +94,9 @@ def test_a_killed_straightening_leaves_the_marker(tmp_path, monkeypatch):
 
 
 def test_a_row_without_corners_gets_no_carried_mesh():
-    """Mutationsprobe 2026-09-21: die Bedingung war ungedeckt. Ohne Ecken warpt nichts, ein Mesh
-    auf so einer Zeile beschriebe ein Brett, das es nicht gibt."""
+    """Ohne Ecken warpt nichts; ein Mesh auf so einer Zeile beschriebe ein Brett, das es nicht
+    gibt.
+    """
     rows = [_row(i, 0.0) for i in range(5)] + [_row(5, None)]
     rows[-1].pop("corners")
     assert sessions._fill_mesh_gaps(rows) == 0

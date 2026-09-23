@@ -1,13 +1,6 @@
-"""Stage 1 — Calibration.
+"""Stage 1 — board geometry (homography) as a reusable YAML profile, plus the square crop mapping.
 
-Determines the geometry between camera image and board (homography) once and stores
-it as a reusable YAML profile. As long as camera and board remain stationary, the
-profile provides the 64 square crops deterministically for each frame.
-
-The core mapping function `square_to_crop_box` lives here centrally (profile-bound) and
-is imported by Stage 3 (`labeling.py`). Profile loading/saving and the geometry
-are usable and tested headless — the live-camera verbs (`calibrate auto`/`check`) were
-removed with `chesslab.camera` (2026-08-20); Kotlin owns the live camera.
+Headless; Kotlin owns the live camera.
 """
 
 from __future__ import annotations
@@ -76,23 +69,16 @@ class CalibrationProfile:
     white_pov: bool
     crop: CropParams
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    # Marker-based (mandatory): calibrate slicing/recording per frame from ArUco markers.
-    # image_corners/homography are only the snapshot from calibration (fallback/preview).
-    # Per-corner (a8, h8, h1, a1): the markers are glued on by hand, so a re-stick moves each
-    # one independently. A single number stays valid input everywhere via `margins4`.
+    # Per-corner (a8, h8, h1, a1): the markers are glued on by hand, so a re-stick moves each one
+    # independently. `image_corners`/`homography` are only the calibration snapshot.
     margin: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     marker_dict: str = "DICT_4X4_50"
-    # Provenance stamp only (video path, "stored-fit", …): written and read back, evaluated
-    # nowhere. There are no per-profile intrinsics — the optics live in the recording's own
-    # `lens.json`.
+    # Provenance stamp only, evaluated nowhere. The optics live in the recording's `lens.json`.
     source: str | None = None
 
     def __post_init__(self) -> None:
-        # A scalar is still the natural thing to write at a call site ("all four the same"),
-        # so normalise here rather than making every caller spell out four values.
         self.margin = margins4(self.margin)
 
-    # -- serialization --
     def to_dict(self) -> dict:
         return {
             "profile": self.profile,
@@ -104,9 +90,8 @@ class CalibrationProfile:
             "homography": [[float(v) for v in row] for row in self.homography],
             "white_pov": bool(self.white_pov),
             "crop": self.crop.to_dict(),
-            # Normalised on the way out as well as in: assigning a scalar to a live profile
-            # (`prof.margin = 0.11`) is natural and bypasses `__post_init__`, and every reader
-            # already goes through `margins4` — serialization was the one place that did not.
+            # Normalised on the way out too: `prof.margin = 0.11` on a live profile bypasses
+            # `__post_init__`.
             "margin": margins4(self.margin),
             "marker_dict": self.marker_dict,
             "source": self.source,
@@ -114,9 +99,8 @@ class CalibrationProfile:
 
     @classmethod
     def from_dict(cls, d: dict) -> CalibrationProfile:
-        # Profiles written before 2026-08-21 carry `undistorted`, `lens_calib_id`,
-        # `camera_matrix` and `dist_coeffs` — ignored: the optics live in the recording's own
-        # `lens.json` now, and a stored copy could only go stale.
+        # Old profiles carry `undistorted`, `lens_calib_id`, `camera_matrix`, `dist_coeffs` —
+        # ignored, the optics live in `lens.json`.
         return cls(
             profile=d["profile"],
             created_at=d.get("created_at", ""),
@@ -127,20 +111,16 @@ class CalibrationProfile:
             homography=[[float(v) for v in row] for row in d["homography"]],
             white_pov=bool(d["white_pov"]),
             crop=CropParams.from_dict(d["crop"]),
-            # Old profiles stored one number; broadcast it to the four corners.
             margin=margins4(d.get("margin", 0.0)),
             marker_dict=d.get("marker_dict", "DICT_4X4_50"),
             source=d.get("source"),
         )
 
     def save(self, path: Path, *, backup: bool = False) -> Path:
-        """Persist the profile ATOMICALLY (temp file + `os.replace`).
+        """Persist the profile ATOMICALLY (temp file + `os.replace`); a wrong a8 corner transposes
+        every label.
 
-        A profile is safety-critical geometry (CLAUDE.md: a wrong a8 corner silently
-        transposes every label), so a half-written YAML — killed process, full disk — must
-        never be observable. `backup=True` additionally keeps the previous content as
-        `<name>.yaml.bak`; pass it wherever a profile the USER may have tuned by hand is
-        overwritten by an automatic regeneration.
+        `backup=True` keeps `<name>.yaml.bak` where a hand-tuned profile may be regenerated.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,10 +159,7 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
                        margin=config.DEFAULT_MARKER_MARGIN,
                        dict_name: str = "DICT_4X4_50", white_pov: bool = True,
                        camera_index: int = -1) -> CalibrationProfile | None:
-    """Build a profile headlessly from a single frame via ArUco markers.
-
-    Returns None if too few markers are visible (at least 2 needed for the
-    geometric reconstruction; 4 for full accuracy)."""
+    """Build a profile headlessly from one frame via ArUco; None with fewer than 2 markers."""
     pts = detect_board_markers(frame, dict_name, corner="center")
     res = resolve_board_corners(pts, board_size=board_size)
     if res is None:
@@ -208,24 +185,11 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
 def ensure_profile(profile: str, source: int | str | None = None, *,
                    save: bool = True, attempts: int = 30,
                    **kwargs) -> CalibrationProfile:
-    """Load `profile`; if it does not exist, auto-calibrate it from `source` via ArUco.
+    """Load `profile`; if it is missing, auto-calibrate it from `source` (video file or frame
+    image).
 
-    This removes the mandatory separate calibration step: `track`/`collect` can create a
-    missing profile from the first frames of their own source, as long as the markers are
-    on the board. Raises FileNotFoundError if the profile is missing and no usable source
-    or no markers are found.
-
-    A profile whose LENS stamp no longer matches the active lens state (e.g. the user just
-    ran `chesslab lens calibrate-board`) is treated like a missing one and regenerated from the
-    source — nobody has to re-stamp by hand. If it cannot be regenerated,
-    the stale profile is re-stamped in place and used, never crashed on.
-
-    An existing profile is returned as it lies. Until 2026-08-20 it was first tested against
-    the active lens and regenerated when the stamp disagreed; profiles carry no lens stamp any
-    more, so there is nothing left to disagree.
-
-    `source` is a video file or a frame image — the live-camera path was removed with
-    `chesslab.camera` (2026-08-20)."""
+    Raises FileNotFoundError when the source cannot be opened or shows no markers.
+    """
     try:
         return load_profile(profile)
     except FileNotFoundError:
@@ -267,9 +231,8 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
 # --- Pure geometry (headless, tested) ---------------------------------------------
 
 def _square_to_col_row(square: str, white_pov: bool) -> tuple[int, int]:
-    """Square 'e4' -> (col, row) in the rectified image. Origin top left.
-
-    file a..h -> col 0..7; rank 8..1 -> row 0..7. Rotated 180° when white_pov=False.
+    """Square 'e4' -> (col, row) in the rectified image, origin top left; rotated 180° when not
+    white_pov.
     """
     sq = square.strip().lower()
     if len(sq) != 2 or sq[0] not in _FILES or not sq[1].isdigit():
@@ -286,20 +249,16 @@ def _square_to_col_row(square: str, white_pov: bool) -> tuple[int, int]:
 
 def square_to_crop_box(square: str, profile: CalibrationProfile,
                         clamp: bool = True) -> tuple[int, int, int, int]:
-    """'e4' -> (x0, y0, x1, y1) in the rectified board_size image.
+    """'e4' -> (x0, y0, x1, y1) in the rectified board_size image, the cell grown by pad_side*cell
+    per side.
 
-    Base cell (cell x cell, square) expanded by pad_side*cell on every side.
-    `clamp=True` clips to image boundaries (box may become smaller);
-    `clamp=False` returns the raw box — the caller (crop_square) fills protruding
-    areas with border padding so the box geometry stays constant across all squares.
-    """
+    `clamp=False` returns the raw box; `crop_square` pads what protrudes so every box has one
+    size."""
     col, row = _square_to_col_row(square, profile.white_pov)
     bs = profile.board_size
     cell = bs / 8.0
     pad_side = profile.crop.pad_side
 
-    # Symmetric in all 4 directions, so the box stays SQUARE: a bit more of the piece is
-    # visible instead of being cut off sharply at the square edge. pad_side=0 = exact cell.
     x0 = col * cell - pad_side * cell
     x1 = (col + 1) * cell + pad_side * cell
     y0 = row * cell - pad_side * cell
@@ -316,7 +275,6 @@ def square_to_crop_box(square: str, profile: CalibrationProfile,
 MESH_TILT_LIMIT = 0.05
 MESH_CURV_LIMIT = 0.08
 
-#: 8 cells share 9 boundaries.
 GRID_LINES_PER_AXIS = 9
 
 
@@ -366,8 +324,7 @@ def _mesh_bounded(lines: dict, name: str, limit: float) -> list[float] | None:
 def mesh_from_lines(lines) -> GridMesh | None:
     """`grid_lines` -> the strongest stage it carries: curved -> tilted -> scalar -> None.
 
-    Additive by construction: a missing, short or out-of-limit pair costs exactly ONE stage and
-    never half an axis, so a bad sidecar cannot take a slice down. Twin: `meshOrNull`
+    A bad pair costs exactly ONE stage, never half an axis. Twin: `meshOrNull`
     (LabeledVideoPack.kt).
     """
     if not isinstance(lines, dict):
@@ -394,14 +351,9 @@ MESH_POOL_MIN = 3
 def pooled_mesh(meshes) -> GridMesh | None:
     """One mesh out of many: per TERM the median over the meshes that carry that term.
 
-    A hand over the grooves moves single lines, and the per-frame mesh it produces can leave the
-    board WORSE than no mesh at all (measured 2026-08-21 on 13-52-38: 15.21 px raw against 12.36
-    with its own mesh). The camera does not move, so feed this the CLEAN frames and every frame of
-    the recording can be straightened by a mesh no hand ever touched.
-
-    Per TERM, not per mesh: a recording mixes curved frames with merely tilted ones, and demanding
-    that every mesh carry `cx` drops the one term that takes the bow out.
-    """
+    Feed it the CLEAN frames: a hand over the grooves made a frame's own mesh worse than none
+    (15.21 px raw against 12.36). Per term, because demanding `cx` everywhere drops the term that
+    takes the bow out."""
     have = [m for m in meshes if m is not None]
     if not have:
         return None
@@ -419,9 +371,8 @@ def pooled_mesh(meshes) -> GridMesh | None:
     return GridMesh(xs, ys, tx, ty, cx, cy) if cx is not None and cy is not None         else GridMesh(xs, ys, tx, ty)
 
 
-#: A curvature this far off the cross-line trend was measured on pieces, not optics:
-#: rg-2026-08-15-22-57-06 carries cy = -0.070 on the pawn-occupied 7/6 line against ±0.011 on its
-#: free neighbours — a +11.6 px arch baked into the straightened board (2026-08-21).
+#: A curvature this far off the cross-line trend was measured on pieces, not optics: a pawn-occupied
+#: line carried cy = -0.070 against ±0.011 on its neighbours.
 CURV_TREND_LIMIT = 0.02
 
 
@@ -436,10 +387,10 @@ def _trend_replaced(values: list[float]) -> list[float]:
 
 
 def smooth_mesh_curvature(mesh: GridMesh | None) -> GridMesh | None:
-    """Curvature is optics and optics are smooth across parallel lines — a line that breaks out of
-    the others' Theil-Sen trend was measured on whatever stood ON it and takes the trend's value
-    instead. Board-writing only, on purpose: the cut consumers (`meshOrNull`, warp.ts) stay pinned
-    to the parity fixture, and a straightened store never hands them a mesh again.
+    """Replace a curvature that breaks out of the other lines' Theil-Sen trend by the trend value.
+
+    Board-writing only: the cut consumers (`meshOrNull`, warp.ts) stay pinned to the parity
+    fixture.
     """
     if mesh is None or mesh.cx is None or mesh.cy is None:
         return mesh
@@ -459,12 +410,10 @@ def _mesh_line_at(offs, tilts, curvs, k, t):
 
 
 def mesh_point(u, v, mesh: GridMesh):
-    """The MEASURED board point belonging to the ideal one at `(u, v)` — field fractions both ways.
+    """The MEASURED board point for the ideal one at `(u, v)`, in field fractions both ways.
 
-    Inside a cell the two bounding lines blend linearly, and the axes are coupled (each line's
-    position depends on the run along it), so the pair is solved by simultaneous evaluations
-    exactly as a cell corner is. A mesh without tilts is carried as tilt 0 — its measured OFFSETS
-    are still a correction, and refusing it would silently drop the scalar stage. Twin: `meshPoint`.
+    The axes are coupled, so the pair is solved iteratively like a cell corner. Tilt-free meshes
+    run as tilt 0 so their offsets still correct. Twin: `meshPoint`.
     """
     zero = [0.0] * GRID_LINES_PER_AXIS
     tx, ty = mesh.tx or zero, mesh.ty or zero
@@ -482,32 +431,23 @@ def mesh_point(u, v, mesh: GridMesh):
 
 
 def straighten_board(board, mesh: GridMesh, board_size: int, border: int = 0):
-    """A bordered board pulled straight GLOBALLY — every pixel read where its own lines say it is.
+    """A bordered board pulled straight GLOBALLY. Replaces the per-cell mesh cut — straightening
+    twice corrects twice. Twin: `sampleBoxMesh`.
 
-    This REPLACES the per-cell mesh cut, it does not join it: a board straightened here is cut at
-    the nominal eighth afterwards, and straightening twice corrects twice. Twin: `sampleBoxMesh`.
-
-    CUBIC, not LINEAR: the map is a near-identity, and a bilinear resample at half-pixel offsets is
-    a low-pass the crop then keeps. Measured 2026-08-21 as Laplacian energy of the finished crop
-    against one cut from the raw board — linear -44 %, cubic -22 %, lanczos4 -19 % at the same
-    290 ms per 952 px board (the WebP encode beside it costs 72 ms).
-    """
+    CUBIC: a bilinear near-identity resample is a low-pass the crop keeps (-44 % against -22 %
+    Laplace)."""
     mx, my = _straighten_maps(board.shape[:2], mesh, board_size, border)
     return cv2.remap(board, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
 def _mesh_key(mesh: GridMesh) -> tuple:
-    """Hashable Fassung eines Mesh — die Listen sind es nicht."""
     return tuple(tuple(v) if v is not None else None
                  for v in (mesh.x, mesh.y, mesh.tx, mesh.ty, mesh.cx, mesh.cy))
 
 
 def _straighten_maps(shape: tuple[int, int], mesh: GridMesh, board_size: int, border: int):
-    """Die Remap-Tabellen, gemerkt: sie haengen NUR an Groesse, Mesh, board_size und Rand.
-
-    Gemessen 2026-08-23 auf einem 1312er Brett: der Aufbau kostet 623 ms, der `remap` daneben 14.
-    Eine Aufnahme hat EIN Mesh (`composite.median_mesh`, `realgames.mesh.meshes_for_boards`), also
-    zahlt der Aufbau einmal je Clip statt zweimal je Frame.
+    """Die Remap-Tabellen, gemerkt: der Aufbau kostet 623 ms, der `remap` daneben 14, und eine
+    Aufnahme hat EIN Mesh.
     """
     return _straighten_maps_cached(shape, _mesh_key(mesh), board_size, border)
 
@@ -530,20 +470,16 @@ def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
 
 
 def crop_border_px(profile: CalibrationProfile) -> int:
-    """Border (in pixels) with which the board is warped for the DATA crop, so edge squares
-    have content for their pad_side extension. Grows automatically with the pad (at least
-    `config.CROP_WARP_BORDER_CELLS`). 0 -> no border (display behavior)."""
+    """Border (px) the DATA crop warp uses so edge squares have content for their pad; at least
+    `config.CROP_WARP_BORDER_CELLS`, 0 -> no border.
+    """
     cell = profile.board_size / 8.0
     border_cells = max(config.CROP_WARP_BORDER_CELLS, profile.crop.pad_side)
     return int(round(border_cells * cell))
 
 
 def margins4(margin) -> list[float]:
-    """A scalar or any 4-sequence -> the four per-corner margins (a8, h8, h1, a1).
-
-    One number is the common case (all four markers stuck at the same offset); four is the
-    real one, because the markers are glued by hand and a re-stick moves them independently.
-    """
+    """A scalar or any 4-sequence -> the four per-corner margins (a8, h8, h1, a1)."""
     if isinstance(margin, (int, float)):
         return [float(margin)] * 4
     vals = [float(v) for v in margin]
@@ -555,15 +491,12 @@ def margins4(margin) -> list[float]:
 def compute_homography(image_corners, board_size: int, margin=0.0) -> list[list[float]]:
     """Four image points (a8, h8, h1, a1) -> 3x3 homography to a board_size square.
 
-    `margin` > 0: the image points lie this fraction OUTSIDE the playing field (markers
-    at the outer corners). The playing field [0, board_size] is then indented accordingly.
-    It is a scalar OR four per-corner values — see `margins4`. Each corner is pushed
-    outward along its own diagonal, so a single number reproduces the old square exactly.
+    `margin` pushes each corner outward along its own diagonal: markers sit outside the playing
+    field.
     """
     src = np.array(image_corners, dtype=np.float32)
     bs = float(board_size)
     m0, m1, m2, m3 = (v * bs for v in margins4(margin))
-    # Target points according to click order a8, h8, h1, a1 (extended outward if margin > 0):
     dst = np.array([[-m0, -m0], [bs + m1, -m1], [bs + m2, bs + m2], [-m3, bs + m3]],
                    dtype=np.float32)
     H = cv2.getPerspectiveTransform(src, dst)
@@ -575,8 +508,7 @@ def warp_board(frame, profile: CalibrationProfile):
     return cv2.warpPerspective(frame, H, (profile.board_size, profile.board_size))
 
 
-# --- ArUco auto-corners (markers at a8/h8/h1/a1) -----------------------------------------
-# id 0 -> a8, id 1 -> h8, id 2 -> h1, id 3 -> a1 (same order as click calibration).
+# id 0 -> a8, id 1 -> h8, id 2 -> h1, id 3 -> a1.
 _ARUCO_LABELS = ("a8", "h8", "h1", "a1")
 
 
@@ -591,10 +523,8 @@ def _aruco_dictionary(dict_name: str):
 #: Fenstergrößen (min, max, step), die die Binarisierung des Markers durchprobiert. 13 statt 3 —
 #: der Preis ist Rechenzeit je Frame, der Gewinn die Randmarker.
 ADAPTIVE_THRESH_WIN = (3, 53, 4)
-#: Längste Kante, auf die zum SUCHEN verkleinert wird. Auf 4K gemessen (2026-08-23): voll 135 ms
-#: und 10/12 Frames mit allen vier Markern, hier 27 ms und 12/12 — das Verkleinern mittelt die
-#: Maserung weg, die dem Dekoder das Bit kippt. Der Eckfehler steigt auf 1,34 px, was der Grid-Fit
-#: danach ohnehin korrigiert: ArUco ist die grobe Lage, nicht die Feldecke.
+#: Laengste Kante zum SUCHEN. Auf 4K: voll 135 ms und 10/12 Frames mit allen Markern, hier 27 ms und
+#: 12/12 — das Verkleinern mittelt die Maserung weg, die dem Dekoder ein Bit kippt.
 DETECT_LONG_SIDE = 1344
 
 
@@ -606,8 +536,8 @@ def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[in
         gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     params = cv2.aruco.DetectorParameters()
     params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # more precise corners
-    # Ein Randmarker steht auf dünnem Weiß vor dunklem Holz; bei OpenCVs drei Fenstergrößen kippt
-    # dort ein Bit und er wird als 17 oder 37 gelesen (2026-08-23: 2/30 Frames gegen 21-25/30).
+    # Ein Randmarker auf duennem Weiss vor dunklem Holz kippt bei OpenCVs drei Fenstergroessen ein
+    # Bit und wird als 17 oder 37 gelesen (2/30 Frames gegen 21-25/30).
     params.adaptiveThreshWinSizeMin = ADAPTIVE_THRESH_WIN[0]
     params.adaptiveThreshWinSizeMax = ADAPTIVE_THRESH_WIN[1]
     params.adaptiveThreshWinSizeStep = ADAPTIVE_THRESH_WIN[2]
@@ -621,7 +551,7 @@ def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[in
 
 def detect_board_markers(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
                          corner: str = "center") -> dict[int, list[float]]:
-    """Detects the markers and returns {id: [x,y]} of the FOUND ones (center or inner corner)."""
+    """{id: [x,y]} of the FOUND markers (center or inner corner)."""
     quads = _detect_marker_quads(frame, dict_name, ids)
     if not quads:
         return {}
@@ -638,10 +568,10 @@ def detect_board_markers(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, 
 
 def resolve_board_corners(points_by_id, ids: tuple[int, ...] = (0, 1, 2, 3),
                           board_size: int = 800) -> tuple[list[list[float]], int] | None:
-    """Reconstruct the 4 corner points (a8,h8,h1,a1) from 2/3/4 marker points.
+    """Reconstruct the 4 corners (a8,h8,h1,a1) from 2/3/4 markers as `(corners4, n_used)`, None
+    under 2.
 
-    Returns (corners4, n_used) or None when < 2. 4 -> exact perspective,
-    3 -> affine (parallelogram), 2 -> similarity (square assumption). This way 2/3 markers suffice.
+    4 -> exact perspective, 3 -> affine parallelogram, 2 -> similarity (square assumption).
     """
     bs = float(board_size)
     board = {ids[0]: (0.0, 0.0), ids[1]: (bs, 0.0), ids[2]: (bs, bs), ids[3]: (0.0, bs)}
@@ -681,19 +611,11 @@ def detect_board_corners_aruco(frame, dict_name: str = "DICT_4X4_50", ids: tuple
 
 
 class MarkerTracker:
-    """Tracks a smoothed, occlusion/jitter-resilient position per marker.
+    """Tracks a smoothed, jitter-resilient position per marker (parameters from `config.TRACKER`).
 
-    Properties (parameters from `config.TRACKER`):
-    - **Dead zone**: detected movement <= `move_threshold` -> freeze position (stable box).
-    - **Smoothing**: real movement -> EMA with `smooth_alpha` instead of hard snapping.
-    - **Outlier / self-correction**: a single-frame jump > `jump_reject_px` is initially
-      held; only when the new position stays stable over `jump_confirm_frames` frames is the
-      corner updated. This way false detections don't survive, but real movement does.
-    - **Aging**: each frame increments the age of every corner; a live detection resets it to 0.
-      After `max_held_frames` without visibility a corner is considered `stale` (feedback only, still usable).
-    - **Seed**: `seed()` pre-populates corners from a calibration profile (status `seed`), so the
-      box stands immediately and perspective-accurately with a fixed camera — a live detection replaces the seed.
-    """
+    Dead zone freezes, real movement is EMA-smoothed, a jump must hold `jump_confirm_frames`
+    frames, corners age into `stale`, and `seed()` pre-populates from a profile until a live
+    detection."""
 
     def __init__(self, params: config.TrackerDefaults | None = None) -> None:
         self.p = params or config.TRACKER
@@ -702,7 +624,6 @@ class MarkerTracker:
         self.seeded: set[int] = set()                          # never live-confirmed, only from seed
         self._pending: dict[int, tuple[list[float], int]] = {}  # jump candidate: (position, frames)
 
-    # -- Pre-population from known geometry (e.g. profile) --
     def seed(self, points_by_id: dict[int, list[float]]) -> None:
         for i, q in points_by_id.items():
             if i not in self.pos:
@@ -711,10 +632,10 @@ class MarkerTracker:
                 self.seeded.add(int(i))
 
     def update(self, detected: dict[int, list[float]]) -> dict[int, list[float]]:
-        for i in self.pos:                                     # first let all age
+        for i in self.pos:
             self.age[i] = self.age.get(i, 0) + 1
-            # `jump_confirm_frames` meint AUFEINANDERFOLGENDE Bilder: ohne das hier ueberlebte ein
-            # Kandidat eine 500-Bild-Luecke und wurde auf ein einziges Wiedersehen bestaetigt.
+            # `jump_confirm_frames` meint AUFEINANDERFOLGENDE Bilder, sonst ueberlebt ein Kandidat
+            # jede Luecke.
             if i not in detected:
                 self._pending.pop(i, None)
         for i, q in detected.items():
@@ -732,11 +653,11 @@ class MarkerTracker:
                 self.seeded.discard(i)
                 self._pending.pop(i, None)
                 continue
-            if i in self.seeded:                               # first real detection replaces the seed
-                self.pos[i] = p                                # -> SNAP instead of EMA-blending (otherwise
-                self.age[i] = 0                                #    the corner stays 65% at the seed =
-                self.seeded.discard(i)                         #    offset grid, pitfall in
-                self._pending.pop(i, None)                     #    marker fallback slicing)
+            if i in self.seeded:  # SNAP: EMA would stay 65 % at the seed
+                self.pos[i] = p
+                self.age[i] = 0
+                self.seeded.discard(i)
+                self._pending.pop(i, None)
                 continue
             if d > self.p.jump_reject_px:
                 if not self._confirm_jump(i, p):               # not yet confirmed -> keep old position
@@ -758,7 +679,6 @@ class MarkerTracker:
         self._pending[i] = (p, cnt)
         return cnt >= self.p.jump_confirm_frames
 
-    # -- Queries --
     def points(self) -> dict[int, list[float]]:
         return {i: list(p) for i, p in self.pos.items()}
 
@@ -785,11 +705,8 @@ class MarkerTracker:
 
 
 def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
-    """Create tracker, seeded from the profile's 4 corner points if available.
-
-    `profile.image_corners` are exactly the 4 marker centers (a8,h8,h1,a1) of the calibration.
-    This way the box stands immediately and perspective-accurately with a fixed camera,
-    even when fewer than 4 markers are currently visible.
+    """Tracker seeded from the profile's 4 marker centres, so the box stands with fewer markers
+    visible.
     """
     t = MarkerTracker()
     if profile is not None and profile.image_corners and len(profile.image_corners) >= 4:
@@ -799,12 +716,10 @@ def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
 
 def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerTracker,
                             min_markers: int | None = None) -> list[list[float]] | None:
-    """The 4 board corners (a8,h8,h1,a1) in **frame pixels** for this frame.
+    """The 4 board corners (a8,h8,h1,a1) in frame pixels, before `margin`, or None under
+    `min_markers`.
 
-    Updates the tracker once with the current marker detection and resolves the
-    corners from it (marker-derived, **before** `margin`). Returns None if fewer than
-    `min_markers` corners are known (default `config.TRACKER.default_min_markers`). These exact
-    points are written to the log during recording so that `slice` later warps identically.
+    These exact points go into the log so `slice` later warps identically.
     """
     if min_markers is None:
         min_markers = config.TRACKER.default_min_markers
@@ -813,10 +728,8 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
     pts = tracker.points()
     if len(pts) < min_markers:
         return None
-    # Exactly ONE corner is seed-only (marker never seen live — e.g. clipped at image edge,
-    # clip02: a8 0% detection rate)? Then complete it from the three REAL corners as a parallelogram
-    # instead of using the seed from a potentially different camera position
-    # (the offset seed would otherwise permanently distort a quarter of the warp).
+    # Exactly ONE corner seed-only (marker never seen live)? Complete it from the three real corners
+    # as a parallelogram; a seed from another camera pose would distort a quarter of the warp.
     status = tracker.status()
     seeded = [i for i, s in status.items() if s == "seed"]
     if len(seeded) == 1 and len(pts) >= 4:
@@ -833,25 +746,16 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
     return res[0]
 
 
-#: Marker counts already warned about, so a live tracker at three markers logs once rather than
-#: thirty times a second. Reset is not worth a mechanism: the set holds at most three ints.
+#: Marker counts already warned about, so a live tracker logs once, not thirty times a second.
 _DEGRADED_WARNED: set[int] = set()
 
 
 def _warn_degraded(n_used: int) -> None:
     """Say LOUDLY, once per count, that this quad is a reconstruction and not a measurement.
 
-    `resolve_board_corners` answers from two markers up: four is an exact perspective transform,
-    three degrades to `cv2.getAffineTransform` — a PARALLELOGRAM standing in for a perspective view
-    of a plane, which cannot be right by construction — and two to a similarity that assumes the
-    board is square in the image. None of that failed anywhere, which is the problem: the
-    2026-08-02 game ran its whole length on three markers with 27-33 px of square-edge error on a
-    100 px cell, and every count downstream looked healthy.
-
-    A warning and not a refusal, because since 2026-08-03 a degraded quad is a usable COARSE seed —
-    `alignment.refine_quad` fits the board's own grid on top of it and takes the same footage to
-    2.0 px. What must never happen again is it passing silently.
-    """
+    Three markers give an affine parallelogram with 27-33 px square-edge error, and nothing
+    downstream notices. A warning, not a refusal: `alignment.refine_quad` makes it a usable
+    coarse seed."""
     if n_used >= 4 or n_used in _DEGRADED_WARNED:
         return
     _DEGRADED_WARNED.add(n_used)
@@ -864,12 +768,8 @@ def _warn_degraded(n_used: int) -> None:
 
 
 def warp_from_corners(frame, profile: CalibrationProfile, corners):
-    """Rectify board **borderless** from 4 frame corners (a8,h8,h1,a1) — playing field fills [0, board_size].
-
-    This is the **display warp** (web frontend places its 8×8 overlay exactly on the playing field edge).
-    For DATA crop see `warp_board_for_crops` (with border). Pure transformation without
-    marker detection; reproduces the same geometry as at recording time.
-
+    """Rectify the board BORDERLESS from 4 frame corners — the display warp; data crops use
+    `warp_board_for_crops`.
     """
     sz = profile.board_size
     h = np.array(compute_homography(corners, profile.board_size, profile.margin), dtype=np.float64)
@@ -880,9 +780,8 @@ def warp_from_corners(frame, profile: CalibrationProfile, corners):
 class LensModel:
     """The board-fitted optics: two radial terms about a centre, at the scale they were fitted at.
 
-    `focal` is the scale the straightness fit held FIXED, not an estimate of the optics — carried
-    through unchanged because the coefficients mean nothing without it. Written by
-    `:desktop undistort` into `lens.json`; the FIT itself stays in Kotlin. Twin: `LensModel`.
+    `focal` was held FIXED by the fit and is no estimate — the coefficients mean nothing without
+    it. Written by `:desktop undistort` into `lens.json`. Twin: `LensModel`.
     """
 
     k1: float
@@ -901,10 +800,8 @@ class LensModel:
 
 
 def distort_points(x, y, lens: LensModel):
-    """Ideal image points -> where the raw frame actually put them (Brown, radial only).
-
-    The direction a warp needs: it asks per destination pixel WHERE TO READ, and the file on disk
-    still carries the barrel. Arrays welcome.
+    """Ideal image points -> where the raw frame put them (Brown, radial only) — the direction a
+    warp reads.
     """
     u, v = (x - lens.cx) / lens.focal, (y - lens.cy) / lens.focal
     r2 = u * u + v * v
@@ -915,9 +812,8 @@ def distort_points(x, y, lens: LensModel):
 def undistort_points(points, lens: LensModel):
     """Raw image points -> where an undistorted frame puts them, in the SAME pixel space (P = K).
 
-    The board quad is detected on the raw frame, so it has to come along before a homography built
-    from it can mean anything — without this the corners land right and the content between them
-    stays bowed (`Rectify.kt`, 2026-08-10).
+    The quad is detected on the raw frame; without this the corners land right and the content
+    stays bowed.
     """
     k = np.array([[lens.focal, 0.0, lens.cx], [0.0, lens.focal, lens.cy], [0.0, 0.0, 1.0]])
     d = np.array([lens.k1, lens.k2, 0.0, 0.0, 0.0])
@@ -935,10 +831,10 @@ def _board_to_image(u, v, h_inv, board_size: int):
 
 @lru_cache(maxsize=2)
 def _crop_mesh_coordinates(board_size: int, pad: int, key: tuple | None):
-    """Reuse the session mesh; camera homography and lens remain specific to each frame.
+    """Reuse the session mesh; camera homography and lens stay per frame.
 
-    Keep float64 and the original operation order so remap coordinates do not change.
-    Two entries bound retained memory to about 30 MB at the export's 952-pixel size.
+    Keep float64 and the operation order so remap coordinates do not change; two entries cap ~30
+    MB.
     """
     side = board_size + 2 * pad
     ys, xs = np.mgrid[0:side, 0:side].astype(np.float64)
@@ -952,22 +848,13 @@ def _crop_mesh_coordinates(board_size: int, pad: int, key: tuple | None):
 
 def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
                          mesh: GridMesh | None = None, lens: LensModel | None = None):
-    """Rectify board **with border** — the DATA crop warp. Canvas `board_size + 2B` with
-    `B = crop_border_px(profile)`, homography translated by B. This way EDGE squares have real
-    board/edge content for their pad_side extension (instead of black border at the
-    playing field edge); `crop_square` shifts its box accordingly by +B.
+    """Rectify the board WITH border `B = crop_border_px(profile)` — the DATA crop warp.
 
-    `mesh` and `lens` are COMPOSED into this one map, so the board is straight after a SINGLE
-    resample. Warping first and correcting afterwards costs a second one, and that second one is a
-    low-pass: the composed path measured +57 % Laplacian energy in the finished crop (2026-08-21).
-    `straighten_board` stays for stores that are already warped and have no frame left.
-
-    Order matters: the quad was detected on the RAW frame, so the optics take it along BEFORE the
-    homography is built from it, and the map then reads through the barrel still in the file.
+    `mesh` and `lens` are COMPOSED into one map: a second resample is a low-pass (+57 % Laplace
+    energy composed). The optics take the quad along BEFORE the homography is built from it.
     """
-    # Kubisch, weil hier BILDDATEN entstehen: bilinear behaelt 63,6 % der Laplace-Energie gegen
-    # 92,1 % (`docs/export-decode.md`). Der Gitter-Warp bleibt bilinear — er misst, und eine
-    # kubische Messung verschob das gefittete Quad um 2,78 px.
+    # Kubisch, weil hier BILDDATEN entstehen (63,6 % gegen 92,1 % Laplace-Energie). Der Gitter-Warp
+    # bleibt bilinear: kubisch verschob er das gefittete Quad um 2,78 px.
     return warp_padded(frame, profile, corners, crop_border_px(profile), mesh, lens,
                        interpolation=cv2.INTER_CUBIC)
 
@@ -975,15 +862,9 @@ def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
 def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
                 mesh: GridMesh | None = None, lens: LensModel | None = None,
                 interpolation: int = cv2.INTER_LINEAR):
-    """The board rectified into a `board_size + 2*pad` canvas — the one warp, two borders use it.
+    """The board rectified into a `board_size + 2*pad` canvas — one warp for crop and grid borders.
 
-    `warp_board_for_crops` asks for the crop border, `alignment.warp_for_grid` for the wider one
-    that makes the outer grid lines measurable. Everything else about the map is identical, and
-    that is why it lives in one place.
-
-    [interpolation] steuert NUR den schnellen Zweig; der Mesh-Zweig war immer kubisch. Der
-    Crop-Warp bittet um kubisch (Bilddaten), der Gitter-Warp nicht: kubisch gemessen verschob das
-    gefittete Quad um 2,78 px (`docs/export-decode.md`).
+    [interpolation] steuert NUR den schnellen Zweig; der Mesh-Zweig ist immer kubisch.
     """
     bs = profile.board_size
     quad = corners if lens is None else undistort_points(corners, lens)
@@ -1001,11 +882,7 @@ def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
 
 def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
                      marker_px: int = 300, quiet: int | None = None, gap: int = 70):
-    """Printable 2x2 sheet: each marker with white quiet zone in an equally-sized cut box.
-
-    `quiet`: white border around the marker (important for detection). Cut along the thin
-    black box → all 4 markers exactly the same size. `gap`: spacing between boxes.
-    """
+    """Printable 2x2 sheet: each marker with a white quiet zone in an equal-size cut box."""
     d = _aruco_dictionary(dict_name)
     out_path = Path(out_path)
     if out_path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"):
@@ -1051,11 +928,7 @@ def calibrate_list() -> int:
 
 
 def field_to_profile(field, profile) -> list[list[float]]:
-    """Ein SPIELFELD-Quad in die Profil-Konvention, also nach aussen um `margin` gedehnt.
-
-    `markerless.find_board` liefert die vier Feldecken, `correct_quad` und `alignment_of` rechnen
-    dagegen wie die Marker: `margin` ausserhalb des Feldes (`compute_homography`).
-    """
+    """Ein SPIELFELD-Quad in die Profil-Konvention, also nach aussen um `margin` gedehnt."""
     import cv2
     import numpy as np
 

@@ -30,8 +30,7 @@ from .session_store.names import log_path, matte_path, mattes_dir
 
 SAM3_REPO = "facebook/sam3"
 
-# One pass each, unioned. The expensive part is the image encoder, so all concepts reuse
-# the same vision embedding. The cut becomes the actual training label.
+# One pass per concept, unioned; all reuse the same vision embedding.
 CONCEPTS = (
     "person",
     "hand",
@@ -40,10 +39,8 @@ CONCEPTS = (
     "wristwatch",
 )
 
-# `zone` steht als ZAHL in jeder Zeile, ist aber keine Grenze mehr. `MAX_ZONE_FRAC = 0.60` trennte
-# nach FLAECHE, nicht nach Irrtum: eine Fehlerkennung bei 20 % rutschte durch, eine echte schwere
-# Verdeckung bei 70 % flog raus. Im ganzen Korpus nie gefeuert (8 328 Zeilen, null Absagen). Wer
-# der Matte nur unter einer Flaeche traut, traut ihr nicht (Nutzer, 2026-09-16).
+# `zone` ist keine Grenze mehr: `MAX_ZONE_FRAC` trennte nach FLAECHE, nicht nach Irrtum, und feuerte
+# im Korpus nie.
 
 
 
@@ -52,12 +49,10 @@ _SAM3: tuple = ()
 
 
 def _timestamp() -> str:
-    """Human-readable local timestamp for worker logs."""
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _rate(frames: int, started: float) -> tuple[float, float]:
-    """Return average frames/s and seconds/frame since `started`."""
     if frames <= 0:
         return 0.0, 0.0
 
@@ -94,10 +89,9 @@ def _sam3():
 
 
 def unload_models() -> None:
-    """Release cached Torch models before interpreter shutdown.
-
-    Workers keep them alive across frames and sessions; releasing at the end avoids leaving
-    several GB of CUDA-backed objects for interpreter shutdown to dismantle."""
+    """Release cached Torch models before interpreter shutdown, instead of leaving GBs of
+    CUDA-backed objects for it to dismantle.
+    """
     global _SAM3
 
     _SAM3 = ()
@@ -147,10 +141,8 @@ def _win_ancestors(pid: int) -> list[tuple[int, str]]:
 
 
 def _owner_pid() -> int:
-    """The shell that launched us, not the venv shim.
-
-    `.venv/Scripts/python.exe` re-executes the real interpreter and then WAITS on it, so the
-    two keep each other alive and watching `getppid()` never fires (measured 2026-08-23).
+    """The shell that launched us, not the venv shim: `.venv/Scripts/python.exe` re-executes the
+    real interpreter and WAITS on it, so watching `getppid()` never fires.
     """
     if sys.platform != "win32":
         return os.getppid()
@@ -180,10 +172,8 @@ def _wait_for_exit(pid: int) -> None:
 
 
 def exit_with_parent() -> None:
-    """Drop the weights and go when the launching shell dies.
-
-    Killing the shell does not kill the worker: it keeps running and holds its VRAM.
-    Set CHESSLAB_NO_PARENT_WATCH=1 for a deliberately detached run.
+    """Drop the weights and go when the launching shell dies — killing the shell does not kill the
+    worker, which keeps its VRAM. CHESSLAB_NO_PARENT_WATCH=1 detaches.
     """
     if os.environ.get("CHESSLAB_NO_PARENT_WATCH"):
         return
@@ -203,23 +193,21 @@ def exit_with_parent() -> None:
 #: Bridges the seam between two concept masks. Small on purpose — a real gap between two fingers
 #: is far wider and has to survive.
 UNION_CLOSE_PX = 9
-#: A hole over this share of the mask is not an artefact. Measured on 222655/988: backdrop showing
-#: through a curled hand is 0.77 % and must stay open (`docs/occluder-plates.md`).
+#: A hole over this share of the mask is not an artefact: backdrop through a curled hand is 0.77 %.
 MAX_HOLE_FRAC = 0.002
 
 
 def solid(alpha: np.ndarray, close_px: int = UNION_CLOSE_PX,
           max_hole_frac: float = MAX_HOLE_FRAC) -> np.ndarray:
-    """Close the seams the UNION leaves, then fill the SMALL things it encloses — uint8 in and out.
-
-    Watch and arm come from two concepts and meet on a line neither covers. Topology alone is too
-    greedy: a curled hand encloses backdrop, a hole by every test but size (`MAX_HOLE_FRAC`)."""
+    """Close the seams the UNION leaves, then fill the SMALL things it encloses (uint8 in and out);
+    a curled hand encloses backdrop, so size decides.
+    """
     m = (alpha > 127).astype(np.uint8)
     if close_px > 1:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_px, close_px))
         m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
-    # 4 on the BACKGROUND against the 8-connected foreground the close leaves: same-connectivity
-    # on both sides lets a pocket leak out along a diagonal the mask counts as sealed.
+    # 4-connected BACKGROUND against the 8-connected foreground: equal connectivity lets a pocket
+    # leak out along a diagonal the mask counts as sealed.
     n, lab, stats, _c = cv2.connectedComponentsWithStats(
         (1 - m).astype(np.uint8), connectivity=4)
     outside = set(lab[0]) | set(lab[-1]) | set(lab[:, 0]) | set(lab[:, -1])
@@ -235,10 +223,9 @@ def alpha_sam3(
     *,
     fill: bool = True,
 ) -> tuple[np.ndarray, dict[str, float]]:
-    """The union of SAM 3's concept masks, made solid by `solid`.
-
-    The five share one preprocessed image and one vision encoding; only their text inputs and
-    prompt-dependent path run separately. `fill=False` returns the bare union, for a review."""
+    """The union of SAM 3's concept masks, made solid by `solid`; one image encoding for all
+    concepts. `fill=False` returns the bare union.
+    """
     import torch
 
     processor, model, device = _sam3()
@@ -255,19 +242,16 @@ def alpha_sam3(
 
     hits: dict[str, float] = {}
 
-    # Process and upload the image only once.
     image_inputs = processor(
         images=rgb,
         return_tensors="pt",
     ).to(device)
 
-    # The encoder is 77 % of the frame and no coverage cell crosses PIECE_VISIBLE_MAX under
-    # fp16 — numbers in `docs/session-mattes.md`.
+    # The encoder is 77 % of the frame, and under fp16 no coverage cell crosses PIECE_VISIBLE_MAX.
     autocast = torch.autocast("cuda", dtype=torch.float16, enabled=device != "cpu")
 
-    # MATH statt der schnellen SDPA-Kerne: auf torch 2.13.0+rocm10.0.0 vergiftet die
-    # Aufmerksamkeit den HIP-Kontext, und der naechste Kernelstart stirbt mit
-    # `hipErrorInvalidValue` — dieselbe Wurzel wie in `BoardAttentionHead.forward`.
+    # MATH statt der schnellen SDPA-Kerne: auf torch 2.13.0+rocm10.0.0 vergiftet die Aufmerksamkeit
+    # den HIP-Kontext, und der naechste Kernelstart stirbt mit `hipErrorInvalidValue`.
     from torch.nn.attention import SDPBackend, sdpa_kernel
 
     with torch.inference_mode(), autocast, sdpa_kernel([SDPBackend.MATH]):
@@ -276,7 +260,6 @@ def alpha_sam3(
         )
 
         for concept in CONCEPTS:
-            # Text-only processing: no repeated image resize, normalization or upload.
             text_inputs = processor(
                 text=concept,
                 return_tensors="pt",
@@ -306,8 +289,8 @@ def alpha_sam3(
                 .astype(np.float32, copy=False)
             )
 
-            # Usually already original size because target_sizes was supplied.
-            # Keep a fallback for compatibility with different Transformers versions.
+            # Usually already original size (target_sizes); fallback for other Transformers
+            # versions.
             if mask.shape != alpha.shape:
                 mask = cv2.resize(
                     mask,
@@ -337,9 +320,8 @@ def alpha_sam3(
 
 
 def alpha_for(session_dir: Path, row: dict) -> Path:
-    """Das Alpha, das ZU DIESER ZEILE gehoert — nach einem Upsert liegt SAMs unter `.sam.webp`,
-    und `<stem>.webp` ist das des Drei-Bilder-Sensors. Fuer jede Zeile `<stem>.webp` zu nehmen gab
-    SAMs Zeile die Zahlen des Sensors: 68 Zeilen im Korpus (gemessen 2026-09-16).
+    """Das Alpha, das ZU DIESER ZEILE gehoert: nach einem Upsert liegt SAMs unter `.sam.webp`,
+    `<stem>.webp` ist das des Sensors.
     """
     mattes = mattes_dir(session_dir)
     if (row.get("source") or "sam") == "sam":
@@ -354,10 +336,9 @@ def coverage_of(
     entry: dict,
     profile,
 ) -> dict[str, float]:
-    """Per square, cut by the SAME `crops_for_frame` call the image goes through.
-
-    That makes the label region the crop region by construction — mesh and pads included —
-    which is the granularity the hand-marked class never had (`docs/occluder-plates.md`)."""
+    """Per square, cut by the SAME `crops_for_frame` call the image goes through: label region =
+    crop region.
+    """
     grey = (
         np.clip(alpha, 0.0, 1.0)
         * 255.0
@@ -389,26 +370,21 @@ def coverage_of(
     }
 
 
-# Eine REIHENFOLGE, keine Behauptung: der Bericht meldet den ganzen dirty-Stapel (die Zelle
-# entscheidet, 2026-08-22), dieser Lauf arbeitet `occluded` zuerst ab. Entschieden 2026-09-16,
-# gemessen: 21 offen im Standard-Stapel, 117 im uebrigen — beides auf EINER Aufnahme.
+# Eine REIHENFOLGE, keine Behauptung: der Bericht meldet den ganzen dirty-Stapel, dieser Lauf
+# arbeitet `occluded` zuerst ab.
 ALPHA_REASON = "occluded"
 
 
 def dirty_pile(rows: list[dict], reason: str = "all") -> set[str]:
-    """Die Stems, die eine Matte brauchen; `reason` engt auf EIN `dirty_reason` ein.
-
-    Eine Funktion, weil `matte_status` und `alpha_worker` denselben Stapel meinen muessen — sie
-    hatten je eine Kopie, und die des Workers stand auf der Regel von vor 2026-08-22.
+    """Die Stems, die eine Matte brauchen; `reason` engt auf EIN `dirty_reason` ein. `matte_status`
+    und `alpha_worker` muessen denselben Stapel meinen.
     """
     return {Path(r["board"]).stem for r in rows
             if r.get("board") and r.get("dirty") and not r.get("unusable")
             and (reason == "all" or r.get("dirty_reason") == reason)}
 
 
-# A hand-corrected alpha lands beside SAM's, never on top of it: the model's
-# own cut stays readable, and which one a row used is written down rather than
-# guessed from a timestamp.
+# A hand-corrected alpha lands beside SAM's, never on top: which one a row used is written down.
 FIXED_SUFFIX = ".fixed.webp"
 
 
@@ -417,10 +393,8 @@ def recut_coverage(
     *,
     progress: bool = True,
 ) -> dict:
-    """Die `coverage` aus dem Alpha NEU schneiden, mit der heutigen Geometrie.
-
-    Ein Re-Export verschiebt die Ecken und laesst die Zahl stehen — 13 von 24 Aufnahmen,
-    `docs/class-scheme.md`. SAM laeuft nicht, das ist reine Arithmetik.
+    """Die `coverage` aus dem Alpha NEU schneiden, mit der heutigen Geometrie: ein Re-Export
+    verschiebt die Ecken und laesst die Zahl stehen. Reine Arithmetik, kein SAM.
     """
     from .calibration import load_profile
     from .session_store.recording import game_dir
@@ -450,8 +424,8 @@ def recut_coverage(
             continue
         fresh = coverage_of(image.astype(np.float32) / 255.0, entry, profile)
         was = row["coverage"]
-        # Auch eine unveraenderte Zahl ist damit gegen den HEUTIGEN Export nachgerechnet — ohne
-        # den neuen Stempel bliebe die Matte-Sprosse nach genau diesem Lauf fuer immer offen.
+        # Auch eine unveraenderte Zahl bekommt den neuen Stempel, sonst bliebe die Matte-Sprosse
+        # offen.
         current = (row | {"_source": source}) if source else row
         if all(abs(fresh.get(sq, 0.0) - v) <= 1e-4 for sq, v in was.items()):
             restamped += current != row
@@ -478,10 +452,9 @@ def recut_fixed(
     *,
     progress: bool = True,
 ) -> dict:
-    """Recompute coverage for every frame whose alpha a human corrected.
-
-    The cut has one implementation — `coverage_of`, the same `crops_for_frame` call the image
-    goes through. The UI paints pixels and hands them over, never a coverage number."""
+    """Recompute coverage for every frame whose alpha a human corrected, through `coverage_of`: the
+    UI hands over pixels, never a coverage number.
+    """
     from .calibration import load_profile
     from .session_store.recording import game_dir
 
@@ -505,8 +478,7 @@ def recut_fixed(
         if entry.get("board")
     }
 
-    # This rewrites the file whole while alpha_worker appends to it.
-    # A row the worker adds between our read and our write would otherwise die.
+    # Rewritten whole while alpha_worker appends: a row added in between would otherwise die.
     stamp = stamp_of(path)
 
     rows: list[dict] = []
@@ -556,8 +528,8 @@ def recut_fixed(
                     value > 0.5
                     for value in coverage.values()
                 ),
-                # Frisch gegen die heutige Geometrie geschnitten, also traegt die Zeile auch
-                # den heutigen Export — dieselbe Herkunft, die `alpha_worker` schreibt.
+                # Frisch gegen die heutige Geometrie geschnitten, also traegt die Zeile den heutigen
+                # Export.
                 **({"_source": source} if source else {}),
             }
 
@@ -585,10 +557,8 @@ def recut_fixed(
 
 
 def matte_status(name: str) -> dict:
-    """Welche dirty-Frames eine Matte haben, und welche Matten keinen Frame mehr.
-
-    Niemand gleicht Export und `matte.jsonl` ab. Eine LUECKE ist die teure Haelfte: ein Crop ohne
-    Matte bekommt Coverage 0 und sieht aus wie ein freies Feld ("Coverage Matte Trap").
+    """Welche dirty-Frames eine Matte haben, und welche Matten keinen Frame mehr. Eine LUECKE ist
+    teuer: ohne Matte gilt Coverage 0 — ein freies Feld.
     """
     from .labeling import read_log
     from .session_store.recording import game_dir
@@ -596,12 +566,11 @@ def matte_status(name: str) -> dict:
     session_dir = game_dir(name)
     rows = read_log(session_dir)
     want = dirty_pile(rows)
-    # Getrennt, weil nur der Standardstapel von einem gewoehnlichen Lauf erreicht wird: `changed`
-    # und `stale` holt allein `--reason all`, und beides als EINE Zahl meldete ewig eine Luecke.
+    # Getrennt: `changed` und `stale` holt nur `--reason all`, als EINE Zahl meldete das ewig eine
+    # Luecke.
     standard = dirty_pile(rows, ALPHA_REASON)
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
-    # Punkt 28: ein gemessen-dann-abgesagtes Frame blieb als blosser Filter gelesen in `have`,
-    # und der Bericht verschwieg die Luecke, die er meldet.
+    # Ein gemessen-dann-abgesagtes Frame ist keine Matte.
     have = set(read_matte(session_dir))
     return {"session": name, "dirty": len(want), "matted": len(want & have),
             "missing": sorted(standard - have),
@@ -616,11 +585,9 @@ def _drop(staged: list[tuple[Path, Path]]) -> None:
 
 
 def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> dict:
-    """Run `solid` over the alphas already on disk, and recut the coverage it moves.
-
-    The seam is a fault of the UNION, so the stored pixels carry it exactly as the worker wrote
-    them and re-running SAM would cost hours to change the same pixels. A row a person corrected
-    (`alpha: fixed`) is skipped whole: that alpha and that coverage are theirs."""
+    """Run `solid` over the alphas on disk and recut the coverage it moves; re-running SAM would
+    cost hours for the same pixels. `alpha: fixed` rows are the person's and skipped whole.
+    """
     from .calibration import load_profile
     from .session_store.recording import game_dir
 
@@ -633,21 +600,16 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     stamp = stamp_of(path)
 
     raw = read_jsonl(path)
-    # Je Frame nur die WIRKSAME Zeile: eine ueberholte Messung nachzurechnen ersetzte das Alpha
-    # eines Frames, den die juengste Zeile ablehnt — und zwei gemessene Zeilen desselben Frames
-    # stapelten ZWEIMAL dieselbe `*.tmp.webp`, so dass das zweite `replace()` starb.
+    # Je Frame nur die WIRKSAME Zeile: sonst stapelten zwei Zeilen desselben Frames ZWEIMAL dieselbe
+    # `*.tmp.webp`, und das zweite `replace()` starb.
     live_row = effective_rows(raw)
 
     rows: list[dict] = []
-    # Die Pixel gehen in Nachbardateien und werden ZULETZT umgehaengt, zusammen mit dem Ledger.
-    # Vorher landeten sie sofort auf der Platte: brach der Waechter danach ab, trugen N Alphas die
-    # geschlossenen Pixel und `matte.jsonl` die alte `coverage` — und ein zweiter Lauf fand
-    # `gained == 0` und reparierte es nie, obwohl die Meldung dazu aufforderte.
+    # Die Pixel gehen in Nachbardateien und werden ZULETZT mit dem Ledger umgehaengt: sonst trugen
+    # Alphas neue Pixel und `matte.jsonl` alte `coverage`, und ein zweiter Lauf fand nichts zu tun.
     staged: list[tuple[Path, Path]] = []
     closed = crossed = added = 0
-    # nur die zwei eigenen `raise` raeumten auf — ein Ctrl-C oder ein Fehler in der
-    # Schleife liess die gestapelten `*.tmp.webp` liegen, und `straighten_boards` zog sie
-    # dann auch noch gerade.
+    # Jeder Abbruch raeumt die gestapelten `*.tmp.webp`, sonst zog `straighten_boards` sie gerade.
     try:
         for row in raw:
             if live_row.get(row.get("frame")) is not row:
@@ -656,10 +618,8 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
             alpha_path = alpha_for(session_dir, row)
             entry = entries.get(row["frame"])
             image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
-            # `alpha: fixed` means the coverage was cut from the person's `.fixed.webp`; recutting it
-            # from SAM's own matte would replace their numbers while the row keeps claiming theirs.
-            # Und wie in `recut_coverage`: eine Zeile OHNE `coverage` ist SAMs Absage, keine Messung
-            # — ein Alpha auf der Platte machte daraus sonst eine (Punkt 28).
+            # `alpha: fixed` coverage was cut from the person's `.fixed.webp`. Eine Zeile OHNE
+            # `coverage` ist SAMs Absage, keine Messung.
             if (image is None or entry is None or row.get("alpha") == "fixed"
                     or row.get("coverage") is None or not usable_board(entry, profile)):
                 rows.append(row)
@@ -671,8 +631,8 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                 continue
             coverage = coverage_of(filled.astype(np.float32) / 255.0, entry, profile)
             was = row.get("coverage") or {}
-            # The only change that can move a LABEL: a cell stepping over the threshold the piece loss
-            # masks on. Counted and reported, because `coverage` is training input, not a picture.
+            # Only a cell stepping over the loss's threshold moves a LABEL; counted, because
+            # coverage is training input.
             crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
                            for sq, v in coverage.items())
             closed += 1
@@ -694,8 +654,8 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                 path, rows, stamp,
                 what=f"{name}: matte.jsonl changed while closing seams — the alpha worker "
                      "is writing it. Let it finish and run this again.")
-            # Nur noch Umbenennungen, also Millisekunden statt Minuten. Atomar ueber N+1 Dateien ist es
-            # nicht — dafuer braeuchte es ein Journal —, aber das Fenster ist nicht mehr die Laufzeit.
+            # Nur noch Umbenennungen, Millisekunden. Atomar ueber N+1 Dateien ist es nicht (dafuer
+            # braeuchte es ein Journal).
             for tmp, final in staged:
                 tmp.replace(final)
     except BaseException:
@@ -707,10 +667,8 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
 
 def flagged_frames(name: str, *, reported: bool = False, wanted: bool = False,
                    temporal: bool = False) -> set[str] | None:
-    """Die Frames, die eine Fahne fuer DIESE Aufnahme meint; `None` heisst: der ganze Stapel.
-
-    Je Aufnahme aufgeloest, weil ein Stapellauf sonst der zweiten Session die Frames der ersten
-    gaebe. Die Reihenfolge ist die des CLI: die erste gesetzte Fahne gewinnt.
+    """Die Frames, die eine Fahne fuer DIESE Aufnahme meint; `None` heisst: der ganze Stapel. Die
+    erste gesetzte Fahne gewinnt.
     """
     from .session_store.recording import game_dir, reported_dirty
 
@@ -732,14 +690,12 @@ def alpha_worker_all(
     frames_for: Callable[[str], set[str] | None] | None = None,
     progress: bool = True,
 ) -> dict:
-    """Every session in one process, so SAM 3's weights are loaded only once.
-
-    Models stay resident for the complete --all run and are explicitly
-    released once every requested session has finished.
+    """Every session in one process, so SAM 3's weights load once; released after the last
+    session.
     """
     runs: list[dict] = []
-    #: Was schiefging, je Aufnahme. Ohne diese Liste war ein Stapel mit 20 Ausfaellen von einem
-    #: sauberen Lauf nicht zu unterscheiden — `[ERR]` scrollte weg, `[OK]` blieb stehen.
+    #: Ohne diese Liste war ein Stapel mit 20 Ausfaellen von einem sauberen Lauf nicht zu
+    #: unterscheiden.
     failed: list[dict] = []
 
     started_all = perf_counter()
@@ -757,8 +713,8 @@ def alpha_worker_all(
                 )
 
             frames = None if frames_for is None else frames_for(name)
-            # Ohne Treffer UEBERSPRINGEN, nicht auf den ganzen Stapel zurueckfallen: sonst mattet
-            # ein `--reported`-Lauf ausgerechnet dort alles, wo ein Mensch nichts gemeldet hat.
+            # Ohne Treffer UEBERSPRINGEN: sonst mattet `--reported` alles, wo ein Mensch nichts
+            # gemeldet hat.
             if frames_for is not None and not frames:
                 continue
 
@@ -854,10 +810,9 @@ def alpha_worker(
     frames: set[str] | None = None,
     progress: bool = True,
 ) -> dict:
-    """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square.
-
-    A kill loses at most the current frame. `limit` targets SUCCESSFUL alphas, not a batch size;
-    `frames` re-measures exactly those stems and ignores the pile and `limit` alike."""
+    """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square; a kill loses at
+    most the current frame. `limit` counts SUCCESSFUL alphas; `frames` ignores pile and limit.
+    """
     from .calibration import load_profile
     from .session_store.recording import game_dir
 
@@ -878,11 +833,8 @@ def alpha_worker(
         session_dir,
     )
 
-    # Der AKTUELLE Stapel, nicht jede Zeile mit einem Brett: eine Matte zu einem Stem, den der
-    # Export inzwischen anders einstuft, verbraucht sonst `--limit`-Budget fuer Arbeit, die gar
-    # nicht mehr ansteht (2026-09-09, nach dem Re-Export der ungescannten Sessions).
-    # `unusable` ist der Weg fuer das, was keine gueltige Stellung hergibt (umgefallene Figur,
-    # Katze im Bild). `slice` respektiert ihn laengst; ohne ihn hier mattet SAM ihn trotzdem.
+    # Der AKTUELLE Stapel, sonst verbraucht eine Matte fuer einen umgestuften Stem `--limit`-Budget.
+    # `unusable` (umgefallene Figur, Katze im Bild) mattet SAM auch nicht.
     live = dirty_pile(rows, reason)
 
     existing_rows = (
@@ -895,26 +847,23 @@ def alpha_worker(
         else []
     )
 
-    # Every existing row is considered processed, including deliberate skips.
-    # Otherwise "zone too big" would be recomputed forever.
+    # Every existing row counts as processed, deliberate skips included, or "zone too big" repeats
+    # forever.
     done = {
         row["frame"]
         for row in existing_rows
         if row.get("frame")
     }
 
-    # --limit counts actual usable alpha labels rather than JSONL rows.
-    # Je FRAME die wirksame Zeile: eine Messung, die eine spaetere Absage zurueckgenommen hat,
-    # ist kein Erfolg und darf das Budget nicht kuerzen.
+    # --limit counts usable alphas, per FRAME the effective row: a later refusal is no success.
     successful = {
         frame
         for frame, row in measured_coverage(existing_rows).items()
         if not row.get("skipped")
     }
 
-    # A named frame overrides BOTH filters. A hand the scan missed sits on a `clean` row, which
-    # never reaches the pile, and "the matte missed something here" is by definition a verdict on a
-    # frame that already has a row. `read_matte` lets the later row win, so appending is enough.
+    # A named frame overrides BOTH filters: a hand the scan missed sits on a `clean` row. The later
+    # row wins in `read_matte`, so appending is enough.
     todo = [
         entry
         for entry in rows
@@ -963,9 +912,8 @@ def alpha_worker(
             flush=True,
         )
 
-    # Der Prozess geht per `os._exit` (`exit_with_parent`, und der CLI-Zweig): die letzte Zeile
-    # bricht dabei mitten im Puffer ab. `read_jsonl` verzeiht diesen Schwanz, blind daran
-    # anzuhaengen macht daraus Korruption MITTENDRIN, auf die danach JEDES Lesen wirft.
+    # Der Prozess geht per `os._exit`, die letzte Zeile kann mitten im Puffer abbrechen; blind daran
+    # angehaengt wird daraus Korruption MITTENDRIN.
     append_rows(path, [])
 
     with path.open(
@@ -985,8 +933,8 @@ def alpha_worker(
                 / entry["board"]
             )
 
-            # Coverage is a training target, so an off-scale cut poisons the label rather than
-            # blurring it: the row's own numbers decide, exactly as every other board reader.
+            # Coverage is a training target: an off-scale cut poisons the label, so the row's own
+            # numbers decide.
             raster = usable_board(
                 entry,
                 profile,
@@ -1003,9 +951,8 @@ def alpha_worker(
                 "dirty_reason": entry.get(
                     "dirty_reason",
                 ),
-                # Gegen WELCHEN Export dieses Alpha geschnitten wurde: ein Re-Export verschiebt die
-                # Ecken, und die gespeicherte `coverage` bleibt stehen (`docs/data-pipeline.md`).
-                # `chain.ts` vergleicht den Stempel und macht die Sprosse wieder auf.
+                # Gegen WELCHEN Export dieses Alpha geschnitten wurde; `chain.ts` vergleicht den
+                # Stempel.
                 **({"_source": stamp} if stamp else {}),
             }
 
@@ -1075,7 +1022,6 @@ def alpha_worker(
                 + "\n"
             )
 
-            # One completed frame is the unit of durability.
             file_handle.flush()
 
             if progress and (
@@ -1113,10 +1059,8 @@ def alpha_worker(
         "alphas": written,
         "skipped": skipped,
 
-        # Existing usable targets, matching --limit semantics.
         "already": len(successful),
 
-        # Every frame for which a JSONL row already exists.
         "processed": len(done),
 
         "seconds": round(

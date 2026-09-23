@@ -43,8 +43,7 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     found = checked = noboard = nogeometry = 0
-    # `open("w")` KUERZT den veroeffentlichten Bericht sofort beim Start; ein abgebrochener
-    # Lauf liess ihn halb da, und `matte_audit_montage.py` liest ihn mit `json.loads` je Zeile.
+    # `open("w")` KUERZT den Bericht beim Start, und `matte_audit_montage.py` liest ihn zeilenweise.
     tmp = out.with_name(out.name + ".tmp")
     with tmp.open("w", encoding="utf-8") as sink:
         for rec in sorted(Path(args.recordings).iterdir()):
@@ -56,12 +55,9 @@ def main() -> int:
                      and not (r.get("concepts") or {}) and not (r.get("cells_over_half") or 0)]
             if args.limit:
                 blind = blind[:args.limit]
-            # Das Brett traegt seinen Rand MIT: `gray.shape[0]` ist 952 bei `board_size` 928.
-            # Ohne die zwei Zahlen aus der Log-Zeile rastert der Sensor mit 119 statt 116 px und
-            # benennt Felder bis zu einer Viertelzelle daneben (gefunden 2026-09-21).
-            # Der Fehler waren die ZELLMASSE, und die stehen in der Log-Zeile. Das Profil dient
-            # nur `usable_board` und der Seite; fehlt es, laeuft die Pruefung ohne beides weiter
-            # statt auszufallen -- so war es vorher auch, und es wird gezaehlt.
+            # Das Brett traegt seinen Rand MIT (952 bei `board_size` 928): ohne die Zellmasse der
+            # Log-Zeile rastert der Sensor mit 119 statt 116 px. Ohne Profil laeuft die Pruefung
+            # gezaehlt weiter.
             profile = None
             try:
                 profile = _profile_for_session(read_session_meta(rec), None)
@@ -70,7 +66,7 @@ def main() -> int:
             try:
                 log = {pathlib.Path(x["frame"]).stem: x for x in read_log(rec)}
             except FileNotFoundError:
-                # Ohne Log gibt es die Zellmasse nicht. Das ist NICHT gemessen, nicht sauber.
+                # Ohne Log keine Zellmasse: NICHT gemessen, nicht sauber.
                 nogeometry += 1
                 continue
             hits = seen = 0
@@ -80,8 +76,7 @@ def main() -> int:
                     noboard += 1
                     continue
                 p = board_path(rec, r["frame"])
-                # Ohne Brett ist nichts gemessen: die Zeile zaehlt weder in `seen` noch in
-                # `checked`, sonst nennt der Nenner Matten, die der Rillen-Sensor nie sah.
+                # Ohne Brett ist nichts gemessen; die Zeile zaehlt in keinem Nenner.
                 if p is None:
                     noboard += 1
                     continue
@@ -104,7 +99,7 @@ def main() -> int:
                       + (f" ({skipped} ohne Brett)" if skipped else ""), flush=True)
     os.replace(tmp, out)
     if not checked:
-        # "0 von 0" las sich wie ein Ergebnis. Nichts gemessen ist kein Befund.
+        # Nichts gemessen ist kein Befund.
         print(f"\nkeine blinde Matte geprueft (ohne Brett: {noboard}, ohne Profil: "
               f"{nogeometry}) — nichts gemessen -> {out}")
         return 1

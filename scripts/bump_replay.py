@@ -69,8 +69,7 @@ def score(log: Path) -> dict:
     text = log.read_text(encoding="utf-8", errors="replace")
     counts = {k: int(m.group(1)) if (m := re.search(rf"^  {k} (\d+)", text, re.M)) else None
               for k in ("found", "missed", "invented", "beyond")}
-    # Keyed by (san, LABEL frame), never by san alone: 19 of 32 recordings repeat a san, and
-    # `2026-09-11-20-00-52` would silently lose 19 of its 117 plies out of the delta table.
+    # Keyed by (san, LABEL frame): 19 of 32 recordings repeat a san.
     found = {(m.group(1), int(m.group(2))): int(m.group(3))
              for m in re.finditer(r"^    (\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)",
                                   text, re.M)}

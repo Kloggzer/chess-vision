@@ -1,9 +1,7 @@
-"""8K-Testclips auf tracker-taugliche Auflösung reduzieren (OpenCV, kein ffmpeg nötig).
+"""8K-Testclips auf tracker-taugliche Aufloesung reduzieren (OpenCV, kein ffmpeg).
 
-Usage: uv run python scripts/reduce_video.py IN.mp4 OUT.mp4 [--width 1920] [--fps-cap 30] [--fps N]
-
-Der Tracker warpt ohnehin auf board_size (~800 px) — 1920 px Breite ist mehr als genug
-und macht aus ~700 MB 8K-Clips handliche Regressions-Testdateien.
+Usage: uv run python scripts/reduce_video.py IN.mp4 OUT.mp4 [--width 1920] [--fps-cap 30] [--fps
+N]
 """
 
 from __future__ import annotations
@@ -31,7 +29,6 @@ def reduce(src: str, dst: str, width: int = 1920, fps_cap: float = 30.0,
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     out_w = min(width, w)
     out_h = int(h * out_w / w) // 2 * 2
-    # fps-Cap per Frame-Skipping (Handy-8K oft 24/30 fps; falls 60, jeden 2. Frame nehmen)
     step = max(1, round(fps / fps_cap)) if fps > fps_cap else 1
     out_fps = fps / step
     wr = cv2.VideoWriter(dst, cv2.VideoWriter_fourcc(*"mp4v"), out_fps, (out_w, out_h))

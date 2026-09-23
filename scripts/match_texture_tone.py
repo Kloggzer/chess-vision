@@ -1,10 +1,7 @@
-"""Farbton einer Figuren-Textur an eine Referenz-Figur angleichen (Reinhard-Transfer in Lab).
+"""Farbton einer Figuren-Textur an eine Referenz angleichen (Reinhard-Transfer in Lab): Mittel und
+Streuung je Kanal wandern, die Maserung bleibt. Nur auf Pipeline-Kopien.
 
 Usage: uv run python scripts/match_texture_tone.py synth_pieces/bP/v1.png synth_pieces/bK/v1.png
-
-Fall: eine Scan-Session hatte abweichende Belichtung (bP grau statt braunschwarz wie
-bK/bR). Überträgt Mittelwert+Streuung je Lab-Kanal der Referenz auf die Ziel-Textur —
-Struktur/Maserung bleiben, nur der Ton wandert. Arbeitet nur auf Pipeline-Kopien.
 """
 
 from __future__ import annotations
@@ -28,8 +25,7 @@ def match(dst_path: Path, ref_path: Path) -> None:
         rm, rs = r[..., c].mean(), r[..., c].std() + 1e-6
         d[..., c] = (d[..., c] - dm) * (rs / ds) + rm
     out = cv2.cvtColor(np.clip(d, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
-    # `cv2.imwrite` WIRFT NICHT, es gibt `False` zurueck — und geschrieben wird hier die
-    # Textur SELBST. Ein stiller Fehlschlag meldete "angeglichen" auf eine unveraenderte Datei.
+    # `cv2.imwrite` WIRFT NICHT, es gibt `False` zurueck.
     if not cv2.imwrite(str(dst_path), out):
         raise SystemExit(f"{dst_path}: nicht geschrieben")
     print(f"{dst_path}: Ton an {ref_path} angeglichen")

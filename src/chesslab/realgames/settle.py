@@ -26,20 +26,9 @@ def measure_settle(video: Path, candidate: dict, profile,
                    workers: int = 1, executor=None) -> dict[int, dict[str, int]]:
     """`ply -> {square: the frame from which the image already shows the move}`.
 
-    [rotate] is `detect_rotation`'s verdict, applied before cropping — the quad lives in the
-    rotated view, and against an unrotated phone decode every anchor pair reads as noise.
-
-    The engine commits on QUIET, not on arrival: a piece that is placed while the hand lingers is
-    visible for as long as the hand stays. Measured on VID_20260726_233432 (2026-08-09): the image
-    leads the commit by a median of well under a second but by **1.8 s at p90 and 4.6 s at worst**,
-    and 5 of 15 changed squares lead it by more than the 1 s the fixed margin protects. A constant
-    margin is therefore the wrong instrument — the number differs per move by an order of magnitude,
-    so it gets measured per move.
-
-    Nearest-neighbour against two anchors (one clearly before, one clearly after), which needs no
-    threshold: one of the two is always closer. A square whose anchors look alike is reported NOT AT
-    ALL rather than guessed, and the caller falls back to the fixed window for it.
-    """
+    The engine commits on QUIET: the image leads the commit by up to 4.6 s (1.8 s p90), so a
+    fixed margin is the wrong instrument. Nearest-neighbour between two anchors; alike anchors
+    report nothing. [rotate] is applied before cropping: the quad lives in the rotated view."""
     quad = candidate["geometry"]["corners"]
     moves = candidate["moves"]
     out: dict[int, dict[str, int]] = {}

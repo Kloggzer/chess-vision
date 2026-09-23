@@ -10,25 +10,15 @@ from ..state import GameState
 YIELD_HEADER = f"{'population':10} {'rows':>6} {'crops':>8} {'cells':>6} {'cap4':>7} {'cap16':>7}"
 
 
-#: How far past the FINAL commit its interval may run, in seconds — the whole rule for a ply that
-#: no later commit closes. Nothing witnesses the board after the last commit: the recording keeps
-#: going, the players keep playing, and on 2026-08-14-20-48-55 the tracker went on REJECTING
-#: `Bxd2+` for 18 s while its own `fenAfter` still said the bishop stood on b4. So "the tracker
-#: still agrees" is no witness either, and the tail is cut short instead of guessed.
+#: How far past the FINAL commit its interval may run. Nothing witnesses the board after the last
+#: commit (the tracker once kept REJECTING a played move for 18 s), so the tail is cut short.
 LAST_INTERVAL_S = 2.0
 
 
 def known_segments(candidate: dict) -> list[dict]:
-    """One segment per REVIEWED ply: `[commit frame, next commit frame)` holds its `fen_after`.
-
-    The next commit closes the segment whether or not that ply was reviewed — a commit is where
-    the board changed, and an unreviewed one is still evidence that it did.
-
-    The LAST ply has no such closer, and used to contribute nothing at all: 2026-08-14-20-48-55
-    confirmed 11 plies and exported 10 intervals, so the position the game ended in — the one the
-    human had just vouched for — was the one position never labelled. It gets [LAST_INTERVAL_S]
-    after its commit and not a frame more; the commit itself is the proof the board was in that
-    position, and nothing past the cap proves anything.
+    """One segment per REVIEWED ply: `[commit frame, next commit frame)` holds its `fen_after`; any
+    next commit closes it. The LAST ply gets [LAST_INTERVAL_S] — otherwise the final position is
+    never labelled.
     """
     moves = candidate["moves"]
     if not moves:
@@ -36,8 +26,8 @@ def known_segments(candidate: dict) -> list[dict]:
     reviewed = set(candidate.get("reviewed_plies") or ())
     stray = sorted(reviewed - {int(m["ply"]) for m in moves})
     if stray:
-        # A reviewed ply naming no move means the confirmation and `moves[]` disagree about which
-        # ply is which — every interval after it could carry the wrong position. Never guess.
+        # A reviewed ply naming no move: every later interval could carry the wrong position. Never
+        # guess.
         raise ValueError(
             f"reviewed_plies names ply {stray} which no move carries — confirmation and moves[] "
             f"disagree; re-run `chesslab realgames confirm` instead of exporting a shifted timeline"
@@ -56,17 +46,14 @@ def known_segments(candidate: dict) -> list[dict]:
                 "fen": move["fen_after"],
                 "start": start,
                 "end": end,
-                # The quad the decider stood on at THIS commit (Kotlin `CommittedPly.corners`); a board
-                # moved mid-game is cut right from here on, `geometry.corners` only when a ply has none.
+                # The quad at THIS commit (Kotlin `CommittedPly.corners`), so a board moved mid-game
+                # is cut right.
                 "corners": move.get("corners"),
-                # Kotlin `CommittedPly.refProvisional`: the commit beat the motion hold, so the
-                # frames right after it were cut against a reference that was re-captured later.
+                # The commit beat the motion hold; the frames after it were cut against a later
+                # reference.
                 "ref_provisional": bool(move.get("ref_provisional")),
-                # Against the LAST move sharing the next commit's frame, not the first: a pair
-                # commit lands two plies on one frame, and the hand window before it contains
-                # BOTH moves' physical motion. Computed against only the first, the second pair
-                # move's squares (e7/e5 of an e4+e5 pair) went unmarked while the frames already
-                # showed them moved — exactly the mislabel `unknown_squares` exists to stop.
+                # Against the LAST move on the next commit's frame: a pair commit's hand window
+                # holds BOTH moves, and the second move's squares went unmarked.
                 "next_touches": changed_squares(move["fen_after"], group_end_fen(moves, i + 1))
                 if i + 1 < len(moves)
                 else [],
@@ -84,10 +71,8 @@ def group_end_fen(moves: list[dict], j: int) -> str | None:
 
 
 def changed_squares(before: str | None, after: str | None) -> list[str]:
-    """Squares whose occupant differs between two FENs — the next move's footprint.
-
-    Derived from the two positions rather than from the SAN so castling, captures and
-    en-passant need no special case: whatever changed, changed.
+    """Squares whose occupant differs between two FENs — castling, captures, en passant need no
+    case.
     """
     if not before or not after:
         return []
@@ -96,11 +81,8 @@ def changed_squares(before: str | None, after: str | None) -> list[str]:
 
 
 def spread_indices(lo: int, hi: int, n: int) -> list[int]:
-    """`n` source indices spread evenly over `[lo, hi)`, ends included, never duplicated.
-
-    This is what `per_position` samples a quiet window with: a position that stood for ten seconds
-    and one that stood for two then weigh the same. Positions are what the corpus is short of —
-    246 of them over 9 386 boards (`docs/frame-scan.md`).
+    """`n` source indices spread evenly over `[lo, hi)`, ends included, never duplicated: positions,
+    not seconds, are what the corpus is short of.
     """
     span = hi - lo
     if span <= 0 or n <= 0:
@@ -112,11 +94,8 @@ def spread_indices(lo: int, hi: int, n: int) -> list[int]:
 
 
 def pick_spread(items: list, ok, n: int, *, prefer=(), tol: int = 0) -> list:
-    """`n` of `items` spread evenly over the position, each the nearest one `ok` accepts.
-
-    A slot whose own frame carries a hand borrows from beside it instead of going empty — dropping
-    it is what starved the corpus (20 % of positions kept 8, median 5). An item in `prefer` takes
-    the slot while it stays within `tol` places of the nearest one.
+    """`n` of `items` spread evenly, each the nearest one `ok` accepts: an empty slot borrows from
+    beside it (dropping starved the corpus). `prefer` wins within `tol` places.
     """
     usable = [i for i, it in enumerate(items) if ok(it)]
     taken: set[int] = set()
@@ -145,44 +124,31 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
                  settle: dict | None = None, per_position: int = 8,
                  dirty_per_position: int = 8, prefer=(), reported=(),
                  dirty: bool = True, white_pov: bool = True) -> list[dict]:
-    """The rows to store, picked from MEASURED frames instead of from a window around the commit.
-
-    The window let 23 % hands into the clean pool and condemned half its dirty frames for nothing
-    (`docs/frame-scan.md`). Each dirty row keeps its `dirty_reason`, so what it is good for later
-    is written down instead of guessed again.
-
-    `dirty=False` is `--no-dirty`, which reached only the `--no-scan` branch and therefore did
-    nothing on the path every export actually takes.
+    """The rows to store, picked from MEASURED frames (the commit window let 23 % hands through);
+    each dirty row keeps its `dirty_reason`.
     """
     from .. import framescan
 
     corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
     base, fps = base_time(candidate), video_fps(candidate)
-    # Zu unscharf, um eine Figur zu zeigen — gemessen ueber die ganze AUFNAHME, nicht je Ply:
-    # der absolute Median schwankt zwischen Aufnahmen um Faktor 28, innerhalb einer kaum. Die
-    # Verteilung ist zweigipflig, die Schwelle liegt in der Luecke (`framescan.SHARP_MIN_FRACTION`).
-    # Zwei Gruende, ein Brett ganz zu verwerfen: unscharf oder zu dunkel. Beim Licht ist es eine
-    # Aufnahme-Entscheidung — die Ecke steht still, also trifft es alle Bretter oder keines.
+    # Zu unscharf oder zu dunkel, gemessen ueber die ganze AUFNAHME: der absolute Median schwankt
+    # nur zwischen Aufnahmen, und die Ecke steht still.
     blurred = framescan.blurred_indices(scan) | framescan.dark_indices(scan)
     rows = []
     for seg in known_segments(candidate):
         reasons = {k: v for k, v in framescan.classify(seg, scan, white_pov=white_pov).items()
                    if k not in blurred}
-        # Only over a CLEAN verdict. `occluded` claims the FEN still holds, which contradicts a
-        # measured `stale` or `changed` — and a frame promoted that way is rescued by its matte and
-        # carries the lagging FEN into training. The report answers "the scan missed a hand", the
-        # one thing it cannot see; it does not answer "the position is unchanged".
+        # Only over a CLEAN verdict: `occluded` claims the FEN holds, which contradicts
+        # `stale`/`changed`. The report says "the scan missed a hand", not "the position is
+        # unchanged".
         promoted = {idx for idx in reported if reasons.get(idx) == "clean"}
         for idx in promoted:
             reasons[idx] = "occluded"
         clean, flagged = framescan.select(reasons, per_position=per_position,
                                           dirty_per_position=dirty_per_position if dirty else 0,
                                           prefer=prefer)
-        # Ein korrigiertes Bild ist Handarbeit und darf nicht an einem Slot scheitern: `prefer`
-        # gewinnt nur im Umkreis von `tol`, und nach einer neuen Abtastung liegt es eben daneben.
-        # Es kommt ZUSAETZLICH mit, das Acht-Frame-Ziel gilt dafuer nicht. Nur `clean` und
-        # `occluded` — bei `stale`/`changed` laeuft die FEN nach, und die Korrektur beschreibt
-        # dann ein anderes Brett als das Label (2026-09-09: 4 von 11 so gerettet, 7 blieben).
+        # Ein korrigiertes Bild ist Handarbeit und kommt ZUSAETZLICH mit, auch neben dem Slot. Nur
+        # `clean` und `occluded`: bei `stale`/`changed` beschriebe die Korrektur ein anderes Brett.
         rescued = [idx for idx in sorted(prefer)
                    if seg["start"] <= idx < seg["end"] and idx not in clean and idx not in flagged
                    and reasons.get(idx) in ("clean", "occluded")]
@@ -201,30 +167,18 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
 
 def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
               settle: dict | None = None, per_position: int | None = None) -> list[dict]:
-    """Every log row the export will write, in frame order — the whole interval model.
+    """Every log row the export will write, in frame order. Quiet rows sit `margin_frames` clear of
+    both commits; dirty rows are the hand windows with the SAME interval FEN plus `dirty: true`.
 
-    Quiet rows sit `margin_frames` clear of both commits, so no hand is declared to be in them.
-    Dirty rows are the two hand windows at a segment's ends and carry the SAME interval FEN plus
-    `dirty: true`: a shadowed piece is still that piece, and which square is actually under an
-    occluder is phase 02's proposal, never the exporter's guess. Sampling is a global stride over
-    the source index, so a frame's stem does not depend on which window it fell into.
-
-    **The window BEFORE a commit is labeled short, and `unknown` is the honest word for it.** A
-    commit lands after the move is physically over — settle frames, then the confirmer — so the
-    trailing window holds frames where the piece has ALREADY moved while the interval's FEN still
-    describes the position before it. Found by the user while labeling (2026-08-09, frame 000813:
-    a pawn plainly on e5, FEN saying empty, commit `e5` 18 frames later). Only the squares the
-    NEXT move touches are in doubt, so only those are named — the other 60-odd cells of the same
-    frame are unaffected and stay labelable. `unknown_squares` travels with the row; `slice` does
-    not read it, phase 02 skips those cells, and no crop of them is ever built.
-    """
+    Before a commit the piece has often ALREADY moved: only the squares the NEXT move touches are
+    in doubt, named in `unknown_squares`; the rest of the frame stays labelable."""
     corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
     base, fps = base_time(candidate), video_fps(candidate)
     rows = []
     for seg in known_segments(candidate):
         start, end = seg["start"], seg["end"]
         q0, q1 = start + margin_frames, end - margin_frames
-        # A segment shorter than two margins is hand time end to end — no quiet part exists.
+        # A segment shorter than two margins has no quiet part.
         windows = (
             [(q0, q1, False), (start, q0, True), (q1, end, True)]
             if q1 > q0
@@ -247,10 +201,8 @@ def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
                 }
                 if is_dirty:
                     row["dirty"] = True
-                # NOT inside the `dirty` branch, and that is the whole correction: a piece can be
-                # placed seconds before the hand leaves, so a QUIET row can carry a stale FEN too.
-                # Measured 2026-08-09: 5 of 15 changed squares were visible more than the 1 s
-                # margin before their commit, one of them by 4.6 s.
+                # Outside the `dirty` branch: a piece placed seconds before the hand leaves makes a
+                # QUIET row stale too (up to 4.6 s before its commit).
                 unknown = unknown_for(seg, idx, margin_frames, settle)
                 if unknown:
                     row["unknown_squares"] = unknown
@@ -290,11 +242,8 @@ def yield_lines(rows: list[dict]) -> list[str]:
 
 
 def unknown_for(seg: dict, index: int, margin_frames: int, settle: dict | None) -> list[str]:
-    """Squares this frame cannot vouch for: the NEXT move's, from when they visibly changed.
-
-    With a measurement, a square is unknown from its own settle frame — which can lie well before
-    the quiet margin, so a QUIET row is protectable too, and that is the poison case the fixed
-    window missed entirely. Without one, the old rule stands: the whole trailing window.
+    """Squares this frame cannot vouch for: the NEXT move's, from their own settle frame on
+    (possibly inside the quiet margin); without a measurement, the whole trailing window.
     """
     touches = seg.get("next_touches") or []
     if not touches:

@@ -45,10 +45,8 @@ def measured_deviation(dev, seen, seen_min=SETTLE_SEEN_MIN):
 
 
 def temporal_residual(cells, reference, contrast_floor=8.0):
-    """Unmasked, brightness-centred residual and residual / reference contrast.
-
-    The contrast floor avoids amplifying noise on flat/dark squares. Wrong FEN,
-    geometry and shadows can also cause residuals: this does not prove occlusion.
+    """Unmasked, brightness-centred residual and residual / reference contrast. The contrast floor
+    keeps flat/dark squares from amplifying noise; a residual does not prove occlusion.
     """
     dev, _ = cell_deviations(cells, reference, np.ones(cells.shape[:3], bool))
     centred = reference - reference.mean(axis=(1, 2), keepdims=True)
@@ -73,8 +71,7 @@ def summary(values):
 
 def audit(rec, *, temporal=False, seen_min=SETTLE_SEEN_MIN, contrast_floor=8.0,
           reference_stock="boards", skipped=None):
-    # `skipped` is the caller's counter: a generator that prints leaves nobody a silent
-    # audit, and `temporal_flags.scan_session` writes JSON, not prose.
+    # `skipped` is the caller's counter; `temporal_flags.scan_session` writes JSON, not prose.
     profile = _profile_for_session(read_session_meta(rec), None)
     mattes = read_matte(rec)
     rows = read_log(rec)

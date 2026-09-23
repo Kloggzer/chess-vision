@@ -1,7 +1,5 @@
-"""Stage 5 — torch-bound data: dataset + transforms (policy from Stage 4).
-
-Augmentation ONLY on train (brightness/contrast/gamma, slight blur, small jitter;
-**no** flip/rotation). Val/test: only resize + normalize.
+"""Stage 5 — torch-bound data: datasets and transforms. Augmentation only on train, no board
+flips/rotations; val/test only resize + normalize.
 """
 
 from __future__ import annotations
@@ -20,12 +18,8 @@ from .packs import PackedArg, _pack_index
 
 
 class _Clahe:
-    """Lokaler Kontrast auf dem L-Kanal, damit die Farbe bleibt — dieselbe Form, die auf dem Geraet
-    ueber `Imgproc.createCLAHE` laeuft. Der Handle wird EINMAL angelegt; ihn je Bild zu bauen ist
-    ein messbarer Posten (`core-geometry/GrayPipeline.kt` haelt dieselbe Lehre fest).
-
-    Laeuft NACH dem Resize: so sind die Kacheln immer `out_size / tile` gross und Training und
-    Serving sehen denselben Operator, egal wie gross der Quellkasten war.
+    """Lokaler Kontrast auf dem L-Kanal, wie `Imgproc.createCLAHE` auf dem Geraet; der Handle wird
+    EINMAL angelegt. NACH dem Resize, damit Training und Serving denselben Operator sehen.
     """
 
     def __init__(self, clip: float, tile: int, min_mean: float = 0.0,
@@ -40,16 +34,14 @@ class _Clahe:
         self._handle = None
 
     def __getstate__(self):
-        # Weder das cv2-Modul noch der CLAHE-Handle sind picklebar, und Spawn-Worker bekommen die
-        # Transformation gepickelt. Sie bauen den Handle beim ersten Bild selbst.
+        # Weder cv2 noch der CLAHE-Handle sind picklebar, Spawn-Worker bauen ihn beim ersten Bild
+        # selbst.
         return {"clip": self.clip, "tile": self.tile, "min_mean": self.min_mean,
                 "max_mean": self.max_mean, "denoise": self.denoise, "_handle": None}
 
     def _inside(self, cv2, arr) -> bool:
-        """Das Fenster ist ein BAND, keine Schwelle.
-
-        Gemessen 2026-08-29 auf 13 953 besetzten Val-Zellen: CLAHE hebt das Band 25-40 um 5,9
-        Punkte und DRUECKT alles unter 25 um 2,6 — dort verstaerkt es Sensorrauschen statt Struktur.
+        """Das Fenster ist ein BAND: CLAHE hebt 25-40 um 5,9 Punkte und DRUECKT alles unter 25 um
+        2,6 — dort verstaerkt es Sensorrauschen statt Struktur.
         """
         if self.min_mean <= 0.0 and self.max_mean >= 255.0:
             return True
@@ -88,7 +80,7 @@ class _RandomGamma:
         gamma = random.uniform(self.lo, self.hi)
         if img.mode != "RGB":
             return TF.adjust_gamma(img, gamma)
-        # Same Python pow/int LUT as torchvision; RGB->RGB conversions only made copies.
+        # Same Python pow/int LUT as torchvision.
         table = [int((255 + 1 - 1e-3) * pow(value, gamma)) for value in _GAMMA_INPUTS] * 3
         return img.point(table)
 
@@ -119,26 +111,16 @@ class _EvalRgbTransform:
         h, w = arr.shape[:2]
         if (w, h) != self.out_size:
             return self.transform(Image.fromarray(arr))
-        # `to(float32)` owns the storage, so the following arithmetic is safely in-place. This is
-        # the same sequence as ToTensor + Normalize without the PIL bytes round-trip and second
-        # NumPy materialization.
+        # Same sequence as ToTensor + Normalize, without the PIL round trip; `to(float32)` owns the
+        # storage.
         x = torch.from_numpy(arr).permute(2, 0, 1).to(dtype=torch.float32).div_(255)
         return x.sub_(self.mean).div_(self.std)
 
 
 class _RandomInvert:
-    """Mit Wahrscheinlichkeit p die Helligkeit umkehren, LABEL unveraendert.
-
-    Der Gedanke ist Polaritaets-Invarianz: ob eine Figur heller oder dunkler als ihr Feld ist,
-    soll nicht die Identitaet sein — die Form soll es sein. Das Projekt hat das schon einmal
-    vollstaendig erzwungen (`|Gx|+|Gy|` als Kanal, siehe `InputRepresentation`) und dabei zwei
-    Groessenordnungen auf der Brettgenauigkeit verloren, weil danach WEISS von SCHWARZ nicht mehr
-    zu trennen war.
-
-    Ein kleines p ist etwas anderes: es macht die Polaritaet unzuverlaessig, nicht unbrauchbar.
-    Der Farbfehler liegt bei 0,004 und der Typfehler bei 0,234 — ein Stueck Farbsicherheit gegen
-    Formsicherheit zu tauschen kann sich rechnen. Bei p = 0,1 bleibt die Polaritaet in 90 % der
-    Ziehungen intakt.
+    """Mit Wahrscheinlichkeit p die Helligkeit umkehren, LABEL unveraendert: Polaritaet
+    unzuverlaessig, nicht unbrauchbar. Voll erzwungen (`|Gx|+|Gy|`) war Weiss von Schwarz nicht
+    mehr zu trennen.
     """
 
     def __init__(self, p: float) -> None:
@@ -149,11 +131,8 @@ class _RandomInvert:
 
 
 class _RandomFlipXor:
-    """Mit Wahrscheinlichkeit p GENAU EINE Achse spiegeln, nie beide.
-
-    Zwei unabhaengige Muenzen (`hflip_p` und `vflip_p`) erzeugen auch den Fall "beide", und der
-    IST die 180-Grad-Drehung. Wer die Drehung ausschliessen will — weil sie in `_RandomRot90`
-    mitlief, das schadete —, braucht ein Entweder-Oder statt zweier Muenzen.
+    """Mit Wahrscheinlichkeit p GENAU EINE Achse spiegeln: zwei unabhaengige Muenzen erzeugen auch
+    "beide", also die 180-Grad-Drehung.
     """
 
     def __init__(self, p: float) -> None:
@@ -167,12 +146,8 @@ class _RandomFlipXor:
 
 
 class _RandomRot180:
-    """Halbe Drehung mit Wahrscheinlichkeit p — die einzige EIGENTLICHE der drei.
-
-    Zwei Spiegelungen an senkrechten Achsen ergeben eine Drehung: die Haendigkeit kippt zweimal.
-    `hflip` und `vflip` unabhaengig zu wuerfeln erzeugt dagegen die ganze Kleinsche Vierergruppe
-    (Original, waagerecht, senkrecht, 180) zu je 25 % — wer die Drehung MESSEN will, braucht sie
-    allein. Sie ist die physikalisch realisierbare: so sieht das Brett von der anderen Tischseite aus.
+    """Halbe Drehung mit Wahrscheinlichkeit p, allein: `hflip` und `vflip` unabhaengig ergeben die
+    ganze Vierergruppe. Die physikalisch echte (andere Tischseite).
     """
 
     def __init__(self, p: float) -> None:
@@ -183,9 +158,9 @@ class _RandomRot180:
 
 
 class _RandomRot90:
-    """Random k*90° rotation (k in 0..3). Square-color/geometry stay valid for 90°-multiples —
-    this replaces the former build-time materialization of rotated crop copies (4x disk/memmap):
-    same augmentation, applied on-the-fly, with fresh k per epoch instead of all four fixed."""
+    """Random k*90° rotation, fresh k per epoch, instead of materialising four rotated copies on
+    disk.
+    """
 
     _TRANSPOSES = (None, Image.ROTATE_90, Image.ROTATE_180, Image.ROTATE_270)
 
@@ -195,14 +170,13 @@ class _RandomRot90:
 
 
 class _ToUint8:
-    """CHW-uint8 statt normalisiertem float: `batch_aug` rechnet den Rest auf dem Geraet.
-
-    Spart ToTensor und Normalize je Crop (177 us von 208) und schickt ein Viertel der Bytes
-    ueber PCIe — 4,9 statt 19,7 MB je Schritt (`docs/training-speed.md`)."""
+    """CHW-uint8 statt normalisiertem float: `batch_aug` rechnet den Rest auf dem Geraet (ein
+    Viertel der Bytes ueber PCIe).
+    """
 
     def __call__(self, img):
-        # `np.array`, nicht `asarray`: PIL gibt einen schreibgeschuetzten Puffer, und
-        # `from_numpy` darauf ist laut Torch undefiniertes Verhalten.
+        # `np.array`, nicht `asarray`: PIL gibt einen schreibgeschuetzten Puffer, und `from_numpy`
+        # darauf ist laut Torch undefiniertes Verhalten.
         return torch.from_numpy(np.array(img.convert("RGB"))).permute(2, 0, 1).contiguous()
 
 
@@ -223,9 +197,8 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ops += [_Clahe(clahe_clip, clahe_tile, clahe_min_mean, clahe_max_mean, clahe_denoise)]
     if train and rot90:
         ops += [_RandomRot90()]
-    # Auf Staerke 0 gestellt ist NICHT weg: `T.ColorJitter(0,0,0)` zieht weiter Zufallszahlen
-    # und wendet die Identitaet an. Gemessen 2026-09-07 kostet der Leerlauf 470 us je Crop, mehr
-    # als die Haelfte dessen, was die vier Ops ueberhaupt kosten (`docs/packs.md`).
+    # Staerke 0 ist NICHT weg: `T.ColorJitter(0,0,0)` zieht weiter Zufallszahlen und wendet die
+    # Identitaet an — 470 us je Crop Leerlauf.
     if train:
         if policy.brightness or policy.contrast or policy.color_jitter:
             ops += [ColorJitter(brightness=policy.brightness, contrast=policy.contrast,
@@ -235,8 +208,8 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         if policy.blur_sigma_max > 0.1:
             ops += [T.RandomApply([T.GaussianBlur(3, sigma=(0.1, policy.blur_sigma_max))], p=0.3)]
         if policy.jitter_translate or policy.jitter_scale:
-            # degrees=0 -> KEINE Drehung. Flips waren hier pauschal verboten; waagerecht ist
-            # auf einem Zellcrop zulaessig und faehrt ueber `hflip_p`.
+            # degrees=0: KEINE Drehung. Waagerecht spiegeln ist auf einem Zellcrop zulaessig
+            # (`hflip_p`).
             ops += [T.RandomAffine(degrees=0,
                                    translate=(policy.jitter_translate, policy.jitter_translate),
                                    scale=(1.0 - policy.jitter_scale, 1.0 + policy.jitter_scale))]
@@ -251,35 +224,26 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     if train and getattr(policy, "invert_p", 0.0) > 0:
         ops += [_RandomInvert(policy.invert_p)]
     if train and getattr(policy, "grayscale_p", 0.0) > 0:
-        # ZUFAELLIG entfaerben, nicht immer: das ist der Unterschied zwischen "Farbe darf nicht
-        # allein tragen" und "Farbe gibt es nicht" (`--input-repr gray3`). Drei Kanaele bleiben,
-        # also aendert sich weder Architektur noch Pretrain.
+        # ZUFAELLIG entfaerben: "Farbe darf nicht allein tragen", nicht "Farbe gibt es nicht"; drei
+        # Kanaele bleiben, Architektur und Pretrain auch.
         ops += [T.RandomGrayscale(p=policy.grayscale_p)]
-    # Der uint8-Ausgang endet HIER: Rauschen, Cutout und Normalisierung leben dann in
-    # `batch_aug.BatchPhotometric`, in derselben Reihenfolge und auf demselben [0,1]-Raster.
+    # Der uint8-Ausgang endet HIER; der Rest lebt in `batch_aug.BatchPhotometric`, gleiche
+    # Reihenfolge.
     if to_uint8:
         return T.Compose([*ops, _ToUint8()])
     ops += [ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
     if train and getattr(policy, "erase_p", 0.0) > 0:
-        # Cutout on the [0,1] tensor (before Normalize) so erased pixels = 0, a neutral value.
-        # Cutout / Random Erasing: docs/references.md#devries-2017, #zhong-2017.
+        # Cutout on the [0,1] tensor before Normalize, so erased pixels are a neutral 0.
         ops += [T.RandomErasing(p=policy.erase_p, scale=policy.erase_scale, value=0, inplace=True)]
-    # Per-crop standardisation instead of a fixed mean/std, when the run asks for it.
-    #
-    # It is the ONE thing GroupNorm was doing that a foldable BatchNorm cannot: normalising each
-    # crop by its own statistics is a contrast stretch, and the crops that need it are the ones
-    # this dataset is worst at. Measured on a clip: a black piece on a DARK square stands 6.0 grey
-    # levels off its background against 40.2 on a light square — 6.6x less signal. After per-crop
-    # standardisation that gap is 1.5x. Doing it here rather than inside the network costs one
-    # cheap op per crop instead of 484 graph nodes.
+    # Per-crop standardisation: a black piece on a DARK square stands 6.0 grey levels off its
+    # background against 40.2 on a light one (6.6x less signal); standardised the gap is 1.5x.
     if input_repr != "rgb":
         ops += [InputRepresentation(input_repr)]
     else:
-        # ToTensor created a private tensor immediately above; no caller can observe its
-        # pre-normalized contents. In-place normalization therefore removes one full crop clone
-        # and its memory traffic from every train/validation sample without changing values.
+        # ToTensor just created a private tensor, so in-place normalisation saves a clone per
+        # sample.
         ops += [_PerCropStandardize()] if per_crop else [Normalize(mean, std, inplace=True)]
     transform = T.Compose(ops)
     # Der Schnellpfad ueberspringt die PIL-Kette ganz — mit CLAHE waere der Schritt still weg.
@@ -288,22 +252,17 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     return transform
 
 
-# --- input representation ----------------------------------------------------------------------
-
-# How many channels each representation feeds the first convolution. The NAME is recorded in the
-# run's own config.json (`input_repr`), so serving reads what training did instead of guessing.
+# Channels each representation feeds the first convolution; the NAME rides in the run's config.json.
 INPUT_REPRS: dict[str, int] = {"rgb": 3, "gray+sobel": 2, "rgb+sobel": 4, "sobel": 1,
-                               # Luminanz auf DREI Kanaele repliziert: dieselbe Architektur,
-                               # derselbe Pretrain, nur Farbton und Saettigung weg. Als Sperre
-                               # gedacht, nicht als Merkmal — der Korpus traegt bewusst zwei
-                               # Kameras, und Farbe ist die Achse, auf der zwei ISPs am staerksten
+                               # Luminanz auf DREI Kanaele: gleiche Architektur und Pretrain, nur
+                               # ohne Farbe — die Achse, auf der zwei ISPs am staerksten
                                # auseinanderlaufen (Drehteller +39 % Saettigung).
                                "gray3": 3}
 
 def eval_transform_for(cfg: dict, out_size=None):
-    """The val/test/serving transform a run's `config.json` describes: resize plus EXACTLY the
-    normalisation the run trained with. The one place consumers should get it from — eval,
-    calibration and serving each reconstructing it by hand is how they drift."""
+    """The val/test/serving transform a run's `config.json` describes — the one place to get it
+    from; rebuilt by hand, eval, calibration and serving drift.
+    """
     norm = cfg.get("normalize", {})
     return build_transform(tuple(out_size or cfg["out_size"]), train=False,
                            mean=tuple(norm.get("mean", config.NORMALIZE_MEAN)),
@@ -318,11 +277,8 @@ def eval_transform_for(cfg: dict, out_size=None):
 
 
 def normalize_batch(cfg: dict, batch: torch.Tensor) -> torch.Tensor:
-    """Apply a run's normalisation to an already-resized `[N,3,H,W]` RGB batch in `[0,1]`.
-
-    The live serving path builds its batch with plain tensor ops rather than the PIL transform, so
-    it needs the same arithmetic reachable without `torchvision`. Returns `[N,C,H,W]`, where C is
-    the run's channel count.
+    """A run's normalisation for an already-resized `[N,3,H,W]` RGB batch in `[0,1]`, without
+    `torchvision`, for the live serving path. Returns `[N,C,H,W]`.
     """
     norm = cfg.get("normalize", {})
     kind = input_repr_of(cfg)[0]
@@ -341,8 +297,7 @@ def normalize_batch(cfg: dict, batch: torch.Tensor) -> torch.Tensor:
 
 
 def input_repr_of(cfg: dict) -> tuple[str, int]:
-    """`(name, channels)` a run was trained with, from its `config.json`. Runs predating the flag
-    carry no key and were RGB."""
+    """`(name, channels)` a run was trained with; runs predating the flag were RGB."""
     kind = cfg.get("input_repr", "rgb")
     if kind not in INPUT_REPRS:
         raise ValueError(f"run was trained with unknown input_repr {kind!r}")
@@ -350,71 +305,31 @@ def input_repr_of(cfg: dict) -> tuple[str, int]:
 
 
 def infer_size_of(cfg: dict) -> tuple[int, int]:
-    """`(W, H)` the network is FED — a property of the model, read from its own `config.json`.
+    """`(W, H)` the network is FED — a model property from its own `config.json` (specs/22).
 
-    The one place the inference size comes from (specs/22). Deliberately not the same key as
-    `out_size`, which means "the size the crops on disk were built at": the two were the same
-    number until phase 00 measured the deployment path, where `occ-v4-f3e20` reads 43 occupied
-    squares as empty at 128 px and 19 at 96 px. What a crop actually carries is
-    `board_size / 8 * (1 + 2 * pad_side)` px — 110 on the fixed rig, 240 on the phone — so the
-    right input size is per model and per deployment, and lives with the model.
-
-    Runs exported before specs/22 carry no key and were served at their crop size, so the fallback
-    to `out_size` keeps every shipped model working unchanged.
-
-    Reading a config is not the place to REJECT one: whether this is a size the run was actually
-    trained at is validated once by the writer, `training.evaluate.run_export`.
-    """
+    Not `out_size` (the crops' build size): one model read 43 occupied squares as empty at 128 px
+    and 19 at 96. Older runs carry no key and fall back to `out_size`; `run_export` validates on
+    write."""
     raw = cfg.get("infer_size") or cfg["out_size"]
     return int(raw[0]), int(raw[1])
 
 
-# ITU-R BT.601 luma, i.e. exactly the coefficients `cv2.COLOR_BGR2GRAY` uses.
+# ITU-R BT.601 luma, exactly `cv2.COLOR_BGR2GRAY`'s coefficients.
 _LUMA = (0.299, 0.587, 0.114)
 
 # ImageNet's mean/std projected through _LUMA — the usual single-channel ImageNet constants.
 _GRAY_MEAN, _GRAY_STD = 0.449, 0.226
 
-# |Gx|+|Gy| statistics of the [0,1] luminance image, measured with THIS transform over 4000
-# random occ-real crops at 128x128 (the same pass measured gray at 0.482/0.294, i.e. the ImageNet
-# constants above are within 15% and are kept because they are standard). Only a scale — the point
-# of the channel is the rectification, not its units.
+# |Gx|+|Gy| statistics of the [0,1] luminance, measured over 4000 real crops at 128 px; only a
+# scale.
 _SOBEL_MEAN, _SOBEL_STD = 0.3704, 0.5259
 
 
 class InputRepresentation(torch.nn.Module):
     """Turn the [0,1] RGB crop into the channel stack the run was trained on.
 
-    The motivating measurement is a linear probe (logistic regression on 16x16 features, real
-    crops, leave-one-session-out over the four largest sessions), mean accuracy all/dark:
-
-        rgb 0.872/0.837   gray 0.843/0.814   sharpen 0.843/0.807   |Gx|+|Gy| 0.994/0.992
-
-    The mechanism is RECTIFICATION, not high-frequency emphasis. A dark piece on a light square
-    makes a negative luminance gradient and a light piece on a dark square a positive one; the
-    magnitude makes the two identical, so "do piece and square differ in brightness" stops
-    mattering and only "is there a silhouette" remains. That is why `sharpen`, which keeps the
-    sign, does not help. A silhouette is shape rather than texture, which is the published reason
-    to expect this to help at all (docs/references.md#geirhos-2018). Dark squares are where this project has always been worst — a black piece
-    there stands 6.0 grey levels off its background against 40.2 on a light one.
-
-    The gray channel is kept alongside it on purpose: unlike per-crop standardisation (which won
-    the dark squares and lost 1641 empty squares to phantom pieces) this ADDS the rectified view
-    without discarding absolute scale.
-
-    **And it lost.** Trained through the baseline's own recipe (synth pretrain -> real fine-tune,
-    GroupNorm, occupancy head) and scored on the 18-clip harness against `occ-act-f3`:
-
-        rgb (ships)   per-square 0.9998   whole-board 0.9978     17 misses   16/18 clips
-        rgb+sobel     per-square 0.9778   whole-board 0.0308   1937 misses   12/18 clips
-        gray+sobel    per-square 0.9572   whole-board 0.0307   3680 misses   11/18 clips
-
-    `rgb+sobel` is a strict SUPERSET of what the baseline sees — the same three normalised RGB
-    planes plus one more — so it cannot have lost information, and it still fell two orders of
-    magnitude on whole-board accuracy. Nor did it degrade evenly: one square carried 1143 of its
-    1937 misses and 45 of 64 squares were never wrong once, i.e. the model acquired a handful of
-    pieces it reads as empty on every single frame. Whatever the linear probe measured, giving a
-    trained network the rectified channel did not transfer.
+    A linear probe favoured `|Gx|+|Gy|` (0.994 against rgb 0.872), but trained networks LOST with
+    it: whole-board 0.03 against rgb's 0.998, although `rgb+sobel` is a strict superset.
     """
 
     def __init__(self, kind: str) -> None:
@@ -450,61 +365,42 @@ def luminance(x: torch.Tensor) -> torch.Tensor:
 
 
 def sobel_magnitude(gray: torch.Tensor) -> torch.Tensor:
-    """`|Gx| + |Gy|` of a `[..., 1, H, W]` luminance image, same shape.
-
-    Equivalent to, and pinned by `tests/test_input_repr.py` against:
+    """`|Gx| + |Gy|` of a `[..., 1, H, W]` luminance image, pinned by `tests/test_input_repr.py` to:
 
         cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3, borderType=cv2.BORDER_REFLECT_101)
-
-    **ksize=3** because the silhouette IS the signal — a 5x5 or 7x7 derivative smooths the piece
-    edge over several squares' worth of blur and the probe's separation comes from that edge being
-    sharp. **BORDER_REFLECT_101** because it is `cv2.Sobel`'s default AND `torch.nn.functional.pad`'s
-    `"reflect"`, so the Python transform and the Kotlin port agree on the frame of the crop instead
-    of each inventing an edge. **float32 on the [0,1] image**, not uint8: OpenCV's uint8 rounding is
-    the one step the hand-written Kotlin port could not reproduce bit-for-bit.
-    """
+    REFLECT_101 is cv2's default AND torch's `"reflect"` pad; float32, since cv2's uint8 rounding
+    could not be reproduced bit for bit in Kotlin."""
     k = torch.tensor([[[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]],
                       [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]]],
                      dtype=gray.dtype, device=gray.device).unsqueeze(1)
     flat = gray.reshape(-1, 1, *gray.shape[-2:])
     padded = torch.nn.functional.pad(flat, (1, 1, 1, 1), mode="reflect")
-    g = torch.nn.functional.conv2d(padded, k)          # conv2d correlates, exactly as cv2 filters
+    g = torch.nn.functional.conv2d(padded, k)  # conv2d correlates, exactly as cv2 filters
     return g.abs().sum(dim=1, keepdim=True).reshape(gray.shape)
 
 
 class _PerCropStandardize(torch.nn.Module):
-    """`(x - x.mean()) / x.std()` over the WHOLE crop, channels together.
-
-    Channels together on purpose: standardising each channel separately would flatten the colour
-    relations that separate a black piece from a white one, and the point is to stretch contrast,
-    not to discard chroma.
+    """`(x - x.mean()) / x.std()` over the WHOLE crop, channels together: per channel would flatten
+    the colour relations that separate a black piece from a white one.
     """
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return (x - x.mean()) / (x.std() + 1e-5)
 
 
-# Labels whose crop is mostly board/hand (no piece) — background randomization would corrupt them.
+# Mostly board/hand, no piece — background randomisation would corrupt them.
 _NOT_A_PIECE = {"empty", "occluded"}
 
-# Edge weights for the neighbour-bleed paste. Top-heavy: in the warped top-down crop the
-# dominant real intrusion is the neighbour piece one rank away leaning across the upper
-# crop edge (3D lean away from the camera); side/bottom intrusions (pawn heads at the
-# corners) exist but are smaller. Measured on the mined hard empties (2026-07-21).
+# Top-heavy: the dominant real intrusion is the neighbour one rank away leaning across the upper
+# edge.
 _NEIGHBOUR_EDGES = ("top", "left", "right", "bottom")
 _NEIGHBOUR_EDGE_W = (0.5, 0.2, 0.2, 0.1)
 
 
 def paste_neighbour_strip(img: Image.Image, donor: Image.Image,
                           frac_range: tuple[float, float]) -> Image.Image:
-    """Composite the donor's central band (where its piece body/head sits) into one edge of
-    `img`, feathered. Caller applies this to EMPTY crops only, with an OCCUPIED donor —
-    the result mimics a tall neighbour piece bleeding into the empty square's crop
-    (pad_side + perspective lean), which the label `empty` must survive.
-
-    The band comes from the donor's CENTRE (its piece), not its border (its board), and is
-    laterally rolled at random so the intruding blob is not always centred. The feathered
-    mask avoids a hard seam the model could key on.
+    """Composite an OCCUPIED donor's central band into one edge of an EMPTY `img`, feathered: a tall
+    neighbour bleeding into the crop, which `empty` must survive. Rolled at random, no hard seam.
     """
     from PIL import ImageFilter
 
@@ -542,8 +438,7 @@ def paste_neighbour_strip(img: Image.Image, donor: Image.Image,
 
 def _target(y: int, row: dict) -> torch.Tensor:
     """Klasse, Coverage und Helligkeit in EINEM Tensor, damit der Loader-Vertrag `(x, y)` bleibt.
-
-    Ohne `brightness` gilt die Zelle als hell (255) — alte Packs ergeben Zahl fuer Zahl dasselbe.
+    Ohne `brightness` gilt die Zelle als hell (255).
     """
     return torch.tensor([float(y), coverage_of(row), brightness_of(row)])
 
@@ -556,9 +451,7 @@ class SquareDataset(Dataset):
         self.transform = transform
         self.c2i = class_to_idx(classes)
         self.policy = policy
-        # Neighbour-bleed paste, train only — `augment=True` marks the augmented TRAIN dataset.
-        # Donors must be OCCUPIED crops: their centred piece is what bleeds into the empty crop's
-        # edge, so `empty` and `occluded` cannot donate.
+        # Train only. Donors must be OCCUPIED: their centred piece is what bleeds in.
         self.neighbour_paste = augment and getattr(policy, "neighbour_p", 0.0) > 0
         self.piece_pool: list[str] = []
         if self.neighbour_paste and rows:
@@ -606,34 +499,32 @@ class _PackedMemmaps:
 
 
 class PackedSquareDataset(_PackedMemmaps, Dataset):
-    """Same contract as SquareDataset, but crops come from packed memmaps (see training.packs)
-    instead of one ``Image.open`` per item — the fix for the 1M-PNG I/O bottleneck."""
+    """Same contract as SquareDataset, but crops come from packed memmaps instead of one
+    `Image.open` per item.
+    """
 
     def __init__(self, rows, classes, transform, packed: PackedArg, with_coverage: bool = False,
                  neighbour_p: float = 0.0, policy=config.AUGMENT) -> None:
         self.with_coverage = with_coverage
-        # Die Nachbar-Paste lag bis 2026-08-27 NUR im Datei-Loader, und seit `_require_pack`
-        # laeuft alles gepackt — sie hat nie gefeuert. Default 0,0 haelt jeden Altlauf gleich.
+        # Default 0,0: die Paste feuerte gepackt nie, und Altlaeufe bleiben gleich.
         self.neighbour_p = neighbour_p
         self.policy = policy
         c2i = class_to_idx(classes)
         self.rows = rows            # kept for board-accuracy grouping in evaluate (picklable)
         self.transform = transform
-        # Only small, picklable state survives to spawn workers: the `(pack_no, row_no)` index and
-        # the label index (both int arrays), plus one path/shape per pack. Nothing here opens a
-        # file — the memmaps are mapped lazily inside the worker that reads them.
+        # Only small, picklable state goes to spawn workers; memmaps are mapped lazily inside the
+        # worker.
         self._files, self.idx = _pack_index(rows, packed)
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
         self.cover = np.array([coverage_of(r) for r in rows], dtype=np.float32)
         self.bright = np.array([brightness_of(r) for r in rows], dtype=np.float32)
         self._empty = c2i.get("empty", -1)
         self._mm: list | None = None
-        # Spender sind BESETZTE Zellen: ihre zentrierte Figur ist das, was in den leeren Crop
-        # blutet. `empty` und `occluded` koennen nicht spenden.
+        # Spender sind BESETZTE Zellen.
         pool = [tuple(a) for a, r in zip(self.idx, rows, strict=True)
                 if r["label"] not in _NOT_A_PIECE]
-        # TODO: ungeschuetzt durch `neighbour_p > 0` — jeder Val-Datensatz baut und zieht den
-        # Spender-Pool ueber hunderttausende Zeilen und liest ihn nie. `SquareDataset` guardet.
+        # TODO: ungeschuetzt durch `neighbour_p > 0` — jeder Val-Datensatz baut den Spender-Pool und
+        # liest ihn nie. `SquareDataset` guardet.
         n = min(getattr(policy, "neighbour_pool_size", 512), len(pool))
         self.donors = np.array(random.sample(pool, n) if n else [],
                                dtype=np.int64).reshape(n, 2)
@@ -641,9 +532,7 @@ class PackedSquareDataset(_PackedMemmaps, Dataset):
             self.neighbour_p = 0.0
 
     def __getstate__(self):
-        # Spawn DataLoader workers only need the int arrays + path/shape to serve items. The row
-        # dicts (potentially millions) would otherwise be pickled into EVERY worker — gigabytes of
-        # redundant RAM. `rows` stays available in the parent for board-accuracy grouping.
+        # Without this, the row dicts (potentially millions) are pickled into EVERY spawn worker.
         state = dict(self.__dict__)
         state["rows"] = None
         state["_mm"] = None
@@ -673,22 +562,16 @@ class PackedSquareDataset(_PackedMemmaps, Dataset):
 
 
 def board_collate(batch):
-    """`(B, 64, C, H, W)` fuer das Modell, `(B*64, 2)` fuer den Verlust.
-
-    Das flache Ziel ist der Grund, warum `engine.py`, `OcclusionLoss` und die Metriken vom
-    Brettkopf nichts merken — sie sehen die Form, die auch der Per-Zell-Lauf liefert.
+    """`(B, 64, C, H, W)` fuer das Modell, `(B*64, 2)` fuer den Verlust: Engine, Verlust und
+    Metriken sehen die Form des Per-Zell-Laufs.
     """
     xs, ys = zip(*batch, strict=True)
     return torch.stack(xs), torch.cat(ys)
 
 
 class PackedBoardDataset(_PackedMemmaps, Dataset):
-    """Ganze Bretter statt einzelner Zellen — 64 Crops eines Frames, in `a1..h8`-Reihenfolge.
-
-    Nur VOLLSTAENDIGE Bretter: im Manifest von `real13-mix-v4` sind das 9 218 von 9 619 (95,8 %),
-    also kostet die Vollstaendigkeit fast nichts und erspart dem Brettkopf jede Maskierung.
-    Der Ausgleich von `empty` kann hier nicht mehr ueber `max_empty_ratio` laufen (aus einem Brett
-    laesst sich keine Zelle wegwerfen) — er gehoert in die Verlustgewichte.
+    """Ganze Bretter statt Zellen, 64 Crops eines Frames in `a1..h8`-Reihenfolge, nur VOLLSTAENDIGE
+    (95,8 %). `empty` wird hier ueber die Verlustgewichte ausgeglichen, nicht `max_empty_ratio`.
     """
 
     #: Von `evaluate_dataset` und dem Trainings-Loader gelesen, damit beide gleich zusammenlegen.
@@ -708,8 +591,7 @@ class PackedBoardDataset(_PackedMemmaps, Dataset):
             raise ValueError(f"kein vollstaendiges Brett unter {len(boards)} — "
                              "wurde der Split mit --max-empty-ratio ausgeduennt?")
         for board in keep:
-            # 64 Zeilen sind noch kein Brett: ein doppeltes Feld bedeckt ein fehlendes, und der
-            # Brettkopf bekaeme eine raeumlich falsche Stellung, ohne dass es auffaellt.
+            # 64 Zeilen sind noch kein Brett: ein doppeltes Feld verdeckt ein fehlendes.
             if len({r["square"] for r in board}) != CELLS:
                 raise ValueError(
                     f"Brett {board[0]['session_id']}/{board[0]['frame']}: {CELLS} Zeilen, aber "
@@ -719,9 +601,8 @@ class PackedBoardDataset(_PackedMemmaps, Dataset):
         self.rows = [r for board in keep for r in sorted(board, key=lambda r: square_index(r["square"]))]
         self._files, idx = _pack_index(self.rows, packed)
         self.idx = idx.reshape(-1, CELLS, 2)
-        # Ein Brett liegt im Pack am Stueck: `a1..h8` eines Frames sind 64 aufeinanderfolgende
-        # Zeilen (gemessen auf real13-mix-v4: 9218 von 9218). Dann ist EIN Schnitt 2,8x schneller
-        # als 64 Griffe — und kalt ist es ein Seek statt 64 (`docs/training-speed.md`).
+        # Ein Brett liegt im Pack am Stueck: EIN Schnitt ist 2,8x schneller als 64 Griffe, kalt ein
+        # Seek statt 64.
         same = (self.idx[:, :, 0] == self.idx[:, :1, 0]).all(axis=1)
         step = self.idx[:, :, 1] - self.idx[:, :1, 1]
         self._run = same & (step == np.arange(CELLS)).all(axis=1)
@@ -764,5 +645,5 @@ class PackedBoardDataset(_PackedMemmaps, Dataset):
 
 def class_weights_tensor(split: dict, classes: list[str]) -> torch.Tensor:
     cw = split.get("class_weights", {})
-    # NOT `or 1.0`: that would silently turn an explicit weight of 0.0 into 1.0 (falsy trap).
+    # NOT `or 1.0`: that silently turns an explicit weight of 0.0 into 1.0.
     return torch.tensor([float(cw.get(c, 1.0)) for c in classes], dtype=torch.float32)

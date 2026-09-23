@@ -1,8 +1,8 @@
-"""Confident-learning label audit into `data/reports/audit-flags.jsonl` (CONCEPT.md 4.2;
-method and limits in `docs/cross-labeling-literature.md`). DERIVED, never a ledger: every run
-rewrites the file whole. The class space is the proposal file's — 13c rows carry no `occluded`
-and can never flag it, while in 14c rows it is a candidate whose threshold comes from the human
-ledger, since no FEN label is ever `occluded` and Eqn. 2 needs a support set."""
+"""Confident-learning label audit into `data/reports/audit-flags.jsonl`
+(`docs/cross-labeling-literature.md`).
+
+DERIVED, never a ledger: every run rewrites the file whole.
+"""
 
 from __future__ import annotations
 
@@ -29,10 +29,8 @@ def ledger_labels(*paths: Path) -> dict[Cell, str]:
 
 
 def read_proposals(path: Path) -> tuple[str | None, list[dict], list[str]]:
-    """The model that wrote `model-reads.jsonl`, every row carrying `probs`, and its CLASSES.
-
-    Reads the old `_thresholds` header too: a session whose reads predate `realgames model-read`
-    still audits, it just came from a producer that also guessed at occlusion.
+    """The model that wrote `model-reads.jsonl`, every row carrying `probs`, and its CLASSES; old
+    `_thresholds` headers still read.
     """
     all_rows = read_jsonl(Path(path))
     head = all_rows[0] if all_rows else {}
@@ -44,8 +42,8 @@ def read_proposals(path: Path) -> tuple[str | None, list[dict], list[str]]:
 def class_thresholds(cells: list[tuple[str, dict[str, float]]]) -> dict[str, float]:
     """Eqn. 2: `t_j` is the mean self-confidence over the cells whose label of record is `j`.
 
-    A class absent from a sparse `probs` dict is below `occluded_model.PROB_FLOOR` and counts as
-    0.0 — that lowers `t_j` for a class the model reads badly, which is the formula's intent.
+    A class absent from sparse `probs` counts as 0.0, which lowers `t_j` for a class read badly —
+    intended.
     """
     total: dict[str, float] = {}
     count: dict[str, int] = {}
@@ -59,8 +57,8 @@ def confident_class(probs: dict[str, float], thresholds: dict[str, float],
                     known: set[str] | None = None) -> str | None:
     """Eqn. 1: the argmax over the classes that reach their own threshold, `None` if none does.
 
-    The given label competes in that argmax — dropping it would flag every cell where any other
-    class passes. `known` bounds it to what the MODEL outputs (`docs/cross-labeling-literature.md`).
+    The given label competes in that argmax; dropping it would flag every cell any other class
+    passes.
     """
     items = thresholds.items() if known is None else [(c, t) for c, t in thresholds.items() if c in known]
     passing = [(probs.get(c, 0.0), c) for c, t in items if probs.get(c, 0.0) >= t]
@@ -71,9 +69,8 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
                   classes: list[str] | None = None, include_judged: bool = False) -> list[dict]:
     """Every undecided cell of one session whose confident class differs from its label of record.
 
-    A decided cell still carries the thresholds — Eqn. 2 is estimated over all labels. Mit
-    `include_judged` wird es auch geflaggt (mit `judged`): eine falsche Handkorrektur ist sonst
-    unfindbar, weil ihr Urteil sie aus dem Lauf nimmt."""
+    `include_judged` flags decided cells too: a wrong hand correction is otherwise unfindable.
+    """
     labels = [judged.get((r["session_id"], r["frame"], r["square"]), r["fen_label"]) for r in rows]
     thresholds = class_thresholds(list(zip(labels, (r["probs"] for r in rows), strict=True)))
     flags = []
@@ -93,9 +90,8 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
             "fen_label": row["fen_label"],
             "predicted": predicted,
             "prob": round(prob, 4),
-            # Die 14. Spalte des Modells — ein EIGENER Sigmoid, keine Klasse. Die Matte bleibt
-            # das Mass (`--visible`); dies ist die zweite Meinung, wo SAM eine Hand uebersah.
-            # `cov` ist die Schreibweise vor 2026-09-16; die Reads liegen auf der Platte.
+            # Die 14. Spalte des Modells ist ein EIGENER Sigmoid, keine Klasse; die Matte bleibt das
+            # Mass. `cov` ist die alte Schreibweise, die Reads liegen so auf der Platte.
             **({"model_cov": model_cov} if (model_cov := row.get("model_cov", row.get("cov"))) is not None else {}),
             # Das Wort des MENSCHEN, wo es eines gibt: die Lane zeigt sonst die FEN und
             # verschweigt, dass hier schon jemand widersprochen hat.
@@ -109,10 +105,8 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
 
 
 def circularity_reason(model: str, session_id: str) -> str | None:
-    """`None` unless the named model was trained on this session (checked when it is on disk).
-
-    `propose_occluded` already refused that pair at generation time; this re-reads the split in
-    case it changed since, and stays silent when the run dir is gone — the header is the record.
+    """`None` unless the named model was trained on this session; silent when the run dir is
+    gone.
     """
     from .occluded_model import check_not_circular
 
@@ -173,9 +167,8 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
     two narrowings cost: `docs/cross-labeling-literature.md`, "Narrowing a foreign proposer".
     """
     rec = config.DATA.recordings
-    # BOTH ledgers: `reviewed.jsonl` is where the lane's "FEN stimmt" lands, and without it every
-    # confirmation comes back as a flag on the next run — the lane could never be worked empty.
-    # Corrections last, so a retraction there reopens what a confirmation closed.
+    # BOTH ledgers, corrections last: without `reviewed.jsonl` every confirmation comes back as a
+    # flag, and a retraction in corrections reopens what a confirmation closed.
     from .labeling import ledger_paths
 
     ledgers = ledger_paths(REVIEWED_FILE) + ledger_paths(CORRECTIONS_FILE)
@@ -186,23 +179,21 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
     skipped: list[dict] = []
     scanned = 0
     dropped_covered = 0
-    #: Aufnahmen ohne `matte.jsonl`: `covered_cells` ist dort LEER, also faellt unter `--visible`
-    #: keine Zelle weg — nicht weil sie frei sind, sondern weil niemand nachgesehen hat.
+    #: Aufnahmen ohne `matte.jsonl`: dort faellt unter `--visible` keine Zelle weg — ungemessen,
+    #: nicht frei.
     without_matte: list[str] = []
     for path in sorted(rec.glob(f"*/{READS_FILE}")):
         model, rows, classes = read_proposals(path)
         reason = None
-        # `read_proposals` liest Modell und Klassen aus dem Kopf und liess den `_source` daneben
-        # liegen. Lesarten aus einem aelteren Schnitt zeigen auf Frames, die es so nicht mehr gibt.
+        # Lesarten aus einem aelteren Schnitt zeigen auf Frames, die es so nicht mehr gibt.
         try:
             provenance.check(path.parent, path)
         except provenance.Stale as exc:
             skipped.append({"session": path.parent.name, "reason": str(exc)})
             continue
         if path.parent.name in skip:
-            # Gemessen 2026-09-09: auf 21-01-04 sind die geflaggten Felder halb so hell wie der
-            # Rest (35,6 gegen 64,3), die dunkelsten liegen bei 3-5 von 255. Dort liest das Modell
-            # nichts, es raet — und begraebt mit 2 500 Karten die 733 echten des Korpus.
+            # Auf 21-01-04 sind die geflaggten Felder halb so hell wie der Rest, die dunkelsten bei
+            # 3-5 von 255: dort raet das Modell und begraebt die echten Karten.
             skipped.append({"session": path.parent.name, "reason": "per --skip ausgeblendet"})
             continue
         if not rows:
@@ -219,9 +210,8 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
         found = session_flags(rows, judged, model=model, ts=ts, classes=classes,
                               include_judged=include_judged)
         if visible_only:
-            # Zwei Gruende, dieselbe Zelle nicht zu bewerten — verdeckt oder zu dunkel. Beide
-            # nimmt `OcclusionLoss` aus dem Klassenverlust, ein Urteil dort erreicht also kein
-            # Modell. Die Helligkeit kommt aus den Reads (`bright`), wo sie gemessen wurde.
+            # Verdeckt oder zu dunkel: beides nimmt `OcclusionLoss` aus dem Klassenverlust, ein
+            # Urteil dort erreicht kein Modell.
             from .training.occlusion import CELL_DARK_MIN
 
             if not matte_path(path.parent).is_file():
@@ -258,9 +248,8 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
         "skipped": skipped,
         "per_class": dict(sorted(per_class.items(), key=lambda kv: (-kv[1], kv[0]))),
         "written_at": ts,
-        # Die Lane hat am 26.8. einen Stand vom 21.8. ausgeliefert: die Matten kamen erst am
-        # 22./23., also hatte der Coverage-Filter beim Bauen nichts zum Wegwerfen und es lagen
-        # Handzellen mit cov 0,93 drin. Der Zeitstempel macht das nachpruefbar.
+        # Macht nachpruefbar, ob die Matten beim Bauen schon da waren: ohne sie filtert Coverage
+        # nichts.
         "inputs_newest_at": newest_input(rec),
     }
     path = write_flags(config.DATA.reports / "audit-flags.jsonl", flags)

@@ -25,11 +25,9 @@ def report_path(recording: Path) -> Path:
 
 
 def source_stamp(recording: Path) -> list:
-    """Metadata fingerprint of geometry, labels and every reference/target board.
-
-Matte changes deliberately do not invalidate a SAM-free measurement: live coverage
-filters the candidates again when the position report is regenerated.
-"""
+    """Metadata fingerprint of geometry, labels and every reference/target board. Matte changes do
+    not invalidate it: live coverage filters the candidates again.
+    """
     files = [log_path(recording), meta_path(recording)]
     files += [recording / r["board"] for r in read_log(recording) if r.get("board")]
     out = []

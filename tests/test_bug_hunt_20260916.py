@@ -1,4 +1,4 @@
-"""Funde der Bug-Jagd vom 2026-09-16 — je Fund ein roter Test, der Fix steht aus."""
+"""Funde einer Bug-Jagd — je Fund ein roter Test."""
 
 import json
 from dataclasses import replace

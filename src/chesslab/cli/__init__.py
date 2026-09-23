@@ -1,6 +1,5 @@
-"""Typer entrypoint. One CLI `chesslab`; each stage adds its own subcommands.
-
-Every sub-app lives in its own module; importing `dataset`, `train` and `web_worker` registers the root verbs.
+"""Typer entrypoint `chesslab`; importing `dataset`, `train` and `web_worker` registers the root
+verbs.
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ __all__ = ["app", "main"]
 
 
 def main() -> None:
-    # Ensure non-ASCII report glyphs (—, umlauts) render on Windows consoles too.
+    # Non-ASCII report glyphs must render on Windows consoles too.
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]

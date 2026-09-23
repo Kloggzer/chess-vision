@@ -108,12 +108,9 @@ def _export_candidate(tmp_path, monkeypatch, *, confirmed=True, frames=(100, 400
 
 
 def test_the_pre_commit_window_names_what_it_cannot_vouch_for():
-    """The user's find of 2026-08-09: a pawn plainly on e5 while the FEN still said empty.
-
-    A commit lands after the move is physically over, so the window BEFORE it holds frames where
-    the next move has already happened. Only that move's squares are in doubt — they are named
-    `unknown_squares`, the rest of the board stays labelable, and the window AFTER a commit
-    names nothing because its FEN is already true.
+    """A pawn plainly on e5 while the FEN still said empty: the window BEFORE a commit holds frames
+    where the next move already happened. Only that move's squares are `unknown_squares`; after a
+    commit, none.
     """
     start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -139,11 +136,8 @@ def test_the_pre_commit_window_names_what_it_cannot_vouch_for():
 
 
 def test_a_pair_commit_marks_both_moves_squares_unknown():
-    """The user's find of 2026-08-10: e4 and e5 committed on the SAME frame (a pair).
-
-    The intermediate position never existed quietly — its zero-length segment is dropped — and
-    the hand window BEFORE the pair contains BOTH moves' motion, so the previous segment's
-    `unknown_squares` must span the whole same-frame group, not just its first move.
+    """e4 and e5 committed on the SAME frame (a pair): the hand window before it holds BOTH moves,
+    so `unknown_squares` must span the whole same-frame group.
     """
     start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -199,11 +193,8 @@ def _confirmed_eleven(*, frames=2700, reviewed=None):
 
 
 def test_every_confirmed_ply_owns_an_interval_including_the_last():
-    """The defect of 2026-08-14: 11 confirmed plies, 10 exported intervals, ZERO rows for ply 11.
-
-    The final position was the one the human had just vouched for and the only one never
-    labelled, because the old rule needed a NEXT commit to close a segment and the last ply has
-    none. It is closed by [LAST_INTERVAL_S] instead.
+    """11 confirmed plies, 10 exported intervals, ZERO rows for ply 11: the last ply has no NEXT
+    commit and is closed by [LAST_INTERVAL_S] instead.
     """
     segs = known_segments(_confirmed_eleven())
 
@@ -244,9 +235,9 @@ def test_a_reviewed_ply_naming_no_move_is_refused_loudly():
 
 
 def test_decode_frames_applies_the_rotation(tmp_path):
-    """Phone recordings: cv2 delivers a different orientation than the Kotlin reader the
-    candidate geometry was measured in (2026-08-10) — `rotate` is `detect_rotation`'s verdict
-    and every written frame must carry it."""
+    """Phone recordings: cv2 delivers another orientation than the Kotlin reader the geometry was
+    measured in; every written frame must carry `detect_rotation`'s verdict.
+    """
     import cv2
     import numpy as np
 
@@ -350,10 +341,9 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
 
 
 def test_decode_frames_walks_past_the_first_segment(tmp_path):
-    """The recorder rotates its container once a minute (2026-08-13), and the candidate's frame
-    indices count the WHOLE recording. Decoding only `video.mp4` cuts a confirmed game at minute
-    one while the row counts still look healthy — so a wanted index that lives in `video-001.mp4`
-    has to arrive, with the pixels of the second segment."""
+    """The recorder rotates its container once a minute and candidate indices count the WHOLE
+    recording: a wanted index in `video-001.mp4` must arrive with the second segment's pixels.
+    """
     def write(path, value, n):
         w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (32, 16))
         for _ in range(n):
@@ -370,12 +360,8 @@ def test_decode_frames_walks_past_the_first_segment(tmp_path):
 
 
 def test_decode_frames_keeps_what_is_already_on_disk(tmp_path):
-    """A re-export must not pay for pixels that cannot have changed.
-
-    The video path here does NOT exist: if the decoder were entered at all it would raise, so
-    returning the frames proves it was skipped. This is what makes re-running the export the way
-    to pick up an exporter fix — two sessions sat on a pre-`unknown_squares` log because it was
-    not (found 2026-08-09).
+    """A re-export must not pay for pixels that cannot have changed: the video path does NOT exist
+    here, so returning the frames proves the decoder was skipped.
     """
     frames = tmp_path / "frames"
     frames.mkdir()
@@ -403,10 +389,8 @@ def _log(tmp_path, *rows):
 
 
 def test_re_export_keeps_a_repaired_quad(tmp_path):
-    """`session autofix` re-fits per frame; the exporter only knows the candidate's median.
-
-    Measured 2026-08-09: a plain re-export put the median back over 11 fitted quads, moving
-    corners by up to 16 px — a seventh of a cell, past the 4 % criterion.
+    """`session autofix` re-fits per frame; a plain re-export put the median back and moved corners
+    by up to 16 px, past the 4 % criterion.
     """
     fitted = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]
     _log(
@@ -450,14 +434,9 @@ def test_a_pristine_export_is_left_alone_so_new_candidate_geometry_flows_through
 
 
 def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monkeypatch):
-    """rg-2026-08-13-19-34-23, 2026-08-14: the candidate's ONE median quad went out on all 137
-    frames ~17 px off the board's own grooves, and only a hand-run `session scan` + `autofix`
-    pulled it to 2.71 px. The same fit now runs per written frame at export time.
-
-    A frame the fit cannot read keeps its inherited quad and says so — it must never vanish,
-    because the unreadable ones are hands over the board and that is the material we are after.
-    A frame whose quad the fit could not beat is a THIRD case and says so separately: 167 of
-    20-48-55's 637 rows are that, and filing them under "failed" would invent damage.
+    """The candidate's ONE median quad left 137 frames ~17 px off their grooves; the fit now runs
+    per frame at export. Unreadable frames keep their quad (hands are the wanted material);
+    unbeaten quads are a THIRD case, not a failure.
     """
     from chesslab import alignment
     from chesslab.realgames.boards import FIT_FAILED, FIT_KEPT, FIT_SOURCE, fit_rows_to_grid
@@ -488,10 +467,8 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
     profile = _field_profile(median, (8, 8), 8)
     stats = fit_rows_to_grid(rows, profile, frames=disk_frames(tmp_path, rows))
 
-    # `hands: 3` is the groove read's documented "full resolution or nothing": at 1 px per cell
-    # every edge segment reads missing, so it accuses the whole board. Real exports run at 928+
-    # (the 2026-08-16 sweep flagged 25 of 713 frames on 13-12-46-24), and a board this unreadable
-    # has nothing labelable on it anyway — the flag only holds its crops back.
+    # `hands: 3` is the groove read's "full resolution or nothing": at 1 px per cell every edge
+    # reads missing. A board this unreadable has nothing labelable anyway.
     assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "mesh": 0, "hands": 3,
                      "late": 3, "arrived": rows,
                      "median": 2.7, "max": 2.7}, "8x8 noise carries no grid lines"
@@ -557,12 +534,8 @@ def _seg(ply=1, start=100, end=400, touches=("e5", "e7")):
 
 
 def test_a_measured_settle_protects_earlier_than_the_margin(tmp_path):
-    """The correction of 2026-08-09: the engine commits on QUIET, not on arrival.
-
-    Measured on VID_20260726_233432: 5 of 15 changed squares were visibly moved for longer than
-    the 1 s margin before their commit, `Nxe5`/f3 by 4.6 s. A constant margin cannot cover a
-    number that varies by an order of magnitude per move, so the settle frame is measured and
-    each square is unknown from ITS OWN.
+    """The engine commits on QUIET: squares were visibly moved up to 4.6 s before their commit, so
+    the settle frame is measured and each square is unknown from ITS OWN.
     """
     seg = _seg(end=400)
     settle = {2: {"e5": 250, "e7": 380}}  # e5 changed 150 frames before the commit, e7 only 20
@@ -748,9 +721,9 @@ def _corner_error(quad) -> float:
 
 
 def test_fit_stored_writes_the_field_quad_the_markers_missed(tmp_path, monkeypatch):
-    """The logged quad carries the recorder's constant 0.045 outset, and the real one differs per
-    session (measured 2026-08-15: up to 14 px, an eighth of a cell, in the crops that are trained
-    on AND labelled). The board's own grid is the ruler that finds the playing field anyway."""
+    """The logged quad carries a constant 0.045 outset while the real one differs per session by up
+    to 14 px; the board's own grid finds the playing field anyway.
+    """
     from chesslab.realgames.mesh import field_quad, measured_board_size
     from chesslab.realgames.stored import FIT_METHOD, fit_stored
     from chesslab.session_store.recording import QUAD_FIT_NAME
@@ -864,7 +837,7 @@ def test_fit_stored_says_so_when_a_bundle_has_no_stored_session(tmp_path, monkey
 
 
 def test_yes_refuses_to_confirm_the_tracker_against_itself(tmp_path, monkeypatch):
-    """`adopt-pgn` copies the phone's own PGN in — matching it then proves nothing (2026-08-19)."""
+    """`adopt-pgn` copies the phone's own PGN in; matching it then proves nothing."""
     import json
 
     import pytest

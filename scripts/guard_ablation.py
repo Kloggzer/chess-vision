@@ -27,11 +27,8 @@ MUSTER = {
 
 
 def summe(tag: str) -> dict | None:
-    """Die Summe des Laufs -- und unter `stems`, WORUEBER sie laeuft.
-
-    Die Zahl der Aufnahmen allein reichte nicht: der Bezug faehrt seit 2026-09-21 zwoelf
-    Aufnahmen, die abgelegten `abl-*` tragen zehn. Ein Delta gegen einen anderen Satz ist keine
-    Wirkung der Wache, wurde aber als "gedeckt" gemeldet.
+    """Die Summe des Laufs, und unter `stems`, WORUEBER sie laeuft: ein Delta gegen einen anderen
+    Satz ist keine Wirkung der Wache.
     """
     d = ROOT / "tmp" / "batch" / tag
     logs = [p for p in sorted(d.glob("*.log")) if not p.name.endswith(".err")]
@@ -45,7 +42,7 @@ def summe(tag: str) -> dict | None:
         text = log.read_text(encoding="utf-8", errors="replace")
         for name, muster in MUSTER.items():
             treffer = muster.search(text)
-            # Fehlt die Zahl, ist der Lauf abgebrochen -- das darf sich nicht als 0 einschleichen.
+            # Fehlt die Zahl, ist der Lauf abgebrochen; das darf nicht als 0 erscheinen.
             if treffer is None:
                 return None
             out[name] += int(treffer.group(1))
@@ -54,11 +51,7 @@ def summe(tag: str) -> dict | None:
 
 
 def befund(delta: dict[str, int]) -> str:
-    """Eine bewegte Episode ist kein Nachweis wie eine bewegte Entscheidung.
-
-    `verifyObserveNow` bewegt genau einen Desync und sonst nichts -- das als "gedeckt" zu melden
-    waere dieselbe stille Aufwertung, gegen die diese Sonde ueberhaupt gebaut wurde.
-    """
+    """Eine bewegte Episode ist kein Nachweis wie eine bewegte Entscheidung."""
     if all(v == 0 for v in delta.values()):
         return "der Satz merkt NICHTS"
     if all(delta[k] == 0 for k in ("found", "missed", "invented")):

@@ -22,8 +22,9 @@ ROTATION_PROBES = 5
 
 
 def _unread_grid_lines(frame, geometry: dict) -> int:
-    """Unread grid lines after warping [frame] with the CANDIDATE's stored corners — 0 says the
-    decoded orientation is the one the geometry was measured in."""
+    """Unread grid lines after warping [frame] with the CANDIDATE's corners; 0 means the geometry's
+    orientation.
+    """
     import numpy as np
 
     from ..alignment import GRID_PAD_CELLS, grid_lines
@@ -39,16 +40,11 @@ def _unread_grid_lines(frame, geometry: dict) -> int:
 
 
 def detect_rotation(video: Path, candidate: dict, wanted: set[int]) -> int | None:
-    """The `cv2.ROTATE_*` the decode needs so Python sees the frames the Kotlin side measured.
+    """The `cv2.ROTATE_*` the decode needs so Python sees the frames Kotlin measured.
 
-    cv2 does not reliably honour a phone recording's rotation metadata (measured 2026-08-10:
-    portrait 1080x1920 delivered for a landscape-measured candidate, and one video needing 180°
-    despite `CAP_PROP_ORIENTATION_AUTO`), while the candidate's corners live in the Kotlin
-    reader's view. The judge is the board's own grid through the STORED corners: the right
-    orientation reads all 18 lines, a wrong one almost none. An as-is read that passes is never
-    overridden — for a centred board a 180° flip also aligns the (symmetric) lines, and flipping
-    a good session would transpose a1<->h8 in every label.
-    """
+    cv2 does not reliably honour phone rotation metadata. The board's own grid through the STORED
+    corners judges; a passing as-is read is never overridden — a 180° flip also aligns symmetric
+    lines."""
     want_w, want_h = (int(v) for v in candidate["geometry"]["frame_size"])
     probes = sorted(wanted)[:ROTATION_PROBES]
     with closing(Recording(video).frames(wanted=set(probes))) as stream:
@@ -79,22 +75,11 @@ def detect_rotation(video: Path, candidate: dict, wanted: set[int]) -> int | Non
 
 
 def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | None = None) -> set[int]:
-    """Write the wanted source frames as `frames/NNNNNN.png`, decoding STRICTLY forward.
+    """Write the wanted frames as `frames/NNNNNN.png`, decoding STRICTLY forward: a seek lands next
+    to the index, and off by one is a wrong LABEL. Returns the indices that arrived.
 
-    Never `CAP_PROP_POS_FRAMES`: seeking a long clip lands next to the requested index (the
-    2026-08-06 stale-index defect class), and an index that is off by one here is a wrong LABEL,
-    not a blurry picture. The walk runs through `Recording`, so a segmented recording is decoded
-    to its end instead of stopping at the first minute. Returns the indices that actually arrived.
-    [rotate] is `detect_rotation`'s verdict, applied to every written frame.
-
-    **Frames already on disk are kept, not decoded again.** A re-export is otherwise a full
-    forward decode of the whole video for pixels that cannot have changed, which made re-running
-    the export unaffordable in practice — and that is how two sessions came to sit on a log
-    written before `unknown_squares` existed while the code that writes it was already in the
-    tree (found 2026-08-09: 760 of 760 dirty rows unprotected). The plan is a pure function of
-    the candidate, so re-running it is the intended way to pick up an exporter fix; only the
-    decode was in the way. An empty file counts as absent so a truncated write still repairs.
-    """
+    Frames already on disk are kept, so re-running the export (the way to pick up exporter fixes)
+    stays affordable. An empty file counts as absent."""
     out_dir.mkdir(parents=True, exist_ok=True)
     for orphan in out_dir.glob("tmp-*.png"):
         orphan.unlink(missing_ok=True)
@@ -104,11 +89,8 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
         print(f"  {len(have)} frames already on disk, {len(todo)} to decode")
     if not todo:
         return have
-    # Nothing in a PNG says whether the barrel was taken out of it, so a set written by
-    # `:desktop undistort` carries a receipt — and decoding one raw frame into it would make a
-    # silently MIXED session, which is the exact failure mode specs/52 measured from the other
-    # side (lens-corrected inference against a distorted corpus: 003957 67 -> 15 plies). Refuse,
-    # and name the command that fills the gap properly.
+    # Nothing in a PNG says whether the barrel was removed: a raw frame decoded into an undistorted
+    # set makes a silently MIXED session. Refuse.
     marker = out_dir / "lens.json"
     if marker.is_file():
         raise ValueError(
@@ -121,10 +103,8 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
     if len(recording.segments) > 1:
         print(f"  recording is {len(recording.segments)} segments: "
               f"{', '.join(p.name for p in recording.segments)}")
-    # `st_size > 0` war der ganze Resume-Test, aber ein abgebrochener Encode hinterlaesst ein
-    # HALBES PNG, das ihn besteht und nie wieder geschrieben wird. Die Pixel gehen deshalb neben
-    # den Zielnamen und werden erst umgehaengt, wenn sie ganz da sind. `tmp-<idx>.png`, nicht
-    # `<idx>.png.tmp`: `imwrite` waehlt den Codec an der ENDUNG, und `static_quad` globt `[0-9]*`.
+    # Ein abgebrochener Encode hinterlaesst ein HALBES PNG, das `st_size > 0` besteht; daher erst
+    # `tmp-<idx>.png` (Codec an der ENDUNG, `static_quad` globt `[0-9]*`), dann umhaengen.
     with closing(recording.frames(wanted=todo, rotate=rotate)) as stream:
         for idx, frame in stream:
             staged = out_dir / f"tmp-{idx:06d}.png"
@@ -133,8 +113,7 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
                 raise OSError(f"could not write frame {out_dir / f'{idx:06d}.png'}")
             os.replace(staged, out_dir / f"{idx:06d}.png")
             decoded.add(idx)
-            # The card reads this out of the log (`lib/progress.ts`): a step that prints
-            # nothing for half an hour is indistinguishable from a hung one.
+            # The card reads this from the log (`lib/progress.ts`); a silent step looks hung.
             if len(decoded) % PROGRESS_EVERY == 0:
                 print(f"  decode {len(decoded)}/{len(todo)} frames", flush=True)
             if idx >= last:
@@ -146,21 +125,14 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
 
 
 def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator[tuple[dict, Any]]:
-    """(row, frame) for every planned row, decoded STRICTLY forward out of the recording.
-
-    The frame never touches the disk: `video -> webp -> labeling -> crop -> training` (User,
-    2026-08-16). Writing it out first cost 3.3 MB per frame — 82 GB of session tree for 12.7 GB of
-    video — to hand the very next step a picture it already had in memory. Forward only, for the
-    reason `decode_frames` gives: a seek lands NEXT to the asked-for index, and an index off by one
-    here is a wrong label rather than a blurry crop.
+    """(row, frame) for every planned row, decoded STRICTLY forward, never touching the disk (3.3 MB
+    a frame, 82 GB for 12.7 GB of video).
     """
     wanted = {int(Path(r["frame"]).stem): r for r in rows}
     if not wanted:
         return
     last = max(wanted)
-    # `take` and not a filter here: the export asks for 11 % of the frames and paid the full
-    # colour conversion for the other 89 %, twice over (this streams once for the fit and once
-    # for the warp). The decoder now only builds the pictures that are asked for.
+    # `take`, not a filter: the decoder builds only the ~11 % of pictures asked for.
     with closing(Recording(video).take(set(wanted), rotate)) as stream:
         for idx, frame in stream:
             yield wanted[idx], frame
@@ -169,22 +141,16 @@ def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator
 
 
 def disk_frames(session_dir: Path, rows: list[dict]) -> Iterator[tuple[dict, Any]]:
-    """(row, frame) read from `frames/NNNNNN.png` — the source for a set the video cannot make.
-
-    The sibling of `stream_frames`. Undistorted frames are Kotlin's output and a re-decode of the
-    raw video would produce a different picture, so those rows come off the disk; everything else
-    streams. One exporter, two sources, chosen by the caller.
+    """(row, frame) read from `frames/NNNNNN.png`: undistorted frames are Kotlin's output, and a raw
+    re-decode would differ.
     """
     for row in rows:
         yield row, cv2.imread(str(session_dir / row["frame"]))
 
 
 def static_quad(frames: list[Path], profile) -> list[list[float]]:
-    """The board quad of an UNDISTORTED frame set: the per-corner MEDIAN over the frames.
-
-    A single frame's quad is hostage to whichever marker the hand happens to cover; the median over
-    the whole recording is not. Measured on the FRAMES, never on the source video — they are
-    undistorted and the video is not, and a quad fitted through the barrel does not fit without it.
+    """The board quad of an UNDISTORTED frame set: the per-corner MEDIAN over the frames, measured
+    on the frames, never through the barrel of the source video.
     """
     import numpy as np
 

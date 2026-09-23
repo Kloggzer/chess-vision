@@ -1,4 +1,4 @@
-"""`adopt-dirty` gleicht das Log gegen die Notizen ab — auch in Richtung Widerruf (Review 2026-09-23)."""
+"""`adopt-dirty` gleicht das Log gegen die Notizen ab — auch in Richtung Widerruf."""
 
 import json
 

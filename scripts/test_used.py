@@ -19,8 +19,7 @@ from chesslab.ioutil import write_json
 
 OUT = Path("data/TEST-USED.json")
 
-#: Die Gruppe, die bis zur Abnahme niemand anfassen darf. Genau EINE Auswertung ist vorgesehen,
-#: nach festgelegtem Checkpoint — danach ist auch sie verbrannt.
+#: Bis zur Abnahme unberuehrt: genau EINE Auswertung nach festgelegtem Checkpoint, danach verbrannt.
 FROZEN = ["rg-2026-09-11-20-00-52"]
 #: Wann der Nutzer das Einfrieren angeordnet hat — damit eine spaetere Auswertung datierbar ist.
 FROZEN_AT = "2026-09-13"
@@ -30,8 +29,7 @@ def burned(models: Path = Path("data/models")) -> dict[str, int]:
     """session_id -> wie oft sie in einem `eval_test*.json` als Testmaterial auftaucht."""
     seen: collections.Counter[str] = collections.Counter()
     for p in models.rglob("eval_test*.json"):
-        # Ein `continue` machte aus "nicht lesbar" ein "nichts verbrannt", und `--check` gab
-        # danach Exit 0 fuer eine Aufnahme, die schon Entscheidungen getragen haben kann.
+        # "Nicht lesbar" ist nicht "nichts verbrannt"; `--check` gab sonst Exit 0.
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:

@@ -1,9 +1,7 @@
 """Three time rules for a phone bundle's plies, measured against the replay's own.
 
-The `phone-candidate` verb puts every recorded ply on a video frame without
-running the tracker. This measures the three candidate rules (`frame`, `decision`, `wall`) and the
-pre-roll rule the replay already applies (`PhoneLog.kt`), so the pack can fix a rule order and a
-frame offset. It reads and reports only — nothing here writes into a bundle.
+Measures the candidate rules (`frame`, `decision`, `wall`) and the replay's pre-roll rule
+(`PhoneLog.kt`) to fix a rule order and offset. Read-only.
 """
 
 from __future__ import annotations
@@ -198,9 +196,8 @@ def video_ns_at(elapsed: int, syncs: list[tuple[int, int]]) -> float:
 
 
 def video_times(video: Path) -> list[float]:
-    """Decoded video time per whole-recording frame index — `ConcatFrameSource`'s offset rule.
-
-    Grabbed, not retrieved: the pixels are not wanted, only each frame's own PTS.
+    """Decoded video time per whole-recording frame index (`ConcatFrameSource`'s offset rule);
+    grabbed, not retrieved.
     """
     times: list[float] = []
     offset, last = 0.0, 0.0
@@ -316,11 +313,8 @@ def list_bundles() -> None:
 
 
 def deltas(rule: list[int | None], replay: list[int | None]) -> str:
-    """Coverage of the rule, and the offset over the plies BOTH columns placed.
-
-    The median is over the intersection while `covered` counts the rule alone, so a rule that
-    placed 40 of 67 plies against a replay that placed 12 was being judged on 12 — the same
-    shape as a `nanmedian` over a mostly empty arm. `n=` says which.
+    """Coverage of the rule, and the offset over the plies BOTH columns placed; `n=` says how
+    many.
     """
     both = [r - p for r, p in zip(rule, replay, strict=True) if r is not None and p is not None]
     covered = sum(1 for value in rule if value is not None)
@@ -365,8 +359,8 @@ def measure(name: str, replay: bool, kept: Path | None) -> None:
     if pre_roll is None:
         sys.exit(f"{name}: no video_pre_roll_ns in session.yaml")
     first_ts = plies[0].ts_epoch_ms
-    # With a kept replay candidate the live candidate.json is the VERB's, so it gets a column of
-    # its own and the reference column reads the copy Phase 03 put aside before running the verb.
+    # With a kept replay candidate the live candidate.json is the VERB's, so the reference column
+    # reads the set-aside copy.
     replayed = replay_frames(bundle, kept)
     verb = replay_frames(bundle) if kept else {}
     print(f"   candidate deciders: {histogram(d for _f, _s, d in (verb or replayed).values()) or '-'}")

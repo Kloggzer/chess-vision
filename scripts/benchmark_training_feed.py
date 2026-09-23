@@ -79,11 +79,8 @@ def private_mb(pids):
 
 
 def packed_source(dd: Path):
-    """`(Datei, (n, h, w), {Crop-Pfad: Packzeile})` aus `packed_meta.json` — nie aus der Zeilennummer.
-
-    Die Zeilennummer des Manifests IST die Packzeile nur bei einem direkt gepackten Satz; fuer
-    die fuenf `real13-straight-80-v3-*`-Links weichen bis zu 300 272 von 300 339 Zeilen ab, und
-    eine geratene Zuordnung paart Pixel mit fremden Labels, ohne dass etwas auffaellt.
+    """`(Datei, (n, h, w), {Crop-Pfad: Packzeile})` aus `packed_meta.json`, nie aus der
+    Zeilennummer: in gelinkten Saetzen weicht fast jede Zeile ab.
     """
     meta_path = dd / "packed_meta.json"
     if not meta_path.is_file():
@@ -242,8 +239,7 @@ def main():
                 gc.collect()
     write_json(Path(args.output), report)
     if args.gpu:
-        # Exit before Python destroys the local GPU/loader objects. The isolated benchmark
-        # has synchronized all work, joined workers and closed its report at this point.
+        # Exit before Python destroys the GPU/loader objects: this ROCm build can hang in teardown.
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(0)
@@ -252,8 +248,7 @@ def main():
 if __name__ == '__main__':
     main()
     if '--gpu' in sys.argv:
-        # All steps synchronized, workers joined and report closed above. This ROCm build
-        # can hang in interpreter teardown after combining GPU work and spawned loaders.
+        # This ROCm build can hang in interpreter teardown after GPU work plus spawned loaders.
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(0)

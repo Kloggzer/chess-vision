@@ -1,27 +1,10 @@
-"""Frueher Abbruch schwacher Trainingslaeufe — GEEICHT UND VERWORFEN (2026-08-26).
+"""Frueher Abbruch schwacher Trainingslaeufe — GEEICHT UND VERWORFEN: auf diesem Korpus trennt kein
+Frueh-Kriterium gute von schlechten Laeufen (rueckwirkend 15 von 33 getoetet, die besten
+darunter).
 
-Das Werkzeug bleibt, weil sein `--replay` das Ergebnis traegt: **auf diesem Korpus trennt kein
-Frueh-Kriterium gute von schlechten Laeufen.** Wer es nochmal bauen will, faengt hier an.
+Der Live-Modus toetet deshalb NUR mit `--arm`.
 
-Rueckwirkend ueber 33 fertige Laeufe haette das relative Kriterium (occ_acc oder macro 6 sd unter
-der Basis am gleichen Epochenstand, 3 Epochen in Folge) **15 davon getoetet** — darunter `c8d2`
-und `p8`, die beiden besten Arme des Mischungsvergleichs, und `balcls-wcap1-wd05`, den
-aussichtsreichsten Regularisierungslauf. Zwei Gruende:
-
-- **Fremde Val-Saetze.** `p8`/`p2`/`c2d8` sind andere Datensaetze mit anderem Verdeckungsanteil;
-  ihr `occ_acc` gegen den der Basis zu halten ist der Konfundierer der Ausduenn-Studie (2026-08-26).
-- **Regularisierte Arme starten langsamer und holen auf.** `wd20` faellt zwischendurch auf
-  `occ_acc` 0,626 (von 0,987) und endet ueber der Basis.
-
-Absolute Boeden helfen nicht: 0,90 auf `occ_acc` trifft 7 legitime Laeufe, und `train_loss` bei
-Epoche 15 ist fuer `wd20` (0,551) hoeher als fuer den wirklich kaputten `wd50` bei Epoche 2
-(0,588). Passt zum Morgenbefund in `docs/evaluation.md`: Spearman 0,40 zwischen der
-Rangfolge nach 15 und nach 60 Epochen.
-
-Der Live-Modus toetet deshalb NUR mit `--arm`; ohne das laeuft er trocken.
-
-    uv run python scripts/train_watchdog.py --replay      # die Eichung oben nachrechnen
-"""
+    uv run python scripts/train_watchdog.py --replay      # die Eichung nachrechnen"""
 import argparse
 import subprocess
 import time
@@ -29,21 +12,18 @@ from pathlib import Path
 
 from chesslab.ioutil import read_jsonl
 
-#: Rauschen je Epoche, gemessen ueber 25 Laeufe. `occ_board` steht bewusst NICHT hier: es
-#: verlangt alle 64 Felder richtig und traegt damit sd 0,0989 — es springt zwischen Nachbarepochen
-#: von 0,03 auf 0,88, waehrend die Zellgenauigkeit sich um 0,016 bewegt. Als Abbruchkriterium
-#: haette es am 2026-08-26 einen gesunden Lauf getoetet.
+#: Rauschen je Epoche ueber 25 Laeufe. `occ_board` nicht: es verlangt alle 64 Felder und springt
+#: zwischen Nachbarepochen von 0,03 auf 0,88.
 SD_OCC = 0.0028
 SD_MACRO = 0.0178
-#: Vorher ist alles Rauschen — die Basiskurve steigt bis Epoche 20 noch steil.
+#: Vorher ist alles Rauschen; die Basiskurve steigt bis Epoche 20 steil.
 MIN_EPOCH = 15
 #: So viele Epochen in Folge muss das Urteil halten.
 STREAK = 3
 
 
-#: Die zwei Spalten, gegen die SD_OCC und SD_MACRO geeicht sind. `_compact_metrics` streicht
-#: beide aus jedem Occlusion-Lauf, und fuer `macro_recall` gibt es dort kein Gegenstueck — eine
-#: `visible_`-Spalte einzusetzen waere eine ANDERE Messung unter denselben Schwellen.
+#: Die Spalten der Eichung; `_compact_metrics` streicht beide aus Occlusion-Laeufen, und eine
+#: `visible_`-Spalte waere eine ANDERE Messung.
 NEEDED = ("val_occupied_acc", "val_macro_recall")
 
 
@@ -98,10 +78,8 @@ def check(base: list[dict], dry: bool) -> None:
 
 
 def replay(base: list[dict], dirs: list[Path]) -> None:
-    """Rueckwirkend: wo haette der Waechter zugeschlagen, und was ist aus dem Lauf geworden?
-
-    Das ist die Eichung. Ein Kriterium, das gute Arme killt, ist schlimmer als keins — der Preis
-    eines Fehlalarms ist ein verlorener Befund, der eines verpassten Abbruchs nur GPU-Zeit.
+    """Rueckwirkend: wo haette der Waechter zugeschlagen, und was wurde aus dem Lauf? Ein Fehlalarm
+    kostet einen Befund, ein verpasster Abbruch nur GPU-Zeit.
     """
     print(f"{'Lauf':30}{'Ep':>4}{'Abbruch bei':>13}{'gespart':>9}"
           f"{'Endstand macro':>16}{'occ_acc':>9}")
@@ -117,8 +95,7 @@ def replay(base: list[dict], dirs: list[Path]) -> None:
             if all(verdict(ms, base, k) for k in range(e - STREAK + 1, e + 1)):
                 hit = e
                 break
-        # Ohne die Spalte gibt es keinen besten Lauf: `-1` fuer alle waehlte stumm die ERSTE
-        # Epoche und meldete sie als Bestwert.
+        # Ohne die Spalte gibt es keinen besten Lauf; `-1` fuer alle waehlte stumm die ERSTE Epoche.
         scored = [r for r in ms if "val_checkpoint_score" in r]
         best = max(scored, key=lambda r: r["val_checkpoint_score"]) if scored else None
         saved = f"{100 * (len(ms) - hit) / len(ms):.0f} %" if hit else "—"

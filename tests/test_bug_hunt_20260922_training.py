@@ -81,10 +81,9 @@ def test_the_crop_composition_comes_from_the_run_not_from_this_machine(tmp_path,
 
 
 def test_a_masked_cell_does_not_get_graded(tmp_path, monkeypatch):
-    """Benotet wird, was der Verlust auch lernt (CLAUDE.md, 2026-08-24). `reliance_for_run` zog
-    seine Stichprobe aus ALLEN Zeilen: auf `real13-test-v1-128` sind 7,6 % ueber
-    `PIECE_VISIBLE_MAX`, und zwar weiss 11-15 % gegen schwarz 2-7 % — die WEAK-Marke je Klasse
-    liefe damit je Klasse auf einer anderen Zellmenge."""
+    """Benotet wird, was der Verlust lernt: `reliance_for_run` zog aus ALLEN Zeilen, und Verdeckung
+    trifft die Klassen ungleich — die WEAK-Marke liefe je Klasse auf einer anderen Zellmenge.
+    """
     classes = list(config.IDENTITY_CLASSES)
     cfg = {"classes": classes, "out_size": [16, 16], "pad_side": 0.05}
     rows = [{"label": "wP", "session_id": "s", "square": "e2", "coverage": 0.0},

@@ -1,4 +1,4 @@
-"""Skript-Jagd 2026-09-22c: Zahlen aus `scripts/`, die Ungemessenes als Messwert weiterreichen."""
+"""Skript-Jagd: Zahlen aus `scripts/`, die Ungemessenes als Messwert weiterreichen."""
 
 from __future__ import annotations
 
@@ -195,10 +195,9 @@ def test_survey_alignment_names_a_session_without_corners(tmp_path, monkeypatch,
 # --- 6. `show_errors`: `coverage or 0.0` macht aus ungemessen sichtbar ------------------------
 
 def test_show_errors_counts_unmeasured_coverage_instead_of_calling_it_visible():
-    """`float(r.get("coverage") or 0.0) > VMAX` liest `None` als 0,0 und damit als frei.
-    ELF Datensaetze tragen heute keine einzige Coverage-Zahl — allein die fuenf groessten
-    (`labeled-rg-2026-08-08-00-39-57-80`, drei `turntable-13bn-*`, `turntable80-test-092133`)
-    sind 380 214 Zeilen. Der Kontaktbogen nannte sie 'sichtbare Zellen'."""
+    """`float(r.get("coverage") or 0.0) > VMAX` liest `None` als frei; elf Datensaetze tragen keine
+    einzige Coverage-Zahl.
+    """
     script = load_script("show_errors")
     rows = [{"coverage": None, "label": "wP", "square": "a1", "session_id": "s"},
             {"coverage": 0.0, "label": "wP", "square": "a2", "session_id": "s"},

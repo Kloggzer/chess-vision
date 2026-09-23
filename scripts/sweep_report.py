@@ -1,6 +1,5 @@
-"""Sweep-Tabelle: `best` (waehlt nur den Checkpoint) neben dem Mittel der letzten `TAIL` Epochen.
-
-Das Rauschen kommt aus DIESEM Sweep, je Arm ueber seine Schwanz-Epochen; ohne Seeds Untergrenze.
+"""Sweep-Tabelle: `best` (waehlt nur den Checkpoint) neben dem Mittel der letzten `TAIL` Epochen;
+das Rauschen je Arm aus seinen Schwanz-Epochen, ohne Seeds eine Untergrenze.
 
     uv run python scripts/sweep_report.py --dir data/models/_arch [--axis val_visible_piece_acc]
 """

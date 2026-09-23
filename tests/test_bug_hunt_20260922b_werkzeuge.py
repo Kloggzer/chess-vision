@@ -1,4 +1,4 @@
-"""Skript-Jagd 2026-09-22b: Nachweise, die "gleich" melden, ohne verglichen zu haben."""
+"""Skript-Jagd: Nachweise, die "gleich" melden, ohne verglichen zu haben."""
 from __future__ import annotations
 
 import json

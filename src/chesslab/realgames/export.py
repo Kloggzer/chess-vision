@@ -38,11 +38,8 @@ from .timeline import known_segments, plan_rows, plan_scanned, yield_lines
 
 
 def adopt_reported_dirty(name: str) -> dict:
-    """Put the hands a human reported into the log NOW, instead of at the next export.
-
-    `plan_scanned` reads the same set, but only a re-export runs it — hours, and it re-plans every
-    frame. The rows here are already stored; marking them `occluded` is what lets the matte RESCUE
-    them (`slice_session`), where a measured coverage on a `clean` row would condemn them instead.
+    """Put the hands a human reported into the log NOW: marking stored rows `occluded` lets the
+    matte RESCUE them, where coverage on a `clean` row would condemn them.
     """
     from ..labeling import read_session_meta
     from ..session_store.log import _write_log, backup_log, read_log
@@ -80,13 +77,9 @@ def adopt_reported_dirty(name: str) -> dict:
 
 
 def ensure_export_profile(profile: str, candidate: dict) -> Path:
-    """The profile the crops will be cut through, taken from the recording — never invented.
-
-    `ClipDriver` filled its profile from `CropParams.default` while the device served
-    `pad_side 0.05` (CLAUDE.md, 2026-08-03), and that alone was a domain shift. So board size,
-    marker margin and the pads come from the candidate itself; only `out_size` is the crop
-    pool's 128 px instead of the device's 80, because the pool is what these crops join. An
-    existing profile is never touched — the user may have tuned it.
+    """The profile the crops will be cut through, taken from the candidate — never invented (a
+    default pad was a domain shift). `out_size` is the pool's 128; an existing profile is never
+    touched.
     """
     from ..calibration import CalibrationProfile, CropParams, compute_homography, profile_path
 
@@ -139,10 +132,9 @@ def carry_repaired_geometry(session_dir: Path, rows: list[dict]) -> int:
         previous = old.get(Path(row["frame"]).stem)
         if previous is None:
             continue
-        # Evidence of repair is a re-fitted quad OR a measured offset — `scan` records the verdict
-        # without touching `corners_source`, so keying on the source alone would drop its numbers.
-        # A pristine row carries neither, and is left alone so a re-measured CANDIDATE still flows
-        # through instead of being masked by its own earlier export.
+        # Repair evidence is a re-fitted quad OR a measured offset (`scan` does not set
+        # `corners_source`). A pristine row carries neither and lets a re-measured candidate
+        # through.
         if previous.get("corners_source") == "realgame-export" and previous.get("align_worst_px") is None:
             continue
         for key in REPAIRED_KEYS:
@@ -179,11 +171,8 @@ def export_session(
 
 def ensure_scan(name: str, *, rotate, extra=(), read_only: bool = False,
                 progress: bool = True) -> list[dict]:
-    """Der Frame-Scan, notfalls frisch gezogen — die Auswahl steht und faellt mit ihm.
-
-    Ohne ihn plant der Export nach Margin-Fenstern, und die lassen gemessene 23 % Haende durch
-    (`docs/frame-scan.md`). Deshalb kein stiller Rueckfall: was hier scheitert, bricht ab.
-    `read_only` ist fuer `--report-only` — es urteilt, schreibt aber nichts.
+    """Der Frame-Scan, notfalls frisch: ohne ihn lassen die Margin-Fenster 23 % Haende durch, also
+    bricht hier ab, was scheitert. `read_only` fuer `--report-only`.
     """
     from .. import framescan
 
@@ -209,11 +198,8 @@ def ensure_scan(name: str, *, rotate, extra=(), read_only: bool = False,
 
 def correction_ledger(name: str, prefer: set[int], rows: list[dict],
                       scan: list[dict], candidate: dict, rejected=()) -> dict:
-    """Welche korrigierten Bilder der Neuplan uebernimmt — und warum die anderen nicht.
-
-    `prefer` verspricht nichts: `pick_spread` bevorzugt nur im Umkreis von `tol`, und ein Slot
-    kann anders belegt sein. Gezaehlt wird deshalb gegen die ENDGUELTIGEN Zeilen; `occluded` ist
-    dabei kein Ausschluss, verdeckte Bretter werden ja mitgenommen.
+    """Welche korrigierten Bilder der Neuplan uebernimmt, und warum die anderen nicht: gezaehlt
+    gegen die ENDGUELTIGEN Zeilen, denn `prefer` verspricht nichts.
     """
     kept = {int(Path(r["frame"]).stem): r for r in rows}
     measured = {int(r["idx"]) for r in scan}
@@ -259,9 +245,8 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
     settle = None
     rotation = None
     if not report_only:
-        # Detected ONCE, before the settle pass: its crops read the candidate's quad, and on a
-        # phone decode without the rotation every anchor pair sits below SETTLE_MIN_DELTA — the
-        # measurement silently returned nothing. Commit frames are quiet, so they probe cleanly.
+        # Detected ONCE, before the settle pass: without the rotation a phone decode sat below
+        # SETTLE_MIN_DELTA and the measurement silently returned nothing.
         ensure_export_profile(EXPORT_PROFILE, candidate)
         rotation = detect_rotation(
             video_path(name), candidate, {int(m["frame"]) for m in candidate["moves"]}
@@ -274,9 +259,8 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                                 rotate=rotation, workers=workers, executor=executor)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
-    # VOR dem Scan geholt, damit beide als `extra` mitgemessen werden: ein korrigierter Frame,
-    # dessen Index nicht auf dem Dreier-Raster liegt, stuende sonst gar nicht erst im Scan — und
-    # was nicht gemessen ist, kann keine Bevorzugung mehr retten.
+    # VOR dem Scan, damit korrigierte Frames als `extra` mitgemessen werden, auch neben dem
+    # Dreier-Raster.
     prefer = corrected_frames(name)
     reported = reported_dirty(f"rg-{name}")
     scan = [] if no_scan else ensure_scan(name, rotate=rotation, extra=prefer | reported,
@@ -303,9 +287,8 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
         rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty,
                          settle=settle, per_position=per_position)
     if not rows:
-        # `confirmed: true` with an EMPTY `reviewed_plies` is a reachable state — confirming a
-        # candidate before its reference PGN is in place vouches for nothing — and blaming the
-        # margin for it sent the user hunting a timing problem that was not there (20-19-54).
+        # `confirmed: true` with EMPTY `reviewed_plies` is reachable (confirmed before the PGN
+        # existed); blaming the margin sent the user hunting a timing problem.
         if not (candidate.get("reviewed_plies") or ()):
             raise ValueError(
                 f"{name}: confirmed, but not one ply is reviewed — re-run the confirmation "
@@ -313,17 +296,15 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
     session_dir = game_dir(name)
     if not report_only and not drop_verdicts and log_path(session_dir).is_file():
-        # Frueh, solange `boards/` noch unberuehrt ist; `write_session` prueft zum Schluss erneut.
+        # Frueh, solange `boards/` unberuehrt ist; `write_session` prueft zum Schluss erneut.
         refuse_orphaned_verdicts(carry_human_verdicts(read_jsonl(log_path(session_dir)),
                                                       [dict(r) for r in rows]), False)
     if not report_only:
-        # Von hier bis zum Log-Schreiben sind die Bretter schon neu und das Log noch alt.
-        # Stirbt der Lauf dazwischen, beschreiben die Ecken nicht mehr die Pixel — und ohne
-        # Marker sieht das niemand je wieder.
+        # Von hier bis zum Log-Schreiben sind die Bretter neu und das Log alt; ohne Marker sieht das
+        # niemand.
         with mark_export(session_dir):
-            # The frames only hit the disk for an UNDISTORTED set, whose whole point is a picture the
-            # video cannot reproduce, and for `--no-fit`, which has no pass to write boards in. Every
-            # other export goes video -> board and keeps no 3.3 MB copy of what it already had.
+            # Frames hit the disk only for an UNDISTORTED set or `--no-fit`; everything else goes
+            # video -> board.
             on_disk = (session_dir / "frames" / "lens.json").is_file() or not fit
             if on_disk:
                 arrived = decode_frames(
@@ -334,9 +315,8 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                 )
                 rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
             if (session_dir / "frames" / "lens.json").is_file():
-                # Undistorting MOVES the board in the image, so a quad measured on the raw frames — and
-                # any repair fitted to them — describes a picture that no longer exists. Re-measure on
-                # the frames that are actually there, and do NOT carry the old geometry over.
+                # Undistorting MOVES the board, so re-measure on the frames there and carry no old
+                # geometry.
                 quad = static_quad(sorted((session_dir / "frames").glob("[0-9]*.png")),
                                    load_profile(EXPORT_PROFILE))
                 for row in rows:
@@ -348,26 +328,22 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                 if carried:
                     print(f"  kept the repaired geometry of {carried} frames (`session scan|autofix`)")
             if fit:
-                # Last, so the fit starts from the best quad this export knows — a carried repair or
-                # the undistorted re-measure — and refines THAT rather than the candidate's median.
-                # An undistorted set reads PNGs off the disk, which no walk can be split by; only the
-                # video path goes to workers.
+                # Last, so the fit refines the best quad this export knows. PNG sets cannot be split
+                # by walks; only the video path goes to workers.
                 if on_disk:
                     stats = fit_rows_to_grid(rows, load_profile(EXPORT_PROFILE),
                                              frames=disk_frames(session_dir, rows))
                 else:
                     stats = fit_rows_parallel(rows, EXPORT_PROFILE, video=video_path(name),
                                               rotate=rotation, workers=workers, executor=executor)
-                # What the decoder actually handed over — a row past the end of a truncated recording
-                # has no picture, and carrying it would name a board that was never written.
+                # A row past the end of a truncated recording has no picture.
                 rows = stats["arrived"]
                 print(f"  grid fit over {len(rows)} frames: {stats[FIT_SOURCE]} re-fitted, "
                       f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
                       f"align_worst_px median {stats['median']}, max {stats['max']}, "
                       f"mesh on {stats['mesh']}, hands on {stats['hands']}")
-                # A SECOND pass over the video, because a board can only be warped straight once the
-                # mesh is final, and a hand frame's mesh is its clean neighbours'. The decode costs a
-                # minute; warping first and correcting after costs 57 % of the crop's detail.
+                # A SECOND pass: a board can only be warped straight once the mesh is final. Warping
+                # first costs 57 % of the crop's detail.
                 if on_disk:
                     made = rewarp_boards(session_dir, rows, load_profile(EXPORT_PROFILE),
                                          frames=disk_frames(session_dir, rows))
@@ -378,8 +354,8 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                 print(f"  boards warped straight: {made['rewarped']}, "
                       f"{made['no_mesh']} left bowed for want of any mesh")
             write_session(session_dir, name, candidate, rows, drop_verdicts=drop_verdicts)
-        # Hinter dem Marker: was waehrend des Exports gemeldet oder widerrufen wurde, lief dort ins
-        # `ExportInterrupted` von `adopt-dirty` und kaeme sonst erst mit dem naechsten Export an.
+        # Hinter dem Marker: waehrend des Exports gemeldete Haende liefen dort ins
+        # `ExportInterrupted`.
         adopted = adopt_reported_dirty(name)
         if adopted["changed"]:
             print(f"  adopt-dirty: {adopted['set']} gemeldet, {adopted['retracted']} widerrufen "

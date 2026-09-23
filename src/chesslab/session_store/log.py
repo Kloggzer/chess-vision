@@ -1,7 +1,4 @@
-"""`log.jsonl` einer Session: lesen, bewacht schreiben, sichern, und der Export-Marker.
-
-Jeder Schreiber geht ueber `_write_log`/`write_session` und damit ueber den Stempel-Riegel.
-"""
+"""`log.jsonl` einer Session: lesen, bewacht schreiben, sichern, und der Export-Marker."""
 
 from __future__ import annotations
 
@@ -24,9 +21,8 @@ class LogRows(list):
     stamp: tuple[int, int] | None = None
 
 
-#: Liegt waehrend des Brett-Schreibens da. Ein Export ueberschreibt `boards/` an Ort und Stelle,
-#: schreibt `log.jsonl` aber erst zum Schluss — stirbt er dazwischen, beschreiben die Ecken im
-#: alten Log nicht mehr die Pixel auf der Platte, und niemand kann das spaeter noch sehen.
+#: Liegt waehrend des Brett-Schreibens da: ein Export ueberschreibt `boards/` an Ort und Stelle, das
+#: Log erst zum Schluss — stirbt er dazwischen, passen Ecken und Pixel nicht mehr.
 EXPORT_MARKER = ".export-running"
 
 
@@ -35,7 +31,7 @@ class ExportInterrupted(ValueError):
 
 
 def export_interrupted(session_dir: Path) -> bool:
-    """Steht ein abgebrochener Export im Weg? Dann sind Log und Bretter nicht dasselbe Alter."""
+    """Steht ein abgebrochener Export im Weg?"""
     return (session_dir / EXPORT_MARKER).is_file()
 
 
@@ -56,10 +52,10 @@ def read_log(
     with_stamp: bool = True,
     missing_message: str | None = None,
 ) -> list[dict]:
-    """Every row of `log.jsonl`, in order — carrying the stamp `_write_log` presents back.
-
-    `under_export=True` only for the steps that set and clear `EXPORT_MARKER` themselves, and for
-    a human verdict (`flag_frame`), which the running export carries over (`HUMAN_KEYS`)."""
+    """Every row of `log.jsonl`, in order, carrying the stamp `_write_log` checks.
+    `under_export=True` only for the marker setters and for a human verdict the export carries
+    over.
+    """
     if not under_export:
         refuse_interrupted_export(sdir)
     log_file = log_path(sdir)
@@ -78,17 +74,15 @@ def read_log(
 
 
 def write_interval_checks(sdir: Path, checks: list[dict]) -> None:
-    # war ungestagt. `position_flags.interval_flags` liest jede Zeile mit blankem
-    # `json.loads` und nahm bei einer halben Datei den Report ALLER Aufnahmen mit, nicht nur diese.
+    # Atomar: `interval_flags` liest jede Zeile, eine halbe Datei nahm den Report ALLER Aufnahmen
+    # mit.
 
     write_rows(sdir / INTERVAL_FILE, checks)
 
 
 def backup_log(log_path: Path) -> str:
-    """Copy `log.jsonl` aside before rewriting it.
-
-    `data/` is gitignored and unrecoverable; the project rule is park, never delete — so a
-    backup is never overwritten either.
+    """Copy `log.jsonl` aside before rewriting it; `data/` is unrecoverable, so a backup is never
+    overwritten either.
     """
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = log_path.with_name(f"{log_path.name}.bak.{stamp}")
@@ -104,10 +98,8 @@ _FROM_ROWS = object()
 
 
 def _write_log(sdir: Path, rows: list[dict], *, stamp=_FROM_ROWS) -> None:
-    """Atomic replace, and only over the log the rows were read from (`read_log`'s stamp).
-
-    A long run wrote its minutes-old snapshot back over a human `unusable` set meanwhile; now that
-    is `Contested`. A checkpointing caller keeps writing: the rows take the stamp they left behind.
+    """Atomic replace, only over the log the rows were read from: a long run's stale snapshot over a
+    human verdict is `Contested`. A checkpointing caller keeps the stamp it left behind.
     """
     log_file = log_path(sdir)
     if stamp is _FROM_ROWS:
@@ -122,10 +114,8 @@ def _write_log(sdir: Path, rows: list[dict], *, stamp=_FROM_ROWS) -> None:
 
 
 def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
-    """Set or clear the `unusable` flag on one frame; `slice` skips flagged frames.
-
-    A REVIEW action: this is a read-modify-write of the whole log, so doing it while the same
-    session is actively being recorded could drop a concurrently appended line.
+    """Set or clear the `unusable` flag on one frame; `slice` skips flagged frames. A
+    read-modify-write of the whole log: not while the session is being recorded.
     """
     sdir, _archived = session_dir(session_id)
     # Ein Urteil, keine Ableitung aus den Brettern: der laufende Export traegt es hinueber.
@@ -133,21 +123,18 @@ def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
     if idx < 0 or idx >= len(rows):
         raise ValueError(f"Index {idx} out of range (0-{len(rows) - 1}).")
     rows[idx]["unusable"] = bool(unusable)
-    # Gesichert wie jede andere Schreibfunktion dieses Abschnitts: es ist ein
-    # Lesen-Aendern-Schreiben des GANZEN Logs, und eine dabei verlorene Zeile ist sonst weg.
+    # Gesichert: ein Lesen-Aendern-Schreiben des GANZEN Logs.
     backup = backup_log(log_path(sdir))
     _write_log(sdir, rows)
     return {"session_id": session_id, "index": idx, "unusable": bool(unusable), "backup": backup}
 
 
-# --- export-session: a confirmed video becomes a session `slice` can eat ---------------------
-
 EXPORT_PROFILE = "desktop"
 
 
 
-#: Was ein MENSCH an eine Log-Zeile schreibt (`session_store.log.flag_frame`, `lib/frame-flag.ts`). Kein
-#: Ledger haelt es, also traegt der Export es selbst auf die neue Zeile desselben Frames.
+#: Was ein MENSCH an eine Log-Zeile schreibt; kein Ledger haelt es, also traegt der Export es
+#: hinueber.
 HUMAN_KEYS = ("unusable",)
 
 
@@ -156,7 +143,7 @@ class VerdictsWouldDrop(ValueError):
 
 
 def refuse_orphaned_verdicts(orphans: list[str], drop_verdicts: bool) -> None:
-    """`false` zaehlt mit: es ist eine Ruecknahme, also ebenfalls ein menschliches Urteil."""
+    """`false` zaehlt mit: eine Ruecknahme ist ebenfalls ein menschliches Urteil."""
     if not orphans:
         return
     names = ", ".join(orphans[:20]) + (" ..." if len(orphans) > 20 else "")
@@ -211,13 +198,12 @@ def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict
     old = read_jsonl(log_file) if stamp is not None else []
     refuse_orphaned_verdicts(carry_human_verdicts(old, [dict(r) for r in rows]), drop_verdicts)
     carry_human_verdicts(old, rows)
-    # A re-export REPLACES a log that may hold hand-set quads or a review's verdicts. Same
-    # `log.jsonl.bak.<stamp>` convention `session scan|autofix|adopt` use, for the same reason.
+    # A re-export REPLACES a log that may hold hand-set quads and verdicts: backed up like every
+    # rewrite.
     if stamp is not None:
         print(f"  previous log backed up as {backup_log(log_file)}")
     meta = {
-        # The id keeps the `rg-` prefix the DIRECTORY dropped: it is the join key in every
-        # manifest and in `session_store.paths.session_dir`, so it must not follow the folder rename.
+        # The id keeps the `rg-` prefix the directory dropped: it is the join key in every manifest.
         "session_id": f"rg-{session_dir.name}",
         "profile": EXPORT_PROFILE,
         "mode": "track",

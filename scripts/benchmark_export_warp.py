@@ -22,8 +22,8 @@ from chesslab.realgames import decode as rg_decode
 from chesslab.session_store import log as store_log
 from chesslab.session_store import recording as store_rec
 
-#: Durchgaenge; jeder zweite in umgekehrter Reihenfolge. Frueher lief `uncached` immer zuerst und
-#: `cached` danach gegen den warmen Seitencache — die zitierte 23 -> 7 s war eine obere Schranke.
+#: Durchgaenge, jeder zweite umgekehrt: fest `uncached` zuerst lief `cached` gegen den warmen
+#: Seitencache.
 REPS = 2
 
 

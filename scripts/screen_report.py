@@ -38,9 +38,8 @@ def read_log(path: Path) -> dict:
         elif line.startswith(("  invented ", "  beyond ", "  reordered ")):
             block = None
         elif block == "found" and (m := FOUND.match(line)):
-            # Schluessel ist (SAN, Label-Frame): derselbe Zug kommt mehrfach vor — drei `Rxc8` in
-            # einem Clip sind gemessen —, und auf den SAN allein zaehlte der Bericht 75 statt 78.
-            # Der Label-Frame stammt aus der `candidate.json` und ist ueber alle Arme derselbe.
+            # Schluessel (SAN, Label-Frame): derselbe Zug kommt mehrfach vor, der Label-Frame ist
+            # ueber alle Arme derselbe.
             found[(m.group(1), int(m.group(2)))] = {"label": int(m.group(2)),
                                                     "run": int(m.group(3)), "decider": m.group(4)}
         elif block == "missed" and (m := MISSED.match(line)):
@@ -69,9 +68,9 @@ def arm_of(path: Path) -> tuple[str, str]:
 
 
 def collect() -> dict[str, dict[str, dict]]:
-    """Nur ABGESCHLOSSENE Arme: `results.jsonl` bekommt seine Zeile erst, wenn alle Aufnahmen
-    durch sind. Ein laufender Arm sah sonst aus wie ein Einbruch — drei von vier Logs ergaben
-    43 statt 78 Treffer, und das wurde prompt als Befund gemeldet."""
+    """Nur ABGESCHLOSSENE Arme: `results.jsonl` bekommt die Zeile erst nach allen Aufnahmen, ein
+    laufender Arm saehe aus wie ein Einbruch.
+    """
     fertig = {r["tag"] for r in read_jsonl(RESULTS)} if RESULTS.exists() else set()
     out: dict[str, dict[str, dict]] = collections.defaultdict(dict)
     for log in sorted(LOGS.glob("*--*.log")):
@@ -99,9 +98,7 @@ def summarise(arm: dict[str, dict], base: dict[str, dict]) -> dict:
     def agg(key: str) -> int:
         return sum(v[key] for v in arm.values())
 
-    # `cache_hits`/`cache_misses` tragen `-1` fuer "das Log hat keine `obs-cache`-Zeile". Mit
-    # summiert loeschte ein ungemessenes Log einen echten Miss weg, und `neu` verschwieg genau
-    # den Fall, fuer den es da ist. Ungemessenes wird gezaehlt, nicht verrechnet.
+    # `-1` heisst "keine `obs-cache`-Zeile"; mitsummiert loeschte es einen echten Miss weg.
     unmeasured = sum(1 for v in arm.values() if v["cache_misses"] < 0)
 
     stuck: collections.Counter = collections.Counter()
@@ -127,8 +124,9 @@ def summarise(arm: dict[str, dict], base: dict[str, dict]) -> dict:
 
 
 def _tally(r: dict) -> tuple[int, int, int, int]:
-    """Alle vier Achsen. `invented` ist das Veto, und `beyond` verschwieg drei verlorene
-    Commits — `recoveryMaxPlies=2` galt damit als wirkungslos, obwohl es 18 auf 15 drueckt."""
+    """Alle vier Achsen: `invented` ist das Veto, und `beyond` verschwieg sonst verlorene
+    Commits.
+    """
     return r["found"], r["missed"], r["invented"], r["beyond"]
 
 
@@ -159,9 +157,8 @@ def main() -> int:
     stumm = [t for t, r in report.items()
              if t != "BASIS" and not r["plies_shifted"] and _tally(r) == _tally(b)]
     print(f"\nvollstaendig wirkungslos ({len(stumm)}): {', '.join(stumm)}")
-    # Ein MISS ist hier richtig: wer aendert, welche Frames beobachtet oder wie sie geschnitten
-    # werden, schneidet neue Crops. Gefaehrlich ist der TREFFER trotz geaendertem Modell — den
-    # kann ein Engine-Knopf nicht ausloesen, aber ein Modellwechsel schon (`ObsCacheKeyTest`).
+    # Ein MISS ist richtig, wo Frames oder Schnitt sich aendern; gefaehrlich ist der TREFFER trotz
+    # geaendertem Modell (`ObsCacheKeyTest`).
     neu = [t for t, r in report.items() if r["cache_misses"] > 0]
     if neu:
         print(f"\nneue Crops gesehen ({len(neu)}, erwartet bei Zuschnitt- und Zeit-Knoepfen): "

@@ -1,8 +1,4 @@
-"""Wie viel liegt schon falsch auf der Platte? Zaehlt, repariert NICHTS.
-
-Drei Funde vom 2026-09-16 aendern nur KUENFTIGE Laeufe. Was unter der alten Regel entstand, bleibt
-— dieses Skript sagt, wie viel das ist, damit die Neuberechnung eine Entscheidung wird und keine
-Vermutung. Nur-lesend, ruehrt `data/` nicht an.
+"""Wie viel liegt schon falsch auf der Platte? Zaehlt, repariert NICHTS, ruehrt `data/` nicht an.
 
     uv run python scripts/audit_disk_damage.py
 """
@@ -23,9 +19,8 @@ UNMEASURED: dict[str, str] = {}
 def _rows(path: Path) -> list[dict]:
     if not path.is_file():
         return []
-    # Der Schadens-Auditor verschluckte genau den Schaden, den er zaehlen soll — eine
-    # kaputte Zeile MITTEN in einer `.jsonl` ist Beschaedigung und wurde stumm uebersprungen,
-    # der Bericht meldete "nichts gefunden". Nur die halbe LETZTE Zeile ist erwartbar.
+    # Nur die halbe LETZTE Zeile ist erwartbar; eine kaputte MITTENDRIN ist der Schaden, den das
+    # hier zaehlt.
     out, broken = [], 0
     text = path.read_text(encoding="utf-8-sig")
     lines = text.splitlines()
@@ -54,11 +49,8 @@ def close_seams_half_applied() -> list[dict]:
 
 
 def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
-    """Der ECHTE Nachweis: rechnet die `coverage` aus dem Alpha auf der Platte neu.
-
-    Ein halb angewendeter `close_seams` hinterliess geschlossene Pixel bei ALTER `coverage` und
-    keinerlei Spur — erkennbar ist er nur daran, dass die gespeicherte Zahl nicht zu den Pixeln
-    passt. Teuer, deshalb je Aufnahme nur `sample` Zeilen.
+    """Der ECHTE Nachweis: die `coverage` aus dem Alpha neu rechnen — ein halb angewendeter
+    `close_seams` hinterliess keine andere Spur. Teuer, also je Aufnahme nur `sample` Zeilen.
     """
     import cv2
     import numpy as np
@@ -69,8 +61,8 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
 
     out = []
     for session in sorted(config.DATA.recordings.glob("*/")):
-        # Die JUENGSTE Zeile je Frame (wie `labeling.read_matte`): das Alpha auf der Platte gehoert
-        # nur zu ihr, eine ueberholte meldete sonst Schaden. SAMs Absage (`None`) nimmt den Frame raus.
+        # Die JUENGSTE Zeile je Frame: das Alpha auf der Platte gehoert nur zu ihr. SAMs Absage
+        # faellt raus.
         latest: dict[str, dict] = {}
         for r in _rows(session / "matte.jsonl"):
             latest.pop(r.get("frame"), None)
@@ -100,14 +92,12 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
                       if abs(fresh.get(sq, 0.0) - v) > 0.01]
             if deltas:
                 off += 1
-                # RICHTUNG ist der Beweis: geschlossene Naehte ADDIEREN weisse Pixel, die frische
-                # Coverage muesste also hoeher liegen. Gemischte Vorzeichen sind Geometrie-Drift
-                # (ein Re-Export mit neuen Ecken), nicht der halb angewendete Lauf.
+                # RICHTUNG ist der Beweis: geschlossene Naehte ADDIEREN weisse Pixel. Gemischte
+                # Vorzeichen sind Geometrie-Drift.
                 up += sum(d > 0 for d in deltas)
                 down += sum(d < 0 for d in deltas)
         if not checked:
-            # 0 von 0 ist kein Befund. Ohne diese Liste meldete der Auditor "nichts gefunden"
-            # fuer eine Aufnahme, von der er keine einzige Zeile lesen konnte.
+            # 0 von 0 ist kein Befund.
             UNMEASURED[session.name] = f"0 von {len(rows)} Zeilen pruefbar"
         elif off:
             out.append({"session": session.name, "rows_checked": checked, "disagree": off,
@@ -116,10 +106,8 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
 
 
 def black_frames_in_plates() -> list[dict]:
-    """Platten, in deren Median ein SCHWARZES Bild gelandet sein kann (`occluders.py:81`).
-
-    Die Zeilen sagen es nicht direkt; was zaehlbar ist, sind Aufnahmen mit einer Platte UND
-    mindestens einem Frame, den der Dekoder nicht lesen konnte.
+    """Platten, in deren Median ein SCHWARZES Bild gelandet sein kann: Aufnahmen mit Platte UND
+    einem unlesbaren Frame.
     """
     out = []
     for session in sorted(config.DATA.recordings.glob("*/")):
@@ -134,8 +122,9 @@ def black_frames_in_plates() -> list[dict]:
 
 
 def log_rows_without_their_file() -> list[dict]:
-    """`session_writer` verwarf den `imwrite`-Rueckgabewert — eine Log-Zeile auf eine Datei,
-    die nie geschrieben wurde. Genau das ist hier zaehlbar."""
+    """Log-Zeilen auf eine Datei, die nie geschrieben wurde (`imwrite` gibt False zurueck, statt zu
+    werfen).
+    """
     out = []
     for session in sorted(config.DATA.recordings.glob("*/")):
         rows = _rows(session / "log.jsonl")

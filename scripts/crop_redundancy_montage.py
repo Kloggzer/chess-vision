@@ -23,7 +23,6 @@ from chesslab.ioutil import read_jsonl
 
 PACKS = Path("data/packs")
 THUMB = 16
-#: So gross wird eine Kachel in der Montage.
 TILE = 96
 PAD = 4
 
@@ -43,10 +42,8 @@ base = _sub("crop_redundancy.py")
 
 
 def sharpness(pack: Path, rows: list[dict]) -> np.ndarray:
-    """Laplace-Varianz je Crop — der billigste Unschaerfe-Melder, den es gibt.
-
-    Nur INNERHALB einer Standzeit vergleichbar: die Zahl haengt an der Quelle (4K 1359, 1080p 521
-    im Median, `sharpness nur je Aufloesungsklasse`), aber eine Standzeit hat nur eine Quelle.
+    """Laplace-Varianz je Crop; nur INNERHALB einer Standzeit vergleichbar, weil sie an der Quelle
+    haengt.
     """
     mm, _ = base.open_pack(pack)
     out = np.empty(len(rows), dtype=np.float32)
@@ -92,9 +89,8 @@ def main() -> int:
     args = ap.parse_args()
 
     pack = PACKS / args.pack
-    # `coverage is None` heisst NICHT GEMESSEN, nicht "frei" — das ist die Coverage Matte Trap
-    # aus CLAUDE.md, und 49 % der Crops dieser Aufnahme tragen sie. Genau daraus kamen die Haende,
-    # die Farthest-Point als "Vielfalt" auflas.
+    # `coverage is None` heisst NICHT GEMESSEN (49 % dieser Aufnahme) — daraus kamen die Haende, die
+    # Farthest-Point als "Vielfalt" auflas.
     rows = base.learnable([r | {"_i": i} for i, r in enumerate(read_jsonl(pack / "manifest.jsonl"))],
                           measured_only=True)
     runs = base.runs_of(rows)
@@ -109,8 +105,7 @@ def main() -> int:
     if not picks:
         print("keine Standzeit mit einer Figur und genug Crops")
         return 1
-    # Die mit der groessten Spannweite zuerst: dort ist am meisten zu SEHEN, und genau dort
-    # faellt auf, dass acht aufeinanderfolgende davon nichts zeigen.
+    # Groesste Spannweite zuerst: dort faellt auf, wenn aufeinanderfolgende Crops nichts zeigen.
     picks.sort(key=lambda p: -p[0])
 
     blocks = []
@@ -132,8 +127,8 @@ def main() -> int:
         blocks.append(strip(imgs_far, f"{'':{len(head)}s}   |   {args.k} Farthest-Point"))
         blocks.append(strip(imgs_clean, f"{'':{len(head)}s}   |   {args.k} Farthest-Point NACH "
                                         f"Schaerfe-Filter ({len(group) - len(keep)} verworfen)"))
-        # Kern statt Rand: die vom Median der Strecke am weitesten entfernten Crops sind die
-        # Haende und Wackler. Erst das oberste Zehntel abschneiden, DANN spreizen.
+        # Die vom Median am weitesten entfernten Crops sind Haende und Wackler: erst das oberste
+        # Zehntel abschneiden, DANN spreizen.
         to_median = raw.mean(axis=1)
         core = np.flatnonzero(to_median <= np.quantile(to_median, 1.0 - args.trim))
         if len(core) >= args.k:

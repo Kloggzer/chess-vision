@@ -1,12 +1,5 @@
-"""Wie steil steigt die Guete noch mit der Zahl der Aufnahmen?
-
-Alle Rezept-Hebel sind ausgereizt (`docs/evaluation.md`): das Modell kann 99,93 % seiner
-Trainingsdaten und 75,85 % einer neuen Session. Damit ist die offene Frage nicht mehr, OB mehr
-Material hilft, sondern wie viel es bringt — und das steht in der Steigung der Lernkurve, nicht
-in einer Meinung.
-
-Schreibt `split-lc<k>.json` neben den Datensatz: dieselbe Val-Session, aber nur k Trainings-
-Aufnahmen. Die Reihenfolge ist gemischt und fest, damit nicht die Groesse mit der Zahl wandert.
+"""Wie steil steigt die Guete noch mit der Zahl der Aufnahmen? Schreibt `split-lc<k>.json`: dieselbe
+Val-Session, k Trainingsaufnahmen in fester gemischter Reihenfolge.
 
     uv run python scripts/learning_curve.py --dataset real13-straight-80-v3-c8d1 --k 4,8,12,17
 """
@@ -37,16 +30,14 @@ def main() -> int:
         counts[r["session_id"]] = counts.get(r["session_id"], 0) + 1
 
     ks = [int(x) for x in a.k.split(",")]
-    # `order[:k]` kuerzt still: zwei zu grosse k geben denselben Satz und damit einen
-    # waagerechten Abschnitt der Lernkurve, deren Steigung die ganze Frage ist.
+    # `order[:k]` kuerzt still: zu grosse k gaeben einen waagerechten Abschnitt der Kurve.
     if max(ks) > len(train):
         raise SystemExit(f"k={max(ks)} ueber {len(train)} Trainings-Aufnahmen — kein Punkt")
 
     for k in ks:
         keep = order[:k]
         out = {**split, "splits": {**split["splits"], "train": keep}}
-        # Die Klassengewichte gehoeren zum Trainingssatz — `train` rechnet sie fuer
-        # Occlusion-Laeufe ohnehin aus den sichtbaren Zeilen neu, also bleiben sie hier stehen.
+        # `train` rechnet die Gewichte fuer Occlusion-Laeufe ohnehin neu.
         p = dd / f"split-lc{k}.json"
         write_json(p, out, indent=1)
         print(f"  k={k:>2}  {sum(counts.get(s, 0) for s in keep):>7} Crops  -> {p.name}")

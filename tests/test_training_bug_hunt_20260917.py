@@ -44,8 +44,8 @@ NULL_ROW = {"label": "wP", "coverage": None, "brightness": None}
 
 
 def test_null_reads_the_same_everywhere():
-    # `None` ist UNGEMESSEN. `_target` und `classification_eligible` lasen das seit 2026-09-16
-    # richtig, die gepackten Loader riefen `float(r.get(..., default))` und starben daran.
+    # `None` ist UNGEMESSEN; die gepackten Loader riefen `float(r.get(..., default))` und starben
+    # daran.
     assert coverage_of(NULL_ROW) == 0.0
     assert brightness_of(NULL_ROW) == 255.0
     assert classification_eligible(NULL_ROW) is True

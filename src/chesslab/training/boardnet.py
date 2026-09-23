@@ -1,7 +1,5 @@
-"""Stage 5 — Brettkontext: derselbe Zellen-Trunk, plus eine Korrektur ueber die 8x8-Nachbarschaft.
-
-Billig, weil der Trunk 64x laeuft und der Kopf EINMAL je Brett: gemessen 29,5 MMAC gegen die
-427,5 des Trunks, also +6,9 %.
+"""Stage 5 — Brettkontext: derselbe Zellen-Trunk plus eine Korrektur ueber die 8x8-Nachbarschaft
+(+6,9 % MACs: der Kopf laeuft einmal je Brett).
 """
 
 from __future__ import annotations
@@ -24,9 +22,8 @@ def square_index(square: str) -> int:
 
 
 class BoardHead(nn.Module):
-    """Korrektur je Zelle aus 5x5 Nachbarfeldern; der 1x1 vorne drosselt 1 280 auf 128 Kanaele
-    und die dichten 3x3 damit von 94 auf 29 MMAC je Brett. Der letzte 1x1 ist NULL-initialisiert,
-    gibt frisch gebaut also exakt 0 zurueck — ein Warmstart aus `best-mix-s42` verliert nichts.
+    """Korrektur je Zelle aus 5x5 Nachbarfeldern; der 1x1 vorne drosselt 1 280 auf 128 Kanaele. Der
+    letzte 1x1 ist NULL-initialisiert: ein Warmstart verliert nichts.
     """
 
     def __init__(self, feat: int, out_width: int, width: int = 128, layers: int = 2) -> None:
@@ -48,9 +45,8 @@ class BoardHead(nn.Module):
 
 
 class BoardAttentionHead(nn.Module):
-    """Selbstaufmerksamkeit ueber die 64 Zellen: zwei 3x3 reichen 5x5 Felder weit, hier sieht
-    jede Zelle alle 64. OHNE Positionskodierung — absolute Feldkennung ist die Abkuerzung, die
-    bei 80 px 0,16 gekostet hat; sie kommt als eigener Arm. Ausgang null-initialisiert.
+    """Selbstaufmerksamkeit ueber die 64 Zellen, OHNE Positionskodierung (absolute Feldkennung ist
+    die Abkuerzung, die 0,16 gekostet hat). Ausgang null-initialisiert.
     """
 
     def __init__(self, feat: int, out_width: int, width: int = 128, layers: int = 2,
@@ -72,9 +68,8 @@ class BoardAttentionHead(nn.Module):
 
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
         # MATH statt der schnellen SDPA-Kerne: auf torch 2.13.0+rocm10.0.0 vergiftet
-        # `nn.MultiheadAttention` sonst den HIP-Kontext, und der naechste Kernelstart stirbt mit
-        # `hipErrorInvalidValue` — asynchron, also irgendwo hinter der Aufmerksamkeit. 64 Token
-        # zu 128 Kanaelen sind zu klein, als dass der Referenzpfad hier etwas kosten wuerde.
+        # `nn.MultiheadAttention` den HIP-Kontext, und ein spaeterer Kernelstart stirbt asynchron
+        # mit `hipErrorInvalidValue`.
         with sdpa_kernel([SDPBackend.MATH]):
             x = self.proj(tokens)
             for b in self.blocks:
@@ -85,10 +80,8 @@ class BoardAttentionHead(nn.Module):
 
 
 class BoardNet(nn.Module):
-    """Trunk je Zelle + Brettkorrektur. Eingang `(B, 64, C, H, W)`, Ausgang `(B*64, out_width)`.
-
-    Der flache Ausgang ist Absicht: `OcclusionLoss`, die Metriken und der Export sehen genau die
-    Form, die das Per-Zell-Modell liefert, und `Observations.kt` braucht nur ein Umsortieren.
+    """Trunk je Zelle + Brettkorrektur, `(B, 64, C, H, W)` -> `(B*64, out_width)`: flach, damit
+    Verlust, Metriken und Export die Per-Zell-Form sehen.
     """
 
     def __init__(self, trunk: nn.Module, feat: int, out_width: int,
@@ -138,8 +131,7 @@ def build_trunk(backbone: str, in_chans: int = 3, pretrained: bool = False) -> t
         m.classifier[-1] = nn.Identity()
         return _convert_bn_to_primitive(m), feat
     m = _create_timm_model(backbone, pretrained=pretrained, num_classes=0, in_chans=in_chans)
-    # Breite aus einem Trockenlauf, nicht aus `num_features`: timm meldet dort die Breite VOR
-    # `conv_head`, geliefert werden aber dessen 1 280 Kanaele.
+    # Breite aus einem Trockenlauf: timm meldet in `num_features` die Breite VOR `conv_head`.
     was_training = m.training
     m.eval()
     with torch.no_grad():

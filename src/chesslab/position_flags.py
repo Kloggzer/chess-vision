@@ -1,7 +1,5 @@
-"""Zellen, deren Bild von der Stellung abweicht, für die ihr Intervall bürgt —
+"""Zellen, deren Bild von der Stellung abweicht, fuer die ihr Intervall buergt —
 `data/reports/position-flags.jsonl`. DERIVED, jeder Lauf schreibt sie ganz neu.
-
-Der Mensch benennt dort die Figur, die wirklich dasteht. Zahlen: `realgames.position.settle_for_ply`.
 """
 
 from __future__ import annotations
@@ -28,16 +26,13 @@ from .state import GameState
 FLAGS_FILE = "position-flags.jsonl"
 INTERVAL_REPORT = INTERVAL_FILE
 
-#: Frames je Seite einer Ply-Grenze, auf denen der Zug-Zeitpunkt nicht gesichert ist. Drei, weil
-#: der Commit hoechstens um wenige Frames wandert; grosszuegiger flutet es die Lane.
+#: Frames je Seite einer Ply-Grenze mit ungesichertem Zug-Zeitpunkt; grosszuegiger flutet die Lane.
 TIMING_WINDOW = 3
 
 
 def frame_flags(entry: dict, coverage: dict[str, float] | None, session_id: str) -> list[dict]:
-    """Die strittigen Zellen EINES Frames — die, die das Intervall als verlassen gemeldet hat.
-
-    Kein eigenes Urteil: `settle_left` steht schon in der Zeile, samt Zeitachse. Diese Datei
-    entscheidet nur noch, WIE die Karte heißt.
+    """Die strittigen Zellen EINES Frames: die, die das Intervall als verlassen gemeldet hat
+    (`settle_left`).
     """
     dev, seen = entry.get("settle_dev") or (), entry.get("settle_seen") or ()
     left = [sq for sq in (entry.get("settle_left") or ()) if sq not in (
@@ -50,9 +45,8 @@ def frame_flags(entry: dict, coverage: dict[str, float] | None, session_id: str)
     out = []
     for square in left:
         cov = coverage.get(square) if coverage is not None else None
-        # Verdeckt heisst kein Kaertchen (`docs/frame-scan.md`), wie in `timing_flags`:
-        # `departures` sah nur die Coverage von damals, ein Re-Matten und `recut-coverage` heben
-        # Zellen darueber. `None` ist UNGEMESSEN und bleibt eine Karte.
+        # Verdeckt heisst kein Kaertchen; ein Re-Matten kann Zellen ueber die Schwelle heben. `None`
+        # ist UNGEMESSEN und bleibt eine Karte.
         if cov is not None and float(cov) > MATTE_DIRTY:
             continue
         i = index[square]
@@ -69,11 +63,9 @@ def frame_flags(entry: dict, coverage: dict[str, float] | None, session_id: str)
 def timing_flags(entries: list[dict], intervals: list[dict],
                  matte: dict[str, dict[str, float]], session_id: str,
                  window: int = TIMING_WINDOW) -> list[dict]:
-    """Die BEWEGTEN Felder rund um jede Ply-Grenze — dort entscheidet der Zeitpunkt das Label.
-
-    Ein Handframe hat 50+ einwandfreie Felder, die sind kein Verdacht. Verdacht sind die zwei bis
-    vier Felder des Zuges: einen Frame zu frueh oder zu spaet festgeschrieben, tragen genau die
-    das falsche FEN."""
+    """Die BEWEGTEN Felder rund um jede Ply-Grenze: einen Frame zu frueh oder zu spaet
+    festgeschrieben, tragen genau die zwei bis vier Felder des Zuges das falsche FEN.
+    """
     frames_of: dict[int, list[dict]] = {}
     for entry in entries:
         if not entry.get("unusable"):
@@ -93,9 +85,8 @@ def timing_flags(entries: list[dict], intervals: list[dict],
             stem = Path(str(entry["frame"])).stem
             labels = GameState(entry["fen"])
             for square in moved:
-                # Was die Coverage ohnehin maskiert, lernt der Klassenkopf nicht - kein Kaertchen.
-                # `None` heisst UNGEMESSEN, wie in `frame_flags`: ohne Matte eine 0 zu melden
-                # laese sich in der Lane als "die Matte sagt frei".
+                # Was die Coverage maskiert, lernt der Klassenkopf nicht. `None` heisst UNGEMESSEN,
+                # nicht "frei".
                 seen_cov = matte.get(stem, {}).get(square)
                 if seen_cov is not None and float(seen_cov) > MATTE_DIRTY:
                     continue
@@ -109,7 +100,6 @@ def timing_flags(entries: list[dict], intervals: list[dict],
 
 
 def position_flags() -> dict:
-    """Über jede Session mit einer Matte. -> Zusammenfassung und Pfad."""
     from .temporal_flags import load_flags
 
     rows, per_session, stale_temporal, unmeasured, interrupted = [], {}, [], [], []
@@ -124,8 +114,8 @@ def position_flags() -> dict:
         except ExportInterrupted:
             interrupted.append(session_id)
             continue
-        # Ohne `settle_dev` faellt jede Zelle durch `frame_flags` — null Flags saehen dann aus
-        # wie "nichts strittig", statt wie "`session settle-scan` lief hier nie".
+        # Ohne `settle_dev` saehen null Flags aus wie "nichts strittig" statt "`settle-scan` lief
+        # nie".
         if not any("settle_dev" in entry for entry in entries):
             unmeasured.append(session_id)
         found = [flag for entry in entries
@@ -139,9 +129,8 @@ def position_flags() -> dict:
         temporal_keys = {(flag["frame"], flag["square"]) for flag in temporal}
         found = [flag for flag in found if flag["matte_cov"] is not None
                  or (flag["frame"], flag["square"]) in temporal_keys]
-        # Eine Karte je Zelle, schwaechste Diagnose zuerst: `timing` vermutet nur, `temporal` hat
-        # gemessen, `changed` hat gegen das gesetzte Brett gemessen. Der Anomaliewert ueberlebt,
-        # auch wenn die staerkere Quelle die Karte benennt.
+        # Eine Karte je Zelle, schwaechste Diagnose zuerst (`timing` < `temporal` < `changed`); der
+        # Anomaliewert ueberlebt.
         combined: dict[tuple[str, str], dict] = {}
         for flag in [*timing, *temporal, *found]:
             key = (flag["frame"], flag["square"])

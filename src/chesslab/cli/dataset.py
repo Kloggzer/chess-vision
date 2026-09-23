@@ -107,9 +107,7 @@ def dataset_build_cmd(
     name: str = typer.Argument(..., help="Name of the dataset."),
     sessions: str = typer.Option(..., "--sessions", help="Comma-separated session IDs."),
     per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap", help="Max. crops per (session,square,piece)."),
-    # Reads the config default instead of hardcoding one: `--no-phash` used to default to False,
-    # so the CLI forced `phash_enabled=True` whatever `config.DEDUP` said — the setting was
-    # unreachable from the one place the project keeps its policy.
+    # Reads the config default: a hardcoded one made `config.DEDUP` unreachable from the CLI.
     phash: bool = typer.Option(config.DEDUP.phash_enabled, "--phash/--no-phash",
                                help="Perceptual-hash dedup (dhash). OFF by default since "
                                     "2026-07-30: it discarded 54.8% of the corpus, none of it "
@@ -349,13 +347,3 @@ def dataset_list_cmd() -> None:
     for d in db.list_datasets():
         print(f"{d['name']}: {d['n_sessions']} sessions, {d['counts'].get('final', '?')} crops, "
               f"split {d.get('split_counts', {})}")
-
-
-@dataset_app.command("delete")
-def dataset_delete_cmd(name: str = typer.Argument(...)) -> None:
-    """Delete dataset (raw material/sessions remain)."""
-    from .. import dataset_build as db
-
-    with fail_on(FileNotFoundError):
-        db.delete_dataset(name)
-    print(f"[OK] Dataset '{name}' deleted.")

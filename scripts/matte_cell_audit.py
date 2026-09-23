@@ -35,9 +35,9 @@ COVERED = MATTE_DIRTY
 
 
 def share_line(stats: Counter) -> str:
-    """Der Zaehler kann nur aus Flags kommen, deren Coverage die Matte ueberhaupt kennt — ein
-    Flag ohne Eintrag ist strukturell ausgeschlossen. Es trotzdem in den Nenner zu nehmen
-    verduennt die Quote gegen eine Grundgesamtheit, aus der sie nie schoepfen konnte."""
+    """Der Nenner sind nur Flags, deren Coverage die Matte kennt; alle anderen verduennten die
+    Quote.
+    """
     total, unknown = stats["Flags gesamt"], stats["flags with unknown coverage"]
     measured = total - unknown
     if not measured:
@@ -59,8 +59,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     stats = Counter()
     per_session: Counter = Counter()
-    # `open("w")` KUERZT den veroeffentlichten Bericht beim Start; ein abgebrochener Lauf
-    # liess ihn halb da, und `sensor_montage.py` liest ihn zeilenweise mit `json.loads`.
+    # `open("w")` KUERZT den Bericht beim Start, und `sensor_montage.py` liest ihn zeilenweise.
     tmp = out.with_name(out.name + ".tmp")
     with tmp.open("w", encoding="utf-8") as sink:
         for rec in sorted(Path(args.recordings).iterdir()):
@@ -107,8 +106,7 @@ def main() -> int:
     os.replace(tmp, out)
     for k, v in stats.most_common():
         print(f"  {k:22s} {v:7d}")
-    # `max(1, …)` machte aus "nichts gemessen" ein gemessenes 0,0 % — dieselbe Zeile
-    # erschien, ob nie ein Feld geflaggt wurde oder jedes Flag seine Coverage hatte.
+    # `max(1, …)` machte aus "nichts gemessen" ein gemessenes 0,0 %.
     print("\n  " + share_line(stats))
     print("  am staerksten: " + "  ".join(f"{k} {v}" for k, v in per_session.most_common(6)))
     print(f"  -> {out}")

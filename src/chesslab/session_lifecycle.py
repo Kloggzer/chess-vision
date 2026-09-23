@@ -1,7 +1,5 @@
 """Lebenszyklus einer Session: auflisten, archivieren (mit Grund), zurueckholen, loeschen, kuerzen.
-
-Archiv und Loeschen raeumen Crops und Manifest-Zeilen in JEDEM Pool mit; die Korrekturen liegen im
-Ordner und gehen mit ihm. Alle Funktionen nehmen ein `paths` (Vorgabe `config.DATA`).
+Archiv und Loeschen raeumen Crops und Manifest-Zeilen in JEDEM Pool mit.
 """
 
 from __future__ import annotations
@@ -40,10 +38,8 @@ def _manifest_path(paths: config.Paths) -> Path:
 
 
 def _manifest_files(paths: config.Paths) -> list[Path]:
-    """Every pool's own `crops/<tag>/manifest.jsonl`, the default pool first.
-
-    `list_sessions` reads an ingested session's crop count from its variant manifest, so archiving
-    it while filtering only the default manifest left the rows behind and the count unchanged.
+    """Every pool's own `crops/<tag>/manifest.jsonl`, the default pool first: an ingested session's
+    rows live in its variant manifest.
     """
     default = _manifest_path(paths)
     out = [default]
@@ -54,19 +50,15 @@ def _manifest_files(paths: config.Paths) -> list[Path]:
 
 
 def _crop_pools(paths: config.Paths) -> list[Path]:
-    """Every crop pool: `crops/<tag>/`, the default one included.
-
-    `_purge_crops_for_frames` has always swept all of them; `_crop_files` looked only at the
-    default pool, so archiving an INGESTED session moved its directory and left every one of its
-    crops in the pool — the opposite of what `archive_session` documents itself as doing.
+    """Every crop pool, `crops/<tag>/`, the default included — an INGESTED session's crops are
+    elsewhere.
     """
     return [p for p in sorted(paths.crops.glob("*")) if p.is_dir()]
 
 
 def _crop_files(session_id: str, paths: config.Paths) -> list[Path]:
-    # Crop filename = "{session_id}_{frame}_{square}.<ext>" in <pool>/<label>/. The extension is
-    # NOT pinned: the store moved to WebP (`labeling.CROP_SUFFIX`) and the old PNGs outlive it in
-    # the same pools, so a suffix here parks half a session and calls it done.
+    # The extension is NOT pinned: the store moved to WebP and old PNGs outlive it in the same
+    # pools.
     return [f for root in _crop_pools(paths) for f in root.glob(f"*/{session_id}_*.*")]
 
 
@@ -88,8 +80,7 @@ def _filter_jsonl(path: Path, session_id: str) -> None:
     if not path.exists():
         return
     kept = [r for r in read_jsonl(path) if r.get("session_id") != session_id]
-    # Atomar: das Manifest ist GETEILT, ein Abbruch mitten im Schreiben traefe jede Session
-    # darin, nicht nur die archivierte.
+    # Atomar: das Manifest ist GETEILT, ein Abbruch traefe jede Session darin.
     write_rows(path, kept)
 
 
@@ -145,7 +136,7 @@ def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
     stamp = stamp_of(path)
     rows = read_jsonl(path)
     kept = [r for r in rows if str(r.get("frame")) not in frame_stems]
-    # Bewacht wie die sieben anderen Schreiber: der Alpha-Worker haengt an, waehrend wir filtern.
+    # Bewacht: der Alpha-Worker haengt an, waehrend wir filtern.
     write_rows_guarded(path, kept, stamp,
                        what=f"{path}: waehrend des Trimmens angehaengt — trim wiederholen")
     return len(rows) - len(kept)
@@ -170,14 +161,12 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
                                + [(x, True) for x in archived_dirs]):
             meta = _read_meta(d)
             tag = _variant_tag(meta, sid)
-            # Archivieren stempelt die Meta; eine Session, die dabei nicht VERSCHOBEN wurde, ist
-            # trotzdem stillgelegt und gehoert aus den Sammel-Verben heraus (2026-08-30-14-33-02
-            # riss ueber sein totes Profil jeden `--all`-Lauf mit).
+            # Eine archiv-gestempelte, aber nicht verschobene Session ist trotzdem stillgelegt und
+            # gehoert aus den Sammel-Verben heraus.
             retired = archived or bool(meta.get("archived_at"))
             if archived:
                 n_crops = 0
             elif tag:
-                # Ingested sessions are sliced into their variant manifest, not the default one.
                 n_crops = _crop_count_from_manifest(
                     sid, paths, manifest=paths.crops / tag / "manifest.jsonl")
             else:
@@ -199,12 +188,9 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
 def archive_session(session_id: str, reason: str, paths: config.Paths = config.DATA) -> dict:
     """Remove crops + manifest lines and move the directory to the archive (reversible).
 
-    `reason` is REQUIRED and is written twice: into the archived session's own `session.yaml`,
-    so it travels with the data, and into `sessions_archive/index.jsonl`, so the archive can be
-    read without opening 19 directories. A session that leaves the corpus without a recorded
-    reason is exactly the state this project spent a day untangling — four parked directories in
-    three conventions, two of them with no explanation of why anything was parked.
-    """
+    `reason` is REQUIRED and written into the archived `session.yaml` and
+    `sessions_archive/index.jsonl`: a parked session without a recorded motive is a question
+    nobody can answer later."""
     sid = _safe_id(session_id)
     reason = (reason or "").strip()
     if not reason:
@@ -215,14 +201,14 @@ def archive_session(session_id: str, reason: str, paths: config.Paths = config.D
     paths.sessions_archive.mkdir(parents=True, exist_ok=True)
     dst = paths.sessions_archive / sid
     if dst.exists():
-        # Was `shutil.rmtree(dst)`. Archiving is the SAFE half of the API, and silently
-        # destroying an existing archive of the same id is the one thing it must never do.
+        # Archiving is the SAFE half of the API: it must never destroy an existing archive of the
+        # same id.
         raise FileExistsError(f"'{sid}' is already archived — remove or rename it first.")
-    # Der MOVE zuerst: scheitert er (unter Windows reicht ein offener Datei-Handle), war die
-    # Session sonst schon leergeraeumt und lag weiter aktiv da — mit ihren Crops im Nichts.
+    # Der MOVE zuerst: unter Windows scheitert er schon an einem offenen Datei-Handle, und die
+    # Session laege sonst leergeraeumt, aber aktiv da.
     shutil.move(str(src), str(dst))
     n_crops = _purge_crops(sid, paths)
-    for manifest in _manifest_files(paths):     # default + `crops__<tag>.jsonl` (ingested)
+    for manifest in _manifest_files(paths):
         _filter_jsonl(manifest, sid)
     _record_archive_reason(dst, sid, reason, n_crops, paths)
     return {"session_id": sid, "archived": True, "removed_crops": n_crops, "reason": reason}
@@ -242,8 +228,7 @@ def _record_archive_reason(dst, sid: str, reason: str, n_crops: int, paths: conf
             log.warning("could not stamp the reason into %s: %r", meta, e)
     index = paths.sessions_archive / "index.jsonl"
     row = {"session_id": sid, "archived_at": stamp, "reason": reason, "removed_crops": n_crops}
-    # Roh angehaengt klebte die Zeile an einen abgerissenen Schwanz, und aus dem von `read_jsonl`
-    # tolerierten Rest wurde Beschaedigung MITTENDRIN, auf die danach jedes Lesen wirft.
+    # Roh angehaengt klebte die Zeile an einen abgerissenen Schwanz: Beschaedigung MITTENDRIN.
     append_rows(index, [row])
 
 
@@ -261,32 +246,9 @@ def restore_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
     return {"session_id": sid, "archived": False}
 
 
-def set_session_reviewed(session_id: str, reviewed: bool,
-                         paths: config.Paths = config.DATA) -> dict:
-    """Persist the per-session ``reviewed`` flag in session.yaml (active or archived).
-
-    "Reviewed" is a lightweight per-session marker so the UI can hide sessions the user has
-    already looked at and show only NEW ones. It lives in session.yaml (absent == not reviewed).
-    """
-    # Through `session_dir`, not a hand-built path: an `rg-` id lives under `recordings/`, so
-    # composing `sessions/<id>` reported every recording as "not found" — the `archive_session`
-    # bug over again.
-    sid = _safe_id(session_id)
-    target, _archived = session_dir(sid, paths)
-    import yaml
-
-    meta = _read_meta(target)
-    meta["reviewed"] = bool(reviewed)
-    meta_path(target).write_text(
-        yaml.safe_dump(meta, sort_keys=False, allow_unicode=True), encoding="utf-8")
-    return {"session_id": sid, "reviewed": bool(reviewed)}
-
-
 def deletion_cost(session_id: str, paths: config.Paths = config.DATA) -> dict:
-    """What `delete_session` would destroy — counted BEFORE anything is removed.
-
-    The corrections are the only irreplaceable part: crops and manifest rows come back from a
-    re-slice, a human's verdict does not.
+    """What `delete_session` would destroy, counted BEFORE removing anything: the corrections are
+    the only irreplaceable part.
     """
     sid = _safe_id(session_id)
     target, _ = session_dir(sid, paths)
@@ -301,19 +263,16 @@ def delete_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
     sid = _safe_id(session_id)
     target, _ = session_dir(sid, paths)
     n_crops = _purge_crops(sid, paths)
-    for manifest in _manifest_files(paths):     # default + `crops__<tag>.jsonl` (ingested)
+    for manifest in _manifest_files(paths):
         _filter_jsonl(manifest, sid)
-    # The corrections live in the directory now, so rmtree takes them —
-    # no second place to forget.
+    # The corrections live in the directory, so rmtree takes them.
     shutil.rmtree(target)
     return {"session_id": sid, "deleted": True, "removed_crops": n_crops}
 
 
 def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config.DATA) -> dict:
-    """Keep only the first ``keep_frames`` log entries and delete the later session tail.
-
-    Also removes crops, manifest rows and corrections belonging to removed frames, so a
-    previously sliced bad tail cannot leak into training.
+    """Keep only the first `keep_frames` log entries and delete the tail with its crops, manifest
+    rows and corrections, so a sliced bad tail cannot leak into training.
     """
     sid = _safe_id(session_id)
     target, _ = session_dir(sid, paths)
@@ -342,7 +301,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
         meta_path(reject_dir).write_text(yaml.safe_dump(meta, sort_keys=False), encoding="utf-8")
         _write_log(reject_dir, removed_rows, stamp=None)
     # Erst das bewachte Log, dann die Bilder: ein `Contested` liess sonst den Schwanz im
-    # Reject-Ordner, waehrend das Log ihn weiter nannte. Der Reject-Ordner ist bis dahin nur Ablage.
+    # Reject-Ordner, waehrend das Log ihn weiter nannte.
     try:
         _write_log(target, kept, stamp=stamp)
     except BaseException:
@@ -361,14 +320,13 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
                 moved_files += 1
     removed_crops = _purge_crops_for_frames(sid, removed_stems, paths)
     removed_manifest_rows = 0
-    for manifest in _manifest_files(paths):      # default + every `crops__<tag>.jsonl`
+    for manifest in _manifest_files(paths):
         if manifest.exists():
             removed_manifest_rows += _filter_jsonl_frames(manifest, sid, removed_stems)
-    # Also the session's OWN sidecars: a trimmed frame used to keep its matte row
-    # forever, because nothing here knew the file existed.
+    # Also the session's OWN sidecars, or a trimmed frame keeps its matte row forever.
     removed_corrections = _filter_jsonl_frames(corrections_path(target), sid, removed_stems)
-    # Dasselbe fuer das ZWEITE menschliche Ledger: Frames heissen nach Quell-Index, ein
-    # Re-Export vergibt die Stems neu — ein altes "unbrauchbar" traefe dann ein anderes Bild.
+    # Frames heissen nach Quell-Index, ein Re-Export vergibt die Stems neu: ein altes "unbrauchbar"
+    # traefe dann ein anderes Bild.
     _filter_jsonl_frames(unusable_cells_path(target), sid, removed_stems)
     removed_matte_rows = _filter_matte_frames(target, removed_stems)
     return {

@@ -55,11 +55,7 @@ def _rg_recordings() -> list[str]:
 
 
 def _target_sessions(session: str | None, every: bool) -> list[str]:
-    """One session, or every ACTIVE one — archived sessions stay out of bulk verbs.
-
-    Archiving is a retirement with a stated reason; re-boarding or re-parking one behind the
-    user's back undoes that. `list_sessions` returns both kinds, so the filter belongs here.
-    """
+    """One session, or every ACTIVE one: archived sessions stay out of bulk verbs."""
     _require_target(session, every)
     if not every:
         return [session]
@@ -68,10 +64,8 @@ def _target_sessions(session: str | None, every: bool) -> list[str]:
 
 
 def _session_call(fn, *args):
-    """Run a `sessions` operation, turning its errors into a message and an exit code.
-
-    `NothingToDo` is separated from the rest on purpose: "every row already has corners" is not
-    a mistake, it is an answer, and it should not read like a crash.
+    """Run a `sessions` operation, turning errors into a message and exit code; `NothingToDo` is an
+    answer, not a crash.
     """
     from ..sessions import NothingToDo
 
@@ -86,10 +80,8 @@ def _session_call(fn, *args):
 
 
 def _session_try(fn, *args) -> dict:
-    """Wie `_session_call`, aber der Fehler kommt als Wert zurueck statt als Ausstieg.
-
-    Fuer die `--all`-Schleifen: eine Session mit totem Profil hat den ganzen Lauf abgeraeumt und
-    der Exit-Code ging in der Pipeline unter — 11 von 24 Sessions blieben ungemessen (2026-09-09).
+    """Wie `_session_call`, aber der Fehler kommt als Wert zurueck: in `--all`-Schleifen raeumte
+    eine Session mit totem Profil den ganzen Lauf ab.
     """
     from ..sessions import NothingToDo
 

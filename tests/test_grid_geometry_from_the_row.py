@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCAN = (ROOT / "scripts", ROOT / "src" / "chesslab")
 
-# `board_size=` aus einer Bildform statt aus der Zeile — genau der Fehler von 2026-09-21.
+# `board_size=` aus einer Bildform statt aus der Zeile — genau der Fehler, den das hier haelt.
 _FROM_IMAGE = re.compile(r"board_size\s*=\s*[A-Za-z_][\w.]*\.shape\[")
 
 

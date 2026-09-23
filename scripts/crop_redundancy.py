@@ -62,8 +62,9 @@ def runs_of(rows: list[dict]) -> dict[tuple, list[dict]]:
 
 
 def open_pack(pack: Path) -> tuple[np.memmap, dict[str, int]]:
-    """`(Memmap, {Crop-Pfad: Zeile})` eines SESSION-Packs — das Gegenstueck zu
-    `training.pack.open_packed_rows`, das den DATENSATZ-Pack oeffnet (`docs/packs.md`)."""
+    """`(Memmap, {Crop-Pfad: Zeile})` eines SESSION-Packs — Gegenstueck zu `open_packed_rows` fuer
+    Datensatz-Packs.
+    """
     meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
     mm = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r",
                    shape=(meta["n"], meta["h"], meta["w"], 3))
@@ -77,7 +78,6 @@ def thumbs(pack: Path, rows: list[dict]) -> np.ndarray:
     step = h // THUMB
     out = np.empty((len(rows), THUMB * THUMB), dtype=np.float32)
     for i, row in enumerate(rows):
-        # Kastenmittel statt Interpolation: billig, und die Kante interessiert hier nicht.
         out[i] = mm[row["_i"]].reshape(THUMB, step, THUMB, step, 3).mean(axis=(1, 3, 4)).ravel()
     return out
 

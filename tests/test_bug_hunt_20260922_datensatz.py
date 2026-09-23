@@ -1,4 +1,4 @@
-"""Bug hunt 2026-09-22: Datensatzbau, Sessions, Crop-Pool."""
+"""Bug hunt: Datensatzbau, Sessions, Crop-Pool."""
 
 from __future__ import annotations
 

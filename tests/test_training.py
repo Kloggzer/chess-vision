@@ -167,10 +167,9 @@ def _crop_row(session="s0", frame=0, square="a1"):
 
 
 def test_checkpoint_score_occ_perfect_types_wrong():
-    """Belegung perfekt, alle Typen falsch: das Brett-Mass ist 1,0, der SCORE aber nur 0,5.
-
-    Bis 2026-08-24 stand hier der Brett-Wert an erster Stelle, ein Modell ohne jede richtige
-    Figur war damit bestbewertet. Der gewichtete Score haelt beide Ebenen auseinander."""
+    """Belegung perfekt, alle Typen falsch: das Brett-Mass ist 1,0, der SCORE nur 0,5 — sonst waere
+    ein Modell ohne jede richtige Figur bestbewertet.
+    """
     classes = config.CLASSES
     # 64 Felder, alle occupied, alle Figuren falsch geraten
     rows = [_crop_row(frame=0, square=f"{(chr(97+c//8))}{8-(c%8)}") for c in range(64)]
@@ -278,10 +277,8 @@ class TestTrainLock:
         assert tr._train_lock_path().exists()
 
     def test_third_slot_refused_and_own_lock_released(self, monkeypatch, tmp_path):
-        """Der dritte Lauf tritt zurueck — und laesst keinen Lock liegen, der den Slot blockiert.
-
-        Slot-Locks kennen einander nicht; ohne diese Grenze liefen am 2026-08-29 drei Laeufe
-        gleichzeitig und trieben den Datensatz-Pack aus dem Seitencache.
+        """Der dritte Lauf tritt zurueck und laesst keinen Lock liegen: Slot-Locks kennen einander
+        nicht, und drei Laeufe trieben den Pack aus dem Seitencache.
         """
         from chesslab import locks
         from chesslab.training import train_lock as tr
@@ -552,10 +549,8 @@ def test_pread_reader_matches_the_memmap(tmp_path, monkeypatch):
 
 
 def test_blas_cap_runs_before_torch_is_imported():
-    """`cap_blas_threads` wirkt nur VOR dem Import — danach hat OpenBLAS seine Arenen reserviert.
-
-    Gemessen 2026-08-29: der Hauptprozess stand bei 2,9 GB Commit, seine Worker bei 0,6, weil
-    `loader_kwargs` erst lange nach `import torch` kappt und nur die Worker die Umgebung erben.
+    """`cap_blas_threads` wirkt nur VOR dem Import: danach hat OpenBLAS seine Arenen reserviert
+    (Hauptprozess 2,9 GB Commit gegen 0,6 der Worker).
     """
     from pathlib import Path
 
@@ -593,10 +588,8 @@ def test_visible_board_items_drop_the_cells_the_loss_masks():
 
 
 class TestLockSurvivesReboot:
-    """Ein Lock aus einer frueheren Sitzung darf niemanden aussperren.
-
-    Am 2026-09-11 fror der Rechner waehrend eines Laufs ein; nach dem Neustart gehoerte dessen PID
-    einem `taskhostw`, `pid_alive` meldete brav "lebt", und kein Training startete mehr.
+    """Ein Lock aus einer frueheren Sitzung darf niemanden aussperren: nach einem Neustart gehoert
+    die PID einem fremden Prozess, und `pid_alive` meldet "lebt".
     """
 
     @staticmethod

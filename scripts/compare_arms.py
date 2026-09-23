@@ -51,8 +51,8 @@ def main() -> int:
                     base[seed] = v
                 elif seed in base:
                     deltas.append(v - base[seed])
-            # Das gepaarte Mittel lief je Arm ueber die Seeds, die DIESER Arm hat — ein Arm mit
-            # einem Seed stand ohne Vermerk neben einem mit dreien. Die Paarzahl gehoert daneben.
+            # Die Paarzahl gehoert daneben: ein Arm mit einem Seed stand sonst neben einem mit
+            # dreien.
             paired = (f"  gepaart {statistics.fmean(deltas):+.4f} (n={len(deltas)}/{len(seeds)})"
                       if deltas else ("  gepaart —" if arm != args.baseline else ""))
             spread = f" (min {min(deltas):+.4f} max {max(deltas):+.4f})" if len(deltas) > 1 else ""

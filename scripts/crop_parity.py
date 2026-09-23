@@ -39,12 +39,8 @@ STEM_DIGITS = 6
 
 
 def profile_from(receipt: dict, margin: float = config.DEFAULT_MARKER_MARGIN) -> CalibrationProfile:
-    """A profile that reproduces Kotlin's geometry exactly — its quad, its size, its pads.
-
-    The receipt does NOT carry the margin, and it is the one number that must not be guessed: the
-    ArUco corners are not the playing field's corners, the printed rank/file border sits between
-    them. At 0.0 the warp keeps that border inside the 8x8 and every crop lands a third of a cell
-    off — visible as the row numbers appearing in the rectified board.
+    """A profile reproducing Kotlin's geometry exactly. The receipt lacks the margin, which must not
+    be guessed: at 0.0 every crop lands a third of a cell off.
     """
     bs = int(receipt["boardSize"])
     quad = [[float(receipt["quad"][i]), float(receipt["quad"][i + 1])] for i in range(0, 8, 2)]
@@ -69,11 +65,7 @@ def side_by_side(kt, py, label: str, scale: int = 3):
 
 
 def compare(kotlin_dir: Path, receipts: dict, frames: dict) -> tuple[list, Counter]:
-    """Alle 64 Felder je Frame — und was NICHT verglichen wurde, wird gezaehlt statt verschwiegen.
-
-    Eine abweichende Form ist der Befund, nicht der Grund zum Weiterblaettern: wurde sie still
-    uebersprungen, meldete der Nachweis "byte-identisch n/n" ueber die Ueberlebenden.
-    """
+    """Alle 64 Felder je Frame; was NICHT verglichen wurde, wird gezaehlt statt verschwiegen."""
     results, skipped = [], Counter()
     for idx in sorted(receipts):
         if idx not in frames:

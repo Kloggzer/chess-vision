@@ -1,9 +1,6 @@
-"""Pack-Zugriff (`docs/packs.md`): die EINE Leseschicht fuer beide Pack-Arten.
-
-SESSION-PACK: eine Aufnahme EINMAL nach `data/packs/<session>-<size>/` (`packed_images.u8`
-(N, H, W, 3) uint8 RGB, `packed_meta.json`, `manifest.jsonl` aus `mm://<pack>/…`), auch von
-Kotlins `labeled-video-pack`. DATENSATZ-PACK: die Crops eines gebauten Datensatzes in EINER
-Memmap unter `data/datasets/<name>/`. Geschrieben wird in `pack_dataset`, `pack_session`, `pack_bake`.
+"""Pack-Zugriff (`docs/packs.md`): die EINE Leseschicht fuer Session-Packs
+(`data/packs/<session>-<size>/`, auch von Kotlin) und Datensatz-Packs (eine Memmap unter
+`data/datasets/<name>/`).
 """
 
 from __future__ import annotations
@@ -67,8 +64,9 @@ def pack_dir(name: str, paths: config.Paths = config.DATA) -> Path:
 
 
 def mm_path(pack: str, *parts: str) -> str:
-    """`mm://<pack>/<teil>/…`. Vertrag ist NUR das erste Segment; der Rumpf unterscheidet sich je
-    Schreiber (`tests/test_mm_path_contract.py`). Gelesen wird der Kopf von [pack_name_of]."""
+    """`mm://<pack>/<teil>/…`: Vertrag ist NUR das erste Segment
+    (`tests/test_mm_path_contract.py`).
+    """
     if not pack or "/" in pack:
         raise ValueError(f"pack name must be one segment: {pack!r}")
     if not parts or any(not t for t in parts):
@@ -103,8 +101,7 @@ def read_pack(name: str, paths: config.Paths = config.DATA, *, dir_: Path | None
     pack_paths = list(meta["paths"])
     if len(pack_paths) != n:
         raise ValueError(f"pack {name}: meta lists {len(pack_paths)} paths for n={n}")
-    # Jede Zeile, nicht nur die nullte: ein Pack, dessen spaetere Zeilen einen anderen Pack
-    # nennen, liest sonst fremde Pixel unter dem eigenen Namen.
+    # Jede Zeile, nicht nur die nullte: sonst liest ein Pack fremde Pixel unter dem eigenen Namen.
     foreign = next((p for p in pack_paths if pack_name_of(p) != name), None)
     if foreign is not None:
         raise ValueError(f"pack {name}: its rows say {pack_name_of(foreign)} "
@@ -114,9 +111,8 @@ def read_pack(name: str, paths: config.Paths = config.DATA, *, dir_: Path | None
 
 
 def _check_digest(name: str, d: Path, meta: dict) -> None:
-    """Der Pack gegen das Manifest, aus dem er geschnitten wurde — der Monolith-Pfad nennt das
-    "the one failure mode that produces a plausible-looking but wrong model". Ohne Digest
-    unpruefbar, nicht falsch.
+    """Der Pack gegen das Manifest, aus dem er geschnitten wurde; ohne Digest unpruefbar, nicht
+    falsch.
     """
     want = meta.get("digest")
     manifest = d / "manifest.jsonl"
@@ -174,14 +170,9 @@ def packed_shape(packed) -> tuple[int, int, int]:
     return tuple(shape)
 
 
-# --- Datensatz-Pack --------------------------------------------------------------------------
-
 class PackedIndex(NamedTuple):
-    """Was `load_packed` zurueckgibt, mit Namen statt Positionen.
-
-    Bleibt ein Tupel, also packt jede aeltere Stelle es weiter positional aus. Fuer MEHRERE Packs
-    reicht es nicht — dafuer ist `resolve_dataset_packs`, und `load_packed` weist solche
-    Datensaetze beim Namen ab statt hier etwas hineinzuzwaengen.
+    """Was `load_packed` zurueckgibt, mit Namen; bleibt ein Tupel fuer positionale Altaufrufer.
+    Mehrere Packs gehen ueber `resolve_dataset_packs`.
     """
 
     image: str
@@ -190,21 +181,13 @@ class PackedIndex(NamedTuple):
 
 
 def _manifest_digest(rows: list[dict]) -> str:
-    """Fingerprint of a manifest: which crops, in which order, with which labels, are packed.
-
-    Row count and crop size are not enough to tell two datasets apart — see the resume guard in
-    ``pack_dataset``. Path + label + out_size covers reordering, substitution and relabelling,
-    and is cheap next to decoding a million PNGs.
-
-    What it deliberately does NOT cover: a crop file whose PIXELS changed while keeping the same
-    path (a re-slice at different pads, a synth re-render writing over itself). Catching
-    that would need a stat() or hash per row. Callers that rewrite crops in place must re-pack;
-    ``build_dataset`` does so implicitly because it rmtree's the dataset dir first.
+    """Fingerprint of a manifest: which crops, in which order, with which labels. NOT covered:
+    pixels rewritten under an unchanged path — `_rewritten_since_pack` samples for that.
     """
     h = hashlib.sha256()
     for r in rows:
-        # One encode/update instead of six. The byte stream stays identical, so all existing
-        # packed_meta digests remain valid.
+        # One encode/update instead of six; the byte stream, and so every stored digest, stays
+        # identical.
         h.update((f'{r["path"]}\0{r.get("label", "")}\0{r.get("out_size", "")}\n')
                  .encode())
     return h.hexdigest()[:32]
@@ -216,11 +199,8 @@ def _manifest_rows(dd: Path) -> list[dict]:
     return load_manifest(dd / "manifest.jsonl")
 
 
-#: How many manifest rows `_rewritten_since_pack` stats. The digest covers path/label/size, so the
-#: one thing left is a crop file whose PIXELS were rewritten under an unchanged path — which is what
-#: a re-slice does to the whole pool at once. Spread evenly, 256 stats cost ~1 ms and miss a re-slice
-#: touching 5 % of the rows with probability 0.95^256 ≈ 2e-6. Full coverage would need a stat per
-#: row, and at a million rows that is tens of seconds on every single load.
+#: How many rows `_rewritten_since_pack` stats: 256 spread evenly cost ~1 ms and miss a re-slice of
+#: 5 % of the rows with probability 2e-6; a stat per row costs tens of seconds per load.
 _STALE_SAMPLE = 256
 
 
@@ -236,27 +216,23 @@ def _crop_fingerprint(crop_paths: list[str]) -> dict[str, list]:
         try:
             st = Path(p).stat()
         except OSError:
-            continue                       # `mm://` rows and absent files simply carry no entry
+            continue
         out[p] = [st.st_mtime, st.st_size]
     return out
 
 
 def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
                           fingerprint: dict[str, list] | None) -> bool:
-    """True if a sampled crop differs from what it was when the pack STARTED — i.e. it is stale.
-
-    Comparing on inequality needs no clock, so exFAT's 2 s and SMB's server time stop mattering,
-    and a crop restored with an OLDER mtime (a `_parked/` restore, a copy preserving timestamps)
-    is caught too. Packs from before the fingerprint fall back to the memmap's own mtime — the
-    reference they were written under, which Windows leaves anywhere between prealloc and last
-    flush: on `comp13-occ-80-v2` it stood on the prealloc 2.5 h before the pack finished.
+    """True if a sampled crop differs from what it was when the pack STARTED (inequality, no clock,
+    so an OLDER restored mtime is caught). Old packs fall back to the memmap mtime, which Windows
+    leaves anywhere.
     """
     if fingerprint is not None:
         for p, (mtime, size) in fingerprint.items():
             try:
                 st = Path(p).stat()
             except OSError:
-                continue                   # a crop that vanished does not unmake the packed pixels
+                continue
             if st.st_mtime != mtime or st.st_size != size:
                 return True
         return False
@@ -269,17 +245,14 @@ def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
             if Path(p).stat().st_mtime > packed_at:
                 return True
         except OSError:
-            continue                        # a missing crop is the per-PNG loader's problem, not ours
+            continue
     return False
 
 
 def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
                           manifest_rows: list[dict] | None = None):
-    """None for a classic dataset; a MultiPack when its dataset.yaml carries `packs:`.
-
-    Every resolved row keeps its `(pack_no, row_no)` on `_pack_at`, the way `_load_packed` marks
-    `_packed_idx`: train and eval resolve the whole manifest but build datasets from SPLIT rows,
-    and only the row itself carries the pair into that subset.
+    """None for a classic dataset; a MultiPack when dataset.yaml carries `packs:`. Rows keep their
+    `(pack_no, row_no)` on `_pack_at`, since datasets are built from split subsets.
     """
     import yaml
 
@@ -290,7 +263,7 @@ def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
     if not (cfg.exists() and (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get(PACKS_KEY)):
         return None
     rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
-    mp = resolve_packs(rows, paths)                # KeyError/ValueError propagate — never None
+    mp = resolve_packs(rows, paths)
     for row, at in zip(rows, mp.idx, strict=True):
         row["_pack_at"] = (int(at[0]), int(at[1]))
     return mp
@@ -299,9 +272,8 @@ def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
 def open_dataset_pack(name: str | None, paths: config.Paths | None = None,
                       manifest_rows: list[dict] | None = None,
                       split_rows: list[dict] | None = None):
-    # Der EINE Weg fuer train, eval, gradcam: Session-Packs, sonst die eigene Memmap, sonst None.
-    # `split_rows` markiert nur die Zeilen des Aufrufers; der Digest eines Monolithen braucht das
-    # GANZE Manifest (`manifest_rows`).
+    # Der EINE Weg fuer train, eval, gradcam. Der Digest eines Monolithen braucht das GANZE
+    # Manifest.
     if not name:
         return None
     paths = paths or config.DATA
@@ -312,16 +284,13 @@ def open_dataset_pack(name: str | None, paths: config.Paths | None = None,
 
 def load_packed(name: str, paths: config.Paths = config.DATA,
                 manifest_rows: list[dict] | None = None):
-    """Audit-aware entry point for loading and validating one packed dataset index.
-
-    ``manifest_rows`` lets callers that already parsed the dataset manifest reuse those rows.
-    Training always has them in memory before it resolves the pack; parsing the same large JSONL
-    a second time used to dominate startup and building a path dictionary duplicated its strings.
+    """Load and validate one packed dataset index; `manifest_rows` reuses rows the caller already
+    parsed.
     """
     from ..dataset_build import dataset_dir
 
-    # The legacy 3-tuple is unpacked positionally at ten sites (train, gradcam, eight scripts);
-    # several memmaps cannot be squeezed into it, so a pack-built dataset is refused by name.
+    # The legacy 3-tuple is unpacked positionally at ten sites; a pack-built dataset is refused by
+    # name.
     if resolve_dataset_packs(name, paths, manifest_rows) is not None:
         raise ValueError(f"dataset '{name}' is built from session packs — its pixels live in "
                          "data/packs/…; use training.packs.open_dataset_pack (train/eval do)")
@@ -340,11 +309,8 @@ def load_packed(name: str, paths: config.Paths = config.DATA,
 
 def open_packed_rows(name: str, manifest_rows: list[dict],
                      paths: config.Paths = config.DATA) -> tuple[np.memmap, dict[str, int]]:
-    """`(Memmap, {Crop-Pfad: Zeile})` fuer Analyse-Skripte — die EINE Aufloesung.
-
-    Zehn Skripte bauten sie woertlich nach (`p2i or {…"_packed_idx"…}` plus `np.memmap`), keines
-    mehrpack-faehig. NICHT fuer DataLoader-Worker: eine offene Memmap uebersteht das Pickling nach
-    Windows-Spawn nicht, dafuer ist [_load_packed] da.
+    """`(Memmap, {Crop-Pfad: Zeile})` fuer Analyse-Skripte — die EINE Aufloesung. NICHT fuer
+    DataLoader-Worker: eine offene Memmap uebersteht das Windows-Spawn-Pickling nicht.
     """
     packed = load_packed(name, paths, manifest_rows=manifest_rows)
     if not packed:
@@ -357,11 +323,8 @@ def open_packed_rows(name: str, manifest_rows: list[dict],
 
 def _load_packed(name: str, paths: config.Paths = config.DATA,
                  manifest_rows: list[dict] | None = None):
-    """Return (packed_file_path, (N,H,W), {crop_path: index}) or None if not packed.
-
-    Deliberately does NOT return an open memmap: an np.memmap doesn't survive pickling to Windows
-    spawn DataLoader workers (`pickle data was truncated`). PackedSquareDataset opens the memmap
-    lazily inside each worker from the path+shape instead, and keeps only a small int index array.
+    """Return (packed_file_path, (N,H,W), {crop_path: index}) or None. No open memmap: np.memmap
+    does not survive pickling to Windows spawn workers (`pickle data was truncated`).
     """
     from ..dataset_build import dataset_dir
 
@@ -370,19 +333,16 @@ def _load_packed(name: str, paths: config.Paths = config.DATA,
     if not meta_path.exists():
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    # A variant that only re-selects ROWS reads the owner's pixels (`link_pack`). Every guard below
-    # then checks the owner's file, which is what it should check — the digest still comes from THIS
-    # dataset's own manifest, so a mismatched selection is caught exactly as before.
+    # A row-selecting variant reads the owner's pixels (`link_pack`); the digest still comes from
+    # THIS manifest.
     if meta.get("packed_from"):
         img_path, _ = _packed_paths(dataset_dir(meta["packed_from"], paths))
     if not img_path.exists():
         return None
     n, h, w = int(meta["n"]), int(meta["h"]), int(meta["w"])
 
-    # Refuse a pack that does not belong to the CURRENT manifest. Training reads this by index, so
-    # a mismatch means images silently paired with the wrong labels — the one failure mode that
-    # produces a plausible-looking but wrong model. Packs written before digests existed have no
-    # entry; treat them as unverifiable and fall back to the (slow but correct) per-PNG loader.
+    # A pack not matching the CURRENT manifest pairs images with the wrong labels — a
+    # plausible-looking, wrong model. Packs without a digest fall back to the per-PNG loader.
     rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
     expected = _manifest_digest(rows)
     if meta.get("digest") != expected:
@@ -402,10 +362,8 @@ def _load_packed(name: str, paths: config.Paths = config.DATA,
                     "Re-run `chesslab dataset pack %s`.", name, name)
         return None
 
-    # A direct pack has exactly the manifest's row order.  Marking those already-live row dicts
-    # costs one compact integer per row (~6 MiB for the current 241k corpus), while the old
-    # 241k-entry path dictionary retained another copy of every key and cost tens of MiB.  Linked
-    # packs address an owner's superset and therefore still need the general path lookup.
+    # Marking the live row dicts costs one int per row; linked packs address an owner's superset and
+    # still need the path lookup.
     path2idx = None
     if manifest_rows is not None and not meta.get("packed_from") and len(rows) == n:
         for i, row in enumerate(rows):
@@ -416,11 +374,8 @@ def _load_packed(name: str, paths: config.Paths = config.DATA,
 
 
 class _PreadRows:
-    """Dieselbe `reader[i] -> (H, W, 3)`-Schnittstelle wie die Memmap, aber ueber `seek`+`read`.
-
-    Der Unterschied ist, WO die Bytes liegen bleiben: eine Memmap behaelt jede beruehrte Seite im
-    Arbeitssatz des Workers, ein Datei-Lesevorgang laesst sie im Systemcache — geteilt und
-    verwerfbar. Gemessen ueber 30 000 zufaellige Crops: 1 482 MB gegen 109 MB, also 13,6x weniger.
+    """Die Memmap-Schnittstelle ueber `seek`+`read`: eine Memmap haelt jede beruehrte Seite im
+    Arbeitssatz, ein Lesevorgang laesst sie im Systemcache — 1 482 MB gegen 109 MB.
     """
 
     def __init__(self, path: str, shape) -> None:
@@ -429,8 +384,8 @@ class _PreadRows:
         self._f = open(path, "rb", buffering=0)
 
     def __getitem__(self, i):
-        # Ein Schnitt ist EIN Lesevorgang statt 64 Suchlaeufen — und dieser Reader wird gerade
-        # dann gewaehlt, wenn der Pack nicht in den RAM passt, also jeder Seek die Platte trifft.
+        # Ein Schnitt ist EIN Lesevorgang statt 64 Seeks, und dieser Reader laeuft gerade, wenn
+        # jeder Seek die Platte trifft.
         if isinstance(i, slice):
             start, stop, step = i.indices(self._n)
             if step != 1:
@@ -443,10 +398,8 @@ class _PreadRows:
 
 
 def _pread_wanted(path: str) -> bool:
-    """pread, sobald der Pack gross gegen den Arbeitsspeicher ist — sonst die schnellere Memmap.
-
-    Auf warmen Seiten ist die Memmap 3x schneller, auf kalten ist pread es. Passt der Pack nicht
-    in den RAM, sind fast alle Seiten kalt, und die Memmap kauft ihren Vorsprung mit Auslagerung.
+    """pread, sobald der Pack gross gegen den RAM ist: warm ist die Memmap 3x schneller, kalt
+    pread.
     """
     override = os.environ.get("CHESSLAB_PACK_READER")
     if override:
@@ -490,18 +443,14 @@ def open_packed_memmap(path: str, shape, *, low_memory: bool = False):
     return np.memmap(path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
 
 
-# --- Zeile -> Memmap-Position ----------------------------------------------------------------
-
 #: What the packed datasets accept: `load_packed`'s legacy `(path, shape, path2idx)` or a MultiPack.
 PackedArg = tuple[str, tuple[int, int, int], dict | None] | MultiPack
 
 
 def _pack_index(rows, packed: PackedArg) -> tuple[list[tuple[str, tuple[int, int, int]]],
                                                   np.ndarray]:
-    """`(files, idx)` for both packed forms — the ONE place a row's memmap position is resolved.
-
-    `idx[i]` is `(pack_no, row_no)`, a legacy pack being pack 0. Resolution is per ROW, never by
-    position: split rows are a subset of the manifest and the board dataset re-sorts its own.
+    """`(files, idx)` for both packed forms — the ONE place a row's memmap position is resolved, per
+    ROW (split rows are a subset, board datasets re-sort).
     """
     if isinstance(packed, MultiPack):
         return packed.files, _multi_index(rows, packed)
@@ -521,8 +470,6 @@ def _multi_index(rows, packed: MultiPack) -> np.ndarray:
         lookup.update({p: (no, j) for j, p in enumerate(read_pack(d.name, dir_=d).paths)})
     return np.array([lookup[r["path"]] for r in rows], dtype=np.int64).reshape(len(rows), 2)
 
-
-# --- Eingebackene Transformation -------------------------------------------------------------
 
 def baked_of(name: str, paths: config.Paths = config.DATA) -> dict | None:
     """Die eingebackene Transformation eines Datensatzes, oder `None` fuer einen rohen Pack."""
@@ -553,8 +500,9 @@ def cfg_for_pack(cfg: dict, ds_name: str | None, packed, out_size=None) -> dict:
 
 
 def skip_baked(baked: dict | None, params: dict, out_size, pack_hw) -> bool:
-    """Darf der Loader CLAHE auslassen? Sonst FLIEGT es: still doppelt oder still gar nicht
-    gerechnet sind beide ein anderer Operator als der, den `config.json` behauptet."""
+    """Darf der Loader CLAHE auslassen? Still doppelt oder still gar nicht gerechnet waere beides
+    ein anderer Operator, als `config.json` behauptet.
+    """
     if not baked:
         return False
     if baked.get("op") != "clahe":

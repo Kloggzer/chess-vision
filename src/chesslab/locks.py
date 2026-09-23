@@ -1,8 +1,6 @@
-"""One writer at a time, for the two resources that only have one.
-
-A lock is a JSON file naming the PID that holds it: it survives a web restart, and one left by a
-dead process is reclaimed without a human. `data/inbox/heavy.lock` covers heavy jobs across CLI
-and web app, `data/crops/<tag>/.pool.lock` the writers of one crop pool."""
+"""One writer at a time: `data/inbox/heavy.lock` for heavy jobs across CLI and web app,
+`data/crops/<tag>/.pool.lock` for one crop pool. A dead PID's lock is reclaimed automatically.
+"""
 
 from __future__ import annotations
 
@@ -27,9 +25,9 @@ def pid_alive(pid: int) -> bool:
     if os.name == "nt":
         import ctypes
 
-        # OpenProcess alone answers the WRONG question: Windows keeps the process OBJECT alive
-        # while anyone holds a handle, so a job dead for minutes still opens and reads as live.
-        # Ask for the exit code. `restype` is not optional either — a HANDLE is 64-bit on x64.
+        # OpenProcess alone answers the WRONG question: Windows keeps the process OBJECT alive while
+        # anyone holds a handle. Ask for the exit code; `restype` matters too, a HANDLE is 64-bit on
+        # x64.
         k = ctypes.windll.kernel32
         k.OpenProcess.restype = ctypes.c_void_p
         k.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
@@ -41,8 +39,8 @@ def pid_alive(pid: int) -> bool:
         code = ctypes.c_uint32()
         ok = k.GetExitCodeProcess(h, ctypes.byref(code))
         k.CloseHandle(h)
-        # 259 = STILL_ACTIVE. A process that deliberately exits WITH 259 reads as alive; that is
-        # the documented ambiguity of this API and it is the safe direction for a lock.
+        # 259 = STILL_ACTIVE; a process exiting WITH 259 reads as alive — the documented ambiguity,
+        # and the safe direction for a lock.
         return bool(ok) and code.value == 259
     try:
         os.kill(pid, 0)
@@ -71,8 +69,8 @@ def _boot_time() -> datetime | None:
 
 
 def _same_boot(stamp: object, uptime: object = None) -> bool:
-    """Dieselbe Sitzung? Die LAUFZEIT entscheidet, die Wanduhr ist nur Rueckfall: eine
-    Zeitumstellung verschob die abgeleitete Bootzeit und gab das Lock frei, waehrend der Lauf lief.
+    """Dieselbe Sitzung? Die LAUFZEIT entscheidet: eine Zeitumstellung verschob die abgeleitete
+    Bootzeit und gab das Lock frei, waehrend der Lauf lief.
     """
     now_up = _uptime_s()
     if isinstance(uptime, (int, float)) and now_up is not None:
@@ -87,10 +85,8 @@ def _same_boot(stamp: object, uptime: object = None) -> bool:
 
 
 def held_by(lock: Path) -> dict | None:
-    """The record of the LIVE process holding `lock`, or None. Corrupt or dead-PID counts as free.
-
-    `childPid` is the JOB, `pid` the process that claimed the slot — the web app claims with the
-    SERVER's pid and stamps the child once it exists.
+    """The record of the LIVE process holding `lock`, or None; corrupt or dead-PID counts as free.
+    `childPid` is the job, `pid` the claimant (the web app claims with the server's pid).
     """
     try:
         info = json.loads(Path(lock).read_text(encoding="utf-8"))
@@ -99,10 +95,8 @@ def held_by(lock: Path) -> dict | None:
         return None
     if pid <= 0 or pid == os.getpid() or not pid_alive(pid):
         return None
-    # Ein Lock aus einer FRUEHEREN Sitzung kann niemand mehr halten. Ohne das blockiert ein
-    # eingefrorener Lauf jedes weitere Training: Windows vergibt die PID nach dem Neustart neu
-    # (2026-09-11 gehoerte 20176 danach `taskhostw`), und `pid_alive` sagt brav ja. Verglichen wird
-    # der beim Setzen notierte Systemstart, nicht das Alter — ein Lock ohne das Feld bleibt gueltig.
+    # Ein Lock aus einer FRUEHEREN Sitzung haelt niemand mehr: Windows vergibt die PID nach dem
+    # Neustart neu, und `pid_alive` sagt ja. Ein Lock ohne `boot`-Feld bleibt gueltig.
     if not _same_boot(info.get("boot"), info.get("uptime")):
         return None
     return info
@@ -126,10 +120,8 @@ def acquire(lock: Path, job: str, name: str) -> dict | None:
                           "name": name, "startedAt": datetime.now().isoformat(),
                           **({"boot": boot.isoformat()} if boot else {}),
                           **({"uptime": round(up, 1)} if up is not None else {})}, indent=2)
-    # Ein Lock, das VOR unserem Versuch schon dalag, ist tot (`held_by` sagte frei) und darf weg;
-    # eines, das WAEHREND des Versuchs entsteht, gehoert einem Mitbewerber.
-    # Zweimal, weil ein gescheiterter `_claim` nur heisst "die Datei lag JETZT da": verschwindet
-    # sie gleich darauf, meldete der Rueckfall unten den EIGENEN Auftrag als Halter.
+    # Ein Lock, das VOR dem Versuch dalag, ist tot; eines, das WAEHREND entsteht, gehoert einem
+    # Mitbewerber. Zweimal, weil es gleich wieder verschwinden kann.
     for _ in range(2):
         _break_stale(lock, observed)
         if _claim(lock, payload):
@@ -157,10 +149,8 @@ def _raw(lock: Path) -> bytes | None:
 
 
 def _break_stale(lock: Path, observed: bytes | None) -> None:
-    """Move the dead lock WE read aside, so a reclaimer can create the file anew.
-
-    Zurueckgelegt wird, was inzwischen jemand anderes geschrieben hat: sonst raeumt der zweite
-    Reclaimer den FRISCHEN Anspruch des ersten weg und beide halten sich fuer den Halter.
+    """Move the dead lock WE read aside; what someone else wrote meanwhile goes back, or two
+    reclaimers both think they hold it.
     """
     if observed is None:
         return
@@ -199,10 +189,8 @@ def release(lock: Path) -> None:
 
 @contextmanager
 def pool_lock(pool_root: Path, name: str):
-    """Serialize the writers of ONE crop pool. Raises, because a second writer has no sane answer.
-
-    Two `slice --all` runs overwrote the same 425k crops for 18 minutes on 2026-08-21, and the
-    first thing to notice was a pack reading the pool mid-rewrite.
+    """Serialize the writers of ONE crop pool; raises. Two `slice --all` runs once overwrote 425k
+    crops in parallel for 18 minutes.
     """
     lock = pool_lock_path(pool_root)
     info = acquire(lock, "slice", name)

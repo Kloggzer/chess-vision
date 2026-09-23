@@ -28,8 +28,8 @@ def keep_checkpoints(run_dir: Path, model, bd: dict, score, epoch: int,
     import torch
 
     torch.save(model.state_dict(), run_dir / "last.pt")
-    # Keep the first checkpoint attaining the best visible identity accuracy.
-    # best.pt may break accuracy ties using occupancy and confidence.
+    # The FIRST checkpoint at the best visible identity accuracy; best.pt breaks ties by occupancy
+    # and confidence.
     if bd["visible_piece_acc"] > progress.best_piece[0]:
         progress.best_piece = (bd["visible_piece_acc"], epoch)
         torch.save(model.state_dict(), run_dir / "best_piece.pt")

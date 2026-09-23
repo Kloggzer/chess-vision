@@ -182,7 +182,7 @@ def test_build_dataset_raises_on_degenerate(tmp_path):
     assert any("wQ" in e for e in split["degenerate_errors"])
 
 
-def test_list_get_delete_dataset(tmp_path):
+def test_list_datasets(tmp_path):
     paths = config.Paths(root=tmp_path)
     rows = [_row(paths, "wP", "s1", "0000", "e2", (180, 180, 180)),
             _row(paths, "wK", "s1", "0001", "e1", (90, 90, 90))]
@@ -191,8 +191,6 @@ def test_list_get_delete_dataset(tmp_path):
                     allow_degenerate=True)
     lst = DB.list_datasets(paths)
     assert len(lst) == 1 and lst[0]["name"] == "d1"
-    DB.delete_dataset("d1", paths)
-    assert DB.list_datasets(paths) == []
 
 
 # --- Building from session packs ------------------------------------------------------

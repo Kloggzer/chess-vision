@@ -1,4 +1,4 @@
-"""Befunde vom 2026-09-14 im Trainings-/Serving-Bereich, jeder gegen seinen roten Test."""
+"""Befunde im Trainings-/Serving-Bereich, jeder gegen seinen roten Test."""
 
 import inspect
 

@@ -17,8 +17,7 @@ from chesslab.ioutil import iter_jsonl, read_jsonl, write_json
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-#: Durchgaenge je A/B, jeder zweite in umgekehrter Reihenfolge (ABBA): eine lineare Drift
-#: (Takt, Waerme, Nachbarlast) faellt so aus der Differenz heraus.
+#: Jeder zweite Durchgang umgekehrt (ABBA): eine lineare Drift faellt aus der Differenz.
 REPS = 4
 
 
@@ -43,11 +42,7 @@ def parity(reference: dict | None, parameters: dict) -> dict:
 
 
 def resident_batch(cfg: dict, fixture: dict | None = None):
-    """Vier Trainingsbretter als CPU-Tensoren `(x, y)`; ein Fixture ersetzt den Datensatz GANZ.
-
-    Vorher wurde der Satz auch mit `--fixture` gelesen — und die v6-Saetze haben seit 2026-09-11
-    keine eigene Memmap mehr, der Paritaetslauf starb also vor dem Fixture.
-    """
+    """Vier Trainingsbretter als CPU-Tensoren `(x, y)`; ein Fixture ersetzt den Datensatz GANZ."""
     if fixture is not None:
         return fixture["x"], fixture["y"]
     import numpy as np
@@ -76,7 +71,7 @@ def resident_batch(cfg: dict, fixture: dict | None = None):
     tf = build_transform(mm.shape[1:3], train=True, policy=policy)
     x = torch.stack([torch.stack([tf(Image.fromarray(np.array(mm[index[r["path"]]]))) for r in b])
                      for b in boards])
-    # `coverage_of`/`brightness_of` sind die eine Lesart: ein ausgeschriebenes `null` ist kein 0.
+    # Die eine Lesart: ein ausgeschriebenes `null` ist kein 0.
     y = torch.tensor([[cfg["classes"].index(r["label"]), coverage_of(r), brightness_of(r)]
                       for b in boards for r in b])
     return x, y

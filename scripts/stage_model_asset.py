@@ -1,15 +1,9 @@
-"""Ein trainiertes Modell in die APK-Assets legen — mit dem Config-Vertrag, den die App liest.
+"""Ein trainiertes Modell in die APK-Assets legen, mit dem Config-Vertrag der App: ohne
+`coverage_output` wird ein 14-spaltiger Graph als 14 Klassen gesoftmaxt.
 
-`chesslab export` schreibt `model_card.json`; `ModelSpec` liest daneben eine `config.json` mit
-`coverage_output` und (seit 2026-08-24) `coverage_gate`. Beide fehlen dem Card, und ein 14-spaltiger
-Graph ohne `coverage_output` wird als 14 Klassen gesoftmaxt — jede Wahrscheinlichkeit waere falsch.
-Deshalb wandert die Run-`config.json` mit, um die zwei Schluessel ergaenzt.
+Abgelegt wird nur, was `contract_errors` durchlaesst.
 
-Abgelegt wird nur, was `contract_errors` durchlaesst: ein Graph vom Checkpoint der Config
-(`export_fingerprint`), Vorverarbeitung, die Kotlin kann, und gemessene Temperatur/Gate/Prior.
-
-    uv run python scripts/stage_model_asset.py <run-dir> --gate 0.15 [--prior-lambda 8]
-"""
+    uv run python scripts/stage_model_asset.py <run-dir> --gate 0.15 [--prior-lambda 8]"""
 import argparse
 import json
 import shutil
@@ -19,8 +13,8 @@ from chesslab.ioutil import write_json
 
 ASSETS = Path("android/app/src/main/assets/cnn_model")
 
-#: `InputRepr` in `core-cnn/.../Preprocess.kt` and the `clahe_denoise` guard in `ModelSpec.parse`;
-#: `tests/test_bug_hunt_20260923_export.py` parses both Kotlin files and holds these equal.
+#: `InputRepr` in `Preprocess.kt` und der `clahe_denoise`-Riegel in `ModelSpec.parse`;
+#: `tests/test_bug_hunt_20260923_export.py` haelt beide gleich.
 ANDROID_INPUT_REPRS = frozenset({"rgb", "gray+sobel", "rgb+sobel", "sobel"})
 ANDROID_CLAHE_DENOISE = frozenset({"off"})
 

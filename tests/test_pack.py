@@ -290,13 +290,8 @@ def test_load_packed_rejects_pack_from_a_different_manifest(tmp_path, paths, mon
 
 
 def test_load_packed_rejects_crops_rewritten_after_the_pack(tmp_path, paths):
-    """The blind spot the digest cannot see: same paths, same labels, DIFFERENT pixels.
-
-    This is what a re-slice does — it overwrites the whole crop pool in place. Path + label +
-    out_size are unchanged, so the digest still matches and the pack keeps being served, feeding
-    training the pixels of the previous geometry. It happened: `occ-real5nd-13c` was packed on
-    2026-07-31 00:45 and every one of its crops was rewritten by the corpus re-alignment later
-    that day, with `load_packed` still returning the old pack.
+    """The blind spot the digest cannot see: same paths, same labels, DIFFERENT pixels — a re-slice
+    overwrites the pool in place while the digest still matches.
     """
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
@@ -340,11 +335,8 @@ def test_load_packed_rejects_crops_restored_with_an_older_mtime(tmp_path, paths)
 
 
 def test_load_packed_rejects_crops_rewritten_while_a_pack_with_a_late_mtime_ran(tmp_path, paths):
-    """The 2026-08-21 incident: the memmap's mtime is not the moment its pixels were written.
-
-    A slice rewrote `data/crops/default` 09:59-10:16 while a build packed 10:03-10:22, and the u8
-    ended up stamped 10:22 — so every crop touched mid-pack read as OLDER than the pack and the
-    already-written chunks were served with the previous geometry's pixels, silently.
+    """The memmap's mtime is not the moment its pixels were written: a slice rewrote crops mid-pack,
+    the u8 ended stamped later, and the old pixels were served.
     """
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)

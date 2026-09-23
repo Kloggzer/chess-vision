@@ -13,10 +13,8 @@ _TIMM_BACKBONE_ALIASES = {
 
 
 def _gn_groups(channels: int) -> int:
-    """Größte Gruppenzahl <= 8, die `channels` teilt (GroupNorm braucht einen Teiler).
-
-    The cap of 8 is this project's own and was never varied; GroupNorm's paper uses G=32 by default
-    and reports the method insensitive to G across 64…2 (docs/references.md#wu-2018).
+    """Groesste Gruppenzahl <= 8, die `channels` teilt (GroupNorm braucht einen Teiler); die 8 wurde
+    nie variiert.
     """
     g = min(8, channels)
     while g > 1 and channels % g:
@@ -27,28 +25,13 @@ def _gn_groups(channels: int) -> int:
 class PrimitiveBatchNorm2d(nn.BatchNorm2d):
     """BatchNorm2d computed from primitives, so MIOpen's broken training kernel is never reached.
 
-    ROCm-Windows cannot compile `MIOpenBatchNormFwdTrainSpatial` — the wheel ships no C++ standard
-    library headers for HIPRTC, so any fresh compile of it dies with `miopenStatusUnknownError`.
-    The project's answer used to be GroupNorm, which works but costs dearly at inference: GroupNorm
-    normalises per SAMPLE, so it cannot be folded into the preceding convolution and exports as a
-    46-node `InstanceNormalization` decomposition (ONNX has no GroupNorm op; instance
-    normalisation is docs/references.md#ulyanov-2016). Measured on the real graph: 573 nodes and
-    30.6 ms per 64 crops against 124 nodes and 6.5 ms once the norms fold — **4.7x**.
-
-    Deriving the same arithmetic from `var_mean` and friends sidesteps that one kernel and nothing
-    else. It SUBCLASSES `nn.BatchNorm2d` on purpose: parameters, buffers and the state dict stay
-    byte-identical to the stock module, which is what lets `stock_batchnorm` swap a real one back in
-    for export. In eval mode the two agree exactly (max |diff| 0.0), so the swap is not an
-    approximation — the trained weights ARE stock BatchNorm weights.
-    """
+    ROCm-Windows cannot compile `MIOpenBatchNormFwdTrainSpatial` (no C++ headers for HIPRTC ->
+    `miopenStatusUnknownError`). Subclasses `nn.BatchNorm2d`, so the state dict is stock and
+    export swaps it back."""
 
     def forward(self, x):
-        # fp32 throughout, whatever autocast handed us. Under AMP `x` is fp16 and a variance
-        # reduction over 256*H*W activations leaves the fp16 range: the first real run came back
-        # with 12 of 5344 `running_var` entries at +inf, and eval collapsed (val_acc 0.91 -> 0.65)
-        # while the training loss fell happily on batch statistics. Stock BatchNorm keeps its
-        # statistics in fp32 for exactly this reason; deriving the arithmetic by hand means
-        # inheriting that obligation too.
+        # fp32 throughout: under AMP a variance over 256*H*W fp16 activations overflows — 12
+        # `running_var` entries went +inf and eval collapsed while the loss looked fine.
         xf = x.float()
         if self.training:
             var, mean = torch.var_mean(xf, dim=(0, 2, 3), unbiased=False, keepdim=True)
@@ -57,8 +40,7 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
                 with torch.no_grad():
                     self.num_batches_tracked += 1
                     # `momentum=None` ist bei `nn.BatchNorm2d` der KUMULATIVE Mittelwert
-                    # (1/num_batches_tracked) — genau wofuer der Zaehler da ist. Als 0.1 gelesen
-                    # war er ein Feld, das niemand braucht, und der Lauf wich still ab.
+                    # (1/num_batches_tracked).
                     m = self.momentum if self.momentum is not None else 1.0 / float(self.num_batches_tracked)
                     self.running_mean.mul_(1 - m).add_(m * mean.flatten())
                     # Running variance is the UNBIASED estimate, as `nn.BatchNorm2d` stores it.
@@ -67,7 +49,7 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
             mean = self.running_mean.view(1, -1, 1, 1).float()
             var = self.running_var.view(1, -1, 1, 1).float()
         else:
-            # Ohne laufende Statistik misst auch die Auswertung am Batch — `nn.BatchNorm2d` tut das.
+            # Ohne laufende Statistik misst auch die Auswertung am Batch, wie `nn.BatchNorm2d`.
             var, mean = torch.var_mean(xf, dim=(0, 2, 3), unbiased=False, keepdim=True)
         y = (xf - mean) * torch.rsqrt(var + self.eps)
         if self.weight is None:
@@ -77,16 +59,9 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
 
 
 def _batchnorm_kernel_works() -> bool:
-    """Can this build run the stock BatchNorm TRAINING kernel?
-
-    Keyed off `torch.version.hip`, not off a runtime probe. A probe is what I tried first and it
-    lies: MIOpen caches compiled kernels per configuration, so a tiny `BatchNorm2d(2)` succeeds
-    from cache while the real training shapes need a fresh compile — which is the thing that
-    fails. The probe reported "healthy" and the run then died inside `F.batch_norm` minutes later.
-
-    A ROCm build is therefore assumed unable, which costs a little training throughput and
-    guarantees the run finishes. Inference is unaffected either way: `stock_batchnorm` puts the
-    real module back for export, and the weights are identical.
+    """Can this build run the stock BatchNorm TRAINING kernel? Keyed off `torch.version.hip`: a
+    runtime probe lies, because MIOpen serves small shapes from cache while real shapes need the
+    failing compile.
     """
     global _BN_KERNEL_OK
     if _BN_KERNEL_OK is None:
@@ -101,20 +76,15 @@ _BN_KERNEL_OK: bool | None = None
 
 
 def batchnorm2d(channels: int) -> nn.BatchNorm2d:
-    """THE BatchNorm factory: stock where the kernel works, primitives where it does not.
-
-    The choice is made here rather than by the caller — it is a property of the machine, not of
-    the experiment, and asking the user to know it is asking them to know a MIOpen bug.
+    """THE BatchNorm factory: stock where the kernel works, primitives where it does not — a
+    property of the machine, not of the experiment.
     """
     return nn.BatchNorm2d(channels) if _batchnorm_kernel_works() else PrimitiveBatchNorm2d(channels)
 
 
 def stock_batchnorm(module: nn.Module) -> nn.Module:
-    """Replace every [PrimitiveBatchNorm2d] with the stock module, in place, for EXPORT.
-
-    The exporter folds an eval-mode `nn.BatchNorm2d` into the preceding convolution; it cannot fold
-    the primitive arithmetic, which would ship as ~40 loose nodes per norm. The state dict is
-    identical, so this is a re-wrapping, not a conversion.
+    """Replace every [PrimitiveBatchNorm2d] with the stock module in place, for EXPORT: only the
+    stock one folds into the preceding convolution.
     """
     for name, child in module.named_children():
         if isinstance(child, PrimitiveBatchNorm2d):
@@ -129,23 +99,11 @@ def stock_batchnorm(module: nn.Module) -> nn.Module:
 
 
 def _norm_layer(norm: str, channels: int) -> nn.Module:
-    """Normalization layer. groupnorm works around the MIOpen/HIPRTC batch-norm bug on ROCm-Windows.
+    """Normalization layer: batchnorm, groupnorm (works around the MIOpen bug), or none (a bare
+    ablation).
 
-    The three options are three published positions: BatchNorm (docs/references.md#ioffe-2015),
-    GroupNorm, whose statistic does not depend on the batch (docs/references.md#wu-2018), and no
-    normalizer at all (docs/references.md#brock-2021 — though that paper's method is adaptive
-    gradient clipping, which `norm="none"` does NOT do; it is a bare ablation, not that method).
-
-    Which one ships is settled by measurement here, not by the literature, and BOTH currently ship
-    as bundled Android assets — the model the device runs is BatchNorm.
-    specs/25-normalization-endgame/STATUS.md excluded BatchNorm; specs/32-normalization-on-clean-
-    geometry/STATUS.md re-opened it on the re-aligned corpus and at a rate BatchNorm can use, and
-    that is the pack with the current table. The learning rate is the whole reason: every
-    comparison in specs/25 ran at the GroupNorm recipe's rate, and tolerating larger rates is
-    exactly what BatchNorm is claimed to buy (docs/references.md#bjorck-2018). At its own rate it
-    is phantom-free. So never rank normalizers at a single learning rate — sweep it per normalizer,
-    or the comparison measures the rate rather than the norm.
-    """
+    Settled by measurement, and only per learning rate: at a shared rate the comparison measures
+    the rate, not the norm (specs/32)."""
     if norm == "groupnorm":
         return nn.GroupNorm(num_groups=_gn_groups(channels), num_channels=channels)
     if norm == "none":
@@ -154,13 +112,9 @@ def _norm_layer(norm: str, channels: int) -> nn.Module:
 
 
 def _gn_replacement(bn: nn.BatchNorm2d) -> nn.Module:
-    """GroupNorm standing in for `bn` — keeping whatever `bn` did AFTER normalising.
-
-    timm's `BatchNormAct2d` IS an `nn.BatchNorm2d` subclass and carries the block's
-    activation (`.act`, preceded by `.drop`). Swapping the whole module for a bare
-    GroupNorm silently deletes that nonlinearity — the shipped export had zero `Relu`
-    nodes because of it. A plain `nn.BatchNorm2d` has neither attribute and is replaced
-    one-for-one as before.
+    """GroupNorm standing in for `bn`, keeping what `bn` did AFTER normalising: timm's
+    `BatchNormAct2d` carries the activation, and swapping it whole deleted every ReLU of the
+    shipped export.
     """
     gn = nn.GroupNorm(_gn_groups(bn.num_features), bn.num_features)
     tail = [m for m in (getattr(bn, "drop", None), getattr(bn, "act", None)) if m is not None]
@@ -168,11 +122,8 @@ def _gn_replacement(bn: nn.BatchNorm2d) -> nn.Module:
 
 
 def _primitive_bn_replacement(bn: nn.BatchNorm2d) -> nn.Module:
-    """[PrimitiveBatchNorm2d] standing in for `bn` — keeping whatever `bn` did AFTER normalising.
-
-    Same trap as `_gn_replacement`: timm's `BatchNormAct2d` IS a `BatchNorm2d` subclass and carries
-    the block's activation in `.act` (preceded by `.drop`). Swapping the whole module deletes 30
-    ReLUs, which is exactly how every model this project shipped ended up with no nonlinearity.
+    """[PrimitiveBatchNorm2d] standing in for `bn`, with the same `BatchNormAct2d` trap as
+    `_gn_replacement`.
     """
     out = PrimitiveBatchNorm2d(bn.num_features, eps=bn.eps, momentum=bn.momentum,
                                affine=bn.affine, track_running_stats=bn.track_running_stats)
@@ -183,9 +134,8 @@ def _primitive_bn_replacement(bn: nn.BatchNorm2d) -> nn.Module:
 
 
 def _convert_bn_to_primitive(module: nn.Module) -> nn.Module:
-    """Swap every BatchNorm2d for the primitive one where the stock training kernel is broken.
-
-    A no-op on a working accelerator, so the normal path stays the stock module.
+    """Swap every BatchNorm2d for the primitive one where the stock training kernel is broken; else
+    a no-op.
     """
     if _batchnorm_kernel_works():
         return module
@@ -198,9 +148,9 @@ def _convert_bn_to_primitive(module: nn.Module) -> nn.Module:
 
 
 def _convert_bn_to_gn(module: nn.Module) -> nn.Module:
-    """Replace all BatchNorm2d (e.g. in torchvision backbones) with GroupNorm — otherwise MIOpen
-    crashes on ROCm-Windows (`miopenStatusUnknownError`). Pretrained weights of the body remain,
-    only the norm statistics are new (GN has no running stats)."""
+    """Replace all BatchNorm2d with GroupNorm (MIOpen crashes on ROCm-Windows); body weights stay,
+    only the norm statistics are new.
+    """
     for name, child in module.named_children():
         if isinstance(child, nn.BatchNorm2d):
             setattr(module, name, _gn_replacement(child))
@@ -221,25 +171,19 @@ def _create_timm_model(backbone: str, pretrained: bool, num_classes: int,
     if resolved != backbone:
         print(f"[INFO] Backbone alias '{backbone}' -> '{resolved}'.")
     if pretrained and not timm.is_model_pretrained(resolved):
-        # Some variants (e.g. mobilenetv4_conv_small_035) ship NO pretrained weights — timm's
-        # HF fetch then retries forever on this box (looked like a training hang) before
-        # raising. Random init is fine here: the synth curriculum IS the pretraining.
+        # Variants without pretrained weights make timm's HF fetch retry forever here (looks like a
+        # hang). Random init is fine: the synth curriculum IS the pretraining.
         print(f"[INFO] '{resolved}' has no pretrained weights — random init.")
         pretrained = False
-    # `in_chans` is timm's own knob: it rebuilds the stem for the channel count and, with
-    # pretrained weights, sums/repeats the stem kernel across the new fan-in. A run that feeds a
-    # non-RGB representation (`--input-repr`) records the name in its config.json, and every
-    # consumer derives the count from it — the stem is the ONE place a mismatch is silent.
+    # timm's `in_chans` rebuilds the stem for the channel count; the stem is the ONE place a channel
+    # mismatch is silent.
     return timm.create_model(resolved, pretrained=pretrained, num_classes=num_classes,
                              in_chans=in_chans)
 
 
 class SmallCNN(nn.Module):
-    """Compact conv net: 4 conv blocks (norm+ReLU+MaxPool), global avg pool, linear -> classes.
-
-    The global average pool is what makes the net size-agnostic, so one set of weights can be
-    served at 80, 96 or 128 px — the one-level degenerate case of spatial pyramid pooling
-    (docs/references.md#he-2014). Without it, `--scales` would not be possible.
+    """Compact conv net: 4 conv blocks, global average pool, linear head. The pool makes it
+    size-agnostic, which `--scales` needs.
     """
 
     def __init__(self, num_classes: int, in_channels: int = 3, norm: str = "batchnorm") -> None:
@@ -265,12 +209,8 @@ class SmallCNN(nn.Module):
         return self.head(x)
 
 
-#: Trunk-Leiter fuer die Geschwindigkeitsfrage: (Breiten, Patch-Stride). Der Stem ist eine
-#: Patchify-Faltung statt zweier dichter 3x3 — die kosten in `mnv4_035` die Haelfte aller MACs,
-#: und ein entzerrter Zellcrop braucht keine ImageNet-Kantenbank. Messwerte: `docs/`-Bericht.
-#: Dritter Eintrag: auf wie viel die Zelle am Ende gepoolt wird. 1 ist der Global-Average-Pool,
-#: 2 haelt ein 2x2-Raster - der einzige Architekturkandidat mit Bezug zur gemessenen Fehlermechanik
-#: (Blickrichtung IN der Zelle, `docs/evaluation.md`).
+#: Trunk-Leiter: (Breiten, Patch-Stride, Pool). Patchify-Stem statt zweier dichter 3x3, die in
+#: `mnv4_035` die Haelfte der MACs kosten. Pool 2 haelt ein 2x2-Raster (Blickrichtung IN der Zelle).
 CELLNET_PRESETS = {
     "cellnet_p4":    ((32, 64, 64, 128, 128, 192), 4, 1),
     "cellnet_p4g2":  ((32, 64, 64, 128, 128, 192), 4, 2),
@@ -289,9 +229,7 @@ def _dw_pw(c_in: int, c_out: int, stride: int) -> nn.Sequential:
 
 class CellNet(nn.Module):
     """Elf Faltungen statt 46, Patchify-Stem, sonst DW/PW — auf Geschwindigkeit ausgelegt.
-
-    Der Global-Average-Pool haelt ihn groessenagnostisch, wie `SmallCNN`; `num_classes=0` gibt
-    die Merkmale heraus, was `boardnet.build_trunk` fuer die Kopf-Varianten braucht.
+    `num_classes=0` gibt die Merkmale fuer `boardnet.build_trunk` heraus.
     """
 
     def __init__(self, widths: tuple[int, ...], patch: int, num_classes: int,
@@ -303,16 +241,15 @@ class CellNet(nn.Module):
         self.body = nn.Sequential(*[_dw_pw(a, b, s) for a, b, s
                                     in zip(widths[:-1], widths[1:], strides, strict=True)])
         self.num_features = widths[-1]
-        # `pool > 1` haelt die Zelle raeumlich aufgeloest, statt sie zu einem Vektor zu mitteln.
         # Die Projektion zurueck auf `widths[-1]` ist Absicht: Kopf, Export und Metriken sehen
-        # dieselbe Breite, der Arm unterscheidet sich also nur in dieser einen Stelle.
+        # dieselbe Breite.
         self.pool = pool
         self.proj = nn.Linear(widths[-1] * pool * pool, widths[-1]) if pool > 1 else nn.Identity()
         self.head = nn.Linear(widths[-1], num_classes) if num_classes else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         feat = self.body(self.stem(x))
-        # Adaptiv, damit der Trunk groessenagnostisch bleibt - 80 px liefert 3x3, 128 px 4x4.
+        # Adaptiv, damit der Trunk groessenagnostisch bleibt.
         flat = (feat.mean((2, 3)) if self.pool == 1
                 else self.proj(F.adaptive_avg_pool2d(feat, self.pool).flatten(1)))
         return self.head(flat)
@@ -320,11 +257,8 @@ class CellNet(nn.Module):
 
 
 def _retune_stem(m: nn.Module, in_chans: int) -> None:
-    """Rebuild a torchvision MobileNetV3's first convolution for `in_chans` inputs, in place.
-
-    timm does this itself (`create_model(in_chans=…)`); torchvision has no such knob. Pretrained
-    stem weights are SUMMED over the RGB fan-in and rescaled, which is what timm does too — the
-    stem's response to a grey image is then unchanged.
+    """Rebuild a torchvision MobileNetV3's first convolution for `in_chans` inputs, in place,
+    summing the pretrained RGB fan-in like timm does.
     """
     if in_chans == 3:
         return
@@ -332,8 +266,7 @@ def _retune_stem(m: nn.Module, in_chans: int) -> None:
     new = nn.Conv2d(in_chans, old.out_channels, old.kernel_size, old.stride, old.padding,
                     bias=old.bias is not None)
     with torch.no_grad():
-        # Die Summe wird auf die Kanaele VERTEILT, nicht mit 3 skaliert: `repeat` legt sie
-        # `in_chans`-mal an, ein Graubild bekam sonst exakt die dreifache Antwort.
+        # VERTEILT, nicht mit 3 skaliert: sonst bekam ein Graubild exakt die dreifache Antwort.
         w = old.weight.sum(dim=1, keepdim=True) / in_chans
         new.weight.copy_(w.repeat(1, in_chans, 1, 1))
         if old.bias is not None:
@@ -345,16 +278,13 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
                 norm: str = "batchnorm", head: str = "combined",
                 in_chans: int = 3, board_width: int = 128,
                 board_layers: int = 2) -> nn.Module:
-    """One flat head over the class list; `head` is kept as an argument so a wrong value fails
-    loudly rather than silently building something else.
-
-    `in_chans` follows the run's input representation (`torch_data.INPUT_REPRS`); it is 3 for the
-    plain RGB crop and e.g. 2 for `gray+sobel`.
+    """One flat head over the class list; a wrong `head` fails loudly. `in_chans` follows the run's
+    input representation.
     """
     if head != "combined":
         raise ValueError(f"unknown head {head!r} — the model builds one flat head.")
-    # `cellnet` und die BoardNet-Truenke kennen kein `norm`. Still BatchNorm zu bauen schrieb
-    # `"norm": "groupnorm"` in die config.json eines Modells, in dem nichts eines ist.
+    # `cellnet` und die BoardNet-Truenke kennen kein `norm`; still BatchNorm zu bauen schrieb eine
+    # falsche `"norm"` in die config.json.
     if norm != "batchnorm" and (backbone in CELLNET_PRESETS
                                 or backbone.startswith(("board:", "boardattn:"))):
         raise ValueError(f"{backbone} baut immer BatchNorm — `--norm {norm}` waere eine Luege "
@@ -381,13 +311,13 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
         _retune_stem(m, in_chans)
         in_f = m.classifier[-1].in_features
         m.classifier[-1] = nn.Linear(in_f, num_classes)
-        if norm == "groupnorm":     # ROCm-Windows: MobileNet batch-norm -> groupnorm, otherwise MIOpen crash
+        if norm == "groupnorm":
             _convert_bn_to_gn(m)
         elif norm != "none":
             _convert_bn_to_primitive(m)
         return m
-    # Nur der LADEVORGANG steht unter dem Auffangnetz: spannte es auch ueber die
-    # Norm-Umbauten, kam ein Fehler DARIN als "Backbone unbekannt" heraus.
+    # Nur der LADEVORGANG unter dem Auffangnetz, sonst kam ein Fehler der Norm-Umbauten als
+    # "Backbone unbekannt" heraus.
     try:
         print(f"[INFO] Versuche Backbone '{backbone}' über timm zu laden...")
         m = _create_timm_model(backbone, pretrained=pretrained, num_classes=num_classes,
@@ -405,16 +335,10 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
 
 
 def adopt_weights(model, checkpoint, device: str = "cpu") -> tuple[int, int]:
-    """Warm-start [model] from [checkpoint]: adopt every tensor that fits, skip the rest.
+    """Warm-start [model] from [checkpoint]: adopt what fits, skip the rest. -> (adopted, skipped)
 
-    Returns `(adopted, skipped)`. Skipping is the POINT: the head has a different class count
-    whenever the corpus gained a class (13 -> 14 when `occluded` arrived), and a strict load dies
-    on exactly that — which is how `scripts/lr_range_test.py` came to be unusable against the base
-    model while `train` warm-started from it fine.
-
-    IS the timm model. Matching keys verbatim across that boundary adopts ZERO tensors and warm
-    starts from nothing, which reads as a bad result rather than a bug — so both spellings are
-    tried.
+    The head changes with the class count. Wrapped and bare models spell keys differently, and a
+    verbatim match adopted ZERO tensors silently, so both spellings are tried.
     """
     import torch
 
@@ -439,12 +363,8 @@ def adopt_weights(model, checkpoint, device: str = "cpu") -> tuple[int, int]:
 
 
 def checkpoint_of(run_dir, prefer: str | None = None):
-    """A run's weights: `best.pt`, else `last.pt`, else None — the order every caller wants.
-
-    [prefer] names another checkpoint of the same run first (`swa.pt`, `best_piece.pt`). It is
-    not the default order on purpose: the training writes all of them, prints their scores side
-    by side and picks NO winner, so preferring one here would decide that silently — and the
-    temperature in `model_card.json` was fitted on `best.pt`.
+    """A run's weights: `best.pt`, else `last.pt`, else None. [prefer] goes first; not the default,
+    because training picks no winner and the temperature was fitted on `best.pt`.
     """
     from pathlib import Path
 

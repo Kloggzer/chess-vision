@@ -1,4 +1,4 @@
-"""Skript-Audit 2026-09-16f: `scripts/`, die Ungemessenes als Normalwert lesen."""
+"""Skript-Audit: `scripts/`, die Ungemessenes als Normalwert lesen."""
 
 from __future__ import annotations
 
@@ -137,12 +137,8 @@ def test_settle_lag_does_not_read_an_unmeasured_roi_as_board_motion(tmp_path, mo
 
 
 def test_commit_budget_p90_is_the_ninth_of_ten_values(tmp_path, capsys):
-    """`int(0.9 * n)` ist bei n = 10 der Index 9, also das MAXIMUM.
-
-    Nachgesehen, bevor es stehen blieb: die p90-Spalten in `docs/commit-latency.md` stammen NICHT
-    von hier — die Tabelle dieses Skripts dort traegt nur Mediane, die p90 kommen aus
-    `commit_lag.py`, das die richtige Formel seit 2026-09-14 hat. Der Fix bewegt also keine
-    veroeffentlichte Zahl.
+    """`int(0.9 * n)` ist bei n = 10 der Index 9, also das MAXIMUM. Die veroeffentlichten p90 kommen
+    aus `commit_lag.py`; der Fix bewegt keine Zahl.
     """
     budget = load_script("commit_budget")
     budget.ROOT = tmp_path

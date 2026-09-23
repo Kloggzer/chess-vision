@@ -161,11 +161,9 @@ def test_a_same_size_writer_in_the_same_tick_moves_the_stamp(tmp_path):
 
 
 def test_a_refused_writer_does_not_remove_the_running_ones_side_file(tmp_path):
-    """Zwei Schreiber auf DIESELBE Datei teilten sich eine Nebendatei `<name>.tmp`.
-
-    Wer abbricht, raeumt im `except` auf — und nahm damit die halb geschriebene Nebendatei des
-    anderen mit, der daraufhin sein Umhaengen mit FileNotFoundError verlor, obwohl er den
-    Riegel hielt. Gefunden 2026-09-17 in `lib/atomic.ts`, dieselbe Form hier.
+    """Zwei Schreiber teilten sich eine Nebendatei `<name>.tmp`: der Abbrecher raeumte die halbe
+    Nebendatei des anderen weg, der dann sein Umhaengen verlor. Dieselbe Form wie in
+    `lib/atomic.ts`.
     """
     path = tmp_path / "matte.jsonl"
     ledger.write_rows(path, [{"a": 1}])

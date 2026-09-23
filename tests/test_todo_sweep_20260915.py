@@ -1,4 +1,4 @@
-"""TODO sweep 2026-09-15: the defects the `# TODO:` markers in `src/chesslab` named."""
+"""TODO sweep: the defects the `# TODO:` markers in `src/chesslab` named."""
 
 from __future__ import annotations
 

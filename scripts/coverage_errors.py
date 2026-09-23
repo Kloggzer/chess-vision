@@ -1,9 +1,5 @@
-"""Welche Fehler die Coverage-Precision kostet — verstreut oder als Klumpen.
-
-2,6 Punkte Precision sagen nichts darueber, ob sie schaden. Die Engine zaehlt einen Flag nur,
-wenn er ein orthogonal BENACHBARTES Paar hat (`modelHandSquares`): verstreute Einzelfehler fallen
-heraus, ein zusammenhaengender Klumpen nicht. Diese Auswertung trennt genau das — je Frame, gegen
-die SAM-Matte als Wahrheit.
+"""Welche Fehler die Coverage-Precision kostet — verstreut oder als Klumpen. Die Engine zaehlt einen
+Flag nur mit orthogonal BENACHBARTEM Paar; verstreute Einzelfehler fallen heraus.
 
     uv run python scripts/coverage_errors.py <reads-datei> [<sessions...>]
 """
@@ -61,8 +57,8 @@ def main():
             t = truth[r["frame"]].get(r["square"])
             if t is None:
                 continue
-            # Ohne `model_cov` hat der Lauf keinen Occlusion-Kopf; als 0,0 gelesen sah das nach
-            # makelloser Precision aus (null FP bei null TP), statt nach nichts Gemessenem.
+            # Ohne `model_cov` kein Occlusion-Kopf; als 0,0 gelesen saehe das nach makelloser
+            # Precision aus.
             cov = r.get("model_cov", r.get("cov"))
             if cov is None:
                 continue

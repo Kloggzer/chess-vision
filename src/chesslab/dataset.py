@@ -1,8 +1,5 @@
-"""Level 4 — Dataset management.
-
-From labeled crops create a trainable dataset: statistics, class balance,
-**session-based** split (against data leakage) and an augmentation policy. The pure
-functions are tested headless; the CLI wrappers resolve paths from `config`.
+"""Level 4 — dataset management: statistics, class balance, session-based split, augmentation
+policy.
 """
 
 from __future__ import annotations
@@ -19,16 +16,14 @@ from .ioutil import read_jsonl, write_json
 CLASSES = config.CLASSES
 
 
-# --- Load manifest and split ----------------------------------------------------------
-
 def load_manifest(path: Path) -> list[dict]:
     from .ioutil import mtime_size
     from .work_audit import measure
 
     p = Path(path)
     if not p.exists():
-        # Semantics as before Rework 05: missing manifest is a hard error, not an empty
-        # dataset — otherwise one silently "trains" on nothing.
+        # A missing manifest is a hard error, not an empty dataset that silently "trains" on
+        # nothing.
         raise FileNotFoundError(f"Manifest not found: {p}. Run `chesslab slice` first.")
     version = mtime_size(p)
     with measure("manifest loads", (p.resolve(), *version), processed_bytes=version[1]):
@@ -38,8 +33,6 @@ def load_manifest(path: Path) -> list[dict]:
 def load_split(path: Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
-
-# --- stats ----------------------------------------------------------------------------
 
 def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES,
                   classes: list[str] | None = None) -> dict:
@@ -51,10 +44,8 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES,
 
     for r in rows:
         lab = r["label"]
-        # `.get` on all three, not just `counts`: an occupancy dataset's rows say `occupied`,
-        # which is not in the 14-class `config.CLASSES` a caller gets by default. `counts` was
-        # already tolerant and the other two were not, so `/datasets/<occ-set>/stats` died with
-        # `KeyError: 'occupied'` while the same call for a piece dataset worked.
+        # `.get` on all three: rows outside the default `config.CLASSES` (e.g. `occupied`) must not
+        # KeyError.
         counts[lab] = counts.get(lab, 0) + 1
         if r.get("square_color") == "light":
             light[lab] = light.get(lab, 0) + 1
@@ -92,7 +83,6 @@ def render_stats(stats: dict) -> str:
         f"Crops total: {stats['total']}  |  Sessions: {stats['num_sessions']}",
         f"{'Class':<9}{'count':>8}{'light':>8}{'dark':>8}",
     ]
-    # the stats' own class list, not the module default
     lines.extend(f"{c:<9}{stats['counts'][c]:>8}"
                  f"{stats['light'].get(c, 0):>8}{stats['dark'].get(c, 0):>8}"
                  for c in stats["counts"])
@@ -104,16 +94,11 @@ def render_stats(stats: dict) -> str:
     return "\n".join(lines)
 
 
-# --- Class balance -------------------------------------------------------------------
-
 def load_priority_paths(paths=None) -> set[str] | None:
     """Mined hard-negative empty crops (`scripts/mine_hard_empty.py`) that must survive the cap.
 
-    Read by BOTH `dataset_build.build_dataset` and `training.train_feed.training_rows`, and it has to be
-    both: a built dataset's `manifest.jsonl` holds the UNCAPPED rows, and `run_train` re-runs
-    `subsample_classes` from `split["train_subsample"]`. A keep-list honoured only at build time
-    is therefore re-drawn away at train time — the protection would land in `split.json`'s counts
-    and never in a single batch. Returns None when no keep-list has been mined.
+    Read at build AND train time: `run_train` re-runs `subsample_classes`, so a build-only
+    keep-list would be re-drawn away. None when nothing was mined.
     """
     p = (paths or config.DATA).reports / "hard_empty.jsonl"
     if not p.exists():
@@ -124,35 +109,18 @@ def load_priority_paths(paths=None) -> set[str] | None:
 def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
                       max_class_ratio: float | None = None, seed: int = config.SEED,
                       priority_paths: set[str] | None = None) -> list[dict]:
-    """Seed-downsample overrepresented classes to balance distribution.
+    """Seed-downsample: pieces to R * smallest piece class, `empty` to R * largest (capped) piece
+    class.
 
-    - `max_class_ratio R`: cap each **piece** class to at most R * smallest piece class
-      (e.g. reduces pawns down to the rare pieces).
-    - `max_empty_ratio R`: cap `empty` to R * largest (capped) piece class.
-    Order: first cap pieces, then `empty` relative to the new largest piece class.
-
-    `priority_paths`: crop paths that must SURVIVE the `empty` cap — the mined hard
-    negatives (`scripts/mine_hard_empty.py`: real empty squares the model confidently
-    misreads, e.g. dark corner squares / neighbour bleed). A random cap throws
-    away exactly these rare hard cases; here they are kept first and only the REST of
-    the cap budget is filled by random sampling. If there are more hard empties than
-    the cap allows, all of them are kept (deliberate overshoot — they are the point).
-
-    Two notes on where this sits relative to the literature (docs/references.md §4). This
-    UNDERSAMPLES the majority class, while the systematic study of class imbalance in CNNs finds
-    oversampling dominant in almost every scenario and reports it does not make CNNs overfit
-    (docs/references.md#buda-2017) — the reason here is disk and I/O on a corpus of millions of
-    near-identical crops, not accuracy. And `priority_paths` is hard-example mining
-    (docs/references.md#shrivastava-2016) done OFFLINE from a finished model, not online per
-    mini-batch; that is what makes a stale keep-list a hidden variable in the next run.
-    """
+    `priority_paths` (mined hard empties) survive the `empty` cap first. Undersampling is for
+    disk/I/O."""
     rng = random.Random(seed)
     by_label: dict[str, list] = {}
     for r in rows:
         by_label.setdefault(r["label"], []).append(r)
 
-    # `occluded` ist ein Sehzustand, keine Identitaet: in historischen 14-Klassen-Manifesten
-    # ist es selten und wuerde als Minimum jede echte Figurenklasse mit herunterziehen.
+    # `occluded` ist ein Sehzustand, keine Identitaet: als Minimum zoege es jede Figurenklasse
+    # herunter.
     piece_counts = {c: len(v) for c, v in by_label.items() if c not in ("empty", "occluded")}
     piece_cap = None
     if max_class_ratio is not None and piece_counts:
@@ -160,9 +128,8 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
 
     kept: list[dict] = []
     eff_piece: dict[str, int] = {}
-    # Sortiert, wie `dedup_metadata` es 30 Zeilen weiter oben schon tut: EIN `rng` zieht hier je
-    # Klasse der Reihe nach, und in Einfuegereihenfolge haengt die Auswahl damit am Manifest statt
-    # am Seed — derselbe Seed behielt 54 von 62 anderen Crops.
+    # Sortiert: EIN `rng` zieht je Klasse der Reihe nach, unsortiert haengt die Auswahl am Manifest
+    # statt am Seed — derselbe Seed behielt 54 von 62 anderen Crops.
     for c in sorted(by_label):
         v = by_label[c]
         if c == "empty":
@@ -172,12 +139,10 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
         eff_piece[c] = len(v)
         kept.extend(v)
 
-    # Auch hier stabil sortiert: sonst zieht derselbe Seed je nach Manifest-Reihenfolge andere
-    # leere Felder.
     empties = sorted(by_label.get("empty", []), key=lambda r: str(r.get("path")))
     if max_empty_ratio is not None and eff_piece:
-        # `occluded` auch hier heraus: es ist auf einem 14-Klassen-Bau die groesste Klasse, und
-        # die Kappe fuer leere Felder gehoert an die groesste echte FIGURENklasse.
+        # `occluded` auch hier heraus: die Kappe fuer leere Felder gehoert an die groesste
+        # FIGURENklasse.
         real = [n for c, n in eff_piece.items() if c != "occluded"] or list(eff_piece.values())
         empty_cap = int(round(max_empty_ratio * max(real)))
         if len(empties) > empty_cap:
@@ -196,19 +161,9 @@ def compute_class_weights(counts: dict, classes: list[str] | None = None,
                           cap: float | None = None) -> dict:
     """Inverse frequency. Largest class -> smallest weight. Absent classes -> 0.0.
 
-    `cap` begrenzt das Verhaeltnis groesstes/kleinstes Gewicht, indem die Haeufigkeit mit einem
-    Exponenten geglaettet wird (w ~ 1/n^a) statt die Raender abzuschneiden — die Reihenfolge und
-    die Abstaende dazwischen bleiben, nur flacher. Bei 12,4x und cap 3 ist a = 0,44, also nahe
-    an der klassischen Wurzel-Inversfrequenz. `cap=1` ist der andere Endpunkt derselben Achse:
-    a = 0, jedes Gewicht 1,0 — gar keine Gewichtung.
-
-    Weighting by raw frequency is the scheme the class-balanced-loss paper argues AGAINST — its
-    case is that each further sample of a class adds less than the last, so inverse frequency
-    over-corrects, and it proposes an effective-number weighting instead
-    (docs/references.md#cui-2019). The two have never been compared on this corpus. Note also that
-    these weights compound with `max_empty_ratio`: both act on the same imbalance, one by dropping
-    crops and one by reweighting what survives.
-    """
+    `cap` glaettet mit einem Exponenten (w ~ 1/n^a) statt die Raender abzuschneiden; `cap=1`
+    heisst a = 0, keine Gewichtung. Compounds with `max_empty_ratio` — both act on the same
+    imbalance."""
     CLASSES = classes or config.CLASSES
     present = {c: n for c, n in counts.items() if n > 0}
     weights = dict.fromkeys(CLASSES, 0.0)
@@ -221,53 +176,21 @@ def compute_class_weights(counts: dict, classes: list[str] | None = None,
             raise ValueError(f"weight cap must be >= 1 (1 = uniform, no weighting), got {cap}")
         spread = max(present.values()) / min(present.values())
         if spread > cap:
-            # cap == 1 -> log(1) == 0 -> alpha 0 -> jedes Gewicht 1,0. Das ist der andere
-            # Endpunkt derselben Achse, nicht ein Sonderfall daneben.
             alpha = math.log(cap) / math.log(spread)
     raw = {c: n ** -alpha for c, n in present.items()}
-    # Dieselbe Normierung wie ungekappt: sum(w*n) == total, damit der Verlustmassstab und
-    # damit die effektive Lernrate sich nicht mit der Gewichtung mitaendert.
+    # sum(w*n) == total, damit die effektive Lernrate nicht mit der Gewichtung wandert.
     scale = total / sum(raw[c] * n for c, n in present.items())
     for c in present:
         weights[c] = round(raw[c] * scale, 4)
     return weights
 
 
-# --- Split (session-based) -----------------------------------------------------------
-
 def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, seed: int,
                               force_train=None, groups: dict | None = None) -> dict:
-    """Greedily assign WHOLE sessions to train/val/test to hit the crop ratios.
+    """Greedily assign WHOLE sessions (or `groups`) to train/val/test to hit the crop ratios.
 
-    Never splits a session — frames within one are near-identical, so splitting one leaks; the
-    same holds for a clip cut into pseudo-sessions, which is what `groups` keeps together
-    (`_assign_by_group`; None = one group per session). That constraint is what makes this
-    awkward: with a corpus like (4992, 3520, 1600, 1024, 1024, 832, 384) no subset hits 15 %
-    exactly, and the rule for the mismatch decides whether the split is usable at all.
-
-    `force_train`: session IDs pinned to train (e.g. an all-empty lighting capture, which in
-    val/test would distort board metrics).
-
-    Two rules, each fixing a way the old largest-first greedy went wrong:
-
-    1. Targets are computed over the pool ACTUALLY AVAILABLE to fill val/test (total minus
-       `force_train`). Sizing them off the full total inflated both targets while only the
-       remainder could fill them, so pinning the two big sessions to train made train
-       *smaller* — the opposite of what the caller asked for.
-    2. A session joins val/test only if it moves that split CLOSER to its target
-       (`|need - sz| < need`, i.e. `sz < 2 * need`). Without this a session larger than the
-       entire target lands in holdout regardless: that is how a 15/15 split put 84 % of the
-       corpus into val+test and left train with 1,611 crops.
-
-    Rule 2 can starve val/test when every session is oversized, so a final pass pulls one
-    session back from train — the one closest to that split's target — rather than emitting
-    an empty holdout.
-
-    Targeting deliberately uses RAW crop counts, not post-dedup "effective" sizes, even though
-    `dataset_build` dedups train only. Weighting by unique content measured *worse*: train gets
-    1,434 unique crops instead of 1,719 and holdout doubles to 10,944 raw rows, because
-    train-only dedup makes a redundancy-heavy session nearly free in train (4,992 collapses to
-    245) but full price in holdout — so "oversized goes to train" is already right (rule 2).
+    A session joins val/test only if it moves that split CLOSER to its target (else 84 % went to
+    holdout); targets come from the pool left after `force_train`. Raw counts, not deduped sizes.
     """
     force_train = set(force_train or ())
     if groups:
@@ -293,8 +216,7 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
         else:
             splits["train"].append(sid)
 
-    # Never emit an empty holdout — EXCEPT where the caller asked for none. A rescue at
-    # frac 0 hands out a split nobody wanted and takes the session out of train.
+    # Never an empty holdout — EXCEPT where the caller asked for none (frac 0).
     for name, frac in (("val", val_frac), ("test", test_frac)):
         if frac <= 0 or splits[name] or len(splits["train"]) <= 1:
             continue
@@ -310,10 +232,8 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
 def fold_groups(gsizes: dict, k: int, seed: int, force_train=None) -> list[list[str]]:
     """Partition GROUPS into k folds of roughly equal crop count (largest-processing-time first).
 
-    `assign_sessions_to_splits` cannot do this: it is a 3-way assignment with target ratios, and
-    k calls produce overlapping test sets — which destroys the one property out-of-fold
-    prediction rests on. `force_train` groups are left out entirely; they get no fold, and the
-    caller has to say so out loud rather than pretend they were audited.
+    k calls of `assign_sessions_to_splits` would overlap their test sets. `force_train` groups
+    get no fold, and the caller has to say so.
     """
     force_train = set(force_train or ())
     rng = random.Random(seed)
@@ -338,10 +258,9 @@ def _assign_by_group(sizes: dict, val_frac: float, test_frac: float, seed: int,
                      force_train: set, groups: dict) -> dict:
     """Run the session greedy over GROUPS, then expand each group back to its sessions.
 
-    A producer that cuts one recording into pseudo-sessions (`composite.build_from_video`) must
-    declare the group, or adjacent frames of one clip land in different splits and val measures
-    train. A group inherits `force_train` from any member — pinning half a clip would let the
-    other half straddle, which is the leak this closes."""
+    Pseudo-sessions of one clip must share a split, or val measures train. A group inherits
+    `force_train` from any member.
+    """
     members: dict = {}
     for sid in sizes:
         members.setdefault(groups.get(sid, sid), []).append(sid)
@@ -364,8 +283,8 @@ def make_split(
     classes: list[str] | None = None,
 ) -> dict:
     CLASSES = classes or config.CLASSES
-    # Assign sessions. `precomputed_splits` (determined by build_dataset on the RAW, complete data)
-    # wins -> this way Train gets duped/augmented, Val/Test stay complete.
+    # `precomputed_splits` (from the RAW, complete data) wins, so train gets deduped, val/test stay
+    # whole.
     if precomputed_splits is not None:
         splits = {k: list(precomputed_splits.get(k, [])) for k in ("train", "val", "test")}
     else:
@@ -374,7 +293,6 @@ def make_split(
                                            force_train=force_train, groups=groups_of(rows))
     split_of = {s: name for name, sids in splits.items() for s in sids}
 
-    # Subsampling ONLY on train; val/test stay complete (real board accuracy).
     train_full = [r for r in rows if split_of.get(r["session_id"]) == "train"]
     train_kept = subsample_classes(train_full, max_empty_ratio, max_class_ratio, seed,
                                    priority_paths=priority_paths)
@@ -382,7 +300,6 @@ def make_split(
     test_rows = [r for r in rows if split_of.get(r["session_id"]) == "test"]
     counts_split = {"train": len(train_kept), "val": len(val_rows), "test": len(test_rows)}
 
-    # Class distribution + weights from the (balanced) TRAIN set.
     train_counts = dict.fromkeys(CLASSES, 0)
     for r in train_kept:
         train_counts[r["label"]] += 1
@@ -426,18 +343,15 @@ def make_split(
 
 def validate_split(split: dict, rows: list[dict],
                    classes: list[str] | None = None) -> tuple[list[str], list[str]]:
-    """(errors, warnings). Errors = degenerate, clean evaluation impossible.
-
-    The class list comes from the split itself (`split["classes"]`) when present — the
-    dataset declares its own class list (14-class `pieces` or the 13-class default) and this
-    check obeys it.
+    """(errors, warnings). Errors = degenerate, clean evaluation impossible. Classes from
+    `split["classes"]`.
     """
     CLASSES = classes or split.get("classes") or config.CLASSES
     errors: list[str] = []
     warnings: list[str] = []
 
-    # Eine Aufnahme in zwei Splits heisst: die mengenbasierten Loader legen IHRE Zeilen in beide.
-    # Das ist Leckage und wird laut verweigert, nicht stillschweigend geradegebogen.
+    # Eine Aufnahme in zwei Splits: die mengenbasierten Loader legen ihre Zeilen in beide — Leckage,
+    # laut verweigert.
     split_names = list(split.get("splits", {}))
     for i, a in enumerate(split_names):
         for b in split_names[i + 1:]:
@@ -446,19 +360,14 @@ def validate_split(split: dict, rows: list[dict],
                           "one split, otherwise its rows are evaluated on and trained on."
                           for sid in both)
 
-    # Session set per class
     class_sessions: dict[str, set] = {c: set() for c in CLASSES}
     for r in rows:
         class_sessions.setdefault(r["label"], set()).add(r["session_id"])
 
-    # Globally present classes
     global_present = {c for c in CLASSES if class_sessions[c]}
-    # only check occluded if present globally
     check_classes = [c for c in CLASSES if c != "occluded" or "occluded" in global_present]
 
-    # Was hier schon ein Fehler ist, IN DEN WORTEN VON `make_split`: beide formulieren denselben
-    # Befund verschieden, `w not in errors` konnte deshalb nie greifen, und jeder dieser Funde
-    # stand zweimal da — einmal als Fehler, einmal als Warnung.
+    # In den Worten von `make_split`: sonst stand jeder Fund zweimal da, als Fehler und als Warnung.
     said: set[str] = set()
     for c in check_classes:
         n_sessions = len(class_sessions[c])
@@ -473,20 +382,16 @@ def validate_split(split: dict, rows: list[dict],
             )
             said.add(f"Class {c} only in one session -> clean evaluation impossible.")
 
-    # Test/Val empty
     for name in ("test", "val"):
         if split["counts"][name] == 0:
             errors.append(f"{name.capitalize()} split is empty — at least 3 sessions needed "
                           "(session-based split).")
             said.add(f"{name} split is empty (too few sessions).")
 
-    # Adopt warnings from make_split (class missing in Val/Test)
     warnings.extend(w for w in split.get("warnings", []) if w not in said)
 
     return errors, warnings
 
-
-# --- verify ---------------------------------------------------------------------------
 
 def verify(rows: list[dict], *, split: dict | None = None, check_files: bool = True,
            classes: list[str] | None = None) -> list[str]:
@@ -523,15 +428,12 @@ def verify(rows: list[dict], *, split: dict | None = None, check_files: bool = T
     return problems
 
 
-# --- Augmentation policy as config ---------------------------------------------------
-
 def write_augment_yaml(path: Path) -> Path:
     import yaml
 
     a = config.AUGMENT
-    # Mirror the FULL policy: an incomplete dump silently under-reports what training does,
-    # and a stale copy on disk is worse than none (it misleads the next reader into tuning
-    # against numbers that are no longer in effect).
+    # Mirror the FULL policy: a stale or partial dump misleads the next reader into tuning dead
+    # numbers.
     policy = {
         "allowed": {
             "brightness": a.brightness, "contrast": a.contrast, "gamma": list(a.gamma),
@@ -550,8 +452,6 @@ def write_augment_yaml(path: Path) -> Path:
         yaml.safe_dump(policy, fh, sort_keys=False, allow_unicode=True)
     return path
 
-
-# --- CLI level ------------------------------------------------------------------------
 
 def run_stats(manifest: str | None = None, json_out: bool = False) -> int:
     path = Path(manifest) if manifest else config.DATA.crop_pool / "manifest.jsonl"

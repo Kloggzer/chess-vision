@@ -32,10 +32,8 @@ os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
 
 def prepare(args):
-    """Rows, Loader-Datensatz und Verlust GENAU wie `chesslab train` sie baut.
-
-    Unter `--head occlusion` (die Vorgabe von `train`) heisst das `OcclusionLoss` mit Gewichten
-    aus `visible_class_counts` — nicht CE mit den Gewichten aus `split.json`.
+    """Rows, Loader-Datensatz und Verlust GENAU wie `chesslab train`: unter `--head occlusion` also
+    `OcclusionLoss` mit Gewichten aus `visible_class_counts`.
     """
     import torch.nn as nn
 
@@ -67,8 +65,8 @@ def prepare(args):
     ts = split.get("train_subsample") or {}
     board_mode = args.backbone.startswith(("board:", "boardattn:"))
     if board_mode and ts.get("max_empty_ratio"):
-        # Wie `train`: aus einem Brett laesst sich keine Zelle wegwerfen, sonst ist keines mehr
-        # vollstaendig und der Brett-Datensatz findet gar nichts.
+        # Aus einem Brett laesst sich keine Zelle wegwerfen, sonst findet der Brett-Datensatz
+        # nichts.
         print("[range] --max-empty-ratio wird ignoriert: der Brettkopf braucht alle 64 Zellen.")
         ts = {**ts, "max_empty_ratio": None}
     train_rows = subsample_classes(filter_rows_by_split(manifest, split, "train"),
@@ -136,8 +134,7 @@ def main() -> int:
     ap.add_argument("--lr-max", type=float, default=1.0)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--erase-p", type=float, default=0.25)
-    # 0, nicht 0.6: bg-Randomisierung braucht Crop-DATEIEN und umgeht damit den Pack. Der Test lief
-    # dadurch auf dem langsamen Loader, ohne es zu sagen — hier zaehlt die Kurve, nicht die Aug.
+    # 0, nicht 0.6: bg-Randomisierung braucht Crop-DATEIEN und umginge still den Pack.
     ap.add_argument("--csv", default=None, help="write the raw curve here")
     args = ap.parse_args()
 
@@ -145,7 +142,7 @@ def main() -> int:
     np.random.seed(args.seed)
 
     ds, crit, classes, train_rows, board_mode, n_out = prepare(args)
-    # Ein Brett-Batch ist 64-mal so gross wie ein Zell-Batch — sonst sprengt er den Speicher.
+    # Ein Brett-Batch ist 64-mal so gross wie ein Zell-Batch.
     batch = max(1, args.batch_size // CELLS) if board_mode else args.batch_size
     dl = DataLoader(ds, batch_size=batch, shuffle=True, drop_last=True,
                     num_workers=args.num_workers, persistent_workers=args.num_workers > 0,
@@ -155,8 +152,8 @@ def main() -> int:
     model = build_model(args.backbone, n_out, pretrained=False, norm=args.norm,
                         head="combined", in_chans=3).to(device)
     if args.resume:
-        # Dieselbe Uebernahme wie `chesslab train` (`model.adopt_weights`): der Kopf des
-        # Basismodells hat 13 Klassen, dieser Korpus 14 — ein striktes load_state_dict stirbt daran.
+        # Dieselbe Uebernahme wie `chesslab train`: der Kopf des Basismodells hat eine andere
+        # Klassenzahl.
         from chesslab.training.model import adopt_weights, checkpoint_of
 
         checkpoint = checkpoint_of(config.DATA.models / args.resume)
@@ -171,8 +168,8 @@ def main() -> int:
     scales = [int(s) for s in args.scales.split(",") if s.strip()]
     rng = np.random.default_rng(args.seed)
 
-    # Geometric ramp: the interesting range spans seven orders of magnitude, so equal STEPS would
-    # spend almost every iteration in the part that is uselessly small.
+    # Geometric ramp over seven orders of magnitude; equal steps would sit in the uselessly small
+    # part.
     mult = (args.lr_max / args.lr_min) ** (1.0 / max(1, args.iters - 1))
     print(f"[range] {args.norm}: {args.iters} iterations, lr {args.lr_min:.1e} -> {args.lr_max:.1e} "
           f"(x{mult:.4f} per step), {len(train_rows)} train crops, scales={scales}")
@@ -208,8 +205,8 @@ def main() -> int:
             opt.step()
 
             v = float(loss.detach())
-            # Bias-corrected exponential average: the raw per-batch loss is far too noisy to read an
-            # edge off, and the correction keeps the first few points from being pulled to zero.
+            # Bias-corrected exponential average: the raw loss is too noisy, and the correction
+            # keeps the first points from being pulled to zero.
             avg = beta * avg + (1 - beta) * v
             sm = avg / (1 - beta ** (it + 1))
             lrs.append(lr)
@@ -237,10 +234,8 @@ def main() -> int:
         print(f"\n[range] {stop}")
 
     i_min = int(np.argmin(a_sm))
-    # The steepest descent of the smoothed loss per log-decade of lr. This is the point Smith's
-    # method points at, and it sits BELOW the minimum on purpose: at the minimum the loss has
-    # already stopped improving, so a schedule that starts there begins in the part of the band
-    # that no longer buys anything.
+    # The steepest descent of the smoothed loss per log-decade (Smith): deliberately BELOW the
+    # minimum, where the loss has already stopped improving.
     if len(a_lr) > 12:
         d = np.gradient(a_sm, np.log10(a_lr))
         lo, hi = 5, max(6, i_min + 1)

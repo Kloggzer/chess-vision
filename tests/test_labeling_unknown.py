@@ -1,4 +1,4 @@
-"""`unknown_squares` reaches the SLICE — the poison path that was open until 2026-08-09."""
+"""`unknown_squares` reaches the SLICE — the poison path this closes."""
 
 
 import pytest

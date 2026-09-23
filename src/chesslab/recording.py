@@ -1,13 +1,7 @@
 """One phone recording, however many files the recorder split it into.
 
-Since 2026-08-13 the Kotlin recorder closes its muxer once a minute, so a session directory holds
-`video.mp4`, `video-001.mp4`, … — one continuous stream in several containers (the encoder never
-stopped, only the container was swapped). Everything here keys its work by WHOLE-RECORDING frame
-indices, which is what `candidate.json` carries, so a tool that opened only `video.mp4` would
-label the first minute and call the recording done: healthy-looking counts over a truncated game.
-
-`android/desktop/RecordingSource.kt` is the reference semantics — segments discovered on DISK, in
-name order, indices running continuously across the boundary.
+The recorder swaps its container once a minute (`video.mp4`, `video-001.mp4`, …); indices run
+continuously across segments, as in `android/desktop/RecordingSource.kt`.
 """
 
 from __future__ import annotations
@@ -39,12 +33,8 @@ class Recording:
                rotate: int | None = None) -> Iterator[tuple[int, Any]]:
         """Yield (whole-recording index, frame) from [start] to the end of the last segment.
 
-        Decoding is forward within a segment and continues into the next one; only a [start] is
-        seeked to, and for a single-file recording that is the plain `CAP_PROP_POS_FRAMES` the
-        callers always used — one segment must behave exactly like the old code.
-
-        `wanted`: yield ONLY these indices, and pay the decode for only those pictures.
-        `rotate`: rotate the usual output, combining with metadata rotation when supported.
+        Forward decode; only [start] is seeked. `wanted` pays the decode for only those pictures,
+        `rotate` combines with metadata rotation.
         """
         first, index = self._locate(start)
         for n, path in enumerate(self.segments[first:]):
@@ -57,10 +47,8 @@ class Recording:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, start - index)
                     index = start
                 while True:
-                    # `grab` advances the container, `retrieve` is what costs: measured 2026-09-08
-                    # on 20260830-162019 (1440x2560), `read` 10.4 ms per frame against `grab`
-                    # 1.96 ms — the YUV-to-BGR conversion and its 11 MB allocation dominate, not
-                    # the decoding. Bit-identical, since `retrieve` decodes the frame `grab` took.
+                    # `grab` advances, `retrieve` is what costs (YUV->BGR plus an 11 MB allocation):
+                    # `read` 10.4 ms against `grab` 1.96 ms per frame. Bit-identical.
                     if wanted is None:
                         ok, frame = cap.read()
                     elif not cap.grab():
@@ -78,21 +66,16 @@ class Recording:
                 cap.release()
 
     def take(self, wanted: Container[int], rotate: int | None = None) -> Iterator[tuple[int, Any]]:
-        """Exactly these indices, from the latest SEEK-FREE start, turned the right way up once.
-
-        Every caller that wants a sparse set had been writing the same three steps by hand — find
-        the segment base, filter to `wanted`, rotate — and each of them is a wrong label when it
-        is wrong. `wanted` must be non-empty and support `min` (a set, a dict or a range).
+        """Exactly these indices from the latest SEEK-FREE start, rotated once. `wanted` must be
+        non-empty and support `min`.
         """
         return self.frames(self.segment_base(min(wanted)), wanted=wanted, rotate=rotate)
 
     def segment_base(self, index: int) -> int:
         """The first whole-recording index of the segment holding [index] — a SEEK-FREE start.
 
-        `frames(start=...)` seeks when [start] is inside a segment, and a seek is not exact on this
-        material: 2 of 7 probes came back with different pixels while `CAP_PROP_POS_FRAMES`
-        reported the asked-for index (2026-09-08). A worker that must begin part-way through a
-        recording therefore opens the containing segment and walks — `grab` costs 1.3 ms a frame.
+        A seek is not exact on this material: 2 of 7 probes returned other pixels while
+        `CAP_PROP_POS_FRAMES` reported the asked index. Walking costs 1.3 ms a frame.
         """
         return self._locate(index)[1]
 
@@ -102,7 +85,6 @@ class Recording:
             return 0, 0
         base = 0
         for i, path in enumerate(self.segments[:-1]):
-            # A start in minute two needs no decoder probes for the rest of the game.
             if i == len(self._counts):
                 self._counts.append(_frame_count(path))
             count = self._counts[i]
@@ -112,10 +94,8 @@ class Recording:
         return len(self.segments) - 1, base
 
 def _frame_count(path: Path) -> int:
-    """Wie `frames()`: ein unlesbarer Container ist ein Fehler, keine Laenge 0.
-
-    Als 0 durchgereicht verschob sich `base` in `_locate` nicht, und JEDER spaetere Index zeigte
-    auf die falsche Log-Zeile — ein falsches FEN, kein fehlender Frame.
+    """Ein unlesbarer Container ist ein Fehler, keine Laenge 0: sonst zeigt jeder spaetere Index auf
+    die falsche Log-Zeile — ein falsches FEN.
     """
     cap = cv2.VideoCapture(str(path))
     try:
@@ -128,13 +108,11 @@ def _frame_count(path: Path) -> int:
 
 
 def _combined_rotation(cap, rotate: int | None) -> int | None:
-    """Cancel redundant metadata/user rotations without resampling or changing orientation.
+    """Cancel redundant metadata/user rotations without resampling.
 
-    The two angles ADD, which holds only because both turn the same way: measured 2026-09-08 on
-    three phone recordings, `cv2.rotate(raw, ROTATE_90_CLOCKWISE)` reproduces the auto-oriented
-    frame that `ORIENTATION_META` calls 90. Our recordings all cancel (90 + 270), and a
-    cancellation cannot tell the two conventions apart — hence the direct measurement.
-    """
+    The angles ADD: `ROTATE_90_CLOCKWISE` on the raw frame reproduces what `ORIENTATION_META`
+    calls 90 (measured directly — our 90 + 270 recordings cancel and cannot tell conventions
+    apart)."""
     angles = {cv2.ROTATE_90_CLOCKWISE: 90, cv2.ROTATE_180: 180,
               cv2.ROTATE_90_COUNTERCLOCKWISE: 270}
     if rotate is None or rotate not in angles or not cap.get(cv2.CAP_PROP_ORIENTATION_AUTO):

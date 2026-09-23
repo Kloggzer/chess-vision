@@ -150,12 +150,10 @@ def test_split_is_session_disjoint_and_respects_empty_ratio():
     assert cw["empty"] == min(v for v in cw.values() if v > 0)
 
 
-# --- unequal-session splits (regression, 2026-07-27) ---------------------------------
+# --- unequal-session splits (regression) ---
 #
-# The real corpus is wildly unequal: 4992, 3520, 1600, 1024, 1024, 832, 384 crops per
-# session, where the top two are 64 % of the rows. Greedy largest-first with no overshoot
-# guard put both of them into val/test and left train with the crumbs (train 1611 while
-# 8512 sat in holdout). These pin the three properties that prevent it.
+# The real corpus is wildly unequal (4992 ... 384 crops per session); greedy largest-first put the
+# top two into val/test and left train the crumbs. These pin the properties that prevent it.
 
 _UNEQUAL = {"big1": 4992, "big2": 3520, "mid": 1600,
             "old1": 1024, "old2": 1024, "small1": 832, "small2": 384}
@@ -440,8 +438,9 @@ def test_a_narrower_class_mode_preserves_the_per_session_split(tmp_path, monkeyp
 
 
 def test_piece_class_build_is_unchanged(tmp_path, monkeypatch):
-    """`--classes pieces13` is the default since 2026-08-18: the explicit mode and the default
-    must produce a byte-identical split.json. `occluded` is a coverage target now, not a class."""
+    """`--classes pieces13` is the default: explicit mode and default produce a byte-identical
+    split.json. `occluded` is a coverage target now, not a class.
+    """
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)

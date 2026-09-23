@@ -1,7 +1,5 @@
-"""Three-frame foreground proposals, separate from measured training alpha.
-
-A pixel must disagree with BOTH bracketing views, which suppresses a piece present only
-before or only after a move. Review proposals, never automatic coverage labels.
+"""Three-frame foreground proposals, separate from measured training alpha: a pixel must disagree
+with BOTH bracketing views. Review proposals, never automatic coverage labels.
 """
 
 from __future__ import annotations
@@ -39,10 +37,8 @@ def difference(current, reference):
 def alpha_proposal(before, current, after, *, low=config.TEMPORAL_MATTE_LOW,
                    high=config.TEMPORAL_MATTE_HIGH, method="local",
                    min_area=config.TEMPORAL_MATTE_MIN_AREA, grow=config.TEMPORAL_MATTE_GROW):
-    """Alpha from the local fit I = t * B + foreground (t from cov/var), or the raw difference.
-
-    The fit closes the checkerboard holes of a raw diff mask; shadows and moving pieces
-    can still satisfy it, so this remains a proposal.
+    """Alpha from the local fit I = t * B + foreground, or the raw difference; closes the
+    checkerboard holes of a raw diff. Shadows and moving pieces still fit, so a proposal only.
     """
     if before.shape != current.shape or after.shape != current.shape:
         raise ValueError("Three-frame masks require the same rectified raster geometry")
@@ -55,8 +51,7 @@ def alpha_proposal(before, current, after, *, low=config.TEMPORAL_MATTE_LOW,
     if method != "local":
         raise ValueError("Matte method must be local or difference")
     cur = current.astype(np.float32)
-    # A region belongs to either endpoint of the move, not their average. Decide per
-    # neighbourhood: per pixel, the hand itself picks whichever endpoint it resembles.
+    # A region belongs to either endpoint of the move, not their average: decided per neighbourhood.
     backgrounds = []
     errors = []
     for image in (before, after):
@@ -73,10 +68,8 @@ def alpha_proposal(before, current, after, *, low=config.TEMPORAL_MATTE_LOW,
     variance = np.maximum(0., np.sum(mean(bg * bg) - mean_b * mean_b, axis=2))
     covariance = np.sum(mean(bg * cur) - mean_b * mean_i, axis=2)
     local = np.clip(1. - covariance / np.maximum(variance, 64.), 0., 1.)
-    # The fit is only a transmission when 0 <= t <= 1 on a textured patch. Flat
-    # patches cannot identify it, and t > 1 (a bright hand over a dark piece
-    # varied MORE than the board) punched holes into opaque arms — measured
-    # 2026-09-11 on 009564: strength 99 at the holes against 49 on the arm.
+    # Only 0 <= t <= 1 on a textured patch is a transmission; t > 1 (bright hand over dark piece)
+    # punched holes into opaque arms.
     valid = (variance >= 64.) & (covariance <= variance)
     local = np.where(valid, local, diff_alpha)
     support = cv2.dilate((strength > low).astype(np.uint8), np.ones((21, 21), np.uint8))
@@ -98,24 +91,19 @@ def solid_blobs(alpha, *, min_area=config.TEMPORAL_MATTE_MIN_AREA,
     keep = np.isin(labels, [i for i in range(1, count)
                             if stats[i, cv2.CC_STAT_AREA] >= min_area * alpha.size])
     holes = enclosed(keep)
-    # Dips inside the blob (piece texture under the hand) close to their surroundings;
-    # a uniform translucent blur is left at its own level.
-    # Rect kernels: separable, so 51 px costs what 5 px does; ellipses cost 20 s per run.
+    # Rect kernels are separable, so 51 px costs what 5 px does; ellipses cost 20 s per run.
     closed = cv2.morphologyEx(alpha, cv2.MORPH_CLOSE, np.ones((51, 51), np.uint8))
     filled = np.where(keep | holes, np.maximum(alpha, closed), alpha)
-    # The core of a blob is one level — its upper quantile — and only the rim keeps a gradient.
-    # Assigned per component of the FILLED silhouette, so a wide hole gets it too.
+    # The core of a blob is one level (its upper quantile), per component of the FILLED silhouette.
     level = np.zeros_like(alpha)
     _, filled_labels = cv2.connectedComponents((keep | holes).astype(np.uint8), connectivity=8)
     for i in np.unique(filled_labels[keep]):
         component = filled_labels == i
         level[component] = np.quantile(alpha[component & keep], .8)
-    # The blob grows by [grow] px: a moving hand's blurred rim differs too little from the
-    # plate to pass `low`, so the measured edge sits inside the real one.
+    # A moving hand's blurred rim differs too little from the plate to pass `low`, so the blob
+    # grows.
     disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1))
     body = cv2.dilate((keep | holes).astype(np.uint8), disc)
-    # Smooth the outline itself: blur the silhouette and re-threshold, which rounds
-    # jagged edges without moving the boundary on average.
     square = np.ones((21, 21), np.uint8)
     body = cv2.morphologyEx(cv2.morphologyEx(body, cv2.MORPH_OPEN, square), cv2.MORPH_CLOSE, square)
     body = cv2.GaussianBlur(body.astype(np.float32), (0, 0), 12.) > .5
@@ -126,10 +114,8 @@ def solid_blobs(alpha, *, min_area=config.TEMPORAL_MATTE_MIN_AREA,
 
 
 def refine_edges(image, alpha, *, inner=15, outer=20, scale=.5):
-    """Closed-form matting (Levin 2008) pulls the rim onto the image's own edge.
-
-    Trimap from our silhouette: core in by [inner] = foreground, band out by [outer] =
-    unknown. Solved at [scale]: the solver is the cost, a 2-px rim on a 116-px cell is not.
+    """Closed-form matting (Levin 2008) pulls the rim onto the image's own edge; solved at [scale],
+    because the solver is the cost.
     """
     from pymatting import estimate_alpha_cf
 
@@ -151,17 +137,14 @@ def refine_edges(image, alpha, *, inner=15, outer=20, scale=.5):
 
 def bracketing(rows, target, *, max_gap_s=config.TEMPORAL_MATTE_MAX_GAP_S,
                peers=config.TEMPORAL_MATTE_PEERS):
-    """Nearest clean neighbour each side, plus up to [peers] frames of its interval.
-
-    The nearest one must be close in time with at most one move between; the rest
-    share its ply and FEN, so the board is static and their median is a cleaner plate.
+    """Nearest clean neighbour each side (at most one move between), plus up to [peers] frames of
+    its interval, whose median is a cleaner plate.
     """
     def index(row):
         return int(row["frame"].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].split(".")[0])
 
-    # Eine Zeile OHNE Brett ist der gewoehnliche Fall (nichts zu bezeugen), ein kaputtes `ts` oder
-    # ein fehlendes `ply` ist es nicht: beides fiel in dieselbe stille `None`-Antwort, und eine
-    # beschaedigte Zeile sah damit aus wie eine, fuer die es einfach keinen Nachbarn gab.
+    # Eine Zeile OHNE Brett ist der gewoehnliche Fall; ein kaputtes `ts` oder fehlendes `ply` ist
+    # Schaden und darf nicht wie "kein Nachbar" aussehen.
     try:
         here = index(target)
         clean = [r for r in rows if Path(str(r.get("board", ""))).parent.name == BOARD_DIR]
@@ -197,10 +180,7 @@ def read_board(recording, board, cache=None):
 
 
 def plate(recording, rows, cache=None):
-    """Per-pixel median of clean views: sensor noise and blur average out, the board stays.
-
-    [cache] maps the tuple of board paths to the plate — frames of one interval share it.
-    """
+    """Per-pixel median of clean views. [cache] maps the tuple of board paths to the plate."""
     key = tuple(r["board"] for r in rows)
     if cache is not None and key in cache:
         return cache[key]
@@ -234,8 +214,7 @@ def propose_frame(recording, target, compatible, directory, *, low, high, method
         if refine:
             alpha = refine_edges(images[1], alpha)
     mask = np.rint(alpha * 255).astype(np.uint8)
-    # Alpha is 8-bit grey: PNG is lossless in 6 ms; lossless webp took 200 ms and comes back
-    # as three channels. The RGBA view is a viewing aid, so it is optional and lossy.
+    # PNG: lossless in 6 ms; lossless webp took 200 ms and came back as three channels.
     files = [(f"{stem}.alpha.png", mask, [cv2.IMWRITE_PNG_COMPRESSION, 1])]
     if rgba:
         view = cv2.cvtColor(images[1], cv2.COLOR_BGR2BGRA)
@@ -268,8 +247,8 @@ def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
     stamp = source_stamp(recording)
     profile = _profile_for_session(read_session_meta(recording), None)
     entries = read_log(recording)
-    # Candidates are filtered by coverage; ours must not count, or an adopted frame drops out
-    # of the next run and `adopt` then deletes its own row (650 -> 631 on 00-39-57).
+    # Our coverage must not count, or an adopted frame drops out of the next run and `adopt` deletes
+    # its own row.
     flags, stale = load_flags(recording, session_id, entries, sam_matte(recording))
     if stale:
         raise ValueError("Temporal scan is stale; run session temporal-scan first")
@@ -307,14 +286,12 @@ def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
 
 
 def write_proposal_meta(path: Path, metadata: dict) -> None:
-    # ungestagt geschrieben, waehrend die `proposals.jsonl` daneben umgehaengt wird. Eine
-    # halbe Datei laesst `require_fresh_proposals` an einem JSONDecodeError sterben statt an dem
-    # "regenerate them", das genau dafuer dasteht.
+    # Atomar: eine halbe Datei liesse `require_fresh_proposals` an einem JSONDecodeError sterben
+    # statt an seinem "regenerate them".
     write_atomic(path, json.dumps(metadata))
 
 
-#: `matte.py` schreibt diese Datei seit je bewacht; die drei Temporal-Schreiber ersetzten sie
-#: unbewacht, waehrend `matte.alpha_worker` parallel anhaengt.
+#: Bewacht: `matte.alpha_worker` haengt parallel an.
 _CONTESTED = ("matte.jsonl changed while {what} — the alpha worker is writing it. "
               "Let it finish and run this again; nothing was written.")
 
@@ -325,19 +302,15 @@ def sam_matte(recording):
 
 
 def matted_frames(rows: list[dict]) -> set[str]:
-    """Welche Frames eine MESSUNG tragen — Punkt 28: eine spaetere Absage loescht die fruehere.
-
-    Als blosser Filter (`coverage is not None` ueber alle Zeilen) blieb ein gemessen-dann-
-    abgesagtes Frame "gemattet", bekam kein Alpha und ging mit `coverage = 0.0` ins Training.
+    """Welche Frames eine MESSUNG tragen: eine spaetere Absage loescht die fruehere, sonst ging ein
+    abgesagtes Frame mit `coverage = 0.0` ins Training.
     """
     return set(measured_coverage(rows))
 
 
 def adopt_proposals(session_id, *, method="local"):
-    """Proposals with a hand become matte rows, the way SAM's do — for frames SAM never cut.
-
-    SAM's rows and files are never touched; our own (`source: temporal`) are replaced whole,
-    so a rerun refreshes them. The matte lane lists the frame for the same human check.
+    """Proposals with a hand become matte rows for frames SAM never cut. SAM's rows and files are
+    never touched; our own (`source: temporal`) are replaced whole.
     """
     from .calibration import load_profile
     from .labeling import MATTE_DIRTY
@@ -356,9 +329,7 @@ def adopt_proposals(session_id, *, method="local"):
     rows_before = read_jsonl(matte_path)
     kept_rows = [r for r in rows_before if r.get("source") != "temporal"]
     ours = {r["frame"] for r in rows_before} - {r["frame"] for r in kept_rows}
-    # Wie `sam_matte`, einschliesslich Punkt 28: eine Absage ist die JUENGERE Aussage und loescht
-    # die fruehere Messung. Als blosser Filter blieb ein gemessen-dann-abgesagtes Frame "gemattet",
-    # bekam kein Alpha und ging mit `coverage = 0.0` ins Training — die Coverage-Matte-Falle.
+    # Wie `sam_matte`: eine Absage ist die JUENGERE Aussage und loescht die fruehere Messung.
     have = matted_frames(kept_rows)
     # Dieselbe Herkunft wie SAMs Zeilen: diese Coverage ist gegen DIESEN Export geschnitten.
     stamp = provenance.source(recording)
@@ -369,8 +340,8 @@ def adopt_proposals(session_id, *, method="local"):
         stem, entry = row["frame"], entries.get(row["frame"])
         if not row.get("alpha") or entry is None:
             continue
-        # A file without any row is ours: SAM writes row and file together and leaves no
-        # orphans (0 in six untouched sessions, 2026-09-11); an aborted adopt does.
+        # A file without any row is ours: SAM writes row and file together; an aborted adopt leaves
+        # orphans.
         if stem in have:
             kept += 1
             continue
@@ -396,15 +367,10 @@ def adopt_proposals(session_id, *, method="local"):
 
 
 def require_fresh_proposals(directory, recording) -> None:
-    """Die Vorschlaege muessen zu der Quelle passen, aus der sie entstanden sind.
-
-    `upsert_proposals` ersetzt GANZE Frames; ein veralteter Satz stempelt sonst Alphas von
-    vorgestern auf den Korpus.
-    """
+    """Die Vorschlaege muessen zu ihrer Quelle passen: `upsert_proposals` ersetzt GANZE Frames."""
     metadata_path = directory / "proposals.meta.json"
     if not metadata_path.is_file():
-        # `propose_session` schreibt die Vorschlaege VOR der Meta: stirbt der Lauf dazwischen,
-        # liegt ein vollstaendig aussehender Satz ohne Herkunft da. Ohne Stempel keine Adoption.
+        # `propose_session` schreibt die Vorschlaege VOR der Meta; ohne Stempel keine Adoption.
         raise RuntimeError(f"{directory.name}: proposals carry no source stamp — regenerate them")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if metadata.get("source") != source_stamp(recording):
@@ -412,10 +378,8 @@ def require_fresh_proposals(directory, recording) -> None:
 
 
 def upsert_proposals(session_id, *, method="local"):
-    """Where SAM found NOTHING on a frame, temporal's matte replaces it whole — never per cell.
-
-    Motion blur is what SAM misses (459 frames in four sessions, 2026-09-11). SAM's file
-    survives as `<stem>.sam.webp`; hand-fixed frames and frames where SAM found a hand stay.
+    """Where SAM found NOTHING, temporal's matte replaces the frame whole — never per cell. Motion
+    blur is what SAM misses; its file survives as `<stem>.sam.webp`.
     """
     from .calibration import load_profile
     from .labeling import MATTE_DIRTY
@@ -426,8 +390,7 @@ def upsert_proposals(session_id, *, method="local"):
     report = directory / "proposals.jsonl"
     if not report.is_file():
         raise FileNotFoundError(f"{session_id}: no proposals — run session temporal-mattes first")
-    # Dieselbe Wache wie `adopt_proposals`: hier werden GANZE Frames ersetzt, veraltete Alphas
-    # waeren also teurer als dort.
+    # Dieselbe Wache wie `adopt_proposals`; hier werden GANZE Frames ersetzt.
     require_fresh_proposals(directory, recording)
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
@@ -438,16 +401,14 @@ def upsert_proposals(session_id, *, method="local"):
     replaced = len(rows_before) - len(kept_rows)
     mattes = recording / MATTE_DIR
     backups = {p.name.removesuffix(".sam.webp") for p in mattes.glob("*.sam.webp")}
-    # Punkt 28, wie `sam_matte`: SAMs Absage ist die JUENGERE Aussage und nimmt die fruehere
-    # Messung zurueck. Als blosser Filter gelesen blieb die alte Zahl stehen und zaehlte als
-    # `sam_found` — ein Fund, den niemand gemessen hat.
+    # SAMs Absage nimmt die fruehere Messung zurueck; sonst zaehlte die alte Zahl als `sam_found`.
     sam = measured_coverage(r for r in kept_rows if r.get("source") != "temporal")
     stamp_now = datetime.now(UTC).isoformat()
     stamp = provenance.source(recording)
     upserted, found, fixed = 0, 0, 0
     fresh = []
-    # Wie `close_seams`: die Alphas gehen in Nachbardateien und werden erst umgehaengt, wenn der
-    # Ledger steht. Vorher trug nach einem `Contested` die Datei SAMs Alpha, der Ledger unsere Coverage.
+    # Alphas in Nachbardateien, umgehaengt erst nach dem Ledger: sonst trug nach `Contested` die
+    # Datei SAMs Alpha, der Ledger unsere Coverage.
     staged: dict[str, Path] = {}
     try:
         for row in read_jsonl(report):
@@ -462,8 +423,7 @@ def upsert_proposals(session_id, *, method="local"):
                 continue
             alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
             coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
-            # Dieselbe Schwelle wie oben: `solid` war ein zweiter, undokumentierter Schnitt
-            # fuer dieselbe Entscheidung, den nie ein Aufrufer gesetzt hat.
+            # Dieselbe Schwelle wie oben, kein zweiter Schnitt.
             if max(coverage.values()) <= MATTE_DIRTY:
                 continue
             tmp = mattes / f"{stem}.tmp.webp"
@@ -490,9 +450,8 @@ def upsert_proposals(session_id, *, method="local"):
 
 
 def pass_inputs(session_id) -> dict:
-    """Was der Pass ausser dem Log las: `matte.jsonl` und die Eingaben seines Scans (`source_stamp`).
-
-    Nach dem letzten eigenen Schreiben nehmen: spaetere SAM-Zeilen hat kein Upsert gesehen.
+    """Was der Pass ausser dem Log las: `matte.jsonl` und die Eingaben seines Scans; nach dem
+    letzten eigenen Schreiben genommen.
     """
     recording, _ = session_dir(session_id)
     try:
@@ -518,8 +477,7 @@ def write_pass_report(session_id, report: dict, inputs: dict | None = None) -> P
     recording, _ = session_dir(session_id)
     path = config.DATA.reports / "temporal-mattes" / recording.name / "pass.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    # `chain.ts` vergleicht `_source` und `_inputs` dieser Datei. Eine halbe Datei ist kein
-    # JSON, und die Sprosse laesst sich dann weder oeffnen noch schliessen.
+    # `chain.ts` vergleicht `_source` und `_inputs`; eine halbe Datei ist kein JSON.
     seen = pass_inputs(session_id) if inputs is None else inputs
     write_atomic(path, json.dumps({**report, "_source": provenance.source(recording),
                                    **({"_inputs": seen} if seen else {})}))
@@ -536,17 +494,12 @@ def prune_dead_rows(session_id):
         return {"path": matte_path, "dropped": 0, "kept": 0}
     stamp = stamp_of(matte_path)
     rows = read_jsonl(matte_path)
-    # Zwei Regeln, weil die zwei Quellen verschieden entstehen:
-    # `temporal` ist ein Frame, den SAM nachtraeglich schneidet — seine Zeile gewinnt, auch leer.
-    # `upsert` existiert, WEIL SAM nichts fand; ein leerer SAM-Schnitt ueberholt ihn also nicht,
-    # ein Schnitt MIT Verdeckung schon (sonst blieben zwei Zeilen, und `read_matte` nimmt die letzte).
-    # Beides fragt die WIRKSAME SAM-Zeile: eine spaetere Absage ist kein Schnitt.
+    # `temporal` ist ein Frame, den SAM spaeter schneidet: seine Zeile gewinnt, auch leer. `upsert`
+    # existiert, WEIL SAM nichts fand: nur ein Schnitt MIT Verdeckung ueberholt ihn.
     sam = measured_coverage(r for r in rows if r.get("source") not in ("temporal", "upsert"))
 
     def sam_rows(only_found: bool) -> set[str]:
-        # DIESELBE Schwelle, die den Upsert ueberhaupt erst anlegt: `any(...)` liess schon 0,0001
-        # als Fund gelten und loeschte damit die staerkere Matte zugunsten einer Messung, die
-        # `upsert_proposals` selbst "nichts gefunden" nennt.
+        # DIESELBE Schwelle, die den Upsert anlegt: `any(...)` liess schon 0,0001 als Fund gelten.
         return {frame for frame, row in sam.items()
                 if not only_found or max(row["coverage"].values(), default=0.) > MATTE_DIRTY}
 

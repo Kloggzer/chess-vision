@@ -1,11 +1,5 @@
-"""Stage 2 — Game state.
-
-Knows the exact board state (FEN) at each capture time — the source of the labels.
-`GameState` is purely logical (knows no camera); orientation (`white_pov`) lives in the
-calibration profile and is only connected to geometry in Stage 3.
-
-Label mapping (FEN letter -> class) lives centrally in `config.label_from_piece`, so that
-it matches the canonical class list exactly.
+"""Stage 2 — game state: the exact FEN at each capture time, the source of the labels. Purely
+logical; orientation lives in the calibration profile.
 """
 
 from __future__ import annotations
@@ -22,12 +16,11 @@ class GameState:
 
     def __init__(self, fen: str | None = None) -> None:
         self.board = chess.Board(fen) if fen else chess.Board()
-        # Cheap semantic identity for the work auditor. Hashing/serializing the board merely to
-        # decide whether serialization is redundant would perform the work being measured.
+        # Cheap semantic identity for the work auditor; hashing the board would do the work being
+        # measured.
         self._revision = 0
         self._fen_cache: tuple[int, str] | None = None
 
-    # -- Queries --
     def fen(self) -> str:
         if self._fen_cache is not None and self._fen_cache[0] == self._revision:
             return self._fen_cache[1]
@@ -37,7 +30,7 @@ class GameState:
         return value
 
     def piece_map(self) -> dict[str, str]:
-        """{'e1': 'K', 'e8': 'k', ...} — only occupied squares, FEN letters."""
+        """{'e1': 'K', 'e8': 'k', ...}, occupied squares only."""
         return {chess.square_name(sq): piece.symbol() for sq, piece in self.board.piece_map().items()}
 
     def label_for(self, square: str) -> str:
@@ -47,7 +40,7 @@ class GameState:
         return config.label_from_piece(piece.symbol() if piece else None)
 
     def labels(self) -> dict[str, str]:
-        """All 64 squares -> label (occupied + 'empty'). Basis for auto-labeling."""
+        """All 64 squares -> label (occupied + 'empty')."""
         return {chess.square_name(sq): self.label_for(chess.square_name(sq)) for sq in chess.SQUARES}
 
     def is_game_over(self) -> bool:
@@ -57,14 +50,13 @@ class GameState:
         """Ply index starting at 0."""
         return self.board.ply()
 
-    # -- State changes --
     def push_san(self, san: str) -> None:
         """Raises on illegal/ambiguous/malformed move (chess.*Error <: ValueError)."""
         self.board.push_san(san)
         self._revision += 1
 
     def push_uci(self, uci: str) -> None:
-        move = chess.Move.from_uci(uci)  # InvalidMoveError on syntax error
+        move = chess.Move.from_uci(uci)
         with measure("Legal move generations", (id(self), self._revision)):
             if move not in self.board.legal_moves:
                 raise chess.IllegalMoveError(f"illegal move: {uci}")
@@ -82,7 +74,6 @@ class GameState:
         self.board.set_fen(fen)
         self._revision += 1
 
-    # -- intern --
     @staticmethod
     def _parse_square(square: str) -> chess.Square:
         try:
@@ -93,10 +84,8 @@ class GameState:
 
 
 def possible_labels(board: chess.Board, plies: int = 1) -> dict[str, set[str]]:
-    """Per square, every label reachable within `plies` half-moves.
-
-    The CURRENT placement is included: most frames sit between moves, and a prior without that
-    option masks away the truth on every resting frame. Kotlin twin: `Expected.kt possibleLabels`.
+    """Per square, every label reachable within `plies` half-moves, the CURRENT placement included —
+    most frames sit between moves. Kotlin twin: `Expected.kt possibleLabels`.
     """
     out: dict[str, set[str]] = {chess.square_name(sq): set() for sq in chess.SQUARES}
     seen: set[str] = set()
@@ -124,14 +113,9 @@ def _child(board: chess.Board, move: chess.Move) -> chess.Board:
     return nxt
 
 
-# --- PGN-Helfer (Modus A) -------------------------------------------------------------
-
 def physical_inventory_violations(fen: str, inventory: dict[str, int] | None = None) -> list[str]:
-    """Return labels that require more physical pieces than available per color.
-
-    A standard set has one queen per color. Legal chess can create a second queen via
-    promotion, but if the real board uses a chip/upside-down piece, auto-labeling that
-    square as a queen would poison the training data.
+    """Labels that need more physical pieces than a set holds per color: a promoted second queen on
+    the real board is a chip, and labelling it a queen poisons the data.
     """
     inv = inventory or config.DEFAULT_INVENTORY
     board = chess.Board(fen)

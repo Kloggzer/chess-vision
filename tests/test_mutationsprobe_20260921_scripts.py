@@ -1,4 +1,4 @@
-"""Mutationsprobe 2026-09-21 ueber `scripts/`: fehlende und ungedeckte Sperren."""
+"""Mutationsprobe ueber `scripts/`: fehlende und ungedeckte Sperren."""
 
 from __future__ import annotations
 

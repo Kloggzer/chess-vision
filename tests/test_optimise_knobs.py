@@ -36,8 +36,8 @@ def test_scharfe_wachen_sind_zulaessig(_wachen):
 
 
 def test_constraints_tragen_veto_und_alarm():
-    # Vier harte Achsen. Alarme fehlten bis 2026-09-20: der Champion kaufte 437 Frames Latenz
-    # mit zwei zusaetzlichen, und nichts in der Suche sah das.
+    # Vier harte Achsen; ohne Alarme kaufte der Champion Latenz mit zusaetzlichen Alarmen,
+    # unbemerkt.
     class Trial:
         user_attrs = {"fehlende_treffer": 0.0, "phantome": 0.0,
                       "entwaffnet": 1.0, "extra_alarme": 2.0}

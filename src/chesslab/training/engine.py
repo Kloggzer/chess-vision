@@ -18,8 +18,8 @@ def get_device(require_gpu: bool):
     return torch.device("cpu")
 
 
-#: Eval loaders per dataset — see `evaluate_dataset`. WeakKey, not `id()`: an id is reused after
-#: the object is collected, and the next dataset would silently inherit the wrong loader.
+#: Eval loaders per dataset. WeakKey, not `id()`: an id is reused after collection, and the next
+#: dataset would inherit the wrong loader.
 _LOADERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
@@ -27,10 +27,8 @@ _LOADERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 256, num_workers: int = 4,
                      input_size: int | None = None, keep_workers: bool = True,
                      prefetch_factor: int = 2) -> dict:
-    """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset.
-
-    `input_size`: wenn gesetzt, wird jeder Batch auf diese Eingabegröße skaliert (size-agnostisches
-    Modell) → so misst man die Genauigkeit bei einer bestimmten Deployment-Auflösung (Auflösungs-Kurve).
+    """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset; `input_size`
+    rescales every batch to measure one deployment resolution.
     """
     import torch
     from torch.utils.data import DataLoader
@@ -44,13 +42,11 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     kw = {"batch_size": batch_size, "shuffle": False,
           **config.loader_kwargs(num_workers, persistent=keep_workers, pin_memory=not low_memory,
                                  prefetch_factor=prefetch_factor)}
-    # Der Brettdatensatz bringt sein eigenes Zusammenlegen mit — ohne das kaeme das Ziel als
-    # `(B, 64, 2)` an und `occluding` unten laege still falsch.
+    # Ohne das eigene Zusammenlegen kaeme das Ziel als `(B, 64, 2)`, und `occluding` laege still
+    # falsch.
     if getattr(dataset, "collate_fn", None) is not None:
         kw["collate_fn"] = dataset.collate_fn
-    # Kept across calls: the training loop evaluates once per EPOCH, and a fresh loader spawns
-    # `num_workers` processes that each re-import torch — on Windows spawn that is the idle gap
-    # between epochs, and it grows with the worker count instead of shrinking.
+    # Kept across calls: a fresh loader per epoch re-imports torch in every Windows spawn worker.
     if keep_workers:
         per_ds = _LOADERS.setdefault(dataset, {})
         loader = per_ds.get((batch_size, num_workers, prefetch_factor))
@@ -92,8 +88,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
             else:
                 loss_sum.add_(criterion(logits, y).detach() * logits.shape[0])
                 loss_den.add_(logits.shape[0])
-        # An occlusion run carries (class, coverage) in one target and reads its LAST logit as the
-        # coverage — the class metrics must look past both or they score a regression head.
+        # An occlusion run's LAST logit is coverage; class metrics must look past it.
         occluding = y.dim() == 2
         if occluding:
             cover.extend(y[:, 1].cpu().tolist())
@@ -101,9 +96,8 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
             logits, y = logits[:, :-1], y[:, 0].long()
         n_out = int(logits.shape[1])
         p = logits.argmax(1)
-        # Wie SICHER ist das Modell? Nicht die Genauigkeit entscheidet die Dekodierung,
-        # sondern wie ueberzeugt ein Fehler auftritt — ein Modell mit 1,00 auf falschen
-        # Feldern reisst den Beam mit, eines mit 0,80 laesst sich korrigieren.
+        # Wie SICHER ist ein Fehler? Ein Modell mit 1,00 auf falschen Feldern reisst den Beam mit,
+        # eines mit 0,80 laesst sich korrigieren.
         conf.extend(logits.softmax(1).max(1).values.cpu().tolist())
         keep_logits.append(logits.detach().cpu())
         trues.extend(y.cpu().tolist())
@@ -116,27 +110,18 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         raise ValueError(f"dataset has {len(dataset.rows)} rows but evaluation produced {len(trues)} labels")
     from .occlusion import classification_eligible
 
-    # Die Maske haengt an der ZEILE, nicht am Kopf. Bis 2026-09-16 hing sie hier an `cover`, also
-    # rechneten Korpuszahl und Zahl je Aufnahme bei einem Lauf ohne Occlusion-Kopf ueber
-    # verschiedene Zellmengen — `per_session_metrics` und `visible_board_items` filtern unbedingt.
-    # Die FESTE Maske, nicht die des Laufs: `--visible-max`/`--dark-min` verschoeben sonst die
-    # benotete Zellmenge, waehrend `checkpoint_metrics` auf den Konstanten steht.
+    # Die FESTE Maske an der ZEILE, nicht am Kopf oder an `--visible-max`: sonst benoteten
+    # Korpuszahl und Checkpoint-Metrik verschiedene Zellmengen.
     eligible = np.array([classification_eligible(r) for r in dataset.rows], dtype=bool)
     metric_trues = trues_a[eligible]
     metric_preds = preds_a[eligible]
     metric_conf = np.asarray(conf)[eligible]
     # Eine leere Menge hat keine Note: `0.0` ist die SCHLECHTESTE, nicht die fehlende.
-    # Konvention wie `per_session_metrics` (fafc4f7d).
     square_acc = float((metric_trues == metric_preds).mean()) if len(metric_trues) else None
 
-    # Macro-recall: mean of per-class hit rate over present classes.
-    # Meaningful even when board_acc=0 (small/hard datasets) and ignores the
-    # empty dominance -> better checkpoint/early-stop metric than raw square_acc.
-    # The MODEL's output width decides the matrix size. Deriving it from the data - as this did,
-    # via `max(trues.max(), preds.max()) + 1` whenever the dataset had no `c2i` attribute, which is
-    # every packed dataset - means one out-of-range label allocates an (N x N) array from it. That
-    # is how a training run died at epoch 5 of 20 with `array is too big` instead of naming the bad
-    # value, after four epochs had already passed through the same code.
+    # Macro-recall over present classes ignores the empty dominance. The MODEL's output width sizes
+    # the matrix: derived from the data, one out-of-range label allocated an (N x N) array and
+    # killed a run.
     n_classes = n_out if n_out else (len(getattr(dataset, "c2i", {})) or 1)
     if n:
         lo = int(trues_a.min())
@@ -150,16 +135,13 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     present = cm.sum(axis=1) > 0
     macro_recall = float(per_class_recall(cm)[present].mean()) if present.any() else None
 
-    # Board-Accuracy: Crops über (session, frame) gruppieren (dataset.rows ist ausgerichtet).
-    # strict: rows and predictions MUST align 1:1 — silent truncation here would compute
-    # board accuracy on a shifted pairing (the plausible-but-wrong failure mode).
+    # strict: rows and predictions MUST align 1:1, or board accuracy scores a shifted pairing.
     every = [((r["session_id"], str(r["frame"])), bool(t == p))
              for r, t, p in zip(dataset.rows, trues, preds, strict=True)]
     items = [cell for cell, keep in zip(every, eligible, strict=True) if keep]
-    # Die HARTE Zahl geht ueber jede Zelle; gefiltert war sie ihr eigener Zwilling.
+    # Die HARTE Zahl geht ueber jede Zelle.
     board_acc = board_accuracy(every)
-    # Zwei Zwillinge neben der harten Zahl, weil die allein nicht lesbar ist: ohne die verdeckten
-    # Zellen (die der Verlust maskiert, also nie gelernt wurden) und mit einer Zelle Spielraum.
+    # Zwei Zwillinge daneben: ohne die verdeckten Zellen, und mit einer Zelle Spielraum.
     if criterion is not None and hasattr(criterion, "validation_terms"):
         total_loss = (loss_sum / loss_den.clamp(min=1)
                       + criterion.occ_weight * coverage_loss_sum / coverage_loss_den.clamp(min=1))
@@ -176,14 +158,12 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         "trues": trues_a,
         "preds": preds_a,
         "classification_eligible": eligible,
-        # `conf_wrong`/`conf_right` tragen denselben leeren Nenner, bleiben aber auf 0.0:
-        # `test_training_bug_hunt` haelt die Zahl fest (offene-entscheidungen.md, 2026-09-22).
+        # Gleicher leerer Nenner, aber 0.0: `test_training_bug_hunt` haelt die Zahl fest.
         "conf_wrong": float(metric_conf[metric_trues != metric_preds].mean())
         if (metric_trues != metric_preds).any() else 0.0,
         "conf_right": float(metric_conf[metric_trues == metric_preds].mean())
         if (metric_trues == metric_preds).any() else 0.0,
-        # Roh-Logits fuer die Temperatur-Anpassung: der Argmax bleibt, nur die
-        # Wahrscheinlichkeiten werden ehrlich (`fit_temperature`).
+        # Roh-Logits fuer `fit_temperature`.
         "logits": torch.cat(keep_logits) if keep_logits else None,
         "conf": conf,
         **({"occ_mae": float(np.abs(np.array(probs) - np.array(cover)).mean()),
@@ -194,10 +174,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 
 
 def _hit_rate(probs: list[float], cover: list[float], cut: float = 0.5) -> float | None:
-    """Share of truly covered cells the output also calls covered — the veto's own metric.
-
-    Ohne eine einzige verdeckte Zelle ist nichts zu treffen: `None`, nicht "alles verpasst".
-    """
+    """Share of truly covered cells the output also calls covered; `None` without any."""
     want = np.array(cover) > cut
     if not want.any():
         return None

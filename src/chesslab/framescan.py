@@ -1,7 +1,5 @@
-"""Measure every frame first, pick afterwards — the export used to pick first and measure after.
-
-Picking first is what starved the corpus: `plan_rows` spread 8 frames over a window, the sensors
-then flagged half of them, and the slot went empty instead of moving. Numbers: `docs/frame-scan.md`.
+"""Measure every frame first, pick afterwards: picking first left flagged slots empty instead of
+moving them (`docs/frame-scan.md`).
 """
 from __future__ import annotations
 
@@ -15,46 +13,35 @@ from . import config
 from .ioutil import write_atomic
 from .work_audit import measure, span
 
-#: Every third frame — 0.1 s at 30 fps. A hand needs longer than that to arrive or to leave, and
-#: the picks come out of the scanned indices, so a finer stride only buys candidates nobody needs.
+#: Every third frame (0.1 s at 30 fps): a hand needs longer to arrive or leave.
 SCAN_STRIDE = 3
-#: A stop for the stride `range` handed to the decoder as `wanted`. `range.__contains__` is O(1),
-#: so this only has to lie past the end of any recording — it is a bound, not a count.
+#: A stop for the stride `range` handed to the decoder as `wanted` — a bound, not a count.
 BEYOND_ANY_RECORDING = 1 << 31
-#: A hand on the board. Clean boards sit flat at 0.11–0.13, hands at 0.30–0.95; measured over 800
-#: boards from 20 sessions. At 0.10 every clean board flags (`docs/frame-scan.md`). Only read on
-#: scans that predate the gate — nothing writes it any more.
+#: Clean boards sit at 0.11–0.13, hands at 0.30–0.95. Only read on scans that predate the gate.
 PERSON_THR = 0.20
-#: Ab hier nennt der destillierte Kopf ein Brett besetzt. Gemessen 2026-08-22 auf vier
-#: zurückgehaltenen Sessions (1 783 Bretter): bei 0,50 fängt er ALLE 865 Hände und verwirft 10 von
-#: 918 sauberen. RT-DETR daneben rettet keinen Frame mehr, den nicht schon diese Schwelle mitnimmt.
+#: Ab hier nennt der destillierte Kopf ein Brett besetzt: auf 1 783 zurueckgehaltenen Brettern
+#: faengt er bei 0,50 ALLE 865 Haende und verwirft 10 von 918 sauberen.
 GATE_THR = 0.5
-#: Bretter je Vorwärtslauf. Der Scan dekodiert seriell, also puffert er, statt einzeln zu fragen.
 GATE_BATCH = 16
 #: Grey levels a square mean may drift from the commit's reference before it counts as moved.
 #: `labeling.SETTLE_LIMIT` is the same quantity over crop pixels.
 CHANGE_THR = 12.0
-#: A move changes two squares, a piece falling over three at most. More cells drifting at once is
-#: the player leaning in: measured on 00-39-57, median 7 cells and all of them on rank 1 and 2.
+#: A move changes two squares, a falling piece three at most. More is the player leaning in (median
+#: 7 cells, all on rank 1 and 2).
 MAX_CHANGED_CELLS = 4
-#: Darunter zeigt das Brett keine Figur mehr. RELATIV, weil der absolute Median zwischen
-#: Aufnahmen um Faktor 28 schwankt (49 bis 1388) — fest sortierte nach Licht statt nach Fokus.
-#: Die Verteilung ist zweigipflig, zwischen 40 und 50 % liegen 43 von 11 888 Brettern.
+#: RELATIV, weil der absolute Median zwischen Aufnahmen um Faktor 28 schwankt — fest sortierte nach
+#: Licht statt Fokus. Die Verteilung ist zweigipflig.
 SHARP_MIN_FRACTION = 0.45
-#: Mehr dunkle Zellen als das, und das Brett geht ganz. Die Verteilung springt: 57 % der Bretter
-#: haben KEINE, danach ein flaches Plateau bis 23 — die Ecke ist stationaer, also trifft die Regel
-#: ganze Aufnahmen und nicht einzelne Bretter (Nutzer, 2026-09-09).
+#: Mehr dunkle Zellen, und das Brett geht ganz. 57 % der Bretter haben keine; die Ecke ist
+#: stationaer, die Regel trifft also ganze Aufnahmen.
 DARK_CELLS_MAX = 4
-#: `None` ist bei `detect_rotation` eine ANTWORT ("keine Drehung noetig"), also kann es nicht
-#: zugleich "nicht gefragt" heissen — sonst laeuft der Probe-Decode doppelt.
+#: `None` ist bei `detect_rotation` eine ANTWORT ("keine Drehung"), also nicht "nicht gefragt".
 UNSET = object()
 
 
 class Wanted:
-    """Das Dreier-Raster plus einzelne Extra-Indizes, mit O(1)-Mitgliedschaft.
-
-    Der Decoder fragt `index in wanted` JE FRAME (`recording.py:64-72`); eine Liste machte daraus
-    einen linearen Durchlauf. `range` und `frozenset` antworten beide in konstanter Zeit.
+    """Das Dreier-Raster plus Extra-Indizes mit O(1)-Mitgliedschaft: der Decoder fragt `in` JE
+    FRAME.
     """
 
     def __init__(self, stride: int, extra=()) -> None:
@@ -68,9 +55,9 @@ class Wanted:
 def cell_sharpness(board_gray, size: int, hands=(), *, white_pov: bool = True) -> float:
     """Laplace-Varianz je Feld, Median ueber die UNVERDECKTEN — die Schaerfe des Bretts.
 
-    Ueber das ganze Bild misst sie die Hand mit: Haut ist texturarm und zieht die Varianz wie
-    Unschaerfe (ein scharfes Brett mit nacktem Arm landete bei 17 statt 500). `hands` traegt NAMEN,
-    die an der Seite des Profils haengen — hartkodiert mass sie unter Schwarz auf der Hand."""
+    Haut ist texturarm und zieht die Varianz wie Unschaerfe (17 statt 500). `hands` traegt NAMEN
+    in Profil-Orientierung.
+    """
     lap = cv2.Laplacian(board_gray, cv2.CV_64F)
     step = size // 8
     cells = []
@@ -90,10 +77,8 @@ def dark_indices(scan: list[dict], limit: int = DARK_CELLS_MAX) -> set[int]:
 
 
 def blurred_indices(scan: list[dict], fraction: float = SHARP_MIN_FRACTION) -> set[int]:
-    """Die Frame-Indizes, deren Brett unter `fraction` des Aufnahme-Medians liegt.
-
-    Ein Scan ohne `sharp` liefert die leere Menge — er hat nie gemessen, und Raten waere hier
-    schlimmer als Nichtstun.
+    """Die Frame-Indizes, deren Brett unter `fraction` des Aufnahme-Medians liegt; ohne `sharp`
+    leer.
     """
     vals = [r["sharp"] for r in scan if r.get("sharp", -1) >= 0]
     if len(vals) < 8:
@@ -110,17 +95,14 @@ def scan_path(name: str) -> Path:
 
 
 def scan_meta_path(name: str) -> Path:
-    """Die Herkunft neben dem Scan, nicht darin: `read_scan` sortiert nach `idx`, eine Kopfzeile
-    ohne `idx` braeche das."""
+    """Die Herkunft neben dem Scan: `read_scan` sortiert nach `idx`, eine Kopfzeile ohne `idx`
+    braeche das.
+    """
     return scan_path(name).with_name("scan.meta.json")
 
 
 def scan_provenance(name: str, *, stride: int, extra=(), tag: str = "") -> dict:
-    """Alles, was den Scan bestimmt — nicht nur das Video.
-
-    Geometrie, Kalibrierprofil und Hand-Gate gehen genauso ein: derselbe Film mit anderen Ecken
-    ergibt andere Zeilen. Eine reine Video-mtime wuerde das durchgehen lassen.
-    """
+    """Alles, was den Scan bestimmt: Geometrie, Profil und Hand-Gate, nicht nur die Video-mtime."""
     from .calibration import profile_path
     from .hand_gate import CARD_FILE, DEFAULT_GATE, GATE_DIR, WEIGHTS_FILE
     from .session_store.log import EXPORT_PROFILE
@@ -156,8 +138,7 @@ def scan_is_stale(name: str, *, stride: int = SCAN_STRIDE, extra=(), tag: str = 
     except ValueError:
         return "scan.meta.json unlesbar"
     want = scan_provenance(name, stride=stride, extra=extra, tag=tag)
-    # Die Extras duerfen WACHSEN, ohne den Scan zu entwerten: gemessen ist gemessen. Fehlt einer,
-    # ist er nie gemessen worden, und genau dann taugt der Scan fuer diesen Lauf nicht.
+    # Die Extras duerfen WACHSEN; fehlt einer, ist er nie gemessen.
     missing = set(want.pop("extra")) - set(have.get("extra") or ())
     if missing:
         return f"{len(missing)} korrigierte/gemeldete Frames nicht gemessen"
@@ -165,13 +146,11 @@ def scan_is_stale(name: str, *, stride: int = SCAN_STRIDE, extra=(), tag: str = 
     differing = [k for k, v in want.items() if have.get(k) != v]
     if differing:
         return f"geaendert: {', '.join(differing)}"
-    # Eine LEERE Datei ist nichts gemessen, nicht nichts gefunden: `ensure_scan` gab sie als
-    # gueltig weiter, und `export_session` fiel danach still auf die Margin-Fenster zurueck —
-    # der Rueckfall, den es mit einem Abbruch zu verhindern verspricht.
+    # Eine LEERE Datei ist nichts gemessen, nicht nichts gefunden — sonst faellt der Export still
+    # auf die Margin-Fenster zurueck.
     first = next(iter(read_scan(name)), None)
     if first is None:
         return "scan.jsonl ist leer — keine Zeile gemessen"
-    # Ein Scan von vor der Schaerfemessung kann nicht nach ihr auswaehlen.
     return None if "sharp" in first else "ohne Schaerfemessung"
 
 
@@ -198,8 +177,8 @@ def cell_means(padded, size: int, pad: int, *, gray=None) -> list[float]:
 def occupied(row: dict, person_thr: float = PERSON_THR, gate_thr: float = GATE_THR) -> bool:
     """Sieht der Hand-Gate eine Hand? Die drei alten Sensoren nur noch auf alten Scans.
 
-    Gegen SAM auf vier zurückgehaltenen Sessions: Gate 0,9988/0,9920, die drei zusammen
-    0,9618/0,9509. Die Rillen bleiben im Scan, weil sie FELDER benennen, nicht als Stimme.
+    Gegen SAM: Gate 0,9988/0,9920, die drei zusammen 0,9618/0,9509. Die Rillen benennen nur
+    FELDER.
     """
     if "gate" in row:
         return row["gate"] >= gate_thr
@@ -208,10 +187,8 @@ def occupied(row: dict, person_thr: float = PERSON_THR, gate_thr: float = GATE_T
 
 def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                progress: bool = True, tag: str = "", rotate=UNSET, extra=()) -> dict:
-    """One forward decode of the recording, every `stride`-th frame past the hand gate.
-
-    Kein Quad-Fit und kein Brett geschrieben — die kosten 218 ms. Seit 2026-08-22 kommt die Hand
-    vom destillierten Gate (2,1 ms) statt von RT-DETR (24,6 ms); die Rillen benennen nur Felder.
+    """One forward decode of the recording, every `stride`-th frame past the hand gate; no quad fit
+    and no board written (they cost 218 ms).
     """
     import json
 
@@ -249,9 +226,8 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
             row["gate"] = round(float(got[0]), 4)
         pending.clear()
 
-    # `Wanted` statt `take`: sein `in` ist O(1), der Decoder baut die zwei von drei Bildern gar
-    # nicht erst — und die Obergrenze bleibt jenseits jeder Aufnahme. `candidate["frames"]` taugt
-    # dafuer NICHT: es zaehlt nur den Fortschritt, und eine zu kleine Zahl kuerzte den Scan still.
+    # `Wanted`: O(1)-`in`, und der Decoder baut die uebersprungenen Bilder gar nicht.
+    # `candidate["frames"]` zaehlt nur Fortschritt; als Grenze kuerzte es den Scan still.
     with closing(Recording(video).frames(0, wanted=Wanted(stride, extra), rotate=rotate)) as stream:
         for idx, frame in stream:
             with span("FramePipeline.onFrame"):
@@ -267,8 +243,7 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                     "idx": idx,
                     "grid": hands,
                     "cells": cell_means(padded, size, pad, gray=padded_gray),
-                    # Der Fokus, gemessen wie die Hand: erst messen, dann waehlen. Die Rillen
-                    # liefern die Maske gleich mit, eine Matte gibt es hier noch nicht.
+                    # Die Rillen liefern die Maske gleich mit, eine Matte gibt es hier noch nicht.
                     "sharp": cell_sharpness(padded_gray[pad:pad + size, pad:pad + size],
                                             size, hands, white_pov=profile.white_pov),
                 }
@@ -280,8 +255,7 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                 print(f"  scan {idx}/{total} frames, {sum(occupied(r) for r in rows)} with a hand",
                       flush=True)
     score()
-    # Erst nach dem letzten Batch, und ueber eine Nebendatei: ein Abbruch mittendrin liesse sonst
-    # eine halbe Datei zurueck, die `resume` fuer vollstaendig haelt.
+    # Ueber eine Nebendatei: eine halbe Datei hielte `resume` fuer vollstaendig.
     write_atomic(path, "".join(json.dumps(r) + "\n" for r in rows))
     write_atomic(scan_meta_path(name),
                   json.dumps(scan_provenance(name, stride=stride, extra=extra, tag=tag), indent=2))
@@ -303,8 +277,8 @@ def _persistent(quiet: list[dict], ref, change_thr: float,
                 cells: list[int]) -> tuple[int | None, set[int]]:
     """The first index from which `cells` never match the commit's board again, and which they are.
 
-    Subtracting the median difference is what keeps lighting drift out: compared raw, it once
-    flagged 877 k of 906 k pixels on a board nobody had touched (`docs/session-mattes.md`).
+    The median difference is subtracted: compared raw, lighting drift flagged 877 k of 906 k
+    pixels.
     """
     off = {}
     for row in quiet:
@@ -312,8 +286,8 @@ def _persistent(quiet: list[dict], ref, change_thr: float,
         dev = np.abs(diff - np.median(diff))
         off[row["idx"]] = {c for c in cells if dev[c] >= change_thr}
     tail = [r["idx"] for r in quiet]
-    # SCHNITTMENGE, nicht "jede Menge nicht leer": zwei Zellen, die abwechselnd flackern, sahen
-    # sonst aus wie eine dauerhafte Aenderung, und der Rest des Intervalls fiel aus dem Vorrat.
+    # SCHNITTMENGE: zwei abwechselnd flackernde Zellen saehen sonst aus wie eine dauerhafte
+    # Aenderung.
     held = [(i, set.intersection(*(off[j] for j in tail[n:]))) for n, i in enumerate(tail)]
     hit, kept = next(((i, c) for i, c in held if c), (None, set()))
     return hit, kept
@@ -324,8 +298,7 @@ def classify(segment: dict, scan: list[dict], *, person_thr: float = PERSON_THR,
              white_pov: bool = True) -> dict[int, str]:
     """`frame index -> clean | occluded | stale | changed` for one ply interval.
 
-    The witness is the BOARD, not the hand: a hand over an unchanged board keeps its FEN, which
-    is a player reaching in rather than one who has already moved.
+    The witness is the BOARD: a hand over an unchanged board keeps its FEN.
     """
     rows = [r for r in scan if segment["start"] <= r["idx"] < segment["end"]]
     quiet = [r for r in rows if not occupied(r, person_thr) and r.get("cells")]
@@ -348,9 +321,8 @@ def classify(segment: dict, scan: list[dict], *, person_thr: float = PERSON_THR,
         elif fall_from is not None and idx >= fall_from:
             out[idx] = "changed"
         elif occupied(row, person_thr) or not measured:
-            # Ohne Referenz ist `clean` eine Behauptung: das Brett wurde nie gegen die Commit-
-            # Stellung geprueft. Ueber die Matte zurueck ist billiger als 24 ungepruefte Frames im
-            # sauberen Vorrat. Wirkt nur auf KUENFTIGE Exporte, wie der `_persistent`-Fix.
+            # Ohne Referenz ist `clean` eine Behauptung: lieber ueber die Matte zurueck als
+            # ungepruefte Frames im sauberen Vorrat.
             out[idx] = "occluded"
         else:
             out[idx] = "clean"
@@ -359,10 +331,8 @@ def classify(segment: dict, scan: list[dict], *, person_thr: float = PERSON_THR,
 
 def select(reasons: dict[int, str], *, per_position: int = 8, dirty_per_position: int = 8,
            prefer=(), tol: int = 5) -> tuple[list[int], list[int]]:
-    """The indices this interval contributes: the clean p8, and the dirty sample beside it.
-
-    Dirty prefers `occluded` over `stale` because only the first has a FEN that still holds — a
-    real hand over a KNOWN position is the only occlusion material whose labels are worth having.
+    """The indices this interval contributes: the clean p8, and the dirty sample beside it. Dirty
+    prefers `occluded`: only its FEN still holds.
     """
     from .realgames.timeline import pick_spread
 

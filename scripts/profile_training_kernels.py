@@ -21,8 +21,8 @@ from chesslab.ioutil import write_json
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-#: Das ERSTE Glied laeuft am Ende noch einmal: feste Reihenfolge ohne Wiederholung liess
-#: offen, ob der Abstand die Variante war oder der Warmlauf (`benchmark_export_warp`).
+#: Das ERSTE Glied laeuft am Ende noch einmal: sonst bleibt offen, ob der Abstand die Variante war
+#: oder der Warmlauf.
 SIZES = (1, 2, 4, 8, 16, 1)
 VARIANTS = ("eager", "compile", "compile-cudagraph", "compile-fused", "eager-fused", "eager-repeat")
 
@@ -214,8 +214,8 @@ def main():
 
     report["fit"] = line_fit(report["scaling"])
     print("fit", report["fit"], flush=True)
-    # CPU-side rows ARE real here: every aten call is one dispatch, and dispatch is what the
-    # step is short of.
+    # CPU-side rows ARE real here: every aten call is one dispatch, and dispatch is what the step
+    # lacks.
     with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU]) as prof:
         for _ in range(args.steps):
             step(x, y)

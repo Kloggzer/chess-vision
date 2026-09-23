@@ -38,10 +38,9 @@ def test_slice_records_the_pads_it_cut_with(tmp_path):
 def test_crop_of_rows_declares_only_what_is_unanimous():
     unanimous = [{"pad_side": 0.05} for _ in range(3)]
     assert crop_of_rows(unanimous) == 0.05
-    # A row from before 2026-09-14 still carries the retired `pad_up`; it is not read and must
-    # not split the set.
+    # An old row still carries the retired `pad_up`; it is not read and must not split the set.
     assert crop_of_rows([*unanimous, {"pad_side": 0.05, "pad_up": 0.0}]) == 0.05
-    # A pre-2026-08-06 row carries no pads at all: nothing may be inferred from its neighbours.
+    # An old row carries no pads at all: nothing may be inferred from its neighbours.
     assert crop_of_rows([*unanimous, {"out_size": [128, 128]}]) is None
     # Two profiles in one dataset: a wrong declaration is worse than an absent one, because a
     # consumer CROPS to what it is told.

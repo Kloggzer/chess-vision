@@ -31,8 +31,9 @@ COVERAGE = load_script("coverage_gaps")
 #: Je Farbe drei Felder, eines in `hell`, `mittel` und `dunkel` der ZIELDOMAENE.
 #: Die Farben sind die des echten Bretts — a1 dunkel, b1 hell, a3 dunkel.
 def _stat(median: float, *, p5: float | None = None, p95: float | None = None):
-    """Ein Feld mit Median UND Spannweite. Ohne Angabe ist die Spannweite weit genug, dass sie
-    keine Wahl beeinflusst — dann entscheidet der Median allein, wie vor 2026-09-16."""
+    """Ein Feld mit Median UND Spannweite; ohne Angabe ist die Spannweite so weit, dass der Median
+    allein entscheidet.
+    """
     return {"color": "light", "median": median, "n": 100,
             "p5": median - 120 if p5 is None else p5,
             "p95": median + 120 if p95 is None else p95}

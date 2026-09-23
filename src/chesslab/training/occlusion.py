@@ -1,7 +1,5 @@
-"""The occlusion output: a coverage estimate beside the piece classes, not inside them.
-
-Why a second output and not a 14th class, with the measurement that forced it:
-`docs/occluder-plates.md`.
+"""The occlusion output: a coverage estimate beside the piece classes, not a 14th class
+(`docs/occluder-plates.md`).
 """
 
 from __future__ import annotations
@@ -15,46 +13,37 @@ from ..cell_rule import classification_eligible as classification_eligible
 
 
 def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """`(B, 2|3)` float target -> (class index, coverage, Helligkeit).
-
-    Zwei Spalten sind ein Datensatz ohne `brightness`: jede Zelle gilt dann als hell, damit alte
-    Packs Zahl fuer Zahl dasselbe ergeben.
+    """`(B, 2|3)` float target -> (class index, coverage, Helligkeit); ohne dritte Spalte gilt jede
+    Zelle als hell.
     """
     bright = target[:, 2] if target.shape[1] > 2 else torch.full_like(target[:, 1], 255.0)
     return target[:, 0].long(), target[:, 1], bright
 
 
-#: Ab hier liest das Modell die Figur schlechter als Zufall — gemessen 2026-09-16,
-#: `docs/class-scheme.md`. Der Schwanz darueber ist kein schwaches Signal, er ist
-#: systematisch falsch: dort gehoert eine Null hin und kein kleines Gewicht.
+#: Ab hier liest das Modell die Figur schlechter als Zufall: der Schwanz ist systematisch falsch,
+#: dort gehoert eine Null hin.
 COVERAGE_ZERO_AT = 0.60
-#: Linksversatz der S-Kurve. Sie startet sonst WAAGERECHT, die Messung faellt dort aber schon
-#: (1,000 -> 0,985 zwischen 0 und 0,05) — ohne ihn laege das Gewicht am Anfang ueber der Messung.
+#: Sonst startete die S-Kurve WAAGERECHT, waehrend die Messung dort schon faellt.
 COVERAGE_SHIFT = 0.01
 
 
 def coverage_weight(cov: torch.Tensor, mode: str = "hard",
                     visible_max: float = PIECE_VISIBLE_MAX) -> torch.Tensor:
-    """Wie schwer eine Zelle im KLASSENverlust zaehlt, nach ihrer gemessenen Verdeckung.
-
-    `hard` ist die alte Regel: 1 bis `visible_max`, danach 0. `soft` folgt der gemessenen
-    Lesbarkeit — eine gestauchte S-Kurve, die nirgends ueber der Messung liegt.
+    """Wie schwer eine Zelle im KLASSENverlust zaehlt: `hard` 1 bis `visible_max`, dann 0; `soft`
+    eine gestauchte S-Kurve, die nirgends ueber der gemessenen Lesbarkeit liegt.
     """
     if mode == "hard":
         return (cov <= visible_max).to(cov.dtype)
     if mode != "soft":
         raise ValueError(f"unknown coverage weight mode {mode!r} — hard or soft")
-    # `visible_max` wird hier bewusst nicht gelesen — die Kurve IST die Kante. `train_recipe.py` warnt
-    # darum bei `--visible-max` und schreibt unter `soft` `visible_max: null` (2026-09-17).
+    # `visible_max` wird bewusst nicht gelesen — die Kurve IST die Kante.
     s = ((cov + COVERAGE_SHIFT) / COVERAGE_ZERO_AT).clamp(0.0, 1.0)
     return 1.0 - (3 * s**2 - 2 * s**3)
 
 
 class OcclusionLoss(nn.Module):
-    """Weighted CE over the pieces plus BCE over the coverage, from ONE (B, C+1) output.
-
-    Regressed against the FRACTION, not a yes/no: the composite knows it exactly, and a calibrated
-    output makes the tracker's veto a threshold you can turn without retraining.
+    """Weighted CE over the pieces plus BCE over the coverage, from ONE (B, C+1) output. Regressed
+    against the FRACTION, so the tracker's veto is a threshold turnable without retraining.
     """
 
     def __init__(self, class_weights: torch.Tensor, occ_weight: float = 1.0,
@@ -77,11 +66,8 @@ class OcclusionLoss(nn.Module):
 
     def validation_terms(self, logits: torch.Tensor, target: torch.Tensor):
         y, cov, bright = split_targets(target)
-        # Zwei Gruende, dieselbe Zelle aus dem KLASSENteil zu nehmen — verdeckt oder zu dunkel.
-        # Der Coverage-Kopf lernt weiter auf allen: Dunkelheit ist keine Verdeckung, und die
-        # Hand-Sperre der App haengt an dieser Zahl.
-        # Dunkelheit bleibt ein HARTER Ausschluss: eine unlesbare Zelle traegt kein Signal, egal
-        # wie frei sie ist. Gewichtet wird nur die Verdeckung.
+        # Verdeckt oder zu dunkel faellt aus dem KLASSENteil; der Coverage-Kopf lernt auf allen.
+        # Dunkelheit bleibt ein HARTER Ausschluss, gewichtet wird nur die Verdeckung.
         weight = coverage_weight(cov, self.coverage_weight_mode, self.visible_max)
         visible = weight * (bright >= self.dark_min).to(weight.dtype)
         piece = self.ce(logits[:, :-1], y)

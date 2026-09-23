@@ -76,10 +76,8 @@ def test_a_station_below_the_follow_up_threshold_is_not_reported(share: float):
 
 
 def test_the_inventory_only_counts_squares_that_are_themselves_a_finding():
-    """Sonst schlaegt Stufe 3 bei 18 von 22 Aufnahmen an — ein fehlgelesenes Feld reicht.
-
-    Gemessen 2026-09-17: die erste Fassung meldete auf fast jeder Aufnahme eine Phantom-Figur,
-    weil sie jede Mehrheitslesung zaehlte. Ein Bestand, der immer anschlaegt, sagt nichts.
+    """Sonst schlaegt Stufe 3 bei 18 von 22 Aufnahmen an: ein Bestand, der immer anschlaegt, sagt
+    nichts.
     """
     from collections import Counter
 
@@ -93,11 +91,8 @@ def test_the_inventory_only_counts_squares_that_are_themselves_a_finding():
 
 
 def test_the_coverage_comes_from_the_matte_not_from_the_read(tmp_path):
-    """Die Lesungs-Zeile traegt KEINE Coverage — der Filter griff nie.
-
-    Gemessen 2026-09-17: alle 209 962 gehaltenen Lesungen haben `coverage: None`, und der Audit
-    zaehlte damit verdeckte Zellen mit, auf denen das Modell zu 75 % irrt. Die Zahl steht in
-    `matte.jsonl`, je Frame eine Karte Feld -> Anteil.
+    """Die Lesungs-Zeile traegt KEINE Coverage, der Filter griff nie; die Zahl steht in
+    `matte.jsonl`.
     """
     import json
 

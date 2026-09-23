@@ -1,8 +1,5 @@
-"""Scan discovery + assessment — pure Python (no Blender/GPU).
-
-Part of the v2 mesh-prep pipeline (Open3D + PyMeshLab). Discover RealityScan
-exports in a scan directory, pick textures, and assess quality reports from
-`prepare_scan()` in `meshprep.py`.
+"""Scan discovery and assessment, pure Python: find RealityScan exports, pick textures, assess
+`meshprep.prepare_scan` reports.
 """
 
 from __future__ import annotations
@@ -11,20 +8,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# Valid piece names: P/N/B/R/Q/K, optional w/b color prefix (case-insensitive),
-# optional variant suffix (a number ``2`` or a ``_label`` / ``-label``).
-# Normalized to canonical piece ``w/b + UPPER type`` plus a variant slot:
-#   wP → (wP, v1)   wP2 → (wP, v2)   wP_glass → (wP, glass)   WQ → (wQ, v1)
+# P/N/B/R/Q/K with optional w/b prefix and variant suffix:
+#   wP -> (wP, v1)   wP2 -> (wP, v2)   wP_glass -> (wP, glass)   WQ -> (wQ, v1)
 _PIECE_NAME = re.compile(r"^([wb]?)([pnbrqk])([0-9]*|[-_].*)?$", re.IGNORECASE)
 
 
 def parse_piece_name(raw: str) -> tuple[str, str] | None:
-    """Parse a scan-folder name into ``(canonical_piece, variant)`` or *None*.
-
-    Canonical piece = lowercase color prefix (default ``w``) + UPPER type letter.
-    Variant = ``v<n>`` for a numeric suffix, the bare label for a ``_``/``-`` suffix,
-    else ``v1``.  Lets several scans of the same piece coexist as ``v1``, ``v2``, ….
-    """
+    """Parse a scan-folder name into `(canonical_piece, variant)` or None."""
     m = _PIECE_NAME.match(raw)
     if not m:
         return None
@@ -38,7 +28,6 @@ def parse_piece_name(raw: str) -> tuple[str, str] | None:
         variant = suffix.lstrip("-_") or "v1"
     return canonical, variant
 
-# --- Assessment thresholds for quality reports -----------------------------------
 _MAX_BOUNDARY_EDGES = 300       # open edges ≈ holes in the scan
 _MAX_NONMANIFOLD = 500
 _MIN_VERTS = 1000               # suspiciously few vertices
@@ -47,10 +36,8 @@ _MIN_CENTER_COMPONENT_FRAC = 0.5  # below ⇒ figure fragmented across multiple 
 
 
 def is_bare_piece(raw: str) -> bool:
-    """True if ``raw`` is a plain piece name with NO variant suffix (``wP``, ``P``).
-
-    A bare name means "add a new version" — the caller should pick the next free
-    variant slot instead of clobbering ``v1``.  ``wP2`` / ``wP_glass`` are explicit.
+    """True if `raw` is a plain piece name with NO variant suffix: the caller picks the next free
+    slot instead of clobbering `v1`.
     """
     return bool(re.fullmatch(r"[wb]?[pnbrqk]", raw, re.IGNORECASE))
 
@@ -74,16 +61,10 @@ class ScanItem:
 
 
 def pick_mesh(d: Path) -> Path | None:
-    """Pick the best mesh from a scan directory.
+    """Pick the best mesh: `.glb`/`.gltf`, else `mesh_<dir>.obj` or `<dir>.obj`, else the newest
+    `.obj`.
 
-    Prefers ``.glb`` / ``.gltf``; else an ``.obj`` named ``mesh_<dir>.obj`` or
-    ``<dir>.obj``; else the newest ``.obj`` by modification time.
-
-    Callers must NOT use ``sorted()[0]`` — that picks ``mesh_Model_*.obj``
-    (capital M) before ``mesh_bauer2.obj`` on stale RealityScan folders.
-
-    The old ``cropped.obj`` rule is gone: it was written by the deleted FastAPI layer, nothing
-    writes it any more, and `collect_scans` went past it anyway — two rules for one question.
+    Not `sorted()[0]`: that picks `mesh_Model_*.obj` before `mesh_bauer2.obj` on stale folders.
     """
     glbs = sorted([*d.glob("*.glb"), *d.glob("*.gltf")])
     if glbs:
@@ -103,14 +84,11 @@ def pick_mesh(d: Path) -> Path | None:
 
 
 def _pick_texture(d: Path) -> Path | None:
-    """Find texture image in a scan directory.
-
-    RealityScan folders also contain turntable *photos* — so DON'T just take the
-    largest image.  First look for ``diffuse`` / ``albedo`` / ``tex`` in the name;
-    then fall back to the largest non-numeric filename (photos are ``000.jpg``, …).
+    """Find the texture image: RealityScan folders also hold turntable PHOTOS (`000.jpg`, …), so
+    names with diffuse/albedo/tex first, then the largest non-numeric name.
     """
     imgs = [*d.glob("*.png"), *d.glob("*.jpg"), *d.glob("*.jpeg")]
-    # UV-Debug-Muster nie als Textur nehmen (RealityScan exportiert *_unwrap.png daneben).
+    # UV-Debug-Muster nie als Textur nehmen.
     imgs = [p for p in imgs if "unwrap" not in p.stem.lower()]
     named = [p for p in imgs if re.search(r"diffuse|albedo|tex", p.stem, re.IGNORECASE)]
     if named:
@@ -122,13 +100,8 @@ def _pick_texture(d: Path) -> Path | None:
 
 
 def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
-    """Collect RealityScan exports: each subfolder ``<name>/`` → one mesh + texture.
-
-    Prefers ``.glb`` (simplified mesh with embedded texture); falls back to
-    ``.obj`` + texture file.  Fixes the ``scans/WQ`` bug: accepts ``WQ`` / ``wq``
-    and normalises to ``wQ``.
-
-    Returns ``(items, warnings)``.
+    """Collect RealityScan exports, one mesh + texture per subfolder; `WQ`/`wq` normalise to `wQ`.
+    Returns `(items, warnings)`.
     """
     root = Path(root)
     items: list[ScanItem] = []
@@ -147,9 +120,7 @@ def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
         if glbs:                                     # preferred: RealityScan-simplified .glb
             if len(glbs) > 1:
                 warnings.append(f"{d.name}: multiple .glb — taking {glbs[0].name}")
-            # RealityScan .glb often references the texture EXTERNALLY
-            # (_diffuse.png next to it) — pass the fallback; embedded textures win
-            # automatically in prepare_scan().
+            # RealityScan .glb often references the texture EXTERNALLY; embedded textures still win.
             items.append(ScanItem(name=canonical, obj=pick_mesh(d), tex=_pick_texture(d),
                                   variant=variant))
             continue
@@ -176,22 +147,14 @@ _JUDGED = ("verts", "boundary_edges", "nonmanifold_edges", "height_ratio",
 
 
 def assess_report(report: dict) -> tuple[str, list[str]]:
-    """Assess a quality report from ``prepare_scan()`` → ``('ok'|'warn', hints)``.
-
-    Conservative: warnings are inspection hints (check the preview!), not hard
-    errors.  Whether a mesh is good enough is ultimately decided by rendering /
-    training results.
+    """Assess a `prepare_scan()` report -> `('ok'|'warn', hints)`: inspection hints, not hard
+    errors.
     """
-    # TODO: `prepare_scan` schreibt seit dem Verbatim-Umbau KEINE der Zahlen in `_JUDGED` (es
-    # schreibt `piece`, `variant`, `verbatim`, `smooth_iters`, `tris`) — null Ueberlappung, also
-    # kann diese Wache nur `ok` liefern. Hinter `ok` zu warnen war 2026-09 ausdruecklich falsch
-    # (`test_a_clean_verbatim_import_is_not_reported_as_suspicious`), welche Zahlen ein Bericht
-    # tragen soll ist deshalb eine Entscheidung (`docs/offene-entscheidungen.md`).
+    # TODO: `prepare_scan` schreibt KEINE der Zahlen in `_JUDGED`, diese Wache liefert also nur
+    # `ok`. Welche Zahlen ein Bericht tragen soll: `docs/offene-entscheidungen.md`.
     msgs: list[str] = []
 
-    # Nur ueber Zahlen urteilen, die der Bericht WIRKLICH traegt. Seit dem Verbatim-Umbau nennt
-    # `prepare_scan` weder `verts` noch die Kantenzaehlungen, und ein fehlender Schluessel als 0
-    # gelesen meldete hinter jeder einwandfreien Figur "only None vertices".
+    # Ein fehlender Schluessel als 0 gelesen meldete hinter jeder Figur "only None vertices".
     if "verts" in report and report.get("verts", 0) < _MIN_VERTS:
         msgs.append(
             f"only {report.get('verts')} vertices — suspiciously few "

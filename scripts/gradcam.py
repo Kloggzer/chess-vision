@@ -1,14 +1,8 @@
-"""Grad-CAM for a trained chesslab square classifier (CLI).
+"""Grad-CAM for a trained chesslab square classifier (CLI); logic in `chesslab.training.gradcam`.
 
-Shows which pixels drove the model's decision for a square crop. Works with both
-backbones and any head — see ``chesslab.training.gradcam`` for the shared logic
-(also used by the web Training page).
-
-Usage:
     uv run python scripts/gradcam.py RUN_DIR IMG [IMG ...] [--out montage.png] [--class wP]
 
-Output is a montage: original crop | heatmap | overlay, one row per image.
-"""
+Output: original crop | heatmap | overlay, one row per image."""
 
 from __future__ import annotations
 

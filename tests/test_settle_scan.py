@@ -37,8 +37,9 @@ def test_a_still_board_scores_zero():
 
 
 def test_a_shadow_moves_nothing_and_a_piece_moves_everything():
-    """The one property the raw difference did not have: a player leaning in shifts a cell's
-    BRIGHTNESS, and that flagged a2, b3 and b5 on a board nobody had touched (2026-08-22)."""
+    """A player leaning in shifts a cell's BRIGHTNESS, which flagged squares on an untouched board
+    raw.
+    """
     cells = _board()
     cells[3] += 30                            # the whole cell darkens: a shadow
     cells[27, :PX // 4] = 200                 # a quarter of it turns: a piece arriving

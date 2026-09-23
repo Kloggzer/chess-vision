@@ -13,11 +13,8 @@ SCAN = ROOT / "src" / "chesslab"
 
 
 def hash_runs(text: str) -> int:
-    """Aufeinanderfolgende Kommentarzeilen ueber `tokenize`, nicht ueber `startswith("#")`.
-
-    Zeilenweise gelesen zaehlte eine Zeile IN einem dreifach gequoteten String als Kommentar --
-    derselbe Fehler, den der TS-Zwilling mit `/*` im String trug (2026-09-21). `tokenize` trennt
-    COMMENT von STRING von Natur aus.
+    """Aufeinanderfolgende Kommentarzeilen ueber `tokenize`, nicht ueber `startswith("#")`:
+    zeilenweise zaehlte eine Zeile IN einem dreifach gequoteten String als Kommentar.
     """
     worst = run = vorige = 0
     for tok in tokenize.generate_tokens(io.StringIO(text).readline):

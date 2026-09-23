@@ -99,9 +99,9 @@ def test_without_clahe_the_fast_path_stays_open(tmp_path):
 
 
 def test_an_onnx_board_export_is_not_reshaped(tmp_path):
-    """Der ONNX-Export eines Brett-Netzes traegt die Brettachse SELBST (`_BoardExport` macht
-    `unsqueeze(0)`), sein Graph nimmt (64, C, H, W). Die Umformung hier hat am 2026-09-07 jeden
-    `retime`-Lauf blockiert: 5-D hinein, 4-D erwartet."""
+    """Der ONNX-Export eines Brett-Netzes traegt die Brettachse SELBST, sein Graph nimmt (64, C, H,
+    W); hier umzuformen blockierte jeden `retime`-Lauf.
+    """
     onnxruntime = pytest.importorskip("onnxruntime")
     assert onnxruntime is not None
 

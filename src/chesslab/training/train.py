@@ -92,20 +92,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_empty_cap: bool = False,
               neighbour_p: float | None = None,
               strict_verdicts: bool = False) -> int:
-    """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
-    JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
-    (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
-    Deployment-Auflösung ab (FixRes) und man kann danach bei beliebiger Größe inferieren.
-
-    Both halves are published: drawing a fresh input size per batch is YOLOv2's multi-scale
-    training (docs/references.md#redmon-2016), and the rule that the deployment resolution must
-    occur during training is FixRes (docs/references.md#touvron-2019). `lr` is not: see
-    docs/references.md §11.
+    """`scales`: every batch is resized to one of these sizes (YOLOv2 multi-scale), so the
+    size-agnostic model learns them all in one run; the deployment resolution must be among them
+    (FixRes).
     """
     recipe = dict(locals())             # the arguments as given; `run_config` writes them
-    # GPU precondition (Stage 0 validation path) — mandatory, otherwise abort. This check
-    # is torch-free safe and runs BEFORE any torch import, so a missing/broken
-    # build is reported clearly here instead of as an ImportError stacktrace.
+    # GPU precondition before any torch import: a broken build is reported clearly, not as an
+    # ImportError.
     check_balance(balance)
     if compile_batch_aug and not batch_aug:
         raise ValueError('--compile-batch-aug requires --batch-aug')
@@ -118,17 +111,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               "Run `chesslab doctor --gpu` for diagnosis.")
         return 1
 
-    # Single-training GPU guard: refuse to start if another training is live (prevents the
-    # concurrent-run out-of-memory crash). Released on exit (normal, exception, or clean stop).
+    # One training on the GPU at a time: concurrent runs crashed on memory.
     from .memory import check_ram
 
     if ram_reserve_gb < 0:
         raise ValueError("ram_reserve_gb must be non-negative")
     check_ram(ram_reserve_gb)
     if low_memory:
-        # Was den Speicher rettet, ist der Datei-Lesepfad statt der Memmap (109 statt 1 482 MB je
-        # Worker, gemessen) und das fehlende Pinning — NICHT das Abschalten der Worker. Die kosten
-        # hier 20,5 von 27,2 s je Epoche. Wer `--num-workers` nennt, bekommt sie also.
+        # Den Speicher rettet der Datei-Lesepfad (109 statt 1 482 MB je Worker) und das fehlende
+        # Pinning, NICHT das Abschalten der Worker — die kosten 20,5 von 27,2 s je Epoche.
         eval_workers = 0
         prefetch_factor = 1
         if num_workers is None:
@@ -141,13 +132,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[WARN] Slot {os.environ['CHESSLAB_TRAIN_SLOT']}: eigener Lock, laeuft NEBEN "
               "anderen Trainings und neben dem Autopilot. Speicher im Auge behalten.")
     atexit.register(_release_train_lock)
-    # Reduce ROCm/CUDA allocator fragmentation OOM (the allocator can otherwise fail to find a
-    # large contiguous block even when plenty of VRAM is free — the earlier crash). Must be set
-    # before the first CUDA allocation, i.e. before torch initializes the device.
+    # Against allocator fragmentation OOM with plenty of VRAM free; must precede the first CUDA
+    # allocation.
     os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
-    # Ebenfalls VOR dem Import: `loader_kwargs` ruft das auch, aber erst wenn OpenBLAS seine
-    # Arenen laengst reserviert hat. Die Worker erbten die gekappte Umgebung und standen bei
-    # 0,6 GB Commit, der Hauptprozess bei 2,9 — gemessen 2026-08-29, Kappung wirkt nur vorher.
+    # VOR dem Import: danach hat OpenBLAS seine Arenen schon reserviert (Hauptprozess 2,9 GB Commit
+    # gegen 0,6 der Worker).
     config.cap_blas_threads()
 
     import numpy as np
@@ -166,19 +155,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     torch.manual_seed(seed)
     np.random.seed(seed)
-    # Die Augmentierung zieht aus `random`, nicht aus torch oder numpy. In Workern seedet PyTorch
-    # das selbst; bei `--num-workers 0` niemand — gemessen 2026-08-25, dort waren zwei Laeufe mit
-    # gleichem Seed pixelverschieden bei identischer Batch-Reihenfolge.
+    # Die Augmentierung zieht aus `random`; bei `--num-workers 0` seedet das sonst niemand, und zwei
+    # Laeufe mit gleichem Seed waren pixelverschieden.
     random.seed(seed)
 
-    # Held apart from the local `split`, which is REBOUND to the loaded policy dict further down —
-    # the collision wrote that dict into config.json and left the guard reading a dict as a path.
+    # Held apart from the local `split`, which is rebound to the policy dict below.
     split_file = split
     try:
         manifest, split, verdicts = read_data(*data_files(dataset, split_file), strict_verdicts)
         classes = split["classes"]
-        # `occlusion` shares the final linear layer and reads its LAST unit as the coverage logit —
-        # one output tensor, so the exported graph keeps its shape (`evaluate.ONNX_BATCH`).
+        # `occlusion` reads the LAST unit of the shared linear layer as coverage: one output tensor,
+        # so the exported graph keeps its shape.
         occluding = head == "occlusion"
         out_size, packed = train_size(input_size, dataset, manifest)
         train_rows, val_rows, priority_paths, board_mode = training_rows(
@@ -207,9 +194,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     except Refused:
         return 1
 
-    # The crop's COMPOSITION, from ALL rows and not just the first: the pad decides what the
-    # examples contain, and serving has to reproduce it (specs/45). Absent = this dataset
-    # cannot say, which every consumer must then treat as legacy rather than guess at.
+    # The crop's composition, from ALL rows (specs/45); absent means legacy, never a guess.
     crop = crop_of_rows(manifest)
     if crop is None:
         print(f"[crop] dataset {dataset!r} does not record pad_side on every row — the "

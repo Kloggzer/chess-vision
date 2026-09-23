@@ -1,7 +1,5 @@
-"""`chesslab capture import`: ein Erfassungs-Buendel wird zu Brettern, ohne Kandidat.
-
-`export-session` verlangt eine bestaetigte Zugfolge, nur um je Frame das gueltige FEN zu finden —
-bei einer gezielten Erfassung steht es im Buendel-Log (`plan/04-capture/01-import.md`).
+"""`chesslab capture import`: ein Erfassungs-Buendel wird zu Brettern, ohne Kandidat — das FEN steht
+im Buendel-Log (`plan/04-capture/01-import.md`).
 """
 
 from __future__ import annotations
@@ -26,16 +24,14 @@ from .session_store.names import META_FILE, log_path, meta_path
 #: Was eine Buendel-Zeile mitnimmt. `move_san` bleibt draussen: eine Erfassung hat keine Zuege.
 CARRIED = ("ply", "fen", "corners", "ts")
 NS_PER_S = 1_000_000_000
-#: Darueber ist der Container-Wert kaputt, nicht schnell — und `1e9 * fps` rundet auf der
-#: Frame-Grenze mal nach oben, mal nach unten, deshalb die Toleranz vor dem Aufrunden.
+#: Darueber ist der Container-Wert kaputt, nicht schnell; `1e9 * fps` rundet an der Frame-Grenze mal
+#: auf, mal ab, deshalb die Toleranz vor dem Aufrunden.
 MAX_FPS, INDEX_EPS = 240.0, 1e-6
 
 
 def container_fps(video: Path) -> float:
-    """`CAP_PROP_FPS` des Containers — GELESEN, nie angenommen.
-
-    `session_store.recording.video_fps` faellt ohne Kandidaten auf 30,0 zurueck; die vorhandenen Aufnahmen laufen
-    mit 28,63 und die Erfassung mit 15. Ein geratener Wert verschiebt jeden Index lautlos.
+    """`CAP_PROP_FPS` des Containers — GELESEN, nie angenommen: die Aufnahmen laufen mit 28,63 und
+    15, nicht 30, und ein geratener Wert verschiebt jeden Index lautlos.
     """
     cap = cv2.VideoCapture(str(video))
     try:
@@ -52,9 +48,8 @@ def video_syncs(bundle: Path) -> list[tuple[int, int]]:
     path = bundle / "timeline.jsonl"
     if not path.is_file():
         raise FileNotFoundError(f"{path} fehlt — ohne sie ist `elapsed_ns` keine Videozeit")
-    # Der ZEILENUMBRUCH entscheidet (`ioutil.read_jsonl`, `platform/app/lib/jsonl.ts`): das
-    # Telefon STROEMT in `timeline.jsonl`, eine abgebrochene Aufnahme laesst also eine halbe LETZTE
-    # Zeile zurueck. `json.loads` darauf brach den ganzen Import ab, statt sie zu verwerfen.
+    # Das Telefon STROEMT in `timeline.jsonl`; eine abgebrochene Aufnahme hinterlaesst eine halbe
+    # letzte Zeile, die `read_jsonl` verwirft.
     out = [(int(row["elapsedNs"]), int(row["durationNs"])) for row in read_jsonl(path)
            if row.get("kind") == "video_sync" and row.get("durationNs") is not None]
     if not out:
@@ -65,8 +60,7 @@ def video_syncs(bundle: Path) -> list[tuple[int, int]]:
 def video_ns_at(elapsed_ns: int, syncs: list[tuple[int, int]]) -> float:
     """Naechster Anker plus verstrichene Systemzeit, Steigung 1 — `RecordedFrames.videoNsAt`.
 
-    NICHT zwischen den Ankern interpoliert: aus zwei benachbarten geschaetzt las die Steigung 2,36
-    statt 1,0 (reiner Callback-Jitter) und der Vorlauf landete bei -8,5 s. Kotlin ist die Referenz.
+    NICHT zwischen Ankern interpoliert: Callback-Jitter gab Steigung 2,36 und -8,5 s Vorlauf.
     """
     after = bisect_left([s[0] for s in syncs], elapsed_ns)
     if after >= len(syncs):
@@ -79,10 +73,8 @@ def video_ns_at(elapsed_ns: int, syncs: list[tuple[int, int]]) -> float:
 
 
 def capture_steps(bundle: Path) -> dict[int, tuple[int, int | None]]:
-    """`{ply: (Beginn, Ende)}` der Geraeteuhr aus `capture.json`; fehlt ein Ende, gilt der naechste.
-
-    Ohne die Datei ist nicht belegt, dass das Buendel eine Erfassung ist. Ohne `elapsed_ns` gibt es
-    keinen Weg ins Video, und die Bretter truegen die Namen fremder Frames.
+    """`{ply: (Beginn, Ende)}` der Geraeteuhr aus `capture.json`; fehlt ein Ende, gilt der naechste
+    Beginn.
     """
     path = bundle / "capture.json"
     if not path.is_file():
@@ -142,10 +134,8 @@ def video_frames(video: Path, rows: list[dict]) -> Iterator[tuple[dict, Any]]:
 
 
 def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str, prof) -> Path:
-    """`session.yaml` neben dem Log, in der Form von `session_store.log.write_session`.
-
-    Ohne sie ueberspringen `position_flags`/`frame_hands` das Verzeichnis WORTLOS, statt zu
-    meckern — der importierte Mitschnitt erreicht das Training dann nie.
+    """`session.yaml` neben dem Log. Ohne sie ueberspringen `position_flags`/`frame_hands` das
+    Verzeichnis WORTLOS.
     """
     import yaml
 
@@ -164,10 +154,6 @@ def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str,
 
 
 def write_log(session_dir: Path, rows: list[dict]) -> Path:
-    """TODO: `open("w")` KUERZTE die kanonische Datei der Aufnahme; ein Abbruch liess sie halb da,
-    und `provenance.session_stamp` stempelt auch eine halbe, womit `chain.ts` die Sprosse fuer
-    frisch haelt. Derselbe tmp+`os.replace`-Riegel wie in `session_store.log._write_log`.
-    """
     path = log_path(session_dir)
     write_rows(path, rows)
     return path
@@ -186,17 +172,16 @@ def import_capture(name: str, profile: str = store_log.EXPORT_PROFILE) -> dict:
     rows = capture_rows(bundle, capture_steps(bundle), video_syncs(bundle), fps)
     session_dir = store_rec.game_dir(name)
     prof = load_profile(profile)
-    # Das ArUco-Quad des Telefons ist grob (CLAUDE.md), und ohne die `grid_lines`, die erst der Fit
-    # schreibt, findet `meshes_for_boards` nichts und jedes Brett bleibt gebogen.
+    # Das ArUco-Quad des Telefons ist grob, und ohne die `grid_lines` des Fits findet
+    # `meshes_for_boards` nichts.
     fit = rg_boards.fit_rows_to_grid(rows, prof, frames=video_frames(video, rows))
     rows = fit["arrived"]
     made = rg_boards.rewarp_boards(session_dir, rows, prof, frames=video_frames(video, rows))
-    # Eine Zeile ohne Brett benennt eine Datei, die nie geschrieben wurde — hinter dem Ende einer
-    # abgeschnittenen Aufnahme gibt der Dekoder kein Bild mehr her.
+    # Hinter dem Ende einer abgeschnittenen Aufnahme gibt der Dekoder kein Bild mehr her.
     rows = [r for r in rows if r.get("board")]
     write_capture_meta(session_dir, bundle, name, profile, prof)
-    # Wie `session_store.log.write_session`: im Log koennen handgesetzte Quads und Urteile stehen, und
-    # ein Re-Import darf sie nicht ohne Kopie ueberschreiben.
+    # Im Log koennen handgesetzte Quads und Urteile stehen; ein Re-Import ueberschreibt sie nie ohne
+    # Kopie.
     from .session_store.log import backup_log
 
     if log_path(session_dir).is_file():

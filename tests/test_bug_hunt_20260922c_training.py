@@ -1,4 +1,4 @@
-"""Mutationsprobe 2026-09-22 auf Trainings- und Metrikweg: Funde und ungedeckte Wachen."""
+"""Mutationsprobe auf Trainings- und Metrikweg: Funde und ungedeckte Wachen."""
 from __future__ import annotations
 
 import pytest

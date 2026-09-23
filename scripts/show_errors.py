@@ -37,11 +37,8 @@ def cov_str(cov) -> str:
 
 
 def collect_wrong(rows, trues, preds, conf, classes):
-    """Die falschen Zellen, die Zahl der beurteilten und wie viele davon UNGEMESSEN sind.
-
-    `coverage is None` heisst nicht gemessen, nicht sichtbar: elf Datensaetze tragen keine
-    einzige Coverage-Zahl. Sie fliegen nicht raus — dann waere ihr Bogen leer —, sie werden
-    gezaehlt und genannt.
+    """Die falschen Zellen, die Zahl der beurteilten und der UNGEMESSENEN: `coverage is None` wird
+    gezaehlt und genannt, nicht aussortiert.
     """
     wrong, seen, blind = [], 0, 0
     for r, t, p_, c in zip(rows, trues, preds, conf, strict=False):
@@ -79,14 +76,14 @@ def main() -> int:
     classes = cfg["classes"]
     ds_name = cfg["dataset"]
     dd = dataset_dir(ds_name)
-    # Genau die Maschinerie, die `chesslab eval` benutzt — eine selbstgebaute Vorverarbeitung
-    # (nur /255) meldete 5,64 % Fehler gegen die 0,64 % des Trainings.
+    # Genau die Maschinerie von `chesslab eval`: selbstgebaute Vorverarbeitung meldete 5,64 % statt
+    # 0,64 %.
     manifest = load_manifest(dd / "manifest.jsonl")
     rows = filter_rows_by_split(
         manifest, load_split(dd / (cfg.get("split_file") or "split.json")), args.split)
     if args.exclude_dirty:
-        # `dirty/` ist die Pile des Exports, `boards/` der saubere Stock. Gefiltert wird je FRAME,
-        # also fallen ganze Bretter weg und der Brettdatensatz bleibt vollstaendig.
+        # `dirty/` ist die Pile, `boards/` der saubere Stock; je FRAME gefiltert, Bretter bleiben
+        # vollstaendig.
         before = len(rows)
         keep = []
         cache: dict[str, set] = {}

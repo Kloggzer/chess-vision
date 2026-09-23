@@ -1,4 +1,4 @@
-"""Skript-Jagd 2026-09-17, Runde 2: Zahlen, die dem Menschen vorgelegt werden."""
+"""Skript-Jagd, Runde 2: Zahlen, die dem Menschen vorgelegt werden."""
 
 from __future__ import annotations
 

@@ -1,13 +1,7 @@
-"""Derive the commit threshold from a target fabrication rate instead of tuning it.
+"""Derive the commit threshold from a target fabrication rate: the most permissive threshold whose
+Clopper-Pearson upper bound stays below the target, leave-one-recording-out.
 
-Distribution-free risk control: pick the most permissive threshold whose fabrication rate among
-ACCEPTED commits still has a Clopper-Pearson upper bound below the target. Calibrated
-leave-one-recording-out, so every reported number is on a recording the threshold never saw.
-
-This screens commits after the fact; it does not re-run the tracker with the threshold in place,
-so a rejected commit here does not change what the engine believed next. It answers the question
-that has to hold first: is there a commit-time signal that separates fabrications from hits, and
-does a threshold fitted on one set of recordings carry to another.
+Screens commits after the fact; it does not re-run the tracker with the threshold in place.
 """
 import json
 import math
@@ -69,11 +63,8 @@ def lcs(ref, got):
 
 
 def loo_eval(by_sess, refs, score, alpha, delta=0.10):
-    """Leave-one-recording-out totals for one score.
-
-    A recording whose calibration set yields no threshold commits NOTHING, so its reference plies
-    stay in the denominator — dropping them let a score that refused half the corpus print the
-    same `gefunden x/y` as one that carried all of it.
+    """Leave-one-recording-out totals for one score. A recording without a threshold commits NOTHING
+    and keeps its plies in the denominator.
     """
     tot = {"acc": 0, "fab": 0, "found": 0, "ref": 0, "refused": 0, "taus": []}
     for held in sorted(by_sess):

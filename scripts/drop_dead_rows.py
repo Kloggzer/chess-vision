@@ -49,12 +49,8 @@ def partition(rows: list[dict], have: dict[str, set]) -> tuple[list[dict], list[
 
 
 def sync_splits(ds: Path, alive: list[dict], stamp: str, n_dead: int) -> list[str]:
-    """Jede `split*.json` am ueberlebenden Manifest neu rechnen — mit DERSELBEN Sitzungsaufteilung.
-
-    `make_split` mit `precomputed_splits` reproduziert die Datei bitgleich (nachgewiesen gegen das
-    geparkte Manifest von 2026-09-17), rechnet aber Zaehlungen und Gewichte neu. Eine Fold-Datei,
-    deren Sitzungsliste das Manifest nicht deckt, wird BENANNT statt stillschweigend stehen
-    gelassen — sie neu zu rechnen hiesse, ihren Zuschnitt zu erfinden.
+    """Jede `split*.json` am ueberlebenden Manifest neu rechnen, mit DERSELBEN Sitzungsaufteilung.
+    Eine Fold-Datei, die das Manifest nicht deckt, wird BENANNT statt neu erfunden.
     """
     stale = []
     sessions = {r["session_id"] for r in alive}

@@ -219,21 +219,11 @@ def _pieces(img):
     ("perspective", _persp(0.006, -0.008)),
 ])
 def test_the_reported_number_is_the_true_number(name, m):
-    """Calibration against analytic truth, on a board and on one cluttered with pieces.
+    """Calibration against analytic truth, on a bare board and one cluttered with pieces.
 
-    Directional tests ("the shear is visible") pass for a metric that reports a third of the error,
-    and that is exactly what the old whole-board collapse did: 0.01 px for a 3.05 px shear, 0.00 for
-    a 3.07 px rotation, while being exact on a translation. A number that is right for one family of
-    errors and silent for another is worse than no number, because it reads as a verdict.
-
-    The SCALE and PERSPECTIVE rows are new on 2026-08-03 and are the reason the pinning had to go:
-    a uniform scale used to read 25 % short, structurally, because index 0 and 8 were put where the
-    warp puts them rather than looked for. Both families are now measured like any other.
-
-    Half a pixel is the bar on the bare board. Anything looser would pass a metric that
-    under-reports a real shear by enough to certify a frame the crops are being cut wrong on.
-    A piece sitting on a groove genuinely drags its centroid, so the cluttered board gets one pixel.
-    """
+    Directional tests pass for a metric that reports a third of the error, so each family (shear,
+    rotation, SCALE, PERSPECTIVE) is checked by value. Half a pixel bare; a piece on a groove
+    gets one."""
     img, pad = _displaced(m)
     truth = _true_worst(m)
     assert abs(max(square_offsets(img, BS, pad)[0].values()) - truth) < 0.5, name

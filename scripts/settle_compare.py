@@ -1,10 +1,8 @@
-"""Same video, same frames: does the phone stay in `moving` where the PC's motion score is already quiet?
+"""Same video, same frames: does the phone stay in `moving` where the PC's motion score is already
+quiet?
 
-Per retimed ply: the PC's last `moving -> waiting` before its commit (replay log, decoded index) against
-the phone's last one before its own commit (timeline `state` rows, placed like `phone_vs_pc` does: the ply's
-`frame_phone` minus the timeline seconds between the settle and the decision). Over the frames the phone
-kept waiting and the PC did not, the PC's combined motion (the `.status.csv` beside `motiondump=`) says
-whether the pixels still moved.
+Per retimed ply the PC's last `moving -> waiting` before its commit against the phone's; the PC's
+combined motion (`.status.csv`) says whether the pixels still moved.
 
     uv run python scripts/settle_compare.py 2026-09-06-20-27-33 tmp/batch/budget/20-27-33.csv tmp/batch/budget/20-27-33.log
 """
@@ -27,8 +25,9 @@ MOTION_THR = 0.25
 
 
 def share_line(over_share: list[float], plies: int) -> str:
-    """Jede Spanne leer (pc_q == ph_q) heisst NICHT ANTEIL 0, sondern nicht gemessen — und
-    `st.median([])` kippte den ganzen Lauf am Ende, nachdem die Tabelle schon stand."""
+    """Jede Spanne leer heisst nicht gemessen, nicht Anteil 0; `st.median([])` kippte sonst den
+    Lauf.
+    """
     if not over_share:
         return f"— (keine Spanne mit Frames, n=0 von {plies} Plies)"
     return f"median {st.median(over_share):.2f} (n={len(over_share)})"

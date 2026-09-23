@@ -1,4 +1,4 @@
-"""Skript-Jagd 2026-09-21: Messwerkzeuge, die einen fehlenden Lauf als Vergleich ausgaben."""
+"""Skript-Jagd: Messwerkzeuge, die einen fehlenden Lauf als Vergleich ausgaben."""
 from __future__ import annotations
 
 import re
@@ -43,10 +43,7 @@ def test_compare_regression_zaehlt_den_abgebrochenen_lauf_nicht_mit(tmp_path, mo
 
 
 def test_guard_ablation_vergleicht_nur_denselben_aufnahmesatz(tmp_path, monkeypatch, capsys):
-    """Ein Ablationslauf ueber weniger Aufnahmen ergab ein Delta und hiess dafuer "gedeckt".
-
-    Live seit 2026-09-21: der Bezug faehrt 12 Aufnahmen, die abgelegten `abl-*` tragen 10.
-    """
+    """Ein Ablationslauf ueber weniger Aufnahmen ergab ein Delta und hiess dafuer "gedeckt"."""
     import guard_ablation
 
     monkeypatch.setattr(guard_ablation, "ROOT", tmp_path)

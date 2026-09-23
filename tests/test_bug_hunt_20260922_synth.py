@@ -1,4 +1,4 @@
-"""Bug hunt 2026-09-22: `synth/`, `synth_build.py`, `composite.py`, `meshprep.py`."""
+"""Bug hunt: `synth/`, `synth_build.py`, `composite.py`, `meshprep.py`."""
 
 from __future__ import annotations
 

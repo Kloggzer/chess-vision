@@ -1,4 +1,4 @@
-"""Bugjagd 2026-09-22b: Hypothesen um die Matten-Kette und die leere Menge."""
+"""Bugjagd: Hypothesen um die Matten-Kette und die leere Menge."""
 
 from __future__ import annotations
 

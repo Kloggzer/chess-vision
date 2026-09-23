@@ -20,8 +20,7 @@ from chesslab.ioutil import read_jsonl
 
 #: Das Konsolenskript, nicht `python -m chesslab` - ein `__main__.py` gibt es nicht.
 CHESSLAB = str(Path(".venv/Scripts/chesslab.exe").resolve())
-#: Ohne das waehlt Triton clang, dem die Windows-Header fehlen - `scripts/campaign_v7.ps1` setzt
-#: es ebenso. Ein Lauf ohne `CC` stirbt beim Kompilieren der Batch-Augmentierung.
+#: Ohne das waehlt Triton clang, dem die Windows-Header fehlen: der Lauf stirbt beim Kompilieren.
 TCC = str(Path(".venv/Lib/site-packages/triton/runtime/tcc/tcc.exe").resolve())
 
 

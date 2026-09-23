@@ -1,20 +1,8 @@
-"""An INSTRUMENT, never a tracker (`docs/tracker-flow.md`).
+"""An INSTRUMENT, never a tracker: the offline tracker is `desktop replay` over the shipping engine.
 
-The offline tracker is `desktop replay`: it runs the shipping `:core-engine` over a video, so it
-cannot diverge from the device by construction. This file is a different algorithm on purpose — it
-answers "how much do the emissions support at best", which the engine cannot answer about itself.
-Nothing in the app calls it and nothing should; what it proves belongs in `:core-engine`, measured
-through `desktop replay` afterwards. Kotlin is the reference implementation.
-
-The chain, completed and decoded offline.
-
-Hidden state: the board position. Transition: one legal ply or nothing. Emission: the recorded
-per-square distribution in `model-reads.jsonl`, weighted down by that square's coverage. Decoding:
-beam-pruned Viterbi over the frames in order.
-
-A SMOOTHER, not the live filter — it sees the whole recording, so it measures what the emissions
-SUPPORT rather than what a tracker can reach. `--floor` is the calibration: the smallest probability
-any label is granted, and therefore the most a single misread square may testify.
+The chain decoded offline — beam-pruned Viterbi over positions with coverage-weighted emissions
+from `model-reads.jsonl`. A SMOOTHER: it measures what the emissions SUPPORT. `--floor` caps one
+misread.
 
     uv run python scripts/chain_decode.py <session> [--beam N] [--pmove P] [--floor F] [--no-coverage]
 """
@@ -33,11 +21,8 @@ ROOT = Path("data/recordings")
 
 
 def tempered(dist, temp):
-    """The full 13-way distribution at temperature [temp] — the post-hoc calibration knob.
-
-    `model-reads.jsonl` stores only the significant entries, so the missing mass is spread over the
-    labels it left out before `p ** (1 / temp)` is applied and everything renormalised. T = 1 is the
-    stored distribution exactly; T > 1 softens a confident read without moving its argmax.
+    """The full 13-way distribution at temperature [temp]; stored reads are sparse, so the missing
+    mass is spread first. T = 1 is the stored distribution.
     """
     missing = [lab for lab in LABELS if lab not in dist]
     rest = max(0.0, 1.0 - sum(dist.values())) / len(missing) if missing else 0.0
@@ -55,10 +40,9 @@ def load_reads(session, floor, use_coverage, temp, reads):
     for row in read_jsonl(ROOT / session / reads):
         if "square" not in row:
             continue
-        cov = row.get("model_cov", row.get("cov"))          # `cov`: Schreibweise vor 2026-09-16
-        # `or 0.0` gab der UNGEMESSENEN Zelle das volle Stimmgewicht — also gerade dort, wo die
-        # Lesung am wenigsten taugt. Laut abweisen wie `occlusion_gate.py`: ohne Occlusion-Kopf
-        # ist hier nichts zu daempfen, und eine Kette aus lauter Gewichten 1,0 sah gemessen aus.
+        cov = row.get("model_cov", row.get("cov"))  # `cov`: alte Schreibweise
+        # `or 0.0` gab der UNGEMESSENEN Zelle das volle Stimmgewicht. Laut abweisen wie
+        # `occlusion_gate.py`.
         if use_coverage and cov is None:
             raise SystemExit(f"[FAIL] {session}/{reads}: Lesung ohne `model_cov` — der Lauf hat "
                              f"keinen Occlusion-Kopf, `--coverage` hat hier nichts zu wiegen")
@@ -103,8 +87,7 @@ def touched(board, move):
 def decode(session, beam, p_move, floor, use_coverage, temp=1.0, reads="model-reads.jsonl", every=1):
     candidate = json.loads((ROOT / session / "candidate.json").read_text(encoding="utf-8"))
     table = load_reads(session, floor, use_coverage, temp, reads)
-    # `every` thins the frames. The cost of every stage is linear in them, and a recording carries
-    # far more boards than plies — the question a sweep answers is how few still name every move.
+    # `every` thins the frames: every stage is linear in them, and boards far outnumber plies.
     frames = sorted(table)[::every]
     stay_cost = math.log(1.0 - p_move)
 
@@ -136,12 +119,8 @@ def decode(session, beam, p_move, floor, use_coverage, temp=1.0, reads="model-re
 
 def filter_decode(session, beam, p_move, floor, use_coverage, temp=1.0,
                   reads="model-reads.jsonl", every=1):
-    """The same chain, but committing as it goes — no lookahead, no taking anything back.
-
-    A streaming beam emits what every surviving hypothesis already agrees on: the longest common
-    prefix. That prefix is then FINAL and the beam is pruned to it, which is what makes this a
-    filter rather than a smoother. Everything else — the emission, the transition prior, the beam
-    width — is identical to [decode], so the difference between the two is the lookahead alone.
+    """The same chain committing as it goes: the beam's longest common prefix is FINAL. Everything
+    else equals [decode], so the difference is the lookahead alone.
     """
     candidate = json.loads((ROOT / session / "candidate.json").read_text(encoding="utf-8"))
     table = load_reads(session, floor, use_coverage, temp, reads)

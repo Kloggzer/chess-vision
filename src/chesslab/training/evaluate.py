@@ -15,14 +15,8 @@ from .model import stock_batchnorm
 
 
 def load_run(run_dir: Path, weights: str | None = None):
-    """Load model + run config from a run directory (best.pt, otherwise last.pt).
-
-    Public because `chesslab.serving.load_run` (the canonical inference facade,
-    see specs/rework/01-serving-facade.md) calls this function with a cache in front.
-
-    [weights] names a checkpoint inside the run instead — `swa.pt`, `best_piece.pt`. A run can
-    hold several and the training deliberately picks no winner among them, so the caller says
-    which one it means. Note that the temperature in `model_card.json` was fitted on `best.pt`.
+    """Load model + run config from a run directory (best.pt, otherwise last.pt); `serving.load_run`
+    caches in front. [weights] names another checkpoint; the temperature was fitted on `best.pt`.
     """
     import torch
 
@@ -30,9 +24,8 @@ def load_run(run_dir: Path, weights: str | None = None):
     from .torch_data import input_repr_of
 
     cfg = read_run_config(run_dir)
-    # `occlusion` is a COMBINED head with one sigmoid coverage unit beside the classes — the same
-    # arithmetic `train_recipe.py` uses. Rebuilding it under its own name raised "unknown head", so every
-    # run trained with it was unloadable: no eval, no confusion, no export.
+    # `occlusion` is a COMBINED head with one sigmoid coverage unit beside the classes; rebuilt
+    # under its own name it was unloadable.
     occluding = cfg.get("head") == "occlusion"
     model = build_model(cfg["backbone"], len(cfg["classes"]) + occluding,
                         norm=cfg.get("norm", "batchnorm"),
@@ -52,15 +45,12 @@ def load_run(run_dir: Path, weights: str | None = None):
     return model, cfg
 
 
-# Transition alias: previous private name, in case still referenced somewhere.
 _load_run = load_run
 
 
 def _frozen_hit(rows: list[dict]) -> set[str]:
-    """Eingefrorene Aufnahmen unter den Zeilen — `data/TEST-USED.json`, NUR `frozen`.
-
-    `benchmark` steht hier absichtlich nicht: so eine Aufnahme darf beliebig oft GEMESSEN werden,
-    sie darf nur nie trainieren. Das prueft `dataset_build._frozen_sessions`, das beide liest.
+    """Eingefrorene Aufnahmen unter den Zeilen, NUR `frozen`: `benchmark` darf beliebig oft gemessen
+    werden, nur nie trainieren.
     """
     import json
 
@@ -75,36 +65,25 @@ def _frozen_hit(rows: list[dict]) -> set[str]:
 
 def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
                  split_name: str, ds_name: str) -> dict:
-    """Was in `eval_<split>.json` steht — und woertlich in `model_card.json["metrics"]` landet.
-
-    Ein unqualifizierter Name ist KORPUSWEIT, ein `visible_*` misst nur, was der Verlust lernt.
-    Bis 2026-09-15 kam beides aus derselben sichtbar-gefilterten Rechnung und war bitgleich,
-    waehrend `board_acc` daneben schon korpusweit war (`docs/offene-entscheidungen.md` 13).
-    Eine Ausnahme bleibt: `occupied_board_acc` ist entgegen der Regel NICHT korpusweit (es kommt
-    aus `occupancy_board_acc(vis_rows, ...)`); der Schluessel bleibt, weil Referenzzahlen an ihm
-    haengen, und `visible_occupied_board_acc` daneben nennt dieselbe Zahl richtig.
+    """Was in `eval_<split>.json` und `model_card.json["metrics"]` steht. Unqualifiziert heisst
+    KORPUSWEIT, `visible_*` nur, was der Verlust lernt. Ausnahme: `occupied_board_acc` ist
+    sichtbar.
     """
     from .data import occupancy_piece_breakdown
 
     every = occupancy_piece_breakdown(classes, res["trues"], res["preds"])
-    # `res["square_acc"]` ist die SICHTBARE Zahl (`evaluate_dataset` maskiert sie an der Zeile).
-    # Unter dem unqualifizierten Namen gehoert die korpusweite hin, wie bei `piece_acc` daneben.
+    # `res["square_acc"]` ist die SICHTBARE Zahl; unqualifiziert gehoert die korpusweite hin.
     hits = [t == p for t, p in zip(res["trues"], res["preds"], strict=False)]
-    # TODO: `recall` kommt aus `run_eval`s Konfusion ueber die SICHTBAREN Zellen und steht hier
-    # trotzdem unqualifiziert — dieselbe Luege, die oben fuer `square_acc` behoben ist. Der
-    # Aufrufer muesste eine zweite Matrix rechnen, darum hier nur benannt.
+    # TODO: `recall` kommt aus der Konfusion ueber die SICHTBAREN Zellen und steht trotzdem
+    # unqualifiziert.
     return {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
             "square_acc": (sum(hits) / len(hits)) if hits else 0.0,
             "visible_square_acc": res["square_acc"], "occupied_acc": every["occupied_acc"],
-            # Beide kommen aus `occupancy_board_acc(vis_rows, ...)` -- ohne sichtbare Zelle ist
-            # auch diese Zahl nicht gemessen, nicht null.
+            # Ohne sichtbare Zelle ist auch diese Zahl nicht gemessen, nicht null.
             "occupied_board_acc": occ_bacc if bd.get("n_cells", 1) else None,
             "visible_occupied_board_acc": occ_bacc if bd.get("n_cells", 1) else None,
-            # Leerer Nenner ist `None`, wie `per_session` daneben es seit je sagt: diese Zeile
-            # landet woertlich in `model_card.json["metrics"]`, und dort las `ModelCard.kt` die
-            # 0,0 als gemessene Null in die Schlagzeile. Nichts gemessen ist nicht alles falsch.
-            # FEHLT der Nenner, ist er nicht null: ein Aufrufer ohne die `n_*` haelt sich an den
-            # alten Vertrag und wird nicht bestraft. Nur eine gemeldete NULL heisst ungemessen.
+            # Leerer Nenner ist `None`: `ModelCard.kt` las 0,0 als gemessene Null. FEHLT der Nenner,
+            # gilt der alte Vertrag.
             "visible_piece_acc": bd["piece_acc"] if bd.get("n_occupied", 1) else None,
             "visible_occupied_acc": bd["occupied_acc"] if bd.get("n_cells", 1) else None,
             "visible_type_err": bd["type_err"] if bd.get("n_pieces", 1) else None,
@@ -119,9 +98,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
              dataset: str | None = None, split_file: str | None = None,
              sessions: list[str] | None = None, boards_only: bool = False,
              burn_frozen: bool = False, strict_verdicts: bool = False) -> int:
-    """`dataset` points the run at a corpus it was not trained on — the "validate with the
-    pretrain" step, which used to need a throwaway script. `split_name="all"` skips the split
-    filter, `sessions` narrows it further, and both guards below only fire on that path.
+    """`dataset` points the run at a corpus it was not trained on; `split_name="all"` skips the
+    split filter, `sessions` narrows it; both guards below only fire there.
     """
 
     from .boardnet import CELLS as BOARD_CELLS
@@ -143,18 +121,13 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     classes = cfg["classes"]
 
     foreign = bool(dataset) and dataset != cfg.get("dataset")
-    # Naming the split file is an override too: pointing a fold model at a SIBLING fold reads
-    # sessions it trained on just as surely as pointing it at another corpus does.
+    # Naming the split file is an override too: a SIBLING fold reads sessions this one trained on.
     overridden = foreign or (bool(split_file) and split_file != cfg.get("split_file"))
-    ds_name = dataset or cfg.get("dataset")   # ohne --dataset: der Datensatz aus dem run-config
-    # The run's OWN split, not the corpus-wide one: a cross-validation fold shares the packed
-    # dataset with three others, and `split.json` there names every session — evaluating a
-    # fold against it would measure the sessions it trained on. A foreign dataset has no such
-    # claim on the run, so there the default is that dataset's own split.
+    ds_name = dataset or cfg.get("dataset")
+    # The run's OWN split: folds share a dataset whose `split.json` names every session.
     default_split = "split.json" if foreign else (cfg.get("split_file") or "split.json")
     manifest_path, split_path = dataset_paths(ds_name, split_file, default_split)
-    # Ohne die Pin-Pruefung misst ausgerechnet `eval --dataset <gemeinsamer>` — das Kommando
-    # FUER Quervergleiche — gegen den Val ohne weisse Springer.
+    # Ohne die Pin-Pruefung misst `eval --dataset <gemeinsamer>` gegen den Val ohne weisse Springer.
     pinned = unnamed_pin(ds_name, split_file, default_split) if ds_name else None
     if pinned is not None:
         print(f"[FAIL] '{ds_name}' hat einen gepinnten Schnitt ({pinned.name}), aber "
@@ -166,8 +139,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         return 1
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
-    # A run's class list is baked into its head; measuring it against a corpus that numbers its
-    # classes differently produces a full, plausible, meaningless table.
+    # A run's class list is baked into its head; another numbering gives a plausible, meaningless
+    # table.
     ds_classes = split.get("classes")
     if ds_classes and list(ds_classes) != list(classes):
         print(f"[FAIL] '{ds_name}' carries {len(ds_classes)} classes ({', '.join(ds_classes)}), "
@@ -182,9 +155,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
             return 1
         rows = [r for r in rows if r["session_id"] in wanted]
     if boards_only:
-        # Ein Brett-Modell sieht nur VOLLSTAENDIGE Bretter (`PackedBoardDataset`), ein Zell-Modell
-        # alle Zeilen — 33 984 gegen 37 572 auf real13-mix-v4-128. Ohne diesen Schnitt vergleicht
-        # ein Quervergleich der beiden Familien zwei verschiedene Datensaetze.
+        # Ein Brett-Modell sieht nur VOLLSTAENDIGE Bretter; ohne diesen Schnitt vergleichen die
+        # beiden Familien verschiedene Datensaetze.
         from .boardnet import CELLS
 
         groups: dict[tuple[str, str], list] = {}
@@ -204,9 +176,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     except ValueError as e:
         print(f"[FAIL] {e}")
         return 1
-    # Eine eingefrorene Aufnahme wird GENAU EINMAL ausgewertet, nach der Auswahl. Bis dahin ist
-    # jede Messung auf ihr ein Verlust: `data/TEST-USED.json` zaehlt 33 bzw. 32 Auswertungen auf
-    # den beiden anderen Testaufnahmen, und damit tragen sie nichts mehr.
+    # Eine eingefrorene Aufnahme wird GENAU EINMAL ausgewertet, nach der Auswahl; jede fruehere
+    # Messung verbrennt sie.
     frozen = _frozen_hit(rows)
     if frozen and not burn_frozen:
         print(f"[FAIL] {', '.join(sorted(frozen))} ist eingefroren (data/TEST-USED.json). "
@@ -226,29 +197,23 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 
     device = get_device(require_gpu=False)
     model.to(device)
-    # Packed memmap when available: required for fused datasets (mm:// rows have no files) and
-    # a free speedup for any packed one. Falls back to per-PNG for classic file-backed datasets.
+    # Required for fused datasets (mm:// rows have no files), a free speedup otherwise.
     from .packs import open_dataset_pack
 
     packed = open_dataset_pack(ds_name, config.DATA, split_rows=rows)
-    # Wie in `train`: traegt der Pack CLAHE schon in den Pixeln, darf der Loader ihn nicht noch
-    # einmal rechnen — zweimal CLAHE ist ein anderer Operator, und die Zahlen benoten dann ein
-    # Rezept, das der Lauf nie gefahren ist.
+    # Traegt der Pack CLAHE schon in den Pixeln, rechnet der Loader ihn nicht noch einmal.
     from .packs import cfg_for_pack
 
     cfg = cfg_for_pack(cfg, ds_name, packed)
     tf = eval_transform_for(cfg)
     batch = 256
-    # An occlusion run's last logit is the coverage sigmoid, not a class. `evaluate_dataset` only
-    # strips it when the batch carries a 2-wide target, so without this every such run argmaxed
-    # over one unit too many: IndexError in the breakdown, board accuracy 0.
+    # An occlusion run's last logit is the coverage sigmoid: without this, argmax runs one unit too
+    # far.
     with_coverage = cfg.get("head") == "occlusion"
     if packed is not None:
         from .torch_data import PackedSquareDataset
         if str(cfg.get("backbone", "")).startswith(("board:", "boardattn:")):
-            # Ein Brett-Modell will `(B, 64, C, H, W)`; der flache Loader liefert `(N, C, H, W)`
-            # und der Vorwaertspfad brach ab. `evaluate_dataset` liest das Zusammenlegen und die
-            # Zeilenreihenfolge vom Datensatz selbst, also reicht der richtige Datensatz hier.
+            # Ein Brett-Modell will `(B, 64, C, H, W)`; der flache Loader liefert `(N, C, H, W)`.
             from .torch_data import PackedBoardDataset
 
             ds = PackedBoardDataset(rows, classes, tf, packed)
@@ -262,17 +227,15 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         return 1
     else:
         ds = SquareDataset(rows, classes, tf, with_coverage=with_coverage)
-    # Ab hier zaehlt die Reihenfolge des DATENSATZES: der Brettdatensatz behaelt nur vollstaendige
-    # Bretter und sortiert sie nach Feld, also passt `rows` weder in Laenge noch in Reihenfolge.
+    # Ab hier zaehlt die Reihenfolge des DATENSATZES (nur vollstaendige Bretter, nach Feld
+    # sortiert).
     res = evaluate_dataset(model, ds, device, batch_size=batch, input_size=input_size,
                            keep_workers=False)
 
     rows = getattr(ds, "rows", None) or rows
-    # 1. Board-Accuracy (Hauptmetrik)
     if input_size is not None:
         print(f"[eval @ input_size={input_size}px]")
     print(f"Board accuracy ({split_name}): {res['board_acc']:.4f}")
-    # 1b. Occupancy/piece diagnosis: WHERE are the errors (occupancy vs. type vs. color)?
     from .data import occupancy_board_acc, occupancy_piece_breakdown
 
     vis = np.flatnonzero(res.get("classification_eligible", np.ones(len(rows), dtype=bool)))
@@ -285,8 +248,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     print(f"Occupancy: square {bd['occupied_acc']:.4f} | board {occ_bacc:.4f}   "
           f"Figur (auf besetzt): {bd['piece_acc']:.4f}   "
           f"Fehler: Typ {bd['type_err']:.3f} / Farbe {bd['color_err']:.3f}")
-    # Welche Verwechslungen tragen die ueberzeugten Fehler? Ein Mittelwert sagt nicht,
-    # ob es viele laue oder wenige sehr sichere sind — und das entscheidet die Gegenmassnahme.
+    # Ein Mittelwert sagt nicht, ob es viele laue oder wenige sehr sichere Fehler sind.
     from .data import confident_confusions
 
     top = confident_confusions(classes, vis_trues, vis_preds, vis_conf)
@@ -294,7 +256,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         print(f"Ueberzeugte Fehler (conf auf Fehlern {_fmt(res.get('conf_wrong'))}):")
         for r in top:
             print(f"   {r['true']:>5} -> {r['pred']:<5} n={r['n']:6d}  conf {r['mean_conf']:.3f}")
-    # 1c. Per session: a corpus mean hides the one recording that carries the whole error.
+    # A corpus mean hides the one recording that carries the whole error.
     from .data import per_session_metrics
 
     per_session = per_session_metrics(rows, classes, list(res["trues"]), list(res["preds"]))
@@ -312,23 +274,19 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
                   f"(Median {sp['median']:.4f}, Spanne {sp['range']:.4f}, {sp['n']} Sessions)")
         print("  Der Korpuswert ist ein Mittel darueber. Ein Vergleich zweier Laeufe muss diese "
               "Spanne schlagen, sonst misst er, welche Sessions im Split lagen.")
-    # 2. Per-Klassen-Recall
     cm = confusion_matrix(np.asarray(vis_trues), np.asarray(vis_preds), len(classes))
-    # Ohne sichtbare Zelle ist eine Klasse ungemessen, nicht "nie erkannt" — `ModelCard.kt` laesst
-    # `null` aus der "lowest recall"-Zeile, eine 0,0 fuehrte sie an.
+    # Ohne sichtbare Zelle ist eine Klasse ungemessen, nicht "nie erkannt".
     recall = [float(r) if n else None
               for r, n in zip(per_class_recall(cm), cm.sum(axis=1), strict=True)]
     print("Per-class recall:")
     for c, r in zip(classes, recall, strict=False):
         print(f"  {c:<6} {_fmt(r)}")
-    # 3. Confusion (Text + PNG), Blick auf König<->Dame und Figur<->empty
-    # A foreign eval writes under its own stem: `eval_test.json` and its confusion are what
-    # `run_export` merges into model_card.json, and must keep describing the run's own test split.
+    # A foreign eval writes under its own stem: `eval_test.json` is what `run_export` merges into
+    # the card.
     stem = f"{split_name}__{ds_name}" if foreign else split_name
     txt = render_confusion_text(cm, classes)
     (run_dir / f"confusion_{stem}.txt").write_text(txt, encoding="utf-8")
     save_confusion_png(cm, classes, run_dir / f"confusion_{stem}.png")
-    # 4. Square-Accuracy (nur Kontext)
     print(f"Square-Accuracy ({split_name}): {_fmt(res['square_acc'])}  (nur Kontext)")
     print(f"[OK] Confusion gespeichert: {run_dir / ('confusion_' + stem + '.txt')} (+ .png)")
 
@@ -340,8 +298,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     return 0
 
 
-#: The one batch the tracker ever infers: 64 squares of a board, read in a single call.
-#: Baked into the exported graph — see `_export_onnx` for why it must not be dynamic.
+#: The one batch the tracker infers: 64 squares in one call, baked into the graph (see
+#: `_export_onnx`).
 ONNX_BATCH = 64
 
 #: ORT against torch on one fixed batch; the tolerance scales with the largest logit.
@@ -381,11 +339,8 @@ def _fmt(v: float | None) -> str:
 
 
 def session_spread(per_session: dict[str, dict]) -> dict[str, dict]:
-    """Wie weit die Sessions auseinanderliegen — die Unsicherheit hinter dem Korpuswert.
-
-    Gemessen 2026-08-25 ueber vier Folds, jede der 20 Sessions genau einmal ungesehen:
-    `visible_piece_acc` reicht von 0,584 bis 0,993. Diese Spanne ist groesser als jeder
-    Rezeptunterschied, den ein A/B an diesem Korpus bisher gemessen hat.
+    """Wie weit die Sessions auseinanderliegen: `visible_piece_acc` reichte ueber vier Folds von
+    0,584 bis 0,993, mehr als jeder gemessene Rezeptunterschied.
     """
     import statistics as st
 
@@ -399,17 +354,13 @@ def session_spread(per_session: dict[str, dict]) -> dict[str, dict]:
 
 
 def untrained_size_error(cfg: dict, w: int, h: int) -> str | None:
-    """Why `(w, h)` is not a size this run may be served at — or None when it is.
-
-    Validated HERE, where the value enters the model's `config.json`, and nowhere else. An
-    untrained inference size does not raise, it just loses squares: `occ-v4-f3e20`
-    (`scales: [32, 64, 96, 128]`) reads **133** occupied squares as empty at 80 px against 19 at
-    96 px and 38 at 64 px, and 916 at 48 px (specs/22, phase 00). A miss licenses a fabricated
-    capture, so silence is the expensive failure mode here.
+    """Why `(w, h)` is not a size this run may be served at, or None. An untrained size does not
+    raise, it loses squares (133 missed at 80 px against 19 at 96) — and a miss licenses a
+    fabricated capture.
     """
     out_w, out_h = (int(v) for v in cfg["out_size"])
     if (w, h) == (out_w, out_h):
-        return None      # the size the crops were built at — nothing new is being asked of anyone
+        return None  # the crop build size
     scales = [int(s) for s in cfg.get("scales") or []]
     if not scales:
         return (f"--infer-size {w}x{h} but this run has no `scales`: it was trained at one size, "
@@ -425,10 +376,8 @@ def untrained_size_error(cfg: dict, w: int, h: int) -> str | None:
 
 
 def crop_of_dataset(name: str, paths: config.Paths | None = None) -> float | None:
-    """[crop_of_rows][chesslab.training.data.crop_of_rows] for a dataset by name.
-
-    A dataset that is not on this machine any more reads as legacy rather than raising — an
-    export must stay possible without the corpus that produced it.
+    """`crop_of_rows` for a dataset by name; a dataset no longer here reads as legacy, so export
+    stays possible.
     """
     from ..dataset_build import dataset_dir
 
@@ -440,18 +389,11 @@ def crop_of_dataset(name: str, paths: config.Paths | None = None) -> float | Non
 
 def run_export(run: str, fmt: str = "torchscript",
                infer_size: tuple[int, int] | None = None) -> int:
-    """Export a run at the inference size ITS OWN config declares (specs/22).
+    """Export a run at the inference size ITS OWN config declares (specs/22), written before
+    tracing.
 
-    `infer_size` is the convenience writer for that key: it is stored in the run's `config.json`
-    and then read straight back through `infer_size_of`, so the exported graph is always what the
-    config says and never a value that existed only in this argument.
-
-    The crop's COMPOSITION (`pad_side`) is written the same way and for the same reason
-    (specs/45): it decides what the 64 crops contain, the consumer has to reproduce it, and only
-    the dataset knows it. A run whose dataset cannot say declares nothing and is reported LOUDLY
-    as legacy — the serving path then keeps the calibration profile's values, which is the very
-    mismatch this key exists to end.
-    """
+    `pad_side` is declared the same way (specs/45); a run whose dataset cannot say is reported
+    LOUDLY as legacy."""
     import torch
 
     from .data import build_model_card
@@ -463,9 +405,7 @@ def run_export(run: str, fmt: str = "torchscript",
         return 1
     model, cfg = _load_run(run_dir)
     model.eval()
-    # The primitive BatchNorm exists only so training can avoid MIOpen's broken kernel; the
-    # exporter cannot fold its arithmetic into the preceding convolution, and unfolded it ships as
-    # dozens of loose nodes per norm. The stock module holds the identical weights.
+    # Only the stock module folds into the preceding convolution; the weights are identical.
     stock_batchnorm(model)
     classes = cfg["classes"]
     out_w, out_h = (int(v) for v in cfg["out_size"])
@@ -488,32 +428,27 @@ def run_export(run: str, fmt: str = "torchscript",
     if new_crop:
         cfg["pad_side"] = crop
     elif declared is None:
-        # Never removes a declaration already in the file: a value established by hand from the
-        # session profiles (which is how the bundled models got theirs) outranks a dataset that
-        # has since been rebuilt or moved away.
+        # Never removes a declaration already in the file: hand-established values outrank a rebuilt
+        # dataset.
         print(f"[LEGACY] {run_dir.name} declares NO crop: dataset {cfg.get('dataset')!r} does "
               "not record `pad_side` for all its rows. Every consumer will keep its own "
               "calibration profile's pad, which is the silent domain shift specs/45 is about — "
               "re-slice the sessions to fix it.")
-    # The occlusion head ships ONE extra output beside the classes, and it is a sigmoid coverage,
-    # not a class. Declared rather than inferred from `head`: a consumer reading `classes.size`
-    # logits off a graph one wider would softmax the coverage into every probability.
+    # Declared, not inferred: a consumer reading `classes.size` logits off a wider graph would
+    # softmax the coverage into every probability.
     covering = cfg.get("head") == "occlusion"
     if covering:
         cfg["coverage_output"] = True
     if infer_size is not None or new_crop or covering:
-        # Write it before tracing: the graph must be what the config declares, and the config is
-        # what every consumer resizes and pads its crops to.
+        # Before tracing: the graph must be what the config declares.
         (run_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
                                              encoding="utf-8")
 
-    # ONE size per export — TorchScript and ONNX are traced from the same example, so the two
-    # artifacts of a run can never disagree about what the network takes.
+    # ONE size per export, so TorchScript and ONNX agree.
     example = torch.randn(ONNX_BATCH, input_repr_of(cfg)[1], in_h, in_w)
     if str(cfg.get("backbone", "")).startswith(("board:", "boardattn:")):
-        # Ein Brett-Modell will `(B, 64, C, H, W)`, die App schickt genau EIN Brett als
-        # `(64, C, H, W)`. Die Huelle ergaenzt die fehlende Achse — bitgleich zum direkten
-        # Aufruf. Ohne sie waere kein Brett-Modell auf dem Geraet lauffaehig.
+        # Die App schickt EIN Brett als `(64, C, H, W)`; die Huelle ergaenzt die Brettachse,
+        # bitgleich.
         class _BoardExport(torch.nn.Module):
             def __init__(self, inner):
                 super().__init__()
@@ -525,12 +460,8 @@ def run_export(run: str, fmt: str = "torchscript",
         model = _BoardExport(model).eval()
 
     def _export_onnx() -> str | None:
-        # NO dynamic_axes. A dynamic batch dim is not a harmless generalisation here: under ORT's
-        # ALL_OPT the Android session answers a [64,3,128,128] input with a [1,2] output and every
-        # observation dies on "model returned 2 logits, expected 128". That was diagnosed once
-        # already (b24f1f3) and fixed by hand-patching the shipped .onnx, leaving this exporter
-        # still emitting the broken shape — so the next two models shipped with it again.
-        # Trace at the batch the app actually runs and the shape is baked in.
+        # NO dynamic_axes: under ORT's ALL_OPT the Android session answered a [64,3,128,128] input
+        # with a [1,2] output. Trace at the batch the app runs and the shape is baked in.
         torch.onnx.export(model, example, str(run_dir / "model.onnx"),
                           input_names=["input"], output_names=["logits"],
                           opset_version=17, dynamo=False)
@@ -551,7 +482,6 @@ def run_export(run: str, fmt: str = "torchscript",
                 return 1
             written.append("onnx")
         elif f in ("qnn", "onnx-qnn"):
-            # NPU deployment: ensure the FP32 graph exists, then static-quantize it.
             if "onnx" not in written and not (run_dir / "model.onnx").exists():
                 err = _export_onnx()
                 if err:

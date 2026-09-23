@@ -28,9 +28,8 @@ def main() -> None:
     rows = read_jsonl(args.pack / "manifest.jsonl")
     classes = list(cfg["classes"])
     class_idx = {name: i for i, name in enumerate(classes)}
-    # Ein Pack ist unveraenderlich, sein Manifest nicht: fuenf Datensatzverzeichnisse tragen
-    # heute ein ausgeduenntes Manifest neben dem alten `packed_meta.json`. Positionsgleich
-    # gelesen ergaebe das Bild i zu Label j — eine Zahl, die nichts misst.
+    # Fuenf Datensatzverzeichnisse tragen ein ausgeduenntes Manifest neben dem alten
+    # `packed_meta.json`; positionsgleich gelesen gaebe das Bild i zu Label j.
     if int(meta["n"]) != len(rows):
         raise SystemExit(f"{args.pack}: {len(rows)} Manifest-Zeilen, aber {int(meta['n'])} "
                          "gepackte Bilder — neu packen, nicht vergleichen")

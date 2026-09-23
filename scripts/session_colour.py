@@ -1,11 +1,6 @@
-"""Farbtemperatur je Session — ist eine Aufnahme kaelter als der Rest?
-
-Der Nutzer sah es am Brett (2026-08-25): `00-39-57` wirkt kuehler. Wenn das stimmt, ist ihre
-schlechte Guete eine Domaenenverschiebung und kein Labelproblem — und die Abhilfe waere
-Farb-Augmentierung oder `--crop-norm per-crop`, nicht mehr Daten.
-
-Gemessen auf den HELLEN Feldern, weil die die Beleuchtung tragen; dunkle Felder sind fast
-farblos. R/B ueber 1 ist warm, unter 1 kalt.
+"""Farbtemperatur je Session: ist eine Aufnahme kaelter als der Rest? Dann waere ihre schlechte
+Guete Domaenenverschiebung, kein Labelproblem. Gemessen auf den HELLEN Feldern; R/B ueber 1 ist
+warm.
 """
 import argparse
 import collections

@@ -50,7 +50,7 @@ def test_hand_flags_cells_are_the_newest_row_not_a_cell_merge(rec):
 
 
 def test_a_row_without_frame_is_loud_in_every_reader(tmp_path):
-    """Entscheidung 2026-09-23: Schaden statt Luecke — 0 von 10 490 Zeilen auf der Platte betroffen."""
+    """Schaden statt Luecke — 0 von 10 490 Zeilen auf der Platte betroffen."""
     write_jsonl(tmp_path / "matte.jsonl", [{"coverage": {"a1": 0.5}},
                                            {"frame": "000001", "coverage": {"a1": 0.0}}])
     for reader in (labeling.read_matte, temporal_matte.sam_matte, hand_flags.measured_coverage):

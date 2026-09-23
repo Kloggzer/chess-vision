@@ -75,8 +75,8 @@ def main() -> int:
     cfg = yaml.safe_load((paths.datasets / args.dataset / "dataset.yaml").read_text(encoding="utf-8"))
     at = pool_index(pools_of(cfg), paths)
 
-    # Urteile prueft der Ledger-Stempel wie beim Bau. Fuer PIXEL gibt es keinen: `rg-…-11-59-12-80`
-    # trug 3 333 Zeilen eines frueheren Slice (`docs/packs.md` §5), bleibt also die Mtime.
+    # Urteile prueft der Ledger-Stempel. Fuer PIXEL gibt es keinen, also die Mtime (ein Pack trug 3
+    # 333 Zeilen eines frueheren Slice).
     donor_at = (paths.datasets / args.dataset / "manifest.jsonl").stat().st_mtime
     plan, verdicts = [], []
     for sid in cfg["session_ids"]:

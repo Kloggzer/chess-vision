@@ -1,19 +1,5 @@
-"""Stage 4 — named, curated datasets.
-
-A **dataset** is a view on the default crop pool (`data/crops/default/manifest.jsonl`):
-a selection of sessions + dedup and split policy. Building creates under
-`data/datasets/<name>/` a filtered, deduplicated `manifest.jsonl`, a
-session-based `split.json` and `stats.json`. Crops for rot=0 reference the global
-pool (no copying); only rotation-augmented crops are materialized in the dataset folder.
-
-Dedup against the recording-induced surplus of nearly identical crops (never-moved pieces on
-fixed camera):
-  1. Metadata cap per `(session_id, square, label)` — fast, deterministic.
-  2. Perceptual hash (dhash) — discards visually near-duplicates within a class.
-
-Rotation augmentation (90/180/270°) is optional and deliberately AFTER dedup (4x the
-*curated* crops). It contradicts the fixed-camera assumption (CLAUDE.md) and is a toggle.
-Testable headless: all functions take `paths=config.DATA`.
+"""Stage 4 — named, curated datasets under `data/datasets/<name>/`: a session selection with dedup
+and split policy over the crop pool or session packs.
 """
 
 from __future__ import annotations
@@ -52,14 +38,13 @@ def dataset_dir(name: str, paths: config.Paths | None = None) -> Path:
     return (paths or config.DATA).datasets / _safe_name(name)
 
 
-# --- Class mode: 13-class identity (default), or the historical 14 for reading old packs ---
-
 CLASS_MODES = ("pieces13", "pieces")
 
 
 def class_list_for(class_mode: str) -> list[str]:
-    """`pieces13` -> `config.IDENTITY_CLASSES` (the default); `pieces` -> the historical 14, which
-    only reads packs built before `occluded` stopped being a class."""
+    """`pieces13` -> `config.IDENTITY_CLASSES` (default); `pieces` -> the historical 14 for old
+    packs.
+    """
     if class_mode == "pieces13":
         return config.IDENTITY_CLASSES
     if class_mode == "pieces":
@@ -68,40 +53,27 @@ def class_list_for(class_mode: str) -> list[str]:
 
 
 def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
-    """Narrow every row's `label` to the target class list. `pieces` returns the rows untouched
-    (same objects), so the default build stays bit-identical.
+    """Narrow every row's `label` to the target class list; `pieces` returns the rows untouched.
 
-    A metadata mapping, nothing else: crop FILES keep their path and their `data/crops/default/wB/`
-    directory — the path is the identity, the label is metadata.
-
-    `pieces13` DROPS `occluded` rather than binning it — it has no such output, and the
-    hand-painted corrections are exactly what the measured coverage replaces.
+    Metadata only: the crop path is the identity. `pieces13` DROPS `occluded` — coverage replaces
+    it.
     """
-    classes = class_list_for(class_mode)        # the one gate: an unknown mode raises here
+    classes = class_list_for(class_mode)
     if "occluded" in classes:
         return rows
     kept = [r for r in rows if r["label"] != "occluded"]
     n_occluded = len(rows) - len(kept)
     if n_occluded:
-        # Loud, not silent: this used to raise, which was right while a hand label was the only
-        # source. Renders with `--occlusion-p` produce them in bulk, so the count is printed
-        # instead — that is what the guard was really protecting.
+        # Loud, not silent: renders with `--occlusion-p` produce `occluded` in bulk.
         print(f"[{class_mode}] dropped {n_occluded} `occluded` rows "
               f"({n_occluded / max(len(rows), 1) * 100:.1f}% of the pool) — no class fits.",
               flush=True)
-    return kept                                 # labels already are the 13-class list
+    return kept
 
-
-# --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
 
 def dhash(img, size: int = 8) -> int:
-    """Difference hash: image to (size+1 x size) gray, horizontal neighbor differences -> 64-bit.
-
-    Neal Krawetz's dHash (docs/references.md#krawetz-2013 — note that the primary source did not
-    fetch in the session that added this reference; the attribution rests on two secondary
-    sources). The 9x8 resize, the horizontal-neighbour comparison and the 64 bits match the
-    original form; common variants also hash the columns for 128 bits, which doubles the evidence
-    per crop and would collide less readily than this one does.
+    """Difference hash: (size+1 x size) gray, horizontal neighbour differences -> 64-bit (Krawetz
+    dHash).
     """
     import cv2
 
@@ -118,8 +90,6 @@ def _hamming(a: int, b: int) -> int:
     return bin(a ^ b).count("1")
 
 
-# --- Dedup ----------------------------------------------------------------------------
-
 def dedup_metadata(rows: list[dict], cap: int | None, seed: int = config.SEED) -> list[dict]:
     """Keep max. `cap` crops per (session_id, square, label) (seeded). cap<=0/None -> all."""
     if not cap or cap <= 0:
@@ -129,12 +99,12 @@ def dedup_metadata(rows: list[dict], cap: int | None, seed: int = config.SEED) -
     for r in rows:
         groups.setdefault((r["session_id"], r["square"], r["label"]), []).append(r)
     kept: list[dict] = []
-    # Sortiert, nicht in Einfuegereihenfolge: derselbe Seed muss dieselben Crops behalten, egal in
-    # welcher Reihenfolge das Manifest die Gruppen liefert.
+    # Sortiert: derselbe Seed muss dieselben Crops behalten, egal in welcher Reihenfolge das
+    # Manifest liefert.
     for key in sorted(groups):
         g = groups[key]
         if len(g) > cap:
-            g = sorted(g, key=lambda r: str(r.get("frame", "")))   # deterministic
+            g = sorted(g, key=lambda r: str(r.get("frame", "")))
             g = rng.sample(g, cap)
         kept.extend(g)
     return kept
@@ -150,27 +120,11 @@ def _band_ranges(n_bands: int) -> list[tuple[int, int]]:
 
 
 def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
-    """Discard visually nearly identical crops within each class (dhash, Hamming <= threshold).
+    """Discard visually near-identical crops within each class (dhash, Hamming <= threshold).
 
-    Note what this is NOT for: leakage between splits. Near-duplicates spanning a train/test
-    boundary are the expensive kind of duplicate (docs/references.md#barz-2019), and this project
-    removes them structurally by splitting per session, not by hashing. What runs here is curation
-    within one split — and it is off by default, because at hamming 6 it discarded 54.8% of the
-    corpus without a single pixel-identical pair among 3,432 collisions (docs/data-pipeline.md
-    §5.13).
-
-    Candidates are found via LSH banding rather than by scanning every previously kept hash:
-    if two 64-bit hashes differ in at most `hamming` bits, then across `hamming + 1` disjoint
-    bands at least one band must be identical (pigeonhole), so only crops sharing a band need
-    a real comparison. The result is IDENTICAL to a full pairwise scan — banding only narrows
-    the candidate set, it never hides a true near-duplicate.
-
-    Why this matters: the previous naive scan compared each crop against all kept hashes of its
-    class, i.e. O(n^2). On synthetic sets (~1M crops per class, nearly all unique because every
-    render has its own position/camera/lighting) that meant hours to days. Callers building
-    synthetic datasets usually want `phash_enabled=False` outright — there are no near-duplicates
-    to remove there, and `per_cell_cap` already bounds repeats.
-    """
+    Not a leakage defence (the per-session split is), and off by default: hamming 6 dropped 54.8
+    % of the corpus without one pixel-identical pair. LSH banding is exact by pigeonhole, not
+    approximate."""
     import cv2
 
     if hamming is None or hamming < 0:
@@ -185,8 +139,8 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
 
     kept: list[dict] = []
     for g in by_label.values():
-        seen: list[int] = []                                    # kept hashes, index-addressed
-        buckets: list[dict[int, list[int]]] = [{} for _ in bands]   # per band: value -> hash indices
+        seen: list[int] = []
+        buckets: list[dict[int, list[int]]] = [{} for _ in bands]
         for r in sorted(g, key=lambda r: (str(r.get("session_id")), str(r.get("frame")), r.get("square", ""))):
             img = cv2.imread(r["path"])
             if img is None:
@@ -198,7 +152,7 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
             for bucket, key in zip(buckets, keys, strict=True):
                 candidates.update(bucket.get(key, ()))
             if any(_hamming(h, seen[i]) <= hamming for i in candidates):
-                continue                        # too similar -> discard
+                continue
             idx = len(seen)
             seen.append(h)
             for bucket, key in zip(buckets, keys, strict=True):
@@ -207,29 +161,18 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
     return kept
 
 
-# --- Rotation-Augmentation ------------------------------------------------------------
-
-# Rotation augmentation is applied ON-THE-FLY at train time (torch_data._RandomRot90) when the
-# dataset was built with non-trivial `rotations`. Materializing rotated copies (the previous
-# `_apply_rotations`) quadrupled both the crop PNGs on disk and the packed memmap for zero
-# information gain — the rotated pixels are a pure function of the originals.
+# Rotation augmentation runs on the fly at train time (`torch_data._RandomRot90`); materialised
+# copies quadrupled disk for zero information.
 
 
 def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
                           write_pack: bool,
                           paths: config.Paths | None = None, seed: int = config.SEED,
                           pack_size: tuple[int, int] | None = None) -> None:
-    """Project the dataset's on-disk cost BEFORE writing anything, and refuse to start if it
-    cannot fit.
+    """Project the dataset's on-disk cost BEFORE writing anything; ValueError when it cannot fit.
 
-    The dominant term is the packed memmap: it stores every final crop DECODED (h*w*3 bytes),
-    so it dwarfs the source pngs. (Rotation augmentation no longer materializes files — it runs
-    on-the-fly at train time.) Raises ValueError with the concrete numbers rather than filling
-    the disk over ~an hour.
-
-    `pack_size` is what `pack_dataset` will actually write, and the project's own recipe cuts a
-    128 px pool into 80 px packs — measuring the crop file instead projected 2.56x too much and
-    refused a disk that fits.
+    The packed memmap dominates (decoded h*w*3). `pack_size` is what will be written: measuring
+    the 128 px crop file for an 80 px pack projected 2.56x too much.
     """
     import cv2
 
@@ -237,9 +180,7 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
     if not write_pack:           # a pack-built dataset has no memmap, and no crop file to sample
         return
 
-    # A seeded sample of rows, first readable one wins — all crops share one out_size, we only
-    # need the decoded byte count (the compressed-png-size median of the old check died with the
-    # rotated-png term).
+    # A seeded sample; the first readable crop gives the decoded byte count.
     pool = train_rows or holdout
     if not pool:
         return
@@ -266,8 +207,7 @@ def _refuse_if_too_small(n_final: int, crop_bytes: int, paths: config.Paths | No
     need = n_final * crop_bytes if n_final >= _PACK_MIN_CROPS else 0
     if not need:
         return
-    # Measure the volume the dataset is actually written to, not the module-global default —
-    # `paths` may point at another drive (test isolation, multi-drive setups).
+    # Measure the volume actually written to — `paths` may point at another drive.
     free = shutil.disk_usage(str((paths or config.DATA).root)).free
     log.info("preflight: %s final crops; ~%.1f GB memmap needed, %.1f GB free",
              f"{n_final:,}", need / 1e9, free / 1e9)
@@ -277,25 +217,14 @@ def _refuse_if_too_small(n_final: int, crop_bytes: int, paths: config.Paths | No
             f"Reduce it: write_pack=False skips the ~{need / 1e9:.0f} GB memmap; or lower per_cell_cap.")
 
 
-# --- Build ----------------------------------------------------------------------------
-
-# Auto-pack (build_dataset) kicks in above this crop count. It used to be 100 000, on the claim
-# that "below it the per-PNG loader is fine" — measured false on 2026-07-31: `occ-real6a`, 44 864
-# crops and therefore unpacked, had read 8.7 GB from disk against 57 s of CPU time before the first
-# epoch line appeared, with both CPU and GPU idle. 45 000 separate `Image.open` calls per epoch are
-# not fine; they are the whole wall clock. At 128x128x3 the memmap costs ~50 KB per crop, so this
-# threshold is ~0.1 GB of disk — cheap enough that the only sets worth excluding are the toy ones
-# in the test suite, and those pass `write_pack=False` explicitly anyway.
+# Auto-pack threshold (~0.1 GB of memmap). An unpacked 44 864-crop set read 8.7 GB with CPU and GPU
+# idle before its first epoch: per-PNG `Image.open` is the whole wall clock.
 _PACK_MIN_CROPS = 2_000
 
 
 def _donor_policy(donor: str, paths: config.Paths) -> dict:
-    """Everything about `donor` that decides which crops end up where.
-
-    The split assignment is only half of what makes two datasets comparable. `occ-real6` was built
-    with `per_cell_cap 256` and `max_empty_ratio 3.0`; today's defaults are 4 and 1.5, so a rebuild
-    with the same sessions and the same split still produced a third of the training rows and
-    almost inverted class weights. Both halves have to come from the donor or neither does.
+    """Everything about `donor` that decides which crops end up where — split AND balancing policy,
+    or a rebuild of the same split trains on a third of the rows with inverted weights.
     """
     from .training import packs
 
@@ -304,9 +233,8 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
         raise ValueError(f"--like: dataset '{donor}' has no dataset.yaml at {p}")
     cfg = _read_yaml(p)
     d, s = cfg.get("dedup") or {}, cfg.get("split") or {}
-    # Ein Spender ohne diese Bloecke sagt seine Politik NICHT — `build_dataset` las die lauter
-    # `None` als "nicht gesetzt" und erbte HEUTIGE Vorgaben plus `seed=None`, also genau den
-    # Unterschied, den `--like` verhindern soll. Wer nichts weiss, verweigert.
+    # Ein Spender ohne diese Bloecke sagt seine Politik NICHT; lauter `None` erbte heutige Vorgaben
+    # plus `seed=None`. Wer nichts weiss, verweigert.
     blind = [k for k, block in (("dedup", d), ("split", s)) if not block]
     if blind:
         raise ValueError(
@@ -317,8 +245,7 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
         "from_packs": bool(cfg.get(packs.PACKS_KEY)),
         "pack_size": _donor_pack_size(paths.datasets / _safe_name(donor), paths),
         "per_cell_cap": d.get("per_cell_cap"),
-        # Absent on every dataset built before this key existed, and None is exactly what those
-        # builds did. Present, it is the third thinning policy and `--like` must carry it too.
+        # Absent on older datasets, where None is exactly what they did; `--like` must carry it too.
         "per_position": d.get("per_position"),
         "phash_enabled": d.get("phash_enabled"),
         "phash_hamming": d.get("phash_hamming"),
@@ -333,13 +260,10 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
 
 
 def _donor_pack_size(ds: Path, paths: config.Paths | None = None) -> tuple[int, int] | None:
-    """(W, H) of the donor's rows — `dataset.yaml` names its packs but not their size, and a
-    128 px donor silently produced an 80 px twin under a name that said otherwise.
+    """(W, H) of the donor's rows — a 128 px donor silently produced an 80 px twin.
 
-    Eine `mm://`-Zeile fuehrt das `out_size` ihres POOLS weiter, nicht das des Packs: jede
-    `-80`-Aufnahme auf der Platte traegt `[128, 128]`, weil `write_pool_pack` die Pool-Zeile
-    uebernimmt. Fuer die gilt das Meta des Packs, sonst baut `--like real13-mix-v6-80` den
-    Zwilling aus 128er Packs.
+    Eine `mm://`-Zeile traegt das `out_size` ihres POOLS (`[128, 128]` auch in `-80`-Packs); fuer
+    sie gilt das Meta des Packs.
     """
     manifest = ds / "manifest.jsonl"
     if not manifest.exists():
@@ -369,24 +293,11 @@ def _pack_row_size(path: str, paths: config.Paths | None) -> tuple[int, int] | N
 def _split_from(donor: str, have: set[str], paths: config.Paths,
                 add_test: Sequence[str] = (),
                 add_train: Sequence[str] = ()) -> dict[str, list[str]]:
-    """The donor dataset's split, restricted to the sessions this build actually has.
+    """The donor dataset's split, restricted to this build's sessions; a session the donor never
+    placed is refused.
 
-    Refuses on a session the donor never placed, rather than quietly dropping it into train: an
-    unplaced session is either a typo or a genuinely new session, and both deserve a decision
-    instead of a default. Sessions the donor has and this build does not are simply absent — that
-    is the normal case when the twin is built from a narrower selection.
-
-    `add_test` is that decision, made explicitly: sessions appended to the TEST split on top of the
-    donor's assignment. Train and val stay byte-identical, so every model trained against the donor
-    stays comparable — a bigger test set does not change what anything was trained on. This is how a
-    session recorded purely to evaluate against gets in.
-
-    `add_train` is the other half, and it is not symmetric in consequence: it CHANGES what a model
-    sees, so the result is a new corpus rather than a twin, and numbers from it are not comparable
-    with the donor's on the training side. Only the test split stays comparable. Use it when the
-    point is to teach the model something new and then check, against the donor's own test
-    sessions, that the new material did not cost anything on the old ones.
-    """
+    `add_test` appends to TEST only, so train/val stay byte-identical and comparable. `add_train`
+    changes what a model sees: a new corpus, comparable with the donor only on test."""
     p = paths.datasets / _safe_name(donor) / "split.json"
     if not p.exists():
         raise ValueError(f"--like: dataset '{donor}' has no split.json at {p}")
@@ -408,8 +319,7 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
             f"--like {donor}: {len(missing)} session(s) are not in that split and would be "
             f"placed silently: {', '.join(missing)}. Drop them from --sessions, name them in "
             f"--add-test, or build without --like and accept a different assignment.")
-    # Both directions, or a session named in `--add-train` that the donor put in test stays in
-    # test AND is appended to train: trained on and evaluated on, the leak this refuses.
+    # Both directions, or a session the donor put in test would also be trained on.
     for flag, wanted, keep in (("--add-test", extra, "test"), ("--add-train", extra_train, "train")):
         clash = sorted(set(wanted) & {s for k, sids in donor_splits.items() if k != keep for s in sids})
         if clash:
@@ -426,9 +336,8 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
 def keep_per_position(rows: list[dict], per_position: int) -> list[dict]:
     """Whole boards, `per_position` of them per distinct FEN, spread evenly over the interval.
 
-    The corpus is 246 positions over 9 386 boards — 38 near-identical takes each, because the rig
-    records every 0.1 s while the board stands still. Measured: 16 per position beats the full set
-    on macro recall (0.79 vs 0.71). Frames, never single crops, so boards stay complete.
+    The corpus is 246 positions in 9 386 boards; 16 per position beat the full set on macro
+    recall (0.79 vs 0.71).
     """
     groups: dict[tuple[str, str], set[str]] = defaultdict(set)
     for r in rows:
@@ -524,8 +433,7 @@ def _stale_packs(chosen: dict[str, tuple[str, list[dict]]], w: int, paths: confi
                  allow: bool) -> list[str]:
     """Refuse a pack a human verdict has overtaken since the cut; returns the ones `allow` let by.
 
-    A matching `ledgers.json` stamp spares the read. A pack without one is checked by CONTENT —
-    "unstamped counts as fresh" is how 13 locked cells stayed in 14 packs (2026-09-23).
+    A matching `ledgers.json` stamp spares the read; an unstamped pack is checked by CONTENT.
     """
     from .provenance import same_log
     from .training import packs
@@ -565,11 +473,8 @@ def _stale_packs(chosen: dict[str, tuple[str, list[dict]]], w: int, paths: confi
 
 def _pack_manifests(session_ids: Sequence[str], pack_size: tuple[int, int],
                     paths: config.Paths, allow_stale: bool = False) -> tuple[list[Path], list[str]]:
-    """One pack manifest per requested session, at `pack_size` (W, H).
-
-    `list_packs` owns the layout, so a pack's session comes from its manifest's first row rather
-    than from the directory name — a Kotlin-written pack is named `<session_id>`, a Python-written
-    one `<session_id>-<W>`, and nothing renames either.
+    """One pack manifest per requested session at `pack_size` (W, H). The session comes from the
+    manifest's first row: Kotlin names packs `<sid>`, Python `<sid>-<W>`.
     """
     from .training import packs
 
@@ -631,51 +536,30 @@ def build_dataset(
     #: None means "unspecified": `--like` then supplies the donor's, otherwise it is `pieces`.
     class_mode: str | None = None,
 ) -> dict:
-    """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
+    """Build dataset <name> from `session_ids`: filter -> dedup -> manifest+split+stats.
 
-    `from_packs`: take the sessions from `data/packs/` instead of a crop pool. The rows keep their
-    `mm://` paths, nothing is decoded, and `dataset.yaml` names the packs the loader must open.
-
-    `source_manifest`: crop pool(s) to filter — one path, or several when the sessions were
-    ingested under different tags (`ingest --tag X --no-build` writes `crops/X/manifest.jsonl`).
-    Default: `data/crops/default/manifest.jsonl`.
-    For the bake-off, each variant points to its own pool manifest; with identical
-    `session_ids`+`seed`, the session-based split is byte-identical across all variants.
-
-    `like`: build the TWIN of an existing dataset — its session split, its dedup policy and its
-    class-balancing policy, all taken verbatim and **overriding** the corresponding arguments. Use
-    it whenever the point of the build is to compare against a model trained on that dataset.
-    Neither half is recoverable otherwise: a split is not reproducible from its own recorded
-    parameters (same seed, fractions and pool return a different assignment; verified 2026-07-31 on
-    `occ-real5nd`, recorded 11/3/1 against the assigner's 12/1/2), and the defaults move over time
-    (`occ-real6` was built at `per_cell_cap 256` / `max_empty_ratio 3.0`, today's defaults are 4 and
-    1.5 — same sessions, same split, a third of the training rows).
-    """
+    `from_packs` keeps `mm://` rows and decodes nothing. `like` builds the TWIN of a dataset
+    (split, dedup and balancing verbatim): a split is not reproducible from its parameters, and
+    defaults move."""
     name = _safe_name(name)
-    # Resolution at runtime (not as default arg): default args bind at import time and
-    # ignore a later patched/changed config.DATA (testability).
+    # Resolved at runtime, not as a default arg: tests patch `config.DATA` after import.
     paths = paths or config.DATA
     if like:
         pol = _donor_policy(like, paths)
-        # The donor's class list is a DEFAULT here, not an override — every other policy below is
-        # an override. Building `occ-warm`'s 13-class twin is the whole reason to say `--like` and
-        # `--classes` in one breath, and this line used to silently produce a second 2-class copy
-        # under a name that said otherwise.
+        # The donor's class list is a DEFAULT, unlike every other policy below: a 13-class twin is
+        # the point of `--like` plus `--classes`.
         class_mode = class_mode or pol["class_mode"]
         per_cell_cap, phash_enabled = pol["per_cell_cap"], pol["phash_enabled"]
         per_position = pol["per_position"]
         phash_hamming, rotations = pol["phash_hamming"], pol["rotations"]
         val_frac, test_frac, seed = pol["val_frac"], pol["test_frac"], pol["seed"]
         max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
-        # The second exception after `class_mode`: where the pixels are stored is not part of the
-        # donor's policy, and the migration off the monolithic memmaps is exactly "same rows, same
-        # split, packs instead" (`docs/packs.md`). A pack donor still forces packs.
+        # Where pixels are stored is not donor policy ("same rows, same split, packs instead"); a
+        # pack donor still forces packs.
         from_packs = from_packs or pol["from_packs"]
         pack_size = pack_size or pol["pack_size"]
         print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "
               f"phash={phash_enabled} max_empty_ratio={max_empty_ratio} seed={seed}")
-    # 13 + coverage since 2026-08-18: `occluded` is a regression target now, not a class, and the
-    # pipeline measures it per square instead of a human painting it (`docs/frame-scan.md`).
     class_mode = class_mode or "pieces13"
     classes = class_list_for(class_mode)
     d = config.DEDUP
@@ -684,13 +568,10 @@ def build_dataset(
     phash_hamming = d.phash_hamming if phash_hamming is None else phash_hamming
     rotations = d.rotations if rotations is None else tuple(rotations)
 
-    # One or several crop pools. Several matter when sessions were ingested under different tags
-    # (each `ingest --no-build` writes its own crops/<tag>/manifest.jsonl) — without this the caller had
-    # to concatenate them into one file by hand first.
     if from_packs:
         from .training import packs
-        # Sonst zitierte der Bau Pack-Pixel, waehrend der Aufrufer einen Pool benannt hat: ein
-        # Flag, das still nicht wirkt, ist teurer als eine Absage.
+        # Sonst zitierte der Bau Pack-Pixel, obwohl ein Pool benannt ist: ein still wirkungsloses
+        # Flag.
         if source_manifest:
             raise ValueError("--from-packs and --source-manifest name two different sources; "
                              "the packs win and the pool would be silently ignored. Pick one.")
@@ -705,10 +586,8 @@ def build_dataset(
     missing = [str(p) for p in srcs if not p.exists()]
     if missing:
         raise ValueError(f"source manifest(s) not found: {', '.join(missing)}")
-    # Reading a pool that a slice is still filling is how 2026-08-21 went: the build took a
-    # half-written manifest, packed for 19 minutes against crops that kept changing, and the pack
-    # was correctly thrown away afterwards. The writer already announces itself — ask it.
-    # A pack is immutable and has no crop pool, so there is nothing to wait for.
+    # A pool a slice is still filling gives a half-written manifest; the writer announces itself,
+    # ask it. Packs are immutable.
     for src in ([] if from_packs else srcs):
         busy = locks.held_by(locks.pool_lock_path(src.parent))
         if busy:
@@ -717,9 +596,8 @@ def build_dataset(
 
     wanted = set(session_ids)
     rows = [r for src in srcs for r in dataset_mod.load_manifest(src) if r["session_id"] in wanted]
-    # Zwei Pools duerfen dieselbe Aufnahme fuehren (54 liegen in zweien). Ohne diesen Schnitt
-    # traegt der Datensatz dasselbe physische Crop mehrfach — das verschiebt die Gewichtung
-    # still und zaehlt Zeilen, die es nur einmal gibt.
+    # Zwei Pools duerfen dieselbe Aufnahme fuehren; ohne den Schnitt traegt der Datensatz dasselbe
+    # Crop mehrfach und verschiebt die Gewichtung still.
     seen: set[str] = set()
     deduped = []
     for r in rows:
@@ -730,8 +608,7 @@ def build_dataset(
         print(f"[source] {len(rows) - len(deduped)} rows listed by more than one source "
               f"manifest — kept once each")
     rows = deduped
-    # `_pack_manifests` already refuses this on the pack side; the pool side dropped the name
-    # silently while `dataset.yaml` went on listing it under `session_ids`.
+    # The pool side dropped a missing name silently while `dataset.yaml` still listed it.
     have_rows = {r["session_id"] for r in rows}
     barren = [s for s in dict.fromkeys(session_ids) if s not in have_rows]
     if barren:
@@ -748,10 +625,8 @@ def build_dataset(
             f"no crops for the selected sessions in {', '.join(str(p.name) for p in srcs)} "
             f"(wrong --source-manifest? the default pool is crops/default, but `ingest --tag X "
             f"--no-build` writes crops/X/manifest.jsonl).")
-    # Determine split assignment on the RAW, COMPLETE data (full 64-square boards). Dedup +
-    # rotation afterwards ONLY on train — val/test remain complete (exactly 64 crops/frame, rot 0), otherwise
-    # board_accuracy would compute on incomplete/duplicated boards (bug).
-    # board_accuracy would compute on incomplete/duplicated boards (bug).
+    # Split on the RAW, COMPLETE data; dedup only on train, so val/test keep full 64-crop boards for
+    # board_accuracy.
     sizes = Counter(r["session_id"] for r in rows)
     if like:
         splits = _split_from(like, set(sizes), paths, add_test, add_train)
@@ -761,51 +636,33 @@ def build_dataset(
                                                        groups=dataset_mod.groups_of(rows))
     split_of = {s: name for name, sids in splits.items() for s in sids}
     train_raw = [r for r in rows if split_of.get(r["session_id"]) == "train"]
-    holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # complete, rot 0
+    holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]
 
-    # phash FIRST, then the cap. The other order threw away 227 crops of a cell down to 4 before
-    # anything looked at whether they differ, so the visual filter only ever saw the survivors —
-    # and it cannot be told apart from "the piece never moved" that a changing light makes every
-    # one of those 227 genuinely different.
-    #
-    # MEASURED on the 49,856-row real pool (2026-07-29): only 14,807 crops (29.7 %) are visually
-    # distinct at all, so the filter does real work either way. But with it running first the cap
-    # stops being the duplicate defence and only limits genuine variety, which means it can be
-    # raised: cap 4 -> 4,827 rows (1.16x today's 4,172), cap 16 -> 7,422 (1.78x), and not one
-    # near-identical pair among them. Under the old order a high cap would simply have re-admitted
-    # duplicates.
-    #
-    # It costs one full pass of the hash over the uncapped train split — 41 s for the whole real
-    # pool, once per build.
+    # phash FIRST, then the cap: the other order cut a cell to 4 crops before anything checked
+    # whether they differ. Then the cap only limits genuine variety (cap 16: 1.78x rows, no
+    # near-duplicates).
     train_rows = dedup_phash(train_raw, phash_hamming) if phash_enabled else list(train_raw)
     train_rows = dedup_metadata(train_rows, per_cell_cap, seed)
     n_dedup = len(train_rows) + len(holdout)
 
-    # BEFORE touching the existing dataset: a refusal must not leave the caller with neither the
-    # new dataset nor the old one.
+    # BEFORE touching the existing dataset: a refusal must not leave neither new nor old.
     _preflight_disk_check(train_rows, holdout, write_pack and not from_packs, paths=paths, seed=seed,
                           pack_size=pack_size)
 
     ds = paths.datasets / name
     if ds.exists():
-        shutil.rmtree(ds)                       # clean rebuild
+        shutil.rmtree(ds)
     ds.mkdir(parents=True, exist_ok=True)
-    rows = train_rows + holdout                 # rotation happens on-the-fly at train time
-    # Label collapse is the LAST step before the manifest: filtering, dedup and the
-    # session->split assignment above ran on the original 14-class labels, so a narrowed
-    # build keeps exactly the rows a `pieces` build at the same seed would keep.
+    rows = train_rows + holdout
+    # Label collapse LAST: a narrowed build keeps exactly the rows a `pieces` build at this seed
+    # keeps.
     rows = collapse_labels(rows, class_mode)
-    # AFTER the collapse: it drops `occluded`, so counting before it puts a `counts.final` in
-    # dataset.yaml that does not match the manifest. Zero on the real corpus, but renders with
-    # `--occlusion-p` produce occluders in bulk.
+    # AFTER the collapse, or `counts.final` in dataset.yaml disagrees with the manifest.
     n_final = len(rows)
 
     (ds / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
         encoding="utf-8")
-    # Mined hard-negative empties (scripts/mine_hard_empty.py) survive the empty cap:
-    # a random cap throws away exactly the rare hard cases (dark corner squares,
-    # neighbour bleed) that the deployed model confidently misreads.
     priority_paths = dataset_mod.load_priority_paths(paths)
     if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
@@ -815,7 +672,7 @@ def build_dataset(
     errors, _warnings = dataset_mod.validate_split(split, rows, classes=classes)
     if errors:
         if not allow_degenerate:
-            shutil.rmtree(ds, ignore_errors=True)   # no half-finished zombie dataset
+            shutil.rmtree(ds, ignore_errors=True)
             raise ValueError("\n".join(errors))
         split["degenerate_errors"] = errors          # intentionally allowed -> document in split
     write_json(ds / "split.json", split)
@@ -829,14 +686,11 @@ def build_dataset(
         "session_ids": list(session_ids),
         "variant_tag": variant_tag,
         "source_manifest": [p.as_posix() for p in srcs],
-        # `per_position` belongs here: it thinned 979 363 rows to 634 594 on `real13-v7-thin16`
-        # and went unrecorded, so a `--like` twin of it carried 1.54x the rows under a name that
-        # promised the same corpus.
+        # `per_position` belongs here: unrecorded, a `--like` twin carried 1.54x the rows.
         "dedup": {"per_cell_cap": per_cell_cap, "per_position": per_position,
                   "phash_enabled": bool(phash_enabled), "phash_hamming": phash_hamming},
         "rotations": list(rotations),
-        # Sessions pinned to the train split (e.g. all-empty lighting captures — in
-        # val/test they would distort board metrics). Persisted so Rebuild keeps them.
+        # Persisted so a rebuild keeps them.
         "force_train": sorted(force_train) if force_train else [],
         "split": {"val_frac": val_frac, "test_frac": test_frac, "max_empty_ratio": max_empty_ratio,
                   "max_class_ratio": max_class_ratio, "seed": seed},
@@ -850,11 +704,9 @@ def build_dataset(
     import yaml
     (ds / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                      encoding="utf-8")
-    # Pack crops into one memmap so `train` reads from it instead of 1M per-item Image.open (the
-    # I/O bottleneck). Best-effort: a pack failure just means training falls back to the per-PNG
-    # loader (load_packed returns None). The memmap is disk-backed — it does NOT load into RAM.
+    # Best-effort memmap: a pack failure falls back to the per-PNG loader. Disk-backed, not in RAM.
     packed_info = None
-    if write_pack and not from_packs and n_final >= _PACK_MIN_CROPS:   # small sets load fine per-PNG
+    if write_pack and not from_packs and n_final >= _PACK_MIN_CROPS:
         try:
             from .training.pack_dataset import pack_dataset
             packed_info = pack_dataset(name, paths, out_size=pack_size)
@@ -865,8 +717,6 @@ def build_dataset(
             "hard_empty_protected": len(priority_paths or ()),
             "force_train": sorted(force_train) if force_train else []}
 
-
-# --- CRUD -----------------------------------------------------------------------------
 
 def _read_yaml(p: Path) -> dict:
     import yaml
@@ -898,20 +748,9 @@ def list_datasets(paths: config.Paths | None = None) -> list[dict]:
     return out
 
 
-def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:
-    d = dataset_dir(name, paths)
-    if not d.exists():
-        raise FileNotFoundError(f"dataset '{name}' not found.")
-    shutil.rmtree(d)
-    return {"name": _safe_name(name), "deleted": True}
-
-
 def _frozen_sessions(paths: config.Paths = config.DATA) -> list[str]:
-    """Aufnahmen, die kein Fold trainieren darf — `data/TEST-USED.json`.
-
-    BEIDE Listen: `frozen` misst genau einmal, `benchmark` beliebig oft — fuer den Fold ist das
-    dasselbe, er legt jede Aufnahme in k-1 Trainingssaetze und toetet sie als Massstab.
-    `test-v1` wanderte 2026-09-18 von der einen Liste in die andere und fiel dabei heraus.
+    """Aufnahmen, die kein Fold trainieren darf (`data/TEST-USED.json`), aus BEIDEN Listen: ein Fold
+    legt jede Aufnahme in k-1 Trainingssaetze.
     """
     f = paths.root / "TEST-USED.json"
     if not f.is_file():
@@ -924,15 +763,11 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
                prefix: str = "split-f", dry_run: bool = False, force: bool = False,
                allow_asymmetric: bool = False, include_frozen: bool = False,
                paths: config.Paths = config.DATA) -> dict:
-    """Write k session-grouped `<prefix><i>.json` beside the dataset's own split.
+    """Write k session-grouped `<prefix><i>.json` beside the dataset's own split (out-of-fold
+    audit).
 
-    Out-of-fold prediction is what `docs/cross-labeling-literature.md` settles on for finding
-    mislabeled cells (k = 4, Northcutt et al.), and `train --split` plus `check_not_circular`
-    were already built for it — nothing wrote the files. All folds read the SAME pack.
-
-    Fold models train on sessions the main split holds out, so their metrics are not comparable
-    with the main model's. They are audit instruments, not release candidates.
-    """
+    Fold models train on sessions the main split holds out: audit instruments, not release
+    candidates."""
     dd = dataset_dir(name, paths)
     cfg = _read_yaml(dd / "dataset.yaml")
     if not cfg:
@@ -941,8 +776,7 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
     if k < 2:
         raise ValueError(f"-k must be at least 2, got {k}")
 
-    # Eine eingefrorene Aufnahme darf in KEINEN Fold: sie liegt in genau einem als Test und in
-    # allen anderen im Training, und damit ist sie verbrannt. `TEST-USED.json` ist die Sperre.
+    # Eine eingefrorene Aufnahme darf in KEINEN Fold: sie laege in allen anderen im Training.
     frozen = set(_frozen_sessions(paths)) & {r["session_id"] for r in rows}
     if frozen and not include_frozen:
         rows = [r for r in rows if r["session_id"] not in frozen]
@@ -952,9 +786,8 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
         print(f"[WARN] --include-frozen: {', '.join(sorted(frozen))} landet im Training anderer "
               f"Folds und ist danach als Test wertlos.")
 
-    # `build_dataset` dedups TRAIN only, so a session the main split held out carries every crop
-    # and one it trained on carries a thinned selection. A fold that moves such a session into
-    # test measures board accuracy on boards that are missing squares.
+    # `build_dataset` dedups TRAIN only; a fold moving such a session into test measures incomplete
+    # boards.
     d = cfg.get("dedup") or {}
     if (d.get("per_cell_cap") or 0) > 0 or d.get("phash_enabled"):
         if not allow_asymmetric:
@@ -993,15 +826,13 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
     priority_paths = dataset_mod.load_priority_paths(paths)
     written, errors, pending = [], [], []
     for i, fold in enumerate(folds):
-        # val comes from the NEXT fold, filled to val_frac: one group misses the quota badly
-        # (4.6 % where 15 % was asked), and taking it from this fold would leak into its own test.
+        # val comes from the NEXT fold: from this one it would leak into its own test.
         test = sorted(s for g in fold for s in members[g])
         pool = [g for g in folds[(i + 1) % k] if g not in fold]
         val_target, val_groups, got = val_frac * len(rows), [], 0
         for g in sorted(pool, key=lambda g: (-gsizes[g], g)):
-            # Only while it moves CLOSER, like `assign_sessions_to_splits` rule 2: filling until
-            # the target is reached overshot 15 % to 19 % here, and every crop over the mark comes
-            # straight out of train, which is the whole point of k folds instead of two halves.
+            # Only while it moves CLOSER (like `assign_sessions_to_splits` rule 2): filling to the
+            # target overshot 15 % to 19 %, straight out of train.
             if val_groups and abs(val_target - got - gsizes[g]) >= abs(val_target - got):
                 continue
             val_groups.append(g)
@@ -1023,8 +854,8 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
         c = split["counts"]
         print(f"[fold {i}] train {c['train']} / val {c['val']} / test {c['test']} crops · "
               f"test sessions: {', '.join(test)}")
-    # Erst pruefen, dann schreiben: ein verworfener Satz liess sonst k Folds liegen, und
-    # der zweite Versuch scheiterte an "exists" statt am eigentlichen Grund.
+    # Erst pruefen, dann schreiben: sonst blieben k Folds liegen, und der zweite Versuch scheiterte
+    # an "exists".
     if errors:
         raise ValueError("\n".join(errors))
     if not dry_run:

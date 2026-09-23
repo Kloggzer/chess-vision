@@ -12,20 +12,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-#: Wo die MASKE gemessen wird — der Plate ist eine Hintergrundschätzung, und 4K kostet dafür das
-#: Vierfache an Speicher für dieselbe Farbe. Die PIXEL werden seit 2026-08-23 in Quellauflösung
-#: geschnitten: vorher erbten sie diese Sparmaßnahme und wurden beim Compositing wieder 2x
-#: hochgezogen — gemessen 13 % weniger Hochfrequenz im Pretrain als im echten Datensatz.
+#: Wo die MASKE gemessen wird: der Plate ist eine Hintergrundschaetzung. Die PIXEL werden in
+#: Quellaufloesung geschnitten (sonst 13 % weniger Hochfrequenz als echte Daten).
 WORK_SIZE = (1920, 1080)
 #: Frames the temporal median runs over. The arm has to be off any given pixel in most of them.
 PLATE_FRAMES = 48
-#: Where the guided alpha is cut and how wide the remaining ramp is. Raising CUT eats into the
-#: subject (measured: 0.74 clips fingertips); the ramp is what keeps a motion-blurred edge soft.
+#: Where the guided alpha is cut and how wide the ramp is: 0.74 clips fingertips, and the ramp keeps
+#: a motion-blurred edge soft.
 EDGE_CUT, EDGE_SOFT = 0.58, 0.30
-#: A shadow only takes light away and never drops this far — anything darker is an object, which is
-#: how a black sleeve stops being mistaken for the shade beside it.
+#: A shadow only takes light away and never drops this far; darker is an object (a black sleeve).
 SHADOW_FLOOR = 0.45
-#: Divisor for the silhouettes the novelty test compares. See `silhouette`.
 NOVELTY_SCALE = 8
 
 
@@ -64,8 +60,7 @@ def drop_specks(mask: np.ndarray, min_area: int) -> np.ndarray:
 
 
 def work_size(cap: cv2.VideoCapture) -> tuple[int, int]:
-    """Working resolution with the source's aspect kept — a portrait clip squashed into a landscape
-    box distorts every tile that comes out of it."""
+    """Working resolution with the source's aspect kept, or a portrait clip distorts every tile."""
     w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     long_side = max(WORK_SIZE)
     return (long_side, max(1, round(h * long_side / w))) if w >= h \
@@ -73,8 +68,7 @@ def work_size(cap: cv2.VideoCapture) -> tuple[int, int]:
 
 
 def _sample(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int]) -> np.ndarray:
-    # A failed decode is NO evidence about the backdrop; it used to enter as a black frame and
-    # pull the plate's median down. `chroma_cut_of` skips the same step, this one now too.
+    # A failed decode is NO evidence about the backdrop; as a black frame it pulled the median down.
     frames = []
     for i in np.linspace(0, n_frames - 1, PLATE_FRAMES).astype(int):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
@@ -87,10 +81,8 @@ def _sample(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int]) -> np.n
 
 
 def read_plate(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int] | None = None) -> np.ndarray:
-    """The empty backdrop: the per-pixel median over the clip, refined against a GLOBAL reference.
-
-    A hand parked for over half the clip becomes the median there, and judging the refinement
-    per-pixel would then keep the skin and discard the backdrop.
+    """The empty backdrop: per-pixel median, refined against a GLOBAL reference — a hand parked over
+    half the clip IS the median there.
     """
     size = size or work_size(cap)
     stack = _sample(cap, n_frames, size)
@@ -110,9 +102,8 @@ def read_plate(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int] | Non
 
 
 def stage_of(median: np.ndarray) -> np.ndarray:
-    """The backdrop region: the largest area whose CHROMA matches the plate's centre.
-
-    No convex hull — the median is arm-free, so a hull would only swallow a knee or a chair.
+    """The backdrop region: the largest area whose CHROMA matches the plate's centre. No convex
+    hull, it would swallow a knee or a chair.
     """
     p = median + 1.0
     chroma = p / p.sum(2)[..., None]
@@ -135,10 +126,8 @@ def chroma_distance(frame: np.ndarray, median: np.ndarray) -> np.ndarray:
 def chroma_cut_of(cap: cv2.VideoCapture, n_frames: int, median: np.ndarray,
                   stage: np.ndarray, samples: int = 12,
                   size: tuple[int, int] | None = None) -> float:
-    """Otsu over the pooled chroma distances — the split comes from the clip, not from a constant.
-
-    A shadow shifts colour further on a saturated backdrop than on a dim one, so the gap between
-    it and skin sits in a different place per backdrop (numbers in `docs/occluder-plates.md`).
+    """Otsu over the pooled chroma distances: the shadow/skin gap sits in a different place per
+    backdrop.
     """
     size = size or work_size(cap)
     on = stage > 0
@@ -150,8 +139,8 @@ def chroma_cut_of(cap: cv2.VideoCapture, n_frames: int, median: np.ndarray,
             continue
         d = chroma_distance(cv2.resize(f, size, interpolation=cv2.INTER_AREA), median)
         vals.append(d[on])
-    # Kein dekodierter Frame ist keine Messung: die 0.05 war die untere Klemmgrenze, also der
-    # PERMISSIVSTE Schnitt — erfunden genau dort, wo nichts zu sehen war. `_sample` bricht ab.
+    # Kein dekodierter Frame ist keine Messung: 0.05 waere der PERMISSIVSTE Schnitt, erfunden, wo
+    # nichts zu sehen war.
     if not vals:
         raise ValueError(f"kein Frame von {samples} Stichproben dekodiert — "
                          f"der Chroma-Schnitt waere geraten")
@@ -161,10 +150,8 @@ def chroma_cut_of(cap: cv2.VideoCapture, n_frames: int, median: np.ndarray,
 
 
 def rebalance(frame: np.ndarray, plate: Plate) -> np.ndarray:
-    """Undo the camera's own auto-exposure and white-balance against the plate.
-
-    A phone re-balances the moment a warm hand enters, moving the WHOLE backdrop; the per-channel
-    median ratio over the stage recovers that gain.
+    """Undo the camera's own auto-exposure/white-balance against the plate: a phone re-balances the
+    whole backdrop when a warm hand enters.
     """
     f = frame.astype(np.float32) + 1.0
     p = plate.median + 1.0
@@ -174,17 +161,16 @@ def rebalance(frame: np.ndarray, plate: Plate) -> np.ndarray:
 
 
 def alpha_of(frame: np.ndarray, plate: Plate) -> np.ndarray:
-    """Coverage of `frame` against the plate, 0..1. Shadow is background: a shaded square is still
-    readable, and counting it as occlusion rebuilds the over-flagging this pipeline exists to fix."""
+    """Coverage of `frame` against the plate, 0..1. Shadow is background: a shaded square is
+    readable.
+    """
     f = rebalance(frame, plate)
     on = plate.stage > 0
     ratio = f.sum(2) / (plate.median + 1.0).sum(2)
     chroma = chroma_distance(frame, plate.median)
 
-    # Added light is background too, the mirror of the shadow rule: a lamp swept the mat late in
-    # 230602 and a brightness branch kept the lit backdrop — 88 % of one plate was mat, on a frame
-    # with no hand at all. Dropping it costs the two clean clips under 0.2 % of the kept area,
-    # because an object brighter than the backdrop AND the same colour as it barely exists.
+    # Added light is background too: a lamp sweep kept 88 % of one plate as mat on a frame with no
+    # hand. Costs clean clips under 0.2 %.
     fg = ((chroma > plate.chroma_cut) | (ratio < SHADOW_FLOOR)) & on
     shadow = (~fg) & (ratio < 0.85) & on
 
@@ -192,8 +178,7 @@ def alpha_of(frame: np.ndarray, plate: Plate) -> np.ndarray:
     hard = cv2.morphologyEx(fg.astype(np.uint8) * 255, cv2.MORPH_OPEN, k)
     hard = cv2.morphologyEx(hard, cv2.MORPH_CLOSE,
                             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21)))
-    # CLOSE bridges gaps, and a shadow band lying against a sleeve IS such a gap — it gets annexed
-    # after being correctly rejected, and no amount of edge trimming takes it back out.
+    # CLOSE annexes a shadow band lying against a sleeve after it was correctly rejected.
     hard[shadow] = 0
     hard = drop_specks(hard, max(64, int(0.0002 * on.sum())))
 
@@ -203,10 +188,8 @@ def alpha_of(frame: np.ndarray, plate: Plate) -> np.ndarray:
 
 def blurred_pairs(cap: cv2.VideoCapture, n_frames: int, stride: int,
                   size: tuple[int, int]) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-    """`(klein, Quellauflösung)` je Pose: die Maske wird klein gemessen, die Pixel groß geschnitten.
-
-    Aufeinanderfolgende Frames paarweise gemittelt — ein 60-fps-Clip trägt die halbe
-    Bewegungsunschärfe des 30-fps-Aufbaus, in den er kommt, und das Mitteln kauft sie zurück.
+    """`(klein, Quellaufloesung)` je Pose: Maske klein gemessen, Pixel gross geschnitten. Paarweise
+    gemittelt, weil ein 60-fps-Clip die halbe Bewegungsunschaerfe des Aufbaus traegt.
     """
     for i in range(0, n_frames - 1, stride):
         cap.set(cv2.CAP_PROP_POS_FRAMES, i)
@@ -219,10 +202,9 @@ def blurred_pairs(cap: cv2.VideoCapture, n_frames: int, stride: int,
 
 
 def silhouette(alpha: np.ndarray) -> np.ndarray:
-    """The shape an overlap test needs, at `NOVELTY_SCALE`. Profiled: comparing full-resolution
-    masks costs 823 ms once 500 are kept against `alpha_of`'s constant 360, and it keeps growing.
-    Measured over 3 160 real plate pairs, the reduction moves IoU by at most 0.006 and flips no
-    decision at the 0.85 cut."""
+    """The shape an overlap test needs, at `NOVELTY_SCALE`: full-resolution masks cost 823 ms at 500
+    kept, and the reduction moved IoU by at most 0.006 over 3 160 pairs.
+    """
     h, w = alpha.shape
     small = cv2.resize((alpha > 0.5).astype(np.float32), (w // NOVELTY_SCALE, h // NOVELTY_SCALE),
                        interpolation=cv2.INTER_AREA)
@@ -230,8 +212,7 @@ def silhouette(alpha: np.ndarray) -> np.ndarray:
 
 
 def is_novel(silhouettes: np.ndarray, kept: list[np.ndarray], max_iou: float) -> bool:
-    """A clip at 60 fps holds a few hundred poses, not a few thousand — near-duplicates only teach
-    the net that one hand shape matters more than the others."""
+    """Near-duplicate poses only teach the net that one hand shape matters more."""
     for prev in kept:
         union = (silhouettes | prev).sum()
         if union and (silhouettes & prev).sum() / union > max_iou:
@@ -261,8 +242,7 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
     out_dir.mkdir(parents=True, exist_ok=True)
     kept: list[np.ndarray] = []
     written = skipped_thin = skipped_dup = 0
-    # Aus der Quelle, nicht erst aus der ersten geschriebenen Kachel: sonst blieb `scale` auf 1.0,
-    # wenn jede Pose verworfen wurde, und `tile` stand in MASKEN-Koordinaten.
+    # Aus der Quelle: sonst blieb `scale` auf 1.0, wenn jede Pose verworfen wurde.
     scale = cap_w / size[0]
     src = (blurred_pairs(cap, n, stride, size) if pair_blur and fps > 45
            else _plain(cap, n, stride, size))
@@ -276,8 +256,8 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
             skipped_dup += 1
             continue
         kept.append(sil)
-        # Maske klein, Pixel groß: der Kasten kommt aus der Maskenauflösung, geschnitten wird aus
-        # dem Quellframe, und nur das Alpha wird hochgezogen — eine weiche Rampe verträgt das.
+        # Der Kasten kommt aus der Maskenaufloesung, geschnitten wird aus dem Quellframe; nur das
+        # Alpha wird hochgezogen.
         scale = full.shape[1] / frame.shape[1]
         by0, by1 = int(round(y0 * scale)), int(round(y1 * scale))
         bx0, bx1 = int(round(x0 * scale)), int(round(x1 * scale))
@@ -291,15 +271,12 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
             "stage_px": int(on.sum()),
             # Was WIRKLICH geschrieben wurde, nicht der Kasten in Maskenkoordinaten.
             "tile": [int(round((x1 - x0) * scale)), int(round((y1 - y0) * scale))],
-            # In WELCHER Auflösung die Kachel geschnitten wurde. Deklariert, nicht geraten: der
-            # Composite skalierte sie bisher blind um `WORK_SIZE` zurück.
+            # In WELCHER Aufloesung die Kachel geschnitten wurde: deklariert, nicht geraten.
             "source": [int(cap_w), int(cap_h)]}
 
 
 def write_tile(path: Path, rgba: np.ndarray) -> None:
-    # `cv2.imwrite` WIRFT NICHT, es gibt False zurueck. Ungelesen zaehlte `written` die
-    # Kachel trotzdem, und der Bericht las sich wie ein vollstaendiger Lauf ueber Dateien,
-    # die es nicht gibt.
+    # `cv2.imwrite` WIRFT NICHT, es gibt False zurueck.
     if not cv2.imwrite(str(path), rgba, [cv2.IMWRITE_WEBP_QUALITY, 95]):
         raise OSError(f"could not write occluder tile: {path}")
 

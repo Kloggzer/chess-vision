@@ -14,8 +14,8 @@ from .data import checkpoint_metrics, confidence_auroc, visible_confidence
 from .epoch_metrics import epoch_record, occlusion_diagnostics, print_epoch, score_epoch
 from .train_feed import _device_batches
 
-#: Alles, was eine Epochengrenze ueberlebt haben muss. `last.pt` traegt nur Gewichte — damit
-#: faengt ein Neustart die Cosine bei lr an und zaehlt `patience` von vorn.
+#: Alles, was eine Epochengrenze ueberleben muss: `last.pt` allein startet die Cosine neu und zaehlt
+#: `patience` von vorn.
 STATE_FILE = "state.pt"
 
 
@@ -27,8 +27,7 @@ STATE_KEYS = ("backbone", "epochs", "batch_size", "lr", "sched", "seed", "datase
 
 def _save_state(path, epoch, model, optimizer, scheduler, scaler, sampler, swa_model, swa_sched,
                 best_score, best_piece, recent, epochs_no_improve, cfg) -> None:
-    """Nach JEDER Epoche, atomar ueber eine Nebendatei — ein Absturz mitten im Schreiben
-    duerfte sonst den einzigen Zustand zerreissen."""
+    """Nach JEDER Epoche, atomar ueber eine Nebendatei."""
     import random as _random
 
     import numpy as _np
@@ -96,9 +95,8 @@ class TrainRun:
 
 
 def start_swa(run: TrainRun, swa: bool, swa_lr: float, swa_start: float, sched: str) -> None:
-    # SWA mittelt die Gewichte ueber die Epochen statt eine einzelne auszuwaehlen: flache Minima
-    # trennen die Konfidenz richtiger von falschen Vorhersagen besser (FMFP, ECCV 2022 —
-    # `docs/references.md`), und das Springen der Validierung verschwindet.
+    # SWA mittelt die Gewichte ueber die Epochen: flache Minima trennen Konfidenz besser (FMFP, ECCV
+    # 2022).
     run.swa_from = int(run.epochs * swa_start) if swa else -1
     if swa:
         from torch.optim.swa_utils import SWALR, AveragedModel
@@ -110,8 +108,8 @@ def start_swa(run: TrainRun, swa: bool, swa_lr: float, swa_start: float, sched: 
 
 
 def resume_progress(run: TrainRun, continue_run: bool) -> Progress:
-    # Fortsetzen heisst: derselbe Plan an derselben Stelle. Gewichte allein reichen dafuer nicht —
-    # Optimizer-Momente, Cosine-Position, Sampler-Strom und die Zufallsstaende gehoeren dazu.
+    # Fortsetzen heisst derselbe Plan an derselben Stelle: Momente, Cosine-Position, Sampler-Strom
+    # und Zufallsstaende gehoeren dazu.
     import random
 
     import numpy as np
@@ -166,8 +164,8 @@ def train_epoch(run: TrainRun) -> tuple[float, int, float]:
         if run.photometric is not None:
             x = run.photometric(x)
         if run.scales:
-            # Multi-Scale: gesamten Batch auf eine zufällige Eingabegröße bringen (uniform je
-            # Batch, damit stapelbar). Modell ist size-agnostisch → lernt alle Auflösungen.
+            # Multi-Scale: der ganze Batch auf eine zufaellige Eingabegroesse, damit er stapelbar
+            # bleibt.
             s = int(np.random.choice(run.scales))
             if s != x.shape[-1]:
                 x = torch.nn.functional.interpolate(x, size=(s, s), mode="bilinear", align_corners=False)
@@ -180,8 +178,7 @@ def train_epoch(run: TrainRun) -> tuple[float, int, float]:
         running_sum.add_(loss.detach().double() * x.size(0))
         seen += x.size(0)
         t_fetch = time.perf_counter()
-    # Synchronize once before stopping the timer. The epoch record divides this SUM by
-    # seen below; averaging here as well would silently divide the reported loss twice.
+    # The epoch record divides this SUM by `seen`; averaging here too would divide twice.
     return float(running_sum), seen, t_data
 
 
@@ -194,8 +191,7 @@ def run_epochs(run: TrainRun, progress: Progress) -> None:
     for epoch in range(progress.start_epoch, run.epochs):
         t_epoch = time.perf_counter()
         running, seen, t_data = train_epoch(run)
-        # Sobald SWA uebernimmt, haelt SWALR die Rate — der Cosine-Plan darf dann nicht
-        # weiterlaufen, sonst treten zwei Scheduler gegen denselben Optimizer an.
+        # Sobald SWA uebernimmt, haelt SWALR die Rate; sonst treten zwei Scheduler gegeneinander an.
         if run.swa_from < 0 or epoch < run.swa_from:
             run.scheduler.step()
         t_train = time.perf_counter() - t_epoch
@@ -221,8 +217,7 @@ def run_epochs(run: TrainRun, progress: Progress) -> None:
         print_epoch(epoch, rec, score, occ_diag)
 
         keep_checkpoints(run.run_dir, model, bd, score, epoch, progress)
-        # Bis `swa_from` laeuft das Rezept unveraendert; erst danach wird gemittelt und die
-        # Rate konstant gehalten. Sonst waere es ein anderes Rezept, kein A/B.
+        # Bis `swa_from` laeuft das Rezept unveraendert, sonst waere es kein A/B.
         if run.swa_model is not None and epoch >= run.swa_from:
             run.swa_model.update_parameters(model)
             run.swa_sched.step()
@@ -242,8 +237,8 @@ def run_epochs(run: TrainRun, progress: Progress) -> None:
 
 
 def finish_swa(run: TrainRun, best_score) -> None:
-    # Die gemittelten Gewichte haben NIE einen Batch gesehen — ohne den BatchNorm-Durchlauf
-    # ueber die Trainingsdaten ist ein SWA-Modell unbrauchbar.
+    # Die gemittelten Gewichte haben NIE einen Batch gesehen: ohne BatchNorm-Durchlauf ist ein
+    # SWA-Modell unbrauchbar.
     import torch
 
     from .engine import evaluate_dataset
@@ -262,8 +257,8 @@ def finish_swa(run: TrainRun, best_score) -> None:
                                  sv.get("conf") or [])
         _, sbd = checkpoint_metrics(score_rows, classes, list(sv["trues"]), list(sv["preds"]),
                                     auroc=confidence_auroc(*sva))
-        # Dasselbe Tupel wie `best_score`: der gewichtete Score aus `checkpoint_metrics` lag
-        # hier im Median 0,163 ueber `visible_piece_acc`, also gewann swa.pt jeden Vergleich.
+        # Dasselbe Tupel wie `best_score`; der gewichtete Score lag im Median 0,163 hoeher, swa.pt
+        # gewann sonst jeden Vergleich.
         srank = _checkpoint_rank(sbd, sbd["calibration"])
         print(f"[OK] swa.pt: visible_piece_acc {srank[0]:.4f} "
               f"(visible_occupied_acc {srank[1]:.4f}, auroc {srank[2]:.4f}) "

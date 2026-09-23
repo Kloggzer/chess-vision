@@ -1,5 +1,4 @@
-"""Skript-Jagd 2026-09-17: `hand_audit`, p90 von `phone_vs_pc`/`settle_compare`,
-`fold_per_session`."""
+"""Skript-Jagd: `hand_audit`, p90 von `phone_vs_pc`/`settle_compare`, `fold_per_session`."""
 
 from __future__ import annotations
 

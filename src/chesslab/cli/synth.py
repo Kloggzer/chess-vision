@@ -69,7 +69,6 @@ def synth_render(
     fe = Path(fens).resolve() if fens else None
     bl = blender or SYNTH.blender_cmd()
 
-    # Board texture: explicit --board-texture > default path (if present) > None (= procedural)
     bt: Path | None = None
     if board_texture:
         bt = Path(board_texture).resolve()
@@ -89,8 +88,8 @@ def synth_render(
     if shards == 1:
         jobs = [(o, _cmd(o, n, seed, fe))]
     else:
-        # Interleaved FEN split (shard k gets lines k, k+shards, ...): every shard sees the same
-        # position MIX (density/type distribution) and no two shards render the same FEN.
+        # Interleaved FEN split: every shard sees the same position MIX and no two render the same
+        # FEN.
         fen_lines = ([line for line in fe.read_text(encoding="utf-8").splitlines() if line.strip()]
                      if fe and fe.exists() else [])
         base, rem = divmod(n, shards)
@@ -109,7 +108,7 @@ def synth_render(
     try:
         for so, cmd in jobs:
             print(" ".join(cmd))
-            # Shard stdout -> shard-k/render.log (concurrent writers would interleave on the tty).
+            # Concurrent shards would interleave on the tty.
             log_fh = open(so / "render.log", "w", encoding="utf-8") if shards > 1 else None
             if log_fh is not None:
                 log_fhs.append(log_fh)
@@ -161,9 +160,8 @@ def synth_prepare_cmd(
 
     results: list[tuple[str, str, list[str]]] = []
     for item in items:
-        # Parity with the web prepare route: a BARE folder name ("wP") means "add a new
-        # version" → next free slot. Without this, re-preparing a fresh scan of the same
-        # piece silently OVERWROTE v1 — the ground-truth meshes all past renders used.
+        # A BARE folder name ("wP") means "add a new version": re-preparing overwrote v1, the mesh
+        # all past renders used.
         if is_bare_piece(item.obj.parent.name):
             item = _dc_replace(item, variant=next_variant(out / item.name))
         pid = f"{item.name}/{item.variant}"
@@ -173,7 +171,7 @@ def synth_prepare_cmd(
         except Exception as e:
             results.append((pid, "fail", [str(e)]))
             continue
-        # Provenance like the web route: which scan folder produced this variant.
+        # Which scan folder produced this variant.
         (out / item.name / f"{item.variant}.src").write_text(item.obj.parent.name, encoding="utf-8")
         level, msgs = assess_report(report)
         results.append((pid, level, msgs))
@@ -201,7 +199,7 @@ def synth_board_texture(
     """Rectify board photo to rectified square texture (for `synth render --board-texture`)."""
     from ..config import _REPO_ROOT, SYNTH
 
-    # synth/ lives in repo root (not an installed package) — retrofit for CLI invocation.
+    # synth/ lives in the repo root, not an installed package.
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
     from synth.board_texture import rectify
@@ -212,35 +210,3 @@ def synth_board_texture(
         print(f"[OK] board-texture: {result}")
     except SystemExit as e:
         raise typer.Exit(e.code)
-
-
-@synth_app.command("preview")
-def synth_preview(
-    obj: str = typer.Option(..., "--obj", help="Prepared piece (.obj, Z-up from `synth prepare`)."),
-    out: str = typer.Option(..., "--out", help="Target PNG."),
-    tex: str | None = typer.Option(None, "--tex", help="Texture PNG (default: <obj>.png alongside; --clay ignores it)."),
-    clay: bool = typer.Option(False, "--clay", help="Render without texture (geometry only — bumps/holes most visible)."),
-    blender: str | None = typer.Option(None, "--blender", help="Blender executable (default: auto-detected)."),
-) -> None:
-    """Render a single piece nicely (orthographic 3/4 view, upright, two light sources)."""
-    from ..config import SYNTH
-
-    script = _REPO / "synth" / "render_piece.py"
-    obj_p = Path(obj).resolve()
-    tex_p = None if clay else (Path(tex).resolve() if tex else obj_p.with_suffix(".png"))
-    if tex_p is not None and not tex_p.exists():
-        print(f"[WARN] Texture {tex_p} missing — rendering clay.")
-        tex_p = None
-    bl = blender or SYNTH.blender_cmd()
-    cmd = [bl, "--background", "--python-exit-code", "1", "--python", str(script), "--",
-           str(obj_p), str(Path(out).resolve()), str(tex_p) if tex_p else "-"]
-    print(" ".join(cmd))
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except FileNotFoundError:
-        print(f"[FAIL] Blender not found ('{bl}'). Set CHESSLAB_BLENDER.")
-        raise typer.Exit(1)
-    except subprocess.CalledProcessError as e:
-        print("[FAIL] Render failed:\n" + "\n".join((e.stdout or "").splitlines()[-6:]))
-        raise typer.Exit(1)
-    print(f"[OK] synth preview: {out}")

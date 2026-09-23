@@ -1,9 +1,5 @@
-"""Where a ply's commit latency goes on the PC replay: settle, dispatch, or verify.
-
-Reads the retimed `candidate.json` (truth frame per ply), the `<motiondump>.status.csv` a replay
-writes beside `motiondump=` (engine state per decoded frame: the first `waiting` after the truth
-frame is the settle) and the replay log (the `checking … via CNN` note with its seq, the score
-table's `run frame` per found ply), and prints per ply: truth → quiet → dispatch → commit.
+"""Where a ply's commit latency goes on the PC replay: truth -> quiet -> dispatch -> commit, from
+the retimed `candidate.json`, the replay's `<motiondump>.status.csv` and its log.
 
     uv run python scripts/commit_budget.py 2026-09-06-20-27-33 tmp/batch/budget/20-27-33.csv tmp/batch/budget/20-27-33.log
 """
@@ -57,8 +53,7 @@ def main(name: str, dump: str, log: str) -> int:
         print(f"{m['ply']:>3}  {m['san']:<7} {t:>6}  {q:>6}  {d:>8}  {c:>6}   {s:6.2f}  {dd:8.2f}  {v:6.2f}  {tot:6.2f}")
     if parts["total"]:
         print("\nmedian s:  " + "  ".join(f"{k} {st.median(v):.2f}" for k, v in parts.items()))
-        # Dieselbe Formel wie `commit_lag.py`: `int(0.9 * n)` ist bei n = 10 der Index 9 und
-        # damit das MAXIMUM, nicht das p90.
+        # `int(0.9 * n)` ist bei n = 10 das MAXIMUM, nicht das p90.
         print("p90 s:     " + "  ".join(
             f"{k} {sorted(v)[max(0, math.ceil(0.9 * len(v)) - 1)]:.2f}" for k, v in parts.items()))
     return 0

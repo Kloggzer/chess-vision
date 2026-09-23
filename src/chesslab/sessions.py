@@ -1,7 +1,5 @@
-"""Geometrie-Reparatur einer Session: `scan`, `autofix`, `adopt`, `fit-mesh`, `repair-mesh`, `mark-hands`.
-
-Sie schreiben `corners`, `grid_lines` und `dirty` in `log.jsonl`, das `labeling.slice_session`
-liest — ueber den Stempel-Riegel in `session_store.log`. Ordner und Log besitzt `session_store`.
+"""Geometrie-Reparatur einer Session: `scan`, `autofix`, `adopt`, `fit-mesh`, `repair-mesh`,
+`mark-hands` — sie schreiben `corners`, `grid_lines` und `dirty` bewacht in `log.jsonl`.
 """
 
 from __future__ import annotations
@@ -15,59 +13,30 @@ from .session_store.log import _write_log, backup_log, read_log
 from .session_store.names import log_path
 from .session_store.paths import all_sessions, frame_path, session_dir, session_profile
 
-# ---------------------------------------------------------------------------
-# Geometry repair: reading and rewriting a session's `corners` / `unusable`
-#
-# `labeling.slice_session` warps every crop through the `corners` of its log row, so these
-# fields decide whether a crop sits on its square or straddles the groove. Two rules run
-# through everything below, and both exist because breaking them does damage:
-#
-#   - a frame already inside tolerance is NEVER touched — inside the noise band the fit
-#     chases measurement noise and makes it worse;
-#   - a correction that does not improve its own frame is discarded (`alignment.improve_quad`
-#     enforces this itself and returns None).
-#
-# Every write backs up `log.jsonl` first and records HOW the geometry got there
-# (`corners_source`), because analysis later has to be able to tell computed geometry from
-# measured geometry.
-#
-# This lived in the web router until the web UI was retired. It is the machinery that fixed
-# the corpus-wide geometry error in `docs/data-pipeline.md` §12 — the one that had been
-# holding the empty-crop margin for months — and it had no CLI.
-# ---------------------------------------------------------------------------
+# A frame inside tolerance is NEVER touched (the fit would chase noise), and a correction that does
+# not improve its own frame is discarded. Every write backs up the log and records `corners_source`.
 
 
 class NothingToDo(ValueError):
-    """The request is well formed, but nothing would change.
-
-    Distinct from a plain `ValueError` because the two deserve different answers: a bad scope is
-    a mistake, while "every row already has corners" is a no-op the caller may well have meant.
-    The web router maps this to 409 and everything else to 400.
+    """The request is well formed, but nothing would change: a no-op the caller may have meant, not
+    a mistake. The web router maps this to 409, everything else to 400.
     """
 
 
 def write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
                       source: str, from_index: int | None) -> dict:
-    """Write `quad` into the given rows and record HOW it got there.
-
-    Provenance is the point: `corners_source` says `hand`, `adopted` or `auto-corrected`
-    (absent = detected by the capture pipeline, which is what every original row is),
-    `corners_from` names the row the quad came from, `corners_set_at` when. Analysis later has
-    to be able to exclude computed geometry, and this session corpus already had one
-    unanswerable question of exactly this kind (which camera took it) because nobody wrote it
-    down.
+    """Write `quad` into the given rows and record HOW it got there: `corners_source` (`hand`,
+    `adopted`, `auto-corrected`; absent = detected), `corners_from`, `corners_set_at`.
     """
     log_file = log_path(sdir)
     backup = backup_log(log_file)
     stamp = datetime.now(UTC).isoformat()
     for i in indices:
-        # Keep what is being replaced: it is what a before/after view compares against, and
-        # without it the previous geometry only survives in a backup file nobody reads.
+        # Keep what is replaced: the before/after view compares against it.
         if rows[i].get("corners"):
             rows[i]["corners_prev"] = rows[i]["corners"]
-        # Die Ausrichtung beschreibt EINEN Quad. Der neue ist hier nirgends gemessen worden, also
-        # bleibt keine Zahl stehen — sonst liest jeder Leser (Badge, `median`, `REPAIRED_KEYS`)
-        # die Messung des ERSETZTEN Quads als die dieser Zeile.
+        # Die Ausrichtung beschreibt EINEN Quad; der neue ist ungemessen, sonst laese jeder die Zahl
+        # des ERSETZTEN als die dieser Zeile.
         rows[i].pop("align_worst_px", None)
         rows[i]["corners"] = [[float(x), float(y)] for x, y in quad]
         rows[i]["corners_source"] = source
@@ -83,11 +52,8 @@ def write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
 
 
 def corner_targets(rows: list[dict], scope: str, index: int, overwrite: bool) -> list[int]:
-    """Which rows a write applies to — always an explicit, countable set.
-
-    `frame` = this row only, `missing` = every row without corners, `all` = every row. A row
-    that ALREADY has corners is only touched with `overwrite`, because a session like
-    20260730-131607 has 7 good rows and 1 bad one and the 7 must stay measured.
+    """Which rows a write applies to: `frame`, `missing` or `all`. Rows WITH corners only under
+    `overwrite`, so the good rows of a mixed session stay measured.
     """
     if scope == "frame":
         candidates = [index]
@@ -116,12 +82,8 @@ ADOPT_TOL_PX = 2.0
 
 
 def adopt_candidate(rows: list[dict]) -> dict | None:
-    """The quad to adopt: the one the MOST other rows agree with, earliest row wins a tie.
-
-    Most-agreed rather than nearest, so a single outlier row — a board that got bumped in one
-    frame — cannot become the template for a whole session. `n_same` has to mean something, so
-    agreement is within [ADOPT_TOL_PX] rather than exact: equality would split rows that differ
-    by 0.05 px.
+    """The quad the MOST other rows agree with (within [ADOPT_TOL_PX]), earliest wins a tie: a
+    single bumped frame cannot become the template.
     """
     have = [(i, r["corners"]) for i, r in enumerate(rows)
             if r.get("corners") and len(r["corners"]) == 4]
@@ -153,12 +115,8 @@ def autofix_one(sdir: Path, entry: dict):
 
 
 def scan_alignment(session_id: str) -> dict:
-    """Measure every frame's worst square offset once and store it as `align_worst_px`.
-
-    Stored rather than computed on demand because measuring one frame costs a warp plus two
-    Sobel passes — fine for a single review step, 40 s for a 534-frame session. Written into
-    `log.jsonl` so the count, any badge and any later analysis all read the same number, and so
-    a session carries its own geometry verdict.
+    """Measure every frame's worst square offset once into `align_worst_px`: 40 s for a 534-frame
+    session, and every reader sees the same number.
     """
     import cv2
 
@@ -170,9 +128,8 @@ def scan_alignment(session_id: str) -> dict:
     measured = 0
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
-    # Erst raeumen, dann messen: eine Zeile, die diesmal nicht messbar ist (Hand auf den Rillen,
-    # Bild unlesbar), behielt sonst die Zahl des VORIGEN Laufs — und `median`/`max` mischten sie
-    # unter die frischen, waehrend `measured` nur die frischen zaehlte.
+    # Erst raeumen, dann messen: eine diesmal unmessbare Zeile behielt sonst die Zahl des VORIGEN
+    # Laufs.
     for r in rows:
         r.pop("align_worst_px", None)
     for r in rows:
@@ -193,17 +150,13 @@ def scan_alignment(session_id: str) -> dict:
             "max": vals[-1] if vals else None, "backup": backup}
 
 
-#: Measured frames a carried mesh is the median of. One neighbour can itself be a marginal fit;
-#: the median of a few costs nothing and cannot be dragged off by a single one.
+#: Measured frames a carried mesh is the median of; a single marginal fit cannot drag it.
 MESH_CARRY_WINDOW = 5
 
 
 def _carried_mesh(window: list[dict]) -> dict | None:
-    """The per-coefficient median of the measured meshes in `window`, at their COMMON stage.
-
-    A frame whose grid a hand covers gets the geometry of the frames around it — the camera is
-    not rebuilt mid-session — but only where every one of them agrees a stage exists, so a
-    carried mesh never claims a curvature that was measured on one frame alone.
+    """The per-coefficient median of the measured meshes in `window`, at their COMMON stage: a
+    carried mesh never claims a curvature measured on one frame alone.
     """
     if not window:
         return None
@@ -219,39 +172,33 @@ def _carried_mesh(window: list[dict]) -> dict | None:
 MESH_LINE_TOLERANCE = 0.04
 
 
-#: What each coefficient of `pos(t) = x + tx*(t-0.5) + cx*(t-0.5)^2` can actually move a line by:
-#: |t-0.5| <= 0.5 and its square <= 0.25. Without this the curvature — the term that scatters most —
-#: would be judged against a tolerance meant for a straight offset.
+#: What each coefficient can move a line by (|t-0.5| <= 0.5, its square <= 0.25); otherwise the
+#: curvature would be judged against a straight-offset tolerance.
 MESH_TERM_WEIGHT = {"x": 1.0, "y": 1.0, "tx": 0.5, "ty": 0.5, "cx": 0.25, "cy": 0.25}
 
 
 def _repair_mesh_outliers(rows: list[dict]) -> tuple[int, bool]:
-    """Pull single mis-located grid lines back onto the session's own median. -> (repaired, static)
+    """Pull single mis-located grid lines back onto the session's median. -> (repaired, static)
 
-    `grid_line_fracs` puts a line where it finds an edge, and on the back rank the tall pieces ARE
-    the edge. Measured on the 4K turntable clip (2026-08-17): the 8/7 boundary scattered four times
-    wider than any other line and stretched rank 7 by 14 %, while the median over 40 frames landed
-    every cell within 2 % of an eighth. Nothing downstream notices, because `mesh_from_lines` only
-    checks that the lines rise — a plausible line in the wrong place passes every gate.
-    """
+    On the back rank the tall pieces ARE the edge: the 8/7 line scattered 4x wider and stretched
+    rank 7 by 14 %. `mesh_from_lines` only checks monotony, so a plausible wrong line passes
+    every gate."""
     meshes = [r["grid_lines"] for r in rows if r.get("grid_lines_source") == "measured"]
     if len(meshes) < 3:
         return 0, False
     tol = MESH_LINE_TOLERANCE / 8.0
-    # Per key over the meshes that CARRY it: a session mixes curved with merely tilted frames, and
-    # demanding every mesh have `cx` drops the very term that scatters most.
+    # Per key over the meshes that CARRY it: demanding `cx` everywhere drops the term that scatters
+    # most.
     have = {k: [m for m in meshes if k in m] for k in MESH_TERM_WEIGHT}
     med = {k: [median([m[k][i] for m in ms]) for i in range(9)]
            for k, ms in have.items() if len(ms) >= 3}
     if {"x", "y"} - set(med):
         return 0, False
-    # Trust the median only where that ONE line actually holds still: a rig that moved makes every
-    # line's typical deviation large, and then its own measurement is the better answer. Judged per
-    # line, not per frame — with 9 lines over 6 terms nearly every frame is off somewhere.
+    # Trust the median only where that ONE line holds still; per line, not per frame. A moved rig
+    # makes every deviation large, and then the own measurement is better.
     stable = {(k, i) for k in med for i in range(9)
               if median([abs(m[k][i] - med[k][i]) for m in have[k]]) * MESH_TERM_WEIGHT[k] <= tol}
-    # "The rig held still" is a statement about the LINES, not the tilts — those stay trivially
-    # stable while the whole board slides, and would license a repair against a meaningless median.
+    # A sliding board leaves the tilts trivially stable, so only the LINES license a repair.
     if not any(k in ("x", "y") for k, _ in stable):
         return 0, False
 
@@ -269,12 +216,8 @@ def _repair_mesh_outliers(rows: list[dict]) -> tuple[int, bool]:
 
 
 def _fill_mesh_gaps(rows: list[dict]) -> int:
-    """Give every row without a measured mesh the one its stable neighbours carry.
-
-    Backwards for the rows before the first measurement: "the frames before" is the normal case,
-    but a session that opens with a hand over the board has none, and the camera is the same one.
-    Gemessen heisst nicht sauber: 234 von 475 Luecken haetten sonst einen Handframe unter ihren
-    fuenf Gebern geerbt, 28 davon als Mehrheit (2026-09-21, 13 Logs).
+    """Give every row without a measured mesh the one its stable neighbours carry, backwards too.
+    Gemessen heisst nicht sauber: 234 von 475 Luecken haetten sonst einen Handframe geerbt.
     """
     from .realgames.mesh import hand_seen
 
@@ -297,11 +240,8 @@ def _fill_mesh_gaps(rows: list[dict]) -> int:
 
 
 def missing_source_frames(sdir: Path, rows: list[dict]) -> str | None:
-    """Why a step that measures the SOURCE picture cannot run here, or None.
-
-    `scan`, `autofix`, `fit-mesh` and `mark-hands` all fit against the raw frame, and a parked
-    session only keeps its boards. Without this they skip every row and report "0 of 2 608
-    measured" — a session that looks empty rather than one whose frames are elsewhere.
+    """Why a step that measures the SOURCE picture cannot run here, or None: a parked session keeps
+    only its boards and would report "0 of 2 608 measured".
     """
     want = [r for r in rows if r.get("frame")]
     if want and not any((sdir / r["frame"]).is_file() for r in want[:8]):
@@ -312,12 +252,9 @@ def missing_source_frames(sdir: Path, rows: list[dict]) -> str | None:
 
 
 def fit_mesh_session(session_id: str) -> dict:
-    """Measure every frame's 18 grid lines once and store them as `grid_lines`.
-
-    The quad says WHERE the board is, the mesh says where its cells are — without it a slice cuts
-    at the nominal eighth and bakes the lens' barrel into the crops. Measured through the profile
-    the slice uses, so the fractions describe the warp it actually cuts in. A frame whose grid a
-    hand covers takes its neighbours' mesh (`_fill_mesh_gaps`) and says so.
+    """Measure every frame's 18 grid lines into `grid_lines`, through the profile the slice uses.
+    Without them a slice bakes the lens' barrel into the crops. Hand-covered frames borrow a
+    neighbour's mesh.
     """
     import cv2
 
@@ -326,8 +263,7 @@ def fit_mesh_session(session_id: str) -> dict:
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
-    # The SLICE's profile, not this module's review stand-in: fractions measured through another
-    # margin describe a warp nobody cuts.
+    # The SLICE's profile: fractions through another margin describe a warp nobody cuts.
     prof = _profile_for_session(read_session_meta(sdir), None)
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
@@ -360,12 +296,8 @@ def fit_mesh_session(session_id: str) -> dict:
 
 
 def mark_hands_session(session_id: str) -> dict:
-    """Set `dirty` where the board's own grooves say a hand lies on them.
-
-    The exporter's `dirty` is a +/-1 s window around a reviewed commit, not a sensor: measured
-    2026-08-16 over 2 228 frames, 424 of them show a plain hand and carry no flag. This is the
-    model-free witness (`grid_occlusion`, mirror of `GridOcclusion.kt`) and it only ever ADDS —
-    a commit window stays dirty whether or not the grooves survived it.
+    """Set `dirty` where the board's own grooves say a hand lies on them. The exporter's `dirty` is
+    a time window, not a sensor (424 of 2 228 frames showed an unflagged hand). Only ever ADDS.
     """
     import cv2
 
@@ -430,10 +362,8 @@ def mark_hands_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict
 
 
 def repair_mesh_session(session_id: str) -> dict:
-    """Run only the outlier repair over the lines a session ALREADY stores — no source frames.
-
-    Re-measuring needs `frames/`, and a parked session keeps only its boards, so the sessions most
-    in need of the fix are exactly the ones `fit_mesh_session` can no longer touch.
+    """Only the outlier repair over the lines a session ALREADY stores: parked sessions, the ones
+    most in need, have no frames to re-measure.
     """
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -451,7 +381,6 @@ def repair_mesh_session(session_id: str) -> dict:
 
 
 def repair_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
-    """`repair_mesh_session` over every active session that has a log."""
     out = []
     for sid, sdir in all_sessions(paths):
         if not log_path(sdir).is_file():
@@ -467,11 +396,7 @@ def repair_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dic
 
 
 def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
-    """`fit_mesh_session` over every active session that has a log — the sweep, one at a time.
-
-    `on_done` is called per finished session, because a corpus-wide sweep runs for many minutes
-    and a caller that only speaks at the end cannot say where it stands or what failed.
-    """
+    """`fit_mesh_session` over every active session with a log; `on_done` reports per session."""
     out = []
     for sid, sdir in all_sessions(paths):
         if not log_path(sdir).is_file():
@@ -487,11 +412,8 @@ def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
 
 
 def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
-    """Re-fit every frame whose worst square sits further than `max_off` px off the grid.
-
-    Frames already within tolerance are NOT touched, and a correction that does not improve its
-    own frame is discarded — see this section's header for why both matter. Changed rows are
-    marked `corners_source: "auto-corrected"` so measured and computed stay distinguishable.
+    """Re-fit every frame whose worst square is further than `max_off` px off, marking changed rows
+    `corners_source: "auto-corrected"`.
     """
     import cv2
 
@@ -521,14 +443,12 @@ def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
         rows[i]["corners_prev"] = rows[i]["corners"]
         rows[i]["corners"] = quad
         rows[i]["corners_source"] = "auto-corrected"
-        # `after` ist an DIESEM Frame gegen den neuen Quad gemessen — dieselbe Groesse, die
-        # `fit_rows_to_grid` schreibt. Ohne sie behielt die Zeile die Zahl, die den Fix ausloeste.
+        # `after` ist an DIESEM Frame gegen den neuen Quad gemessen; sonst behielte die Zeile die
+        # Zahl, die den Fix ausloeste.
         rows[i]["align_worst_px"] = round(float(after), 2)
         changed.append(i)
         gains.append((round(before, 1), round(after, 1)))
-    # ONE shape, whatever happened. The router version returned a shorter dict when nothing
-    # changed, which no caller noticed because the UI read it defensively — and which broke the
-    # first CLI call that trusted the keys to be there.
+    # ONE shape whatever happened: callers trust the keys to be there.
     backup = None
     if changed:
         backup = backup_log(log_path(sdir))
@@ -543,11 +463,8 @@ def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
 
 def adopt_corners(session_id: str, from_index: int | None = None, scope: str = "missing",
                   overwrite: bool = False) -> dict:
-    """Copy a quad that WAS detected in this session into the rows that have none.
-
-    The common repair: one frame in a static sweep lost a marker while the other seven kept it.
-    No clicking, and the geometry stays measured — but the rows say `adopted`, not `detected`,
-    and name the row it came from.
+    """Copy a quad detected in this session into the rows that have none (one frame lost a marker);
+    the rows say `adopted` and name their source row.
     """
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)

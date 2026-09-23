@@ -1,4 +1,4 @@
-"""Skript-Jagd 2026-09-20: Stellen in `scripts/`, die NICHT GEMESSEN als Messung lesen."""
+"""Skript-Jagd: Stellen in `scripts/`, die NICHT GEMESSEN als Messung lesen."""
 from __future__ import annotations
 
 import importlib

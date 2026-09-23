@@ -1,5 +1,4 @@
-"""Bug-Jagd 2026-09-16 (d): halb geschriebene Dateien und Globs, die ihren eigenen Muell
-einsammeln."""
+"""Bug-Jagd (d): halb geschriebene Dateien und Globs, die ihren eigenen Muell einsammeln."""
 from __future__ import annotations
 
 import json
@@ -155,11 +154,8 @@ def test_an_unexpected_abort_drops_the_staged_seam_pixels(tmp_path, monkeypatch)
 
 
 def test_an_unmeasured_dirty_frame_must_not_enter_the_settled_reference(tmp_path):
-    """Ungemessen heisst ABWESEND aus der Matte, nicht `{}`.
-
-    Seit 2026-09-16 ist eine leere Coverage "gemessen, nichts verdeckt" (Punkt 20) — der
-    ungemessene Fall ist der Stem, den `read_matte` gar nicht kennt. Genau der darf nicht in den
-    Median der gesetzten Stellung, wogegen `SETTLE_CLEAR_MAX` existiert.
+    """Ungemessen heisst ABWESEND aus der Matte, nicht `{}` (das ist "gemessen, nichts verdeckt").
+    Genau der darf nicht in den Median der gesetzten Stellung.
     """
     from tests.test_settle_scan import CELL, SIDE, _profile, _write
 

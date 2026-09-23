@@ -1,4 +1,4 @@
-"""Bug-Hunt 2026-09-22d: Skripte, die Zahlen liefern, auf denen Entscheidungen stehen."""
+"""Bug-Hunt: Skripte, die Zahlen liefern, auf denen Entscheidungen stehen."""
 
 from __future__ import annotations
 

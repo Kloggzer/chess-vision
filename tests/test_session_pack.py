@@ -18,15 +18,11 @@ from test_labeling import _frame_with_markers
 
 START_FEN = chess.Board().fen()
 
-#: Nachgezogen 2026-09-14: der Crop-Warp interpoliert kubisch statt bilinear, also aendern sich die
-#: PIXEL — als einziges. Geometrie und Zeilen blieben, `ROWS_SHA` ist unveraendert und das Quad der
-#: Paritaets-Fixtures wich um 0,0 px ab (`docs/export-decode.md`). Davor, seit `feat/session-packs`:
-#: fccc9558548fc52072acbf33f56b065c9c1e4e98a77cd2a4abe480370f9a4418. `ts` faellt vorm Hashen weg.
+#: Der Crop-Warp interpoliert kubisch: nur die PIXEL aenderten sich, Geometrie und Zeilen nicht
+#: (`ROWS_SHA` unveraendert). `ts` faellt vorm Hashen weg.
 CROPS_SHA = "d3e9b05e7888b090bb56849579991384d2fe4e4fdd88af96c416e20497237b75"
-#: Nachgezogen 2026-09-18: ein Frame, den der Hand-Gate als sauber gemessen hat, traegt jetzt
-#: `coverage: 0.0` statt gar keine Spalte (`labeling.clean_frames`). Die PIXEL blieben — `CROPS_SHA`
-#: stimmt unveraendert, und das ist der Beweis, dass nur die Zeile wuchs. Davor, seit 2026-09-14:
-#: fa07f95118afdd94191cd6e5444832caeaf71d49282100a361a3b920fb755e42.
+#: Ein vom Hand-Gate sauber gemessener Frame traegt `coverage: 0.0` statt keiner Spalte
+#: (`labeling.clean_frames`); `CROPS_SHA` blieb, also wuchs nur die Zeile.
 ROWS_SHA = "e76970d4c0f810974909a2ac7178f048132496bf3b5408df737ef06c17140b53"
 
 

@@ -1,8 +1,5 @@
-"""Die Verdachtsfaelle als Bild — sitzt der Crop daneben oder ist das Material hart?
-
-`audit_sessions.py` findet Situationen, in denen das Modell in jedem Frame dieselbe falsche
-Antwort mit hoher Konfidenz gibt. Das trennt konsistent von wackelig, aber nicht Labelfehler von
-schwerer Figur. Das entscheidet nur das Auge, also: Crop, Label, Antwort, Konfidenz.
+"""Die Verdachtsfaelle aus `audit_sessions.py` als Bild: sitzt der Crop daneben, oder ist das
+Material hart? Crop, Label, Antwort, Konfidenz.
 
     uv run python scripts/audit_montage.py [--rank 8] [--out data/reports/audit-rank8.png]
 """
@@ -44,8 +41,7 @@ def main():
     dd = dataset_dir(args.dataset)
     man = read_jsonl(dd / "manifest.jsonl")
     mm, index = open_packed_rows(args.dataset, man)
-    # Ein Beispielcrop je (Session, Feld, Label) — die Situation ist ueber die Frames dieselbe.
-    # Nur gemessen sichtbare Zellen: `or 0.0` zeigte ein ungemattetes Brett als freies Beispiel.
+    # Ein Beispielcrop je (Session, Feld, Label); nur gemessen sichtbare Zellen.
     pick: dict[tuple, str] = {}
     for r in man:
         k = (r["session_id"], r["square"], r["label"])

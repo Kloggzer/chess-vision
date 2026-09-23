@@ -10,9 +10,8 @@ from typing import Any
 from ..calibration import MESH_CURV_LIMIT, MESH_TILT_LIMIT
 from ..work_audit import measure, object_revision
 
-#: Was ein Sensor als Hand im Bild fuehrt. Die Rillen benennen Felder (`hand_squares`), das Gate
-#: des Scans nur den Frame (`framescan.classify` -> `occluded`, der Fit selbst -> `grid-late`) —
-#: gemessen 2026-09-21 sind 315 von 1 228 Mesh-Gebern so eine Zeile, 212 davon `occluded`.
+#: Was ein Sensor als Hand im Bild fuehrt: die Rillen benennen Felder, das Gate des Scans nur den
+#: Frame. 315 von 1 228 Mesh-Gebern waren so eine Zeile.
 HAND_DIRTY_REASONS = ("occluded", "grid-late")
 
 
@@ -22,18 +21,10 @@ def hand_seen(row: dict) -> bool:
 
 
 def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
-    """{frame index: the mesh its board must be straightened with} — ONE mesh for the recording.
+    """{frame index: mesh} — ONE per-line median mesh for the recording, from frames without a hand.
 
-    The camera does not move inside a recording, so every line sits where it sits and a per-frame
-    mesh can only add noise. It adds a lot: the middle lines hold still to +-0.4 px over a session
-    while the back-rank ones scatter by 3.8-4.6 px (2026-08-22, over 833 and 363 frames), because
-    pieces stand ON those grooves in every frame and move the line the fit finds. The per-line
-    MEDIAN over the clean frames is the same measurement without that jitter — and it keeps a real
-    lens bow, which is constant across frames (turntable `2026-08-09 20-48-50`: a smooth +-0.03
-    ramp, 8.5 px, survives the median unchanged).
-
-    A frame whose grid a HAND covers never contributes: its mesh leaves the board worse than no
-    mesh at all (measured 2026-08-21: 15.6 px against 16.1 raw).
+    The camera does not move: back-rank lines scatter 3.8-4.6 px per frame (pieces on the
+    grooves), while a real lens bow is constant.
     """
     from ..calibration import mesh_from_lines, pooled_mesh, smooth_mesh_curvature
 
@@ -43,8 +34,8 @@ def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
     return {int(Path(row["frame"]).stem): session for row in rows}
 
 
-#: `measuredBoardSize` (CalibrationStore.kt) in Python: the pack warps a stored frame at this
-#: size, so the fit measures at it too and `align_worst_px` is in the pixels its cells are cut in.
+#: `measuredBoardSize` (CalibrationStore.kt): the fit measures at the size the pack warps, so
+#: `align_worst_px` is in the pixels the cells are cut in.
 BOARD_SIZE_STEP, MIN_BOARD_SIZE, MAX_BOARD_SIZE = 16, 320, 1280
 
 
@@ -59,7 +50,7 @@ def measured_board_size(quad) -> int:
 
 
 def field_quad(quad, board_size: int, margin: float) -> list[list[float]]:
-    """The PLAYING FIELD's corners for a quad whose points sit `margin` outside it (a8,h8,h1,a1)."""
+    """The PLAYING FIELD's corners for a quad whose points sit `margin` outside it."""
     import numpy as np
 
     from ..calibration import compute_homography
@@ -72,7 +63,7 @@ def field_quad(quad, board_size: int, margin: float) -> list[list[float]]:
 
 
 def _field_profile(quad, frame_size, board_size: int):
-    """Margin 0, because `quad` already IS the playing field — never saved, only measured through."""
+    """Margin 0: `quad` already IS the playing field. Never saved, only measured through."""
     from ..calibration import CalibrationProfile, CropParams, compute_homography
 
     return CalibrationProfile(
@@ -83,13 +74,12 @@ def _field_profile(quad, frame_size, board_size: int):
     )
 
 
-#: The limits live in `calibration.py` because the CONSUMERS read them (CropBox.kt / warp.ts have
-#: their twins). Measured on rg-2026-08-08-11-59-12/004251: the real outer lines reach c = 0.046,
-#: a ~10 px sagitta at 928, so 0.08 leaves ~1.7x headroom — bigger is a shadow, not a lens.
+#: The limits live in `calibration.py` because the CONSUMERS read them. Real outer lines reach c =
+#: 0.046 (~10 px at 928), so 0.08 leaves headroom; bigger is a shadow, not a lens.
 
 
 def _mesh_axis(values: list[float]) -> bool:
-    """Finite and strictly increasing — a NaN in the JSON would break both consumer parsers."""
+    """Finite and strictly increasing: a NaN in the JSON breaks both consumer parsers."""
     return (all(math.isfinite(v) for v in values)
             and all(b > a for a, b in pairwise(values)))
 
@@ -99,10 +89,8 @@ def _mesh_tilts(values: list[float], limit: float = MESH_TILT_LIMIT) -> bool:
 
 
 def _curved_axes(lines, curls, pad: int, board_size: int) -> dict | None:
-    """The curvature pair, ALL-or-nothing: folded offsets plus `cx`/`cy`, or None.
-
-    `d` is folded into the offset so `x` stays "position at the centre" of the PARABOLA — the
-    linear offsets stay untouched when the pair is refused, each stage carrying its own best fit.
+    """The curvature pair, ALL-or-nothing, or None. `d` folds into the offset so `x` stays the
+    parabola's centre position; a refused pair leaves the linear stage untouched.
     """
     if any(c is None for axis in curls for c in axis):
         return None
@@ -115,7 +103,6 @@ def _curved_axes(lines, curls, pad: int, board_size: int) -> dict | None:
 
 
 def grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> dict | None:
-    """Audit-aware entry point for the board's 18 measured grid lines."""
     quad_key = tuple(round(float(v), 4) for point in quad for v in point)
     key = (object_revision(image), tuple(image.shape), quad_key, int(board_size),
            getattr(profile, "profile", None), id(lens) if lens is not None else None)
@@ -124,15 +111,11 @@ def grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> di
 
 
 def _grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> dict | None:
-    """The 18 measured lines as fractions of the field side, or None unless ALL are located.
+    """The 18 measured lines as field fractions (offset, tilt, `cx`/`cy`), or None unless ALL are
+    located.
 
-    Per line: offset at the board's centre, dimensionless tilt, and — when every line's bands
-    allow it — the parabola term `cx`/`cy` (`pos(t) = x + tx·(t−0.5) + cx·(t−0.5)²`). Consumers
-    cut each square at the intersections of its four neighbour LINES, one stage per shape.
-
-    `profile`: measure through ITS margin — a session log holds the marker quad, and fractions
-    read at margin 0 would describe a board the slice never warps. Default: `quad` is the field.
-    """
+    `profile`: measure through ITS margin — margin 0 would describe a board the slice never
+    warps."""
     from ..alignment import grid_lines_with_curvature, warp_for_grid
 
     if profile is None:

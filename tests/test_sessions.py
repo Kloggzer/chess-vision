@@ -227,10 +227,8 @@ def test_archiving_never_overwrites_an_existing_archive(tmp_path):
 
 
 def test_archived_at_in_meta_retires_a_session_that_was_never_moved(tmp_path):
-    """Ein Stempel in der Meta zaehlt, nicht nur der Ordner.
-
-    `2026-08-30-14-33-02` trug `archived_at` und lag weiter unter `recordings/`; sein ins Leere
-    zeigendes Profil riss dadurch jeden `--all`-Lauf mit (2026-09-09).
+    """Ein Stempel in der Meta zaehlt, nicht nur der Ordner: eine nie verschobene, archivierte
+    Session riss ueber ihr totes Profil jeden `--all`-Lauf mit.
     """
     paths = config.Paths(tmp_path)
     d = _mk_session(paths, "live-one")

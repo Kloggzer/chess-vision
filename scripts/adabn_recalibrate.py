@@ -118,8 +118,6 @@ def log(msg: str = "") -> None:
     print(msg, flush=True)
 
 
-# --- the calibration set: frames, re-sliced at the target size -------------------------------
-
 def frames_for_split(rows: list[dict]) -> list[tuple[str, str]]:
     """`[(session_id, frame)]` in manifest order, deduplicated — one entry per board."""
     seen: set[tuple[str, str]] = set()
@@ -133,19 +131,15 @@ def frames_for_split(rows: list[dict]) -> list[tuple[str, str]]:
 
 
 def split_rows(cfg: dict, split_name: str, override: str | None = None) -> list[dict]:
-    """Rows of `split_name`, from `override` when given, else from the run's own dataset.
-
-    The override is what makes the WARM START possible: a synthetic pretrain records `p2v4` in its
-    config, but the statistics worth handing to a real finetune are the ones measured on real
-    crops. Without it this script can only ever recalibrate a run onto its own domain, which for a
-    pretrain is precisely the domain we are trying to leave.
+    """Rows of `split_name`, from `override` when given, else from the run's own dataset. The
+    override enables the WARM START: a synthetic pretrain's statistics should be measured on real
+    crops.
     """
     ds_name = override or cfg.get("dataset")
     if not ds_name:
         raise SystemExit("run has no `dataset` in config.json — cannot locate its split.")
     dd = dataset_dir(ds_name)
-    # `split_file` only applies to the run's OWN dataset: an override points at a foreign corpus
-    # whose fold files, if any, have nothing to do with this run.
+    # `split_file` only applies to the run's OWN dataset.
     own = not override or override == cfg.get("dataset")
     manifest_path = dd / "manifest.jsonl"
     split_path = dd / ((cfg.get("split_file") or "split.json") if own else "split.json")
@@ -157,15 +151,9 @@ def split_rows(cfg: dict, split_name: str, override: str | None = None) -> list[
     return rows
 
 
-# --- statistics --------------------------------------------------------------------------------
-
 class ChannelStats:
-    """Per-channel sum / sum-of-squares of one BatchNorm's INPUT, accumulated in float64.
-
-    float64 because this is a variance over ~1e8 activations reduced by summation, and the project
-    has been bitten by exactly this before: `PrimitiveBatchNorm2d` documents twelve `running_var`
-    entries landing at +inf when the reduction ran in fp16. Cheap insurance at calibration time,
-    where nothing is time-critical.
+    """Per-channel sum / sum-of-squares of one BatchNorm's INPUT in float64: a variance over ~1e8
+    activations overflowed in fp16 before (`PrimitiveBatchNorm2d`).
     """
 
     def __init__(self, channels: int) -> None:
@@ -183,12 +171,12 @@ class ChannelStats:
         """`(mean, var)` — var UNBIASED, which is the estimate `nn.BatchNorm2d` stores."""
         n = self.count
         if n < 2:
-            # Nothing was observed (an empty `--frames`, a generator that yielded no batch): the
-            # two-pass identity would write NaN into every buffer and the run still be saved.
+            # Nothing observed: the two-pass identity would write NaN into every buffer and still
+            # save the run.
             raise SystemExit(f"no activations observed ({n} elements) — nothing to calibrate.")
         mean = self.sum / n
-        # Clamped at zero: the two-pass identity can go a hair negative through cancellation when a
-        # channel is near-constant, and a negative variance would produce NaNs on the first rsqrt.
+        # Cancellation can make a near-constant channel's variance a hair negative -> NaN on the
+        # first rsqrt.
         var = ((self.sumsq / n) - mean * mean).clamp_(min=0.0) * (n / (n - 1))
         return mean.float(), var.float()
 
@@ -198,12 +186,9 @@ def batchnorms(model: nn.Module) -> list[tuple[str, nn.BatchNorm2d]]:
 
 
 def calibrate(model: nn.Module, batches, device: str) -> dict[str, ChannelStats]:
-    """Run `batches` through `model` and return each BatchNorm's freshly measured input statistics.
-
-    The batch norms are put in TRAIN mode with `track_running_stats=False`: in that state they
-    normalise by the current batch (so every layer above sees calibrated-looking inputs) and write
-    nothing to the buffers, which stay untouched until this function's caller installs the result.
-    Everything else stays in eval mode — dropout during a statistics pass would be noise.
+    """Run `batches` through `model` and return each BatchNorm's measured input statistics. BN in
+    TRAIN mode with `track_running_stats=False` normalises by the batch and writes no buffers;
+    the rest eval.
     """
     bns = batchnorms(model)
     if not bns:
@@ -236,14 +221,13 @@ def calibrate(model: nn.Module, batches, device: str) -> dict[str, ChannelStats]
 
 
 def install(model: nn.Module, stats: dict[str, ChannelStats]) -> list[tuple[str, float, float]]:
-    """Write the measured statistics into the buffers. Returns `(name, d_mean, d_var)` per layer,
-    the relative change against what was there — a shift near zero means the resolution was not
-    the problem, and the diagnosis is worth more than the checkpoint."""
+    """Write the measured statistics into the buffers; returns `(name, d_mean, d_var)` per layer. A
+    shift near zero means resolution was not the problem.
+    """
     report = []
     for name, m in batchnorms(model):
         mean, var = stats[name].finish()
-        # The statistics are accumulated on CPU (float64, see ChannelStats) while the buffers live
-        # wherever the model does — every comparison below has to happen on one device.
+        # Statistics live on CPU (float64), the buffers wherever the model does.
         mean = mean.to(m.running_mean.device)
         var = var.to(m.running_var.device)
         old_mean, old_var = m.running_mean.clone(), m.running_var.clone()
@@ -258,15 +242,10 @@ def install(model: nn.Module, stats: dict[str, ChannelStats]) -> list[tuple[str,
     return report
 
 
-# --- the pass ------------------------------------------------------------------------------------
-
 def crop_batches(cfg: dict, frames: list[tuple[str, str]], size: int,
                  warp: int | None, batch_size: int):
-    """Yield normalised `[N, C, size, size]` batches, re-sliced from the session frames.
-
-    The crops are cut at `size` directly out of the warped board (path A of specs/22), then run
-    through `normalize_batch` — the same arithmetic as `serving.predict_arrays`' fast path and as
-    Android's `preprocess`. Labels are never read: AdaBN is unsupervised.
+    """Yield normalised `[N, C, size, size]` batches cut at `size` from the warped board, through
+    `normalize_batch` like serving and Android. Labels are never read: AdaBN is unsupervised.
     """
     sdirs = {sid: store_paths.session_dir(sid)[0] for sid, _ in frames}
     profiles, logs = {}, {}
@@ -298,9 +277,7 @@ def to_batch(cfg: dict, crops: list[np.ndarray]) -> torch.Tensor:
 
 
 def require_no_clahe(name: str, cfg: dict) -> None:
-    """Refuse a CLAHE run: `to_batch` normalises by hand and never runs the operator chain, so the
-    statistics would be measured on pixels this model is never served. Two batch-norm runs on disk
-    carry `clahe_clip: 2.0` (`mnv3s128-bn-all`, `mnv3s128-bn-all-p60`)."""
+    """Refuse a CLAHE run: `to_batch` normalises by hand and never runs the operator chain."""
     clip = float(cfg.get("clahe_clip", 0.0) or 0.0)
     if clip > 0:
         raise SystemExit(f"{name} carries clahe_clip={clip} — this pass would measure raw pixels, "
@@ -309,10 +286,8 @@ def require_no_clahe(name: str, cfg: dict) -> None:
 
 def write_run(src: Path, dst: Path, model: nn.Module, cfg: dict, size: int,
               warp: int | None) -> None:
-    """A new run directory: the recalibrated weights plus a config that says what they are for.
-
-    `infer_size` is written because that is the whole point — these statistics are valid at ONE
-    resolution, and a checkpoint that does not carry its own is a trap for the next reader.
+    """A new run directory: recalibrated weights plus a config naming the ONE resolution
+    (`infer_size`) these statistics are valid at.
     """
     dst.mkdir(parents=True, exist_ok=True)
     out_cfg = dict(cfg)

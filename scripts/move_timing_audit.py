@@ -30,7 +30,7 @@ def _jsonl(path: Path):
 def session_facts(sid: str, window: int) -> dict:
     """Je (Frame, Feld): liegt es im Zeitfenster eines Zuges? Dazu, was ein Mensch gesichtet hat."""
     rec = REC / sid.removeprefix("rg-")
-    # `log.jsonl` schreibt den Frame als Pfad (`frames/001473.png`), Manifest und Matte als Stamm.
+    # `log.jsonl` schreibt den Frame als Pfad, Manifest und Matte als Stamm.
     frames_of: dict[int, list[str]] = defaultdict(list)
     for r in _jsonl(rec / "log.jsonl"):
         frames_of[int(r["ply"])].append(Path(str(r["frame"])).stem)
@@ -61,10 +61,7 @@ def session_facts(sid: str, window: int) -> dict:
 
 
 def classify(coverage, seen_by_human: bool) -> str:
-    """Eine Zelle OHNE Coverage ist ungemessen, nicht sichtbar.
-
-    `coverage or 0.0` machte aus `None` eine sichtbare Zelle und schob sie nach `RISIKO`.
-    """
+    """Eine Zelle OHNE Coverage ist ungemessen, nicht sichtbar."""
     if coverage is None:
         return "ungemessen"
     if float(coverage) > PIECE_VISIBLE_MAX:

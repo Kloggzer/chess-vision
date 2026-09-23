@@ -1,7 +1,5 @@
-"""Ein abgeleiteter Pack, schon durch den FESTEN Teil der Kette gedreht.
-
-Fest je Crop sind nur `Resize` und CLAHE; Augmentation wuerfelt je Epoche und bleibt im Loader.
-Was das kostet, was es bringt und warum `config.json` CLAHE trotzdem behaelt: `docs/packs.md`.
+"""Ein abgeleiteter Pack, schon durch den FESTEN Teil der Kette (Resize, CLAHE) gedreht;
+Augmentation bleibt im Loader (`docs/packs.md`).
 """
 
 from __future__ import annotations
@@ -20,19 +18,15 @@ from .packs import _packed_paths
 #: Wie viele Crops auf einmal durch den Speicher gehen. 4096 * 80 * 80 * 3 = 79 MB je Puffer.
 CHUNK = 4096
 
-#: Was neben den Pixeln mitkommt: der abgeleitete Datensatz muss dieselben Zeilen und dieselben
-#: Folds haben, sonst vergleicht ein Lauf auf ihm nichts mehr mit einem Lauf auf dem Original.
-#: `split-pin.json` gehoert dazu, weil der Riegel in `train`/`run_eval` an der EXISTENZ der Datei
-#: haengt: fehlt sie beim Zwilling, schweigt er und der Lauf misst still den ersetzten Val.
+#: Dieselben Zeilen und Folds wie das Original. `split-pin.json` gehoert dazu: der Riegel in
+#: `train`/`run_eval` haengt an ihrer EXISTENZ.
 COPIED = ("manifest.jsonl", "dataset.yaml", "split.json", "split-pin.json")
 
 
 def bake_pack(src: str, dst: str, params: dict, paths: config.Paths = config.DATA,
               force: bool = False) -> dict:
-    """`src`s Pack durch CLAHE gedreht, als eigener Datensatz `dst`.
-
-    Gebacken wird in der Groesse, in der der Pack liegt. Ob das die Groesse ist, in der der Lauf
-    trainiert, kann hier niemand wissen — `skip_baked` prueft es beim Training.
+    """`src`s Pack durch CLAHE gedreht, als eigener Datensatz `dst`, in der Groesse des Packs;
+    `skip_baked` prueft beim Training.
     """
     from ..dataset_build import dataset_dir
     from .torch_data import _Clahe
@@ -61,13 +55,11 @@ def bake_pack(src: str, dst: str, params: dict, paths: config.Paths = config.DAT
     clahe = _Clahe(params["clip"], params["tile"], params["min_mean"],
                    params["max_mean"], params["denoise"])
     source = np.memmap(src_img, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
-    # Zuerst die Pixel, erst danach das Meta: ein abgebrochener Lauf laesst dann eine Datei ohne
-    # Meta zurueck, und `load_packed` sieht "nicht gepackt" statt halb geschriebener Zeilen.
+    # Zuerst die Pixel, dann das Meta: ein Abbruch sieht dann "nicht gepackt".
     dst_meta_path.unlink(missing_ok=True)
     out = np.memmap(dst_img, dtype=np.uint8, mode="w+", shape=(n, h, w, 3))
     started = time.time()
-    # `_Clahe` gibt dasselbe Bild ZURUECK, wenn die Zelle ausserhalb des Helligkeitsbands liegt —
-    # die Identitaet ist also die exakte Antwort auf "wie viele hat der Operator angefasst".
+    # `_Clahe` gibt ausserhalb des Bands dasselbe Objekt ZURUECK: die Identitaet zaehlt exakt.
     touched = 0
     for start in range(0, n, CHUNK):
         block = np.array(source[start:start + CHUNK])
@@ -88,8 +80,7 @@ def bake_pack(src: str, dst: str, params: dict, paths: config.Paths = config.DAT
     for fold in folds:
         shutil.copy2(fold, dd / fold.name)
 
-    # `crop_fingerprint` bleibt: ein Re-Slice macht auch den gebackenen Pack ungueltig, und der
-    # Wachhund in `_rewritten_since_pack` ist der einzige, der das merkt.
+    # `crop_fingerprint` bleibt: ein Re-Slice macht auch den gebackenen Pack ungueltig.
     new = dict(meta)
     new["baked"] = {"op": "clahe", **params, "from": src, "at": time.time()}
     write_json(dst_meta_path, new, indent=None)

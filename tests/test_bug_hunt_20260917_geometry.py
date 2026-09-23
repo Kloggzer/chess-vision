@@ -1,5 +1,6 @@
-"""Bug hunt 2026-09-17, Achse Geometrie und Zuschnitt: Leser des Brett-Stores, die ihre eigene
-Skala annehmen statt die der Zeile. Jeder Test hier faellt auf dem Code von vorher."""
+"""Bug hunt, Geometrie und Zuschnitt: Leser des Brett-Stores, die ihre eigene Skala annehmen statt
+die der Zeile.
+"""
 
 
 import cv2

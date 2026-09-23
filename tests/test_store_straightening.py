@@ -116,10 +116,8 @@ def test_the_matte_follows_its_board(tmp_path):
 
 
 def test_a_frame_without_curvature_borrows_the_recordings():
-    """A mesh with no `cx` cannot take a bow out at all, and most frames of a recording have none.
-
-    Measured 2026-08-21: three recordings carry curvature on under 5 % of their frames and stayed
-    at 5.3-6.4 px without this; where it was present the same rule reached 0.97.
+    """A mesh with no `cx` cannot take a bow out, and most frames have none: without borrowing,
+    three recordings stayed at 5.3-6.4 px, with it 0.97.
     """
     curved = [_row(i, TILT, curv=0.03) for i in (0, 3, 6)]
     flat = [_row(i, TILT) for i in (9, 12)]
@@ -151,9 +149,9 @@ def test_a_matte_is_re_encoded_losslessly():
 
 
 def test_the_flags_are_persisted_while_the_boards_are_still_being_written(tmp_path):
-    """The write is destructive and the flag is its only record. A run killed between them leaves
-    straight boards that a later run would pull a SECOND time — measured the hard way on
-    2026-08-21, when a stopped migration kept writing and one recording came out over-corrected."""
+    """The write is destructive and the flag its only record: a run killed between them leaves
+    straight boards that a later run would pull a SECOND time.
+    """
     rows = [_row(i * 3, TILT) for i in range(STRAIGHTEN_CHECKPOINT + 2)]
     sdir, _board = _session(tmp_path, rows)
     seen: list[int] = []

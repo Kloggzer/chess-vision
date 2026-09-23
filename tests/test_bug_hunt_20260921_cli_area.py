@@ -1,4 +1,4 @@
-"""Fund-Belege fuer cli/labeling/dataset_build/locks (2026-09-21)."""
+"""Fund-Belege fuer cli/labeling/dataset_build/locks."""
 
 from __future__ import annotations
 

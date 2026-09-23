@@ -1,12 +1,5 @@
-"""Steht auf dem Brett die Stellung, die geplant war?
-
-`plan_setups.py` sagt, welche Aufstellung dem Korpus fehlt; danach baut ein Mensch sie auf und
-filmt. Diese Pruefung liest die geschnittenen Bretter mit dem Modell und haelt sie gegen die
-geplante FEN — sie faengt also den Aufbaufehler, nicht den Labelfehler.
-
-Die Grenze ist das Modell: `visible_piece_acc` liegt je nach Session zwischen 0,58 und 0,99, ein
-einzelnes abweichendes Feld sagt also wenig. Gemeldet wird deshalb, wo das Modell ueber MEHRERE
-Bretter hinweg stabil widerspricht — das ist ein Aufbaufehler, ein wackelndes Feld ist Rauschen.
+"""Steht auf dem Brett die Stellung, die geplant war (`plan_setups.py`)? Gemeldet wird, wo das
+Modell ueber MEHRERE Bretter stabil widerspricht — ein wackelndes Feld ist Rauschen.
 
     uv run python scripts/check_setup_video.py --tag check-p1 --fen "8/8/..."
 """
@@ -52,8 +45,7 @@ def main():
                 Path(args.run), [im for _, im in keep]), strict=True):
             said[r["square"]][rd["pred_label"]] += 1
 
-    # Null gelesene Bretter sind kein bestandener Aufbau-Check: ohne Vergleich faellt die
-    # Schleife unten leer aus und das alte `[OK]` bestaetigte eine FEN, die niemand gesehen hat.
+    # Null gelesene Bretter sind kein bestandener Aufbau-Check.
     if not said:
         raise SystemExit(f"[FAIL] {args.tag}: kein einziges Crop gelesen "
                          f"({len(rows)} sichtbare von {total}) — nichts verglichen")

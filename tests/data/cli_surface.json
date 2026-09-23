@@ -3675,7 +3675,6 @@
    "temporal-adopt",
    "temporal-upsert",
    "temporal-pass",
-   "temporal-prune",
    "boards",
    "pack",
    "rewarp",
@@ -3686,7 +3685,6 @@
    "mark-hands",
    "adopt",
    "flag",
-   "review",
    "archive",
    "restore",
    "trim"
@@ -3711,7 +3709,6 @@
    "│ temporal-adopt   Turn temporal mask proposals with a hand into matte rows for the matte lane.                        │",
    "│ temporal-upsert  Where SAM found nothing on a frame, temporal's matte replaces it whole.                             │",
    "│ temporal-pass    The temporal SOP in one press: scan, mattes, adopt, SAM over the adopted, upsert, flags.            │",
-   "│ temporal-prune   Drop temporal rows SAM has since re-cut — SAM's later row already wins in read_matte.               │",
    "│ boards           Write every row's rectified board (`boards/NNNNNN.webp`) from its frame.                            │",
    "│ pack             Cut this session ONCE at model size into `data/packs/<session>-<size>/`.                            │",
    "│ rewarp           Rebuild a store from its VIDEO — straight, in one resample. The good retrofit.                      │",
@@ -3722,7 +3719,6 @@
    "│ mark-hands       Read the board's grooves per frame and mark the frames a hand lies on as `dirty`.                   │",
    "│ adopt            Copy a quad that WAS detected in this session into the rows that have none.                         │",
    "│ flag             Mark one frame unusable (or usable again). `slice` skips flagged frames.                            │",
-   "│ review           Mark a session as reviewed — the flag `session list` shows.                                         │",
    "│ archive          Park a session: its crops and manifest rows leave the pool, the frames stay.                        │",
    "│ restore          Bring an archived session back. Re-slice afterwards to put its crops in the pool.                   │",
    "│ trim             Drop the tail of a session, with its crops and manifest rows.                                       │",
@@ -4527,50 +4523,6 @@
    "│ --method         TEXT                  local oder difference; beide Zweige laufen durch dieselbe Kette.              │",
    "│                                        [default: local]                                                              │",
    "│ --help                                 Show this message and exit.                                                   │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   ""
-  ]
- },
- "session temporal-prune": {
-  "help": "Drop temporal rows SAM has since re-cut — SAM's later row already wins in read_matte.",
-  "short_help": null,
-  "hidden": false,
-  "no_args_is_help": false,
-  "params": [
-   {
-    "name": "session",
-    "kind": "argument",
-    "opts": [
-     "session"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": true,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Canonical session ID (rg- for recordings).",
-    "hidden": false,
-    "show_default": true
-   }
-  ],
-  "help_exit": 0,
-  "help_output": [
-   "                                                                                                                        ",
-   " Usage: chesslab session temporal-prune [OPTIONS] SESSION                                                               ",
-   "                                                                                                                        ",
-   " Drop temporal rows SAM has since re-cut — SAM's later row already wins in read_matte.                                  ",
-   "                                                                                                                        ",
-   "┌─ Arguments ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ *    session      TEXT  Canonical session ID (rg- for recordings). [required]                                        │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   "┌─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ --help          Show this message and exit.                                                                          │",
    "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
    ""
   ]
@@ -5482,77 +5434,6 @@
    "┌─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
    "│ --usable    --unusable      Clear the flag instead of setting it. [default: unusable]                                │",
    "│ --help                      Show this message and exit.                                                              │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   ""
-  ]
- },
- "session review": {
-  "help": "Mark a session as reviewed — the flag `session list` shows.\n\nIt had no writer outside the web UI, and a field that is read but cannot be set is worse\nthan no field: `list` would have shown \"-\" forever with no way to change it.",
-  "short_help": null,
-  "hidden": false,
-  "no_args_is_help": false,
-  "params": [
-   {
-    "name": "session",
-    "kind": "argument",
-    "opts": [
-     "session"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": true,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Session ID.",
-    "hidden": false,
-    "show_default": true
-   },
-   {
-    "name": "undo",
-    "kind": "option",
-    "opts": [
-     "--undo"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "boolean",
-     "class": "BoolParamType"
-    },
-    "required": false,
-    "default": false,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Mark it unreviewed again.",
-    "is_flag": true,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   }
-  ],
-  "help_exit": 0,
-  "help_output": [
-   "                                                                                                                        ",
-   " Usage: chesslab session review [OPTIONS] SESSION                                                                       ",
-   "                                                                                                                        ",
-   " Mark a session as reviewed — the flag `session list` shows.                                                            ",
-   "                                                                                                                        ",
-   " It had no writer outside the web UI, and a field that is read but cannot be set is worse                               ",
-   " than no field: `list` would have shown \"-\" forever with no way to change it.                                           ",
-   "                                                                                                                        ",
-   "┌─ Arguments ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ *    session      TEXT  Session ID. [required]                                                                       │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   "┌─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ --undo          Mark it unreviewed again.                                                                            │",
-   "│ --help          Show this message and exit.                                                                          │",
    "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
    ""
   ]
@@ -7067,8 +6948,7 @@
    "pack",
    "bake",
    "folds",
-   "list",
-   "delete"
+   "list"
   ],
   "help_exit": 0,
   "help_output": [
@@ -7088,7 +6968,6 @@
    "│ bake         CLAHE einmal in die Memmap backen, statt es je Epoche je Crop zu rechnen.                               │",
    "│ folds        Session-grouped cross-validation folds: k `split-f<i>.json` beside the dataset's split.                 │",
    "│ list         List existing datasets.                                                                                 │",
-   "│ delete       Delete dataset (raw material/sessions remain).                                                          │",
    "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
    ""
   ]
@@ -8460,50 +8339,6 @@
    ""
   ]
  },
- "dataset delete": {
-  "help": "Delete dataset (raw material/sessions remain).",
-  "short_help": null,
-  "hidden": false,
-  "no_args_is_help": false,
-  "params": [
-   {
-    "name": "name",
-    "kind": "argument",
-    "opts": [
-     "name"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": true,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": null,
-    "hidden": false,
-    "show_default": true
-   }
-  ],
-  "help_exit": 0,
-  "help_output": [
-   "                                                                                                                        ",
-   " Usage: chesslab dataset delete [OPTIONS] NAME                                                                          ",
-   "                                                                                                                        ",
-   " Delete dataset (raw material/sessions remain).                                                                         ",
-   "                                                                                                                        ",
-   "┌─ Arguments ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ *    name      TEXT  [required]                                                                                      │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   "┌─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ --help          Show this message and exit.                                                                          │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   ""
-  ]
- },
  "capture": {
   "help": "Gezielte Erfassung: aus gemessenen Korpusluecken werden Aufnahmeauftraege.",
   "short_help": null,
@@ -8825,7 +8660,6 @@
    "recut-coverage",
    "close-seams",
    "gate-train",
-   "gate-scan",
    "status",
    "alpha-worker"
   ],
@@ -8846,7 +8680,6 @@
    "│ recut-coverage  Die `coverage` aus den Alphas neu schneiden, mit der HEUTIGEN Geometrie.                             │",
    "│ close-seams     Close the hairline the concept UNION leaves in alphas already on disk, and recut coverage.           │",
    "│ gate-train      Den Hand-Gate auf SAM 3s Urteil trainieren — das Ja/Nein, das kein Alpha braucht.                    │",
-   "│ gate-scan       Den Hand-Gate ueber eine Session laufen lassen -> `gate.jsonl` neben `matte.jsonl`.                  │",
    "│ status          Luecken und Waisen je Aufnahme: dirty-Frames ohne Matte, Matten ohne Frame.                          │",
    "│ alpha-worker    Cut the hand out of a session's dirty pile with SAM 3: alpha per frame, coverage per square.         │",
    "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
@@ -9758,101 +9591,6 @@
    ""
   ]
  },
- "occluders gate-scan": {
-  "help": "Den Hand-Gate ueber eine Session laufen lassen -> `gate.jsonl` neben `matte.jsonl`.\n\nGetrennte Datei mit Absicht: SAMs Messung und die des Schuelers duerfen nie in derselben Zeile\nstehen, sonst weiss spaeter niemand, wessen Zahl in den Trainingssatz gelaufen ist.",
-  "short_help": null,
-  "hidden": false,
-  "no_args_is_help": false,
-  "params": [
-   {
-    "name": "name",
-    "kind": "argument",
-    "opts": [
-     "name"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": false,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Recording name under data/recordings/.",
-    "hidden": false,
-    "show_default": true
-   },
-   {
-    "name": "all_sessions",
-    "kind": "option",
-    "opts": [
-     "--all"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "boolean",
-     "class": "BoolParamType"
-    },
-    "required": false,
-    "default": false,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Jede Session mit gespeicherten Brettern.",
-    "is_flag": true,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   },
-   {
-    "name": "tag",
-    "kind": "option",
-    "opts": [
-     "--tag"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": false,
-    "default": "",
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Welcher Lauf unter data/models/ gelesen wird.",
-    "is_flag": false,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   }
-  ],
-  "help_exit": 0,
-  "help_output": [
-   "                                                                                                                        ",
-   " Usage: chesslab occluders gate-scan [OPTIONS] [NAME]                                                                   ",
-   "                                                                                                                        ",
-   " Den Hand-Gate ueber eine Session laufen lassen -> `gate.jsonl` neben `matte.jsonl`.                                    ",
-   "                                                                                                                        ",
-   " Getrennte Datei mit Absicht: SAMs Messung und die des Schuelers duerfen nie in derselben Zeile                         ",
-   " stehen, sonst weiss spaeter niemand, wessen Zahl in den Trainingssatz gelaufen ist.                                    ",
-   "                                                                                                                        ",
-   "┌─ Arguments ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│   name      [NAME]  Recording name under data/recordings/.                                                           │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   "┌─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ --all               Jede Session mit gespeicherten Brettern.                                                         │",
-   "│ --tag         TEXT  Welcher Lauf unter data/models/ gelesen wird.                                                    │",
-   "│ --help              Show this message and exit.                                                                      │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   ""
-  ]
- },
  "occluders status": {
   "help": "Luecken und Waisen je Aufnahme: dirty-Frames ohne Matte, Matten ohne Frame.\n\nDer Export waehlt die Frames, `matte.jsonl` haengt nur an — niemand gleicht beide ab, und eine\nfehlende Matte sieht im Training aus wie ein freies Feld (CLAUDE.md, \"Coverage Matte Trap\").",
   "short_help": null,
@@ -10108,8 +9846,7 @@
   "commands": [
    "render",
    "prepare",
-   "board-texture",
-   "preview"
+   "board-texture"
   ],
   "help_exit": 0,
   "help_output": [
@@ -10125,7 +9862,6 @@
    "│ render         Generate synthetic board renderings with Blender/EEVEE (v2: board texture + procedural fallback).     │",
    "│ prepare        Batch-import scanned pieces (verbatim by default): variant slot, preview, report.                     │",
    "│ board-texture  Rectify board photo to rectified square texture (for `synth render --board-texture`).                 │",
-   "│ preview        Render a single piece nicely (orthographic 3/4 view, upright, two light sources).                     │",
    "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
    ""
   ]
@@ -10864,146 +10600,6 @@
    "│                             8x8-Spielfeld.                                                                           │",
    "│                             [default: -0.035]                                                                        │",
    "│    --help                   Show this message and exit.                                                              │",
-   "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
-   ""
-  ]
- },
- "synth preview": {
-  "help": "Render a single piece nicely (orthographic 3/4 view, upright, two light sources).",
-  "short_help": null,
-  "hidden": false,
-  "no_args_is_help": false,
-  "params": [
-   {
-    "name": "obj",
-    "kind": "option",
-    "opts": [
-     "--obj"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": true,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Prepared piece (.obj, Z-up from `synth prepare`).",
-    "is_flag": false,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   },
-   {
-    "name": "out",
-    "kind": "option",
-    "opts": [
-     "--out"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": true,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Target PNG.",
-    "is_flag": false,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   },
-   {
-    "name": "tex",
-    "kind": "option",
-    "opts": [
-     "--tex"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": false,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Texture PNG (default: <obj>.png alongside; --clay ignores it).",
-    "is_flag": false,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   },
-   {
-    "name": "clay",
-    "kind": "option",
-    "opts": [
-     "--clay"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "boolean",
-     "class": "BoolParamType"
-    },
-    "required": false,
-    "default": false,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Render without texture (geometry only — bumps/holes most visible).",
-    "is_flag": true,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   },
-   {
-    "name": "blender",
-    "kind": "option",
-    "opts": [
-     "--blender"
-    ],
-    "secondary_opts": [],
-    "type": {
-     "name": "text",
-     "class": "StringParamType"
-    },
-    "required": false,
-    "default": null,
-    "multiple": false,
-    "nargs": 1,
-    "metavar": null,
-    "envvar": null,
-    "help": "Blender executable (default: auto-detected).",
-    "is_flag": false,
-    "count": false,
-    "hidden": false,
-    "show_default": true
-   }
-  ],
-  "help_exit": 0,
-  "help_output": [
-   "                                                                                                                        ",
-   " Usage: chesslab synth preview [OPTIONS]                                                                                ",
-   "                                                                                                                        ",
-   " Render a single piece nicely (orthographic 3/4 view, upright, two light sources).                                      ",
-   "                                                                                                                        ",
-   "┌─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-   "│ *  --obj            TEXT  Prepared piece (.obj, Z-up from `synth prepare`). [required]                               │",
-   "│ *  --out            TEXT  Target PNG. [required]                                                                     │",
-   "│    --tex            TEXT  Texture PNG (default: <obj>.png alongside; --clay ignores it).                             │",
-   "│    --clay                 Render without texture (geometry only — bumps/holes most visible).                         │",
-   "│    --blender        TEXT  Blender executable (default: auto-detected).                                               │",
-   "│    --help                 Show this message and exit.                                                                │",
    "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
    ""
   ]
