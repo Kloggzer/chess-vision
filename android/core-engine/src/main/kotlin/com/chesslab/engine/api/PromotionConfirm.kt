@@ -44,7 +44,7 @@ private fun decisivePiece(
     obs: CnnObservation,
     pending: PromoPending,
 ): Char? {
-    val expectedColour = if (pending.fen.split(' ').getOrNull(1) == "b") 'b' else 'w'
+    val expectedColour = if (fenWhiteToMove(pending.fen) ?: return null) 'w' else 'b'
     return obs
         .label(pending.to)
         ?.takeIf { it.length == 2 && it[0] == expectedColour }

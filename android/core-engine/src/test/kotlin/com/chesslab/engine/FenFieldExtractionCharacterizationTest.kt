@@ -4,6 +4,7 @@ import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.confirmPromotionFromCnn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -19,6 +20,7 @@ class FenFieldExtractionCharacterizationTest {
     fun gameRejectsAPlacementWithoutTheSideAndAnInvalidFen() {
         assertThrows(RuntimeException::class.java) { Game(PLACEMENT).boardFen() }
         assertThrows(RuntimeException::class.java) { Game("not a fen").boardFen() }
+        assertThrows(RuntimeException::class.java) { Game("$PLACEMENT x - - 0 1").boardFen() }
     }
 
     @Test
@@ -27,14 +29,17 @@ class FenFieldExtractionCharacterizationTest {
         assertTrue(reachable("$PLACEMENT w"))
         assertFalse(reachable(PLACEMENT))
         assertFalse(reachable("not a fen"))
+        assertFalse(reachable("$PLACEMENT x - - 0 1"))
     }
 
     @Test
-    fun promotionDefaultsMissingOrInvalidSideFieldsToWhite() {
+    fun promotionRefusesAFenWithoutAReadableSide() {
         assertEquals('n', promotionChoice("$PLACEMENT b KQkq - 0 1", "bN"))
         assertEquals('n', promotionChoice("$PLACEMENT b", "bN"))
-        assertEquals('n', promotionChoice(PLACEMENT, "wN"))
-        assertEquals('n', promotionChoice("not a fen", "wN"))
+        assertEquals('n', promotionChoice("$PLACEMENT w", "wN"))
+        assertNull(promotionChoice(PLACEMENT, "wN"))
+        assertNull(promotionChoice("not a fen", "wN"))
+        assertNull(promotionChoice("$PLACEMENT x - - 0 1", "wN"))
     }
 
     private fun promotionChoice(

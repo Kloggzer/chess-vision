@@ -1,6 +1,7 @@
 package com.chesslab.engine
 
 import com.chesslab.engine.api.CnnObservation
+import com.chesslab.engine.api.fenWhiteToMove
 
 internal const val NOTE_NO_CNN_IDENTITY = "no CNN observation with piece identity — use Undo or a FEN resync"
 
@@ -74,8 +75,8 @@ internal fun EngineState.cnnAdoptedFen(
  */
 internal fun reachable(fen: String): Boolean =
     runCatching {
-        val fields = fen.split(' ')
-        val flipped = fields.toMutableList().also { it[1] = if (it[1] == "w") "b" else "w" }
+        val white = fenWhiteToMove(fen) ?: return false
+        val flipped = fen.split(' ').toMutableList().also { it[1] = if (white) "b" else "w" }
         !Game(flipped.joinToString(" ")).result().inCheck
     }.getOrDefault(false)
 

@@ -2,8 +2,8 @@ package com.chesslab.tracker.ui.tracking
 
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
-import com.chesslab.tracker.games.fenFullmove
-import com.chesslab.tracker.games.fenWhiteToMove
+import com.chesslab.engine.api.fenFullmove
+import com.chesslab.engine.api.fenWhiteToMove
 
 /**
  * `TrackerStatus` -> what the screen shows, as a PURE function.

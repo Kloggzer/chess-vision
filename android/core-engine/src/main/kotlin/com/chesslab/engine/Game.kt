@@ -1,6 +1,7 @@
 package com.chesslab.engine
 
 import com.chesslab.engine.api.IllegalMoveException
+import com.chesslab.engine.api.fenWhiteToMove
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
 import com.github.bhlangonijr.chesslib.Board
@@ -25,6 +26,7 @@ internal class Game(
     private val cacheHistory = ArrayDeque<CachedPosition>()
 
     init {
+        requireNotNull(fenWhiteToMove(fen)) { "no readable side to move: $fen" }
         board.loadFromFen(fen)
     }
 

@@ -1,6 +1,7 @@
 package com.chesslab.tracker.games
 
 import com.chesslab.engine.api.STARTPOS
+import com.chesslab.engine.api.fenFullmove
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.move.Move

@@ -15,7 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
-import com.chesslab.tracker.games.fenWhiteToMove
+import com.chesslab.engine.api.fenWhiteToMove
 import com.chesslab.tracker.ui.theme.BoardDark
 import com.chesslab.tracker.ui.theme.PieceBlack
 import com.chesslab.tracker.ui.theme.PieceWhite

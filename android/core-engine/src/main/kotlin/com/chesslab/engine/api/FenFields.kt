@@ -1,10 +1,10 @@
-package com.chesslab.tracker.games
+package com.chesslab.engine.api
 
 private const val FEN_SIDE = 1
 private const val FEN_FULLMOVE = 5
 
-/** The app's one reader of a FEN's side-to-move field: `null` when it is absent or not `w`/`b`,
- *  and each caller decides what that means (`FenFieldReadersTest`). */
+/** The one reader of a FEN's side-to-move field: `null` when it is absent or not `w`/`b`,
+ *  and each caller decides what that means (`FenFieldExtractionCharacterizationTest`). */
 fun fenWhiteToMove(fen: String): Boolean? =
     when (fen.split(' ').getOrNull(FEN_SIDE)) {
         "w" -> true

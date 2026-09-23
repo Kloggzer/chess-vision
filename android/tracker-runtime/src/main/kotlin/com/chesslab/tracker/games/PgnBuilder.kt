@@ -1,6 +1,8 @@
 package com.chesslab.tracker.games
 
 import com.chesslab.engine.api.STARTPOS
+import com.chesslab.engine.api.fenFullmove
+import com.chesslab.engine.api.fenWhiteToMove
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,9 +82,8 @@ private fun tokens(
     segment: GameSegment,
     provenance: Boolean,
 ): List<String> {
-    val fields = segment.startFen.split(" ")
-    var number = fields.getOrNull(5)?.toIntOrNull() ?: 1
-    var whiteToMove = fields.getOrNull(1) != "b"
+    var number = fenFullmove(segment.startFen) ?: 1
+    var whiteToMove = fenWhiteToMove(segment.startFen) != false
     val seam = segment.enteredBy?.let(::seamComment)
     // A segment can be empty — a seam whose first move was taken back again — and then the comment
     // is the whole movetext. Dropping it would lose the only record of the plies that caused it.

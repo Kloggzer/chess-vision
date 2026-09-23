@@ -1,8 +1,8 @@
 package com.chesslab.tracker.hints
 
+import com.chesslab.engine.api.fenWhiteToMove
 import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.analysis.GateBlock
-import com.chesslab.tracker.games.fenWhiteToMove
 import kotlin.math.abs
 
 /** Wie viele Tipps eine Partie hergibt. Das Kontingent gilt pro PARTIE und nicht pro Phase
