@@ -41,10 +41,11 @@ def _session(tmp_path, monkeypatch, rows):
 
     import yaml
 
-    from chesslab import config, realgames
+    from chesslab import config
+    from chesslab.session_store import recording as store_rec
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = realgames.game_dir("s1")
+    sdir = store_rec.game_dir("s1")
     (sdir / "dirty").mkdir(parents=True)
     for r in rows:
         cv2.imwrite(str(sdir / r["board"]), np.full((SIDE, SIDE, 3), 128, np.uint8))
@@ -201,7 +202,7 @@ def test_a_hand_the_tracker_missed_still_takes_the_frame_out(tmp_path, monkeypat
 
 def test_the_export_samples_by_position_not_by_time():
     """A position that stood ten seconds and one that stood two must weigh the same."""
-    from chesslab.realgames import spread_indices
+    from chesslab.realgames.timeline import spread_indices
 
     assert spread_indices(100, 200, 8) == [100, 114, 128, 142, 157, 171, 185, 199]
     assert spread_indices(0, 3, 8) == [0, 1, 2], "never more boards than frames"
@@ -211,7 +212,7 @@ def test_the_export_samples_by_position_not_by_time():
 
 def test_the_p8_slot_borrows_from_beside_it_when_its_own_frame_has_a_hand():
     """8 boards per position, spread — a slot the hand sits in takes the nearest clean neighbour."""
-    from chesslab.realgames import pick_spread
+    from chesslab.realgames.timeline import pick_spread
 
     items = list(range(20))
     assert pick_spread(items, lambda i: True, 4) == [0, 6, 13, 19]

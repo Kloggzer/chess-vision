@@ -21,7 +21,7 @@ def test_gate_scan_removes_the_stored_board_border_used_only_for_crops(tmp_path,
         "frame": "frames/000001.png", "board": "boards/000001.png", "board_border": 2,
     }) + "\n", encoding="utf-8")
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
-    monkeypatch.setattr("chesslab.realgames.game_dir", lambda _name: rec)
+    monkeypatch.setattr("chesslab.session_store.recording.game_dir", lambda _name: rec)
     monkeypatch.setattr(hand_gate, "load_gate", lambda _tag: (object(), {"size": 8,
                          "perfect_recall": {"thr": 0.5}}, "cpu"))
     seen = []

@@ -13,7 +13,8 @@ from tests.test_store_straightening import (  # noqa: E402
     line_spread,
 )
 
-from chesslab.realgames import MATTE_DIR, straighten_boards  # noqa: E402
+from chesslab.realgames.boards import straighten_boards  # noqa: E402
+from chesslab.session_store.boards import MATTE_DIR  # noqa: E402
 
 
 def _matte(sdir, stem: str):
@@ -62,7 +63,7 @@ def test_write_boards_session_asks_for_boards_only():
     # echter Durchlauf braucht Video und Frames, die diese Session per Konstruktion nicht hat.
     import inspect
 
-    from chesslab.sessions import write_boards_session
+    from chesslab.session_boards import write_boards_session
 
     src = inspect.getsource(write_boards_session)
     assert "mattes=False" in src, "write_boards_session zieht die Matten ein zweites Mal"

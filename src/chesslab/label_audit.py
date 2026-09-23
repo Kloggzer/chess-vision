@@ -67,7 +67,7 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
     rows: list[dict] = []
     # Ueber BEIDE Wurzeln: `sessions/` ist seit dem Zusammenlegen 2026-08-20 leer, und die
     # Ledger sind auf `rg-<name>` gekeyt, nicht auf den Ordnernamen — der Audit fand nie etwas.
-    from .sessions import all_sessions
+    from .session_store.paths import all_sessions
 
     for sid, session_dir in all_sessions(paths):
         log = session_dir / "log.jsonl"

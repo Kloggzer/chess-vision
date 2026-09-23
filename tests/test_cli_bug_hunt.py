@@ -40,12 +40,12 @@ def test_ingest_default_uses_the_configured_synthetic_warp_size(tmp_path, monkey
 
 
 def test_session_park_frames_returns_failure_when_a_session_fails(monkeypatch):
-    from chesslab import sessions
+    from chesslab import session_boards
 
     def fail(_session):
         raise ValueError("park failed")
 
-    monkeypatch.setattr(sessions, "park_frames_session", fail)
+    monkeypatch.setattr(session_boards, "park_frames_session", fail)
 
     result = CliRunner().invoke(app, ["session", "park-frames", "rg-broken"])
 
@@ -92,12 +92,12 @@ def test_session_mark_hands_all_returns_failure_when_a_session_fails(monkeypatch
 
 
 def test_realgames_adopt_dirty_returns_failure_when_a_recording_fails(monkeypatch):
-    from chesslab import realgames
+    from chesslab.realgames import export as rg_export
 
     def fail(_name):
         raise ValueError("adoption failed")
 
-    monkeypatch.setattr(realgames, "adopt_reported_dirty", fail)
+    monkeypatch.setattr(rg_export, "adopt_reported_dirty", fail)
 
     result = CliRunner().invoke(app, ["realgames", "adopt-dirty", "broken"])
 
@@ -124,7 +124,7 @@ def test_occluders_close_seams_returns_failure_when_a_session_fails(monkeypatch)
 
 
 def test_session_trim_requires_confirmation_before_dropping_the_tail(monkeypatch):
-    from chesslab import sessions
+    from chesslab import session_lifecycle
 
     called = []
 
@@ -132,7 +132,7 @@ def test_session_trim_requires_confirmation_before_dropping_the_tail(monkeypatch
         called.append((session, keep))
         return {"removed_frames": 9, "removed_crops": 576}
 
-    monkeypatch.setattr(sessions, "trim_session", fake_trim)
+    monkeypatch.setattr(session_lifecycle, "trim_session", fake_trim)
 
     result = CliRunner().invoke(app, ["session", "trim", "rg-valued", "--keep", "1"])
 

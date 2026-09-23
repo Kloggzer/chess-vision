@@ -4,7 +4,7 @@ import numpy as np
 
 from chesslab.labeling import MATTE_DIRTY, SETTLE_LIMIT, all_squares
 from chesslab.position_flags import frame_flags, timing_flags
-from chesslab.realgames import SETTLE_CELL_PX, interval_moves
+from chesslab.realgames.position import SETTLE_CELL_PX, interval_moves
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 E4 = all_squares().index("e4")

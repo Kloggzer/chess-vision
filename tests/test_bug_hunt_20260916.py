@@ -68,7 +68,7 @@ def test_timing_flags_do_not_report_an_unmeasured_cell_as_matte_free():
 
 def test_a_candidate_without_a_clock_does_not_get_an_invented_frame_rate():
     """28,63 ist gemessen, 15 bei der Erfassung — 30,0 verschiebt jedes Intervall lautlos."""
-    from chesslab.realgames import video_fps
+    from chesslab.session_store.recording import video_fps
 
     with pytest.raises(ValueError):
         video_fps({"moves": []})
@@ -76,7 +76,7 @@ def test_a_candidate_without_a_clock_does_not_get_an_invented_frame_rate():
 
 def test_a_candidate_without_created_at_gets_no_invented_wall_clock():
     """Der Rueckfall landet als `ts` jeder Log-Zeile und als `created_at` der session.yaml."""
-    from chesslab.realgames import base_time
+    from chesslab.session_store.recording import base_time
 
     with pytest.raises(ValueError):
         base_time({"moves": []})
@@ -108,7 +108,8 @@ def test_the_soft_coverage_weight_honours_visible_max():
 
 def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path, monkeypatch):
     """Der Pop laeuft ueber ALLE `todo`-Zeilen, zurueckgeschrieben wird nur die gelungene."""
-    from chesslab import calibration, config, labeling, realgames, sessions
+    from chesslab import calibration, config, labeling, session_boards
+    from chesslab.realgames import boards as rg_boards
 
     bs, border = 64, 4
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
@@ -128,7 +129,7 @@ def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path,
 
     corners = [[0.0, 0.0], [float(bs), 0.0], [float(bs), float(bs)], [0.0, float(bs)]]
     prof = make_profile(bs, corners=corners, profile="t", camera_index=-1, source="test")
-    monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))
+    monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
     monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, name: prof)
     monkeypatch.setattr(calibration, "straighten_board", lambda board, *a, **kw: board)
 
@@ -139,8 +140,8 @@ def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path,
         rel = f"boards/{stem}.webp"
         return {"board": rel, "board_size": bs, "board_border": border}
 
-    monkeypatch.setattr(realgames, "board_from_frame", _board)
-    sessions.write_boards_session("rg-rec")
+    monkeypatch.setattr(rg_boards, "board_from_frame", _board)
+    session_boards.write_boards_session("rg-rec")
 
     on_disk = [json.loads(x) for x in
                (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]

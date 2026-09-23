@@ -7,8 +7,9 @@ import pytest
 from PIL import Image
 
 from chesslab import config
-from chesslab.realgames import game_dir
-from chesslab.sessions import missing_source_frames, park_frames_session
+from chesslab.session_boards import park_frames_session
+from chesslab.session_store.recording import game_dir
+from chesslab.sessions import missing_source_frames
 from conftest import write_jsonl
 
 

@@ -18,7 +18,7 @@ from . import config, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
 from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
 from .matte_store import measured_coverage, read_matte
-from .sessions import session_dir
+from .session_store.paths import session_dir
 from .temporal_flags import load_flags, source_stamp
 
 

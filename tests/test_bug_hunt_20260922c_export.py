@@ -11,13 +11,9 @@ import pytest
 from chesslab import manifest_cache, provenance
 from chesslab.ioutil import write_rows
 from chesslab.labeling import _session_flat_cells
-from chesslab.realgames import (
-    _fit_frame_geometry,
-    board_rel,
-    hand_seen,
-    meshes_for_boards,
-    write_board,
-)
+from chesslab.realgames.boards import _fit_frame_geometry
+from chesslab.realgames.mesh import hand_seen, meshes_for_boards
+from chesslab.session_store.boards import board_rel, write_board
 from conftest import START_FEN, write_jsonl
 
 EIGHTHS = [k / 8.0 for k in range(9)]
@@ -115,7 +111,7 @@ def test_a_row_whose_board_is_gone_keeps_its_frame(tmp_path, monkeypatch) -> Non
     nicht mehr — und `data/` ist gitignored.
     """
     from chesslab import config
-    from chesslab.sessions import park_frames_session
+    from chesslab.session_boards import park_frames_session
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     sdir = config.DATA.sessions / "s1"
@@ -142,7 +138,7 @@ def test_a_chunked_rewarp_uses_the_recordings_one_mesh(tmp_path, monkeypatch) ->
     Abschnitt sein eigenes, begradigte er seine Bretter gegen eine andere Messung als sein
     Nachbar — und die Naht mitten in der Aufnahme sieht niemand.
     """
-    from chesslab import realgames as rg
+    from chesslab.realgames import chunks as rg_chunks
 
     rows = [{"frame": f"frames/{i:06d}.png", "grid_lines": _lines(0.0 if i < 60 else 0.5)}
             for i in range(120)]
@@ -152,12 +148,12 @@ def test_a_chunked_rewarp_uses_the_recordings_one_mesh(tmp_path, monkeypatch) ->
         seen.append(kw["meshes"])
         return {"rewarped": 0, "no_mesh": 0, "no_frame": 0}, chunk
 
-    monkeypatch.setattr(rg, "_warp_chunk", spy)
+    monkeypatch.setattr(rg_chunks, "_warp_chunk", spy)
     # Die Abschnitte laufen hier IN diesem Prozess: der Pool koennte die Sonde nicht pickeln.
-    monkeypatch.setattr(rg, "run_chunked",
+    monkeypatch.setattr(rg_chunks, "run_chunked",
                         lambda fn, chunks, total, label, **kw: [fn(c, None) for c in chunks])
 
-    rg.rewarp_parallel(tmp_path, rows, "p", video=tmp_path / "v.mp4", rotate=None,
+    rg_chunks.rewarp_parallel(tmp_path, rows, "p", video=tmp_path / "v.mp4", rotate=None,
                        lens=None, workers=2)
 
     assert len(seen) == 2, "zwei Abschnitte, oder diese Probe zeigt nichts"

@@ -176,7 +176,7 @@ def test_survey_alignment_names_a_session_without_corners(tmp_path, monkeypatch,
         d.mkdir()
     write_rows(ohne / "log.jsonl", [{"frame": "000001.png"}])
     write_rows(mit / "log.jsonl", [{"frame": "000001.png", "corners": [[0, 0]] * 4}])
-    monkeypatch.setattr(script.sessions, "all_sessions",
+    monkeypatch.setattr(script.store_paths, "all_sessions",
                         lambda *a, **k: [("ohne", ohne), ("mit", mit)])
     monkeypatch.setattr(script.sessions, "missing_source_frames", lambda *a, **k: None)
     monkeypatch.setattr(script.labeling, "read_session_meta", lambda _d: {})

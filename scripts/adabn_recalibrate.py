@@ -101,9 +101,10 @@ import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import labeling, sessions  # noqa: E402
+from chesslab import labeling  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.ioutil import write_json  # noqa: E402
+from chesslab.session_store import paths as store_paths  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
     load_manifest,
@@ -270,7 +271,7 @@ def crop_batches(cfg: dict, frames: list[tuple[str, str]], size: int,
     through `normalize_batch` — the same arithmetic as `serving.predict_arrays`' fast path and as
     Android's `preprocess`. Labels are never read: AdaBN is unsupervised.
     """
-    sdirs = {sid: sessions.session_dir(sid)[0] for sid, _ in frames}
+    sdirs = {sid: store_paths.session_dir(sid)[0] for sid, _ in frames}
     profiles, logs = {}, {}
     for sid, sdir in sdirs.items():
         prof = labeling._profile_for_session(labeling.read_session_meta(sdir), None)

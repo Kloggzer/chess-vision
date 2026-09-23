@@ -5,8 +5,9 @@ import cv2
 import numpy as np
 import pytest
 
-from chesslab import config, sessions
-from chesslab.realgames import EXPORT_MARKER, meshes_for_boards
+from chesslab import config, session_boards, sessions
+from chesslab.realgames.mesh import meshes_for_boards
+from chesslab.session_store.log import EXPORT_MARKER
 from conftest import write_jsonl
 
 BS, BORDER, TILT, SHIFT = 400, 20, 0.04, 0.02
@@ -63,7 +64,7 @@ def _store(tmp_path, monkeypatch, rows: list[dict]):
                     np.zeros((BS + 2 * BORDER, BS + 2 * BORDER, 3), np.uint8))
     (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
     write_jsonl(sdir / "log.jsonl", rows)
-    monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))
+    monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
     return sdir
 
 
@@ -75,7 +76,7 @@ def test_an_interrupted_export_stops_the_straightening(tmp_path, monkeypatch):
     (sdir / EXPORT_MARKER).write_text("export started\n", encoding="utf-8")
 
     with pytest.raises(sessions.NothingToDo, match="export"):
-        sessions.straighten_boards_session("rg-rec")
+        session_boards.straighten_boards_session("rg-rec")
 
 
 def test_a_killed_straightening_leaves_the_marker(tmp_path, monkeypatch):
@@ -87,7 +88,7 @@ def test_a_killed_straightening_leaves_the_marker(tmp_path, monkeypatch):
     monkeypatch.setattr(calibration, "straighten_board",
                         lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt("killed")))
     with pytest.raises(KeyboardInterrupt):
-        sessions.straighten_boards_session("rg-rec")
+        session_boards.straighten_boards_session("rg-rec")
     assert (sdir / EXPORT_MARKER).is_file()
 
 

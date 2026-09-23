@@ -8,8 +8,10 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from chesslab import ioutil, realgames
+from chesslab import ioutil
 from chesslab.cli import app
+from chesslab.realgames import confirm as rg_confirm
+from chesslab.session_store import recording as store_rec
 
 # BOM und CRLF: wer normalisiert statt die rohen Bytes zu hashen, rechnet hier etwas anderes.
 PGN = b'\xef\xbb\xbf[Event "W2"]\r\n\r\n1. e4 e5 *\r\n'
@@ -25,7 +27,8 @@ def game(monkeypatch, tmp_path):
                                      for i, s in enumerate(("e4", "e5", "Nf3"))]}
     (gdir / "candidate.json").write_text(json.dumps(cand, indent=2), encoding="utf-8")
     (gdir / "reference.pgn").write_bytes(PGN)
-    monkeypatch.setattr(realgames, "game_dir", lambda name: gdir)
+    for mod in (store_rec, rg_confirm):   # Kandidat/Referenz, und die Frame-Anker in `confirm`
+        monkeypatch.setattr(mod, "game_dir", lambda name: gdir)
     return gdir
 
 
@@ -42,7 +45,7 @@ def test_the_cli_confirmation_stamps_the_raw_reference_bytes(game):
 
 def test_without_a_reference_the_stamp_says_null(game):
     (game / "reference.pgn").unlink()
-    realgames.write_confirmation("rec", _doc(game), [1])
+    store_rec.write_confirmation("rec", _doc(game), [1])
     doc = _doc(game)
     assert doc["confirmed_reference"] == {"md5": None, "at": doc["confirmed_at"]}
 

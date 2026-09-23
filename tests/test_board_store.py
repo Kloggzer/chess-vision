@@ -8,7 +8,7 @@ import numpy as np
 
 from chesslab.calibration import CalibrationProfile, crop_border_px
 from chesslab.labeling import crop_square, usable_board
-from chesslab.realgames import write_board
+from chesslab.session_store.boards import write_board
 from conftest import START_FEN, make_profile, write_jsonl
 
 

@@ -274,11 +274,14 @@ def test_mix_refuses_when_no_side_names_its_classes(tmp_path, monkeypatch):
 def test_export_warp_benchmark_alternates_its_arms(tmp_path, monkeypatch):
     mod = load_script("benchmark_export_warp")
     write_jsonl(tmp_path / "log.jsonl", [{"frame": "frames/000001.png"}])
-    realgames, calibration = mod.realgames, mod.calibration
-    for attr, value in (("game_dir", lambda name: tmp_path), ("video_path", lambda name: None),
-                        ("load_candidate", lambda name: {}), ("detect_rotation", lambda *a: None),
-                        ("stream_frames", lambda *a: iter(()))):
-        monkeypatch.setattr(realgames, attr, value)
+    rg_decode, rg_boards = mod.rg_decode, mod.rg_boards
+    calibration, store_rec = mod.calibration, mod.store_rec
+    for owner, attr, value in ((store_rec, "game_dir", lambda name: tmp_path),
+                               (store_rec, "video_path", lambda name: None),
+                               (store_rec, "load_candidate", lambda name: {}),
+                               (rg_decode, "detect_rotation", lambda *a: None),
+                               (rg_decode, "stream_frames", lambda *a: iter(()))):
+        monkeypatch.setattr(owner, attr, value)
     monkeypatch.setattr(calibration, "load_profile", lambda name: None)
     clock, order = [0.0], []
 
@@ -287,7 +290,7 @@ def test_export_warp_benchmark_alternates_its_arms(tmp_path, monkeypatch):
         clock[0] += 5.0 + len(order)   # die Maschine wird je Lauf 1 s langsamer
         return {}
 
-    monkeypatch.setattr(realgames, "rewarp_boards", rewarp)
+    monkeypatch.setattr(rg_boards, "rewarp_boards", rewarp)
     monkeypatch.setattr(mod.time, "perf_counter", lambda: clock[0])
     got = mod.benchmark("x")
     assert order[:2] == ["uncached", "cached"] and order[2:4] == ["cached", "uncached"]
@@ -299,7 +302,8 @@ def test_export_warp_benchmark_alternates_its_arms(tmp_path, monkeypatch):
 def test_border_probe_warps_the_frame_its_corners_belong_to(tmp_path, monkeypatch):
     import cv2
 
-    from chesslab import realgames
+    from chesslab.realgames import decode as rg_decode
+    from chesslab.session_store import recording as store_rec
 
     mod = load_script("border_probe")
     sdir = tmp_path / "rec"
@@ -321,10 +325,10 @@ def test_border_probe_warps_the_frame_its_corners_belong_to(tmp_path, monkeypatc
             pass
 
     monkeypatch.setattr(cv2, "VideoCapture", Seeking)
-    monkeypatch.setattr(realgames, "video_path", lambda name: sdir / "video.mp4")
-    monkeypatch.setattr(realgames, "load_candidate", lambda name: {})
-    monkeypatch.setattr(realgames, "detect_rotation", lambda *a: None)
-    monkeypatch.setattr(realgames, "stream_frames",
+    monkeypatch.setattr(store_rec, "video_path", lambda name: sdir / "video.mp4")
+    monkeypatch.setattr(store_rec, "load_candidate", lambda name: {})
+    monkeypatch.setattr(rg_decode, "detect_rotation", lambda *a: None)
+    monkeypatch.setattr(rg_decode, "stream_frames",
                         lambda video, rows, rot: iter([(rows[0], np.full((4, 4, 3), 7, np.uint8))]))
     monkeypatch.setattr(mod, "read_session_meta", lambda d: {"profile": "p"})
     monkeypatch.setattr(mod, "load_profile", lambda p: types.SimpleNamespace(board_size=8))

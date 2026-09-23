@@ -200,7 +200,7 @@ def test_video_ns_at_matches_the_kotlin_reference():
 def test_the_grid_fit_runs_before_the_boards_are_cut(tmp_path, monkeypatch):
     """Ohne ihn blieben die Ecken das grobe Quad, keine Zeile truege `grid_lines`, und ohne die
     findet `meshes_for_boards` nichts — jedes Brett kaeme gebogen heraus."""
-    from chesslab.realgames import FIT_SOURCE
+    from chesslab.realgames.boards import FIT_SOURCE
 
     _bundle(tmp_path, monkeypatch)
     res = import_capture("g")

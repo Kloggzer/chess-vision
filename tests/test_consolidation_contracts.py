@@ -2,8 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from chesslab import labeling, sessions
+from chesslab import labeling
 from chesslab.ioutil import stamp_of
+from chesslab.session_store import log as store_log
+from chesslab.session_store import paths as store_paths
 
 
 def test_log_readers_keep_their_existing_empty_and_stamp_contracts(tmp_path):
@@ -12,10 +14,10 @@ def test_log_readers_keep_their_existing_empty_and_stamp_contracts(tmp_path):
 
     assert type(labeling.read_log(tmp_path)) is list
     with pytest.raises(FileNotFoundError, match="no captured frames"):
-        sessions.read_log(tmp_path)
+        store_log.read_log(tmp_path)
 
     log.write_text('{"frame":"frames/000001.png"}\n', encoding="utf-8")
-    rows = sessions.read_log(tmp_path)
+    rows = store_log.read_log(tmp_path)
     assert rows == [{"frame": "frames/000001.png"}]
     assert rows.stamp == stamp_of(log)
 
@@ -23,12 +25,12 @@ def test_log_readers_keep_their_existing_empty_and_stamp_contracts(tmp_path):
 def test_session_meta_readers_keep_their_existing_missing_and_empty_contracts(tmp_path):
     with pytest.raises(FileNotFoundError, match="session.yaml missing"):
         labeling.read_session_meta(tmp_path)
-    assert sessions._read_meta(tmp_path) == {}
+    assert store_paths._read_meta(tmp_path) == {}
 
     meta = tmp_path / "session.yaml"
     meta.write_text("", encoding="utf-8")
     assert labeling.read_session_meta(tmp_path) is None
-    assert sessions._read_meta(tmp_path) == {}
+    assert store_paths._read_meta(tmp_path) == {}
 
 
 @pytest.mark.parametrize("dataset_name", ["PackedSquareDataset", "PackedBoardDataset"])

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from chesslab.realgames import EXPORT_MARKER, export_interrupted, mark_export
+from chesslab.session_store.log import EXPORT_MARKER, export_interrupted, mark_export
 
 
 def test_a_session_says_when_an_export_did_not_finish(tmp_path):

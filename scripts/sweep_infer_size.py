@@ -62,8 +62,9 @@ os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import config, labeling, sessions  # noqa: E402
+from chesslab import config, labeling  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
+from chesslab.session_store import paths as store_paths  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
     load_manifest,
@@ -107,7 +108,7 @@ class Log:
 
 def px_per_square(session_id: str) -> float:
     """Native resolution of a session: mean edge of the logged corner quad / 8."""
-    p = sessions.session_dir(session_id)[0] / "log.jsonl"
+    p = store_paths.session_dir(session_id)[0] / "log.jsonl"
     with p.open("r", encoding="utf-8") as fh:
         c = json.loads(fh.readline())["corners"]
     return sum(math.dist(c[i], c[(i + 1) % 4]) for i in range(4)) / 4 / 8
@@ -282,7 +283,7 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
     squares = labeling.all_squares()
     groups = frames_for_split(rows)
     sids = sorted({sid for sid, _, _ in groups})
-    sdirs = {sid: sessions.session_dir(sid)[0] for sid in sids}
+    sdirs = {sid: store_paths.session_dir(sid)[0] for sid in sids}
     profiles = {}
     logs = {}
     for sid, sdir in sdirs.items():
@@ -521,7 +522,7 @@ def main() -> None:
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
             prof = labeling._profile_for_session(
-                labeling.read_session_meta(sessions.session_dir(sid)[0]), None)
+                labeling.read_session_meta(store_paths.session_dir(sid)[0]), None)
             profile_note.add((prof.profile, prof.board_size, warp_px_per_square(prof)))
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square, "
                 f"warped to {warp_px_per_square(prof):.1f} px/square "

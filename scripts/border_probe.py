@@ -14,10 +14,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from chesslab import config, realgames
+from chesslab import config
 from chesslab.calibration import load_profile, warp_padded
 from chesslab.ioutil import read_jsonl
 from chesslab.labeling import read_session_meta
+from chesslab.realgames import decode as rg_decode
+from chesslab.session_store import recording as store_rec
 
 
 def main():
@@ -36,9 +38,9 @@ def main():
     idx = int(Path(str(row["frame"])).stem)
     # Vorwaerts dekodiert und gedreht wie der Export: ein Seek landet NEBEN dem Index, und die
     # Ecken der Zeile saessen dann auf einem fremden Bild.
-    video = realgames.video_path(a.session)
-    rotation = realgames.detect_rotation(video, realgames.load_candidate(a.session), {idx})
-    frame = next((f for _, f in realgames.stream_frames(video, [row], rotation)), None)
+    video = store_rec.video_path(a.session)
+    rotation = rg_decode.detect_rotation(video, store_rec.load_candidate(a.session), {idx})
+    frame = next((f for _, f in rg_decode.stream_frames(video, [row], rotation)), None)
     if frame is None:
         raise SystemExit(f"Frame {idx} nicht lesbar")
     print(f"[i] Frame {idx} aus {a.session}, Quelle {frame.shape[1]}x{frame.shape[0]}")

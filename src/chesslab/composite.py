@@ -20,7 +20,7 @@ from .calibration import CalibrationProfile, GridMesh, mesh_from_lines
 from .ioutil import write_json
 from .labeling import _replace_session_in_manifest, all_squares, crops_for_frame
 from .occluders import WORK_SIZE
-from .realgames import measured_board_size
+from .realgames.mesh import measured_board_size
 
 #: The occluder clips were shot on the SAME rig as the board, only with the camera moved closer —
 #: so the plate already carries the right size and only needs that one distance correction, not a
@@ -183,7 +183,7 @@ def mesh_for(frame: np.ndarray, corners, profile: CalibrationProfile) -> GridMes
     ArUco only says where the board is; cutting at the nominal eighth bakes in the lens' barrel.
     Measured first, because an occluder covers the very lines the fit reads.
     """
-    from .realgames import grid_line_fracs
+    from .realgames.mesh import grid_line_fracs
 
     return mesh_from_lines(grid_line_fracs(frame, corners, profile.board_size, profile))
 
@@ -322,7 +322,7 @@ def median_mesh(cap, profile: CalibrationProfile, samples: int = 40) -> GridMesh
     `sessions._repair_mesh_outliers`), and a turntable clip has no other frame to borrow from.
     """
     from .calibration import detect_board_corners_aruco
-    from .realgames import grid_line_fracs
+    from .realgames.mesh import grid_line_fracs
 
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fits = []

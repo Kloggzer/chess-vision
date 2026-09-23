@@ -39,7 +39,7 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
                        replace: bool = False) -> dict:
     """Cut every crop of `session_id` at `size` px into `data/packs/<session_id>-<size>/`."""
     from ..labeling import _profile_for_session, iter_session_crops, read_session_meta
-    from ..sessions import session_dir
+    from ..session_store.paths import session_dir
 
     name = f"{session_id}-{size}"
     session_path, _ = session_dir(session_id, paths)

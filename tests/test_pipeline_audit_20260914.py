@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chesslab import config
+from chesslab import config, session_lifecycle
 from chesslab import sessions as S
 from conftest import write_jsonl
 
@@ -71,7 +71,7 @@ def test_trim_session_also_purges_unusable_cells(tmp_path, monkeypatch):
             json.dumps({"session_id": sid, "frame": "0001", "square": "e1", **key}) + "\n",
             encoding="utf-8")
 
-    S.trim_session(sid, 1, paths)
+    session_lifecycle.trim_session(sid, 1, paths)
 
     left = [json.loads(x) for x in
             (d / "unusable-cells.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
@@ -123,7 +123,7 @@ def test_ref_provisional_never_reaches_a_reader():
     """
     from datetime import datetime
 
-    from chesslab.realgames import _export_row
+    from chesslab.realgames.timeline import _export_row
 
     seg = {"ply": 3, "fen": "8/8/8/8/8/8/8/8 w - - 0 1", "ref_provisional": True}
     row = _export_row(seg, 42, [[0, 0], [1, 0], [1, 1], [0, 1]],

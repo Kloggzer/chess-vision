@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from chesslab.realgames import lcs_report, reviewed_plies
+from chesslab.realgames.confirm import lcs_report, reviewed_plies
 
 FIXTURE = Path(__file__).resolve().parent / "data/lcs_parity.json"
 

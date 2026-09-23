@@ -75,7 +75,7 @@ def write_session(session_dir: Path, rows: list[dict], *, profile: CalibrationPr
     With `boards` the rows get the four `board*` keys and NO `frames/` file is written, so a
     slice that silently fell back to the frame path would fail to find one.
     """
-    from chesslab.realgames import write_board
+    from chesslab.session_store.boards import write_board
 
     session_dir.mkdir(parents=True, exist_ok=True)
     for row in rows:

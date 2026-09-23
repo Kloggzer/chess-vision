@@ -7,8 +7,9 @@ import cv2
 import numpy as np
 import yaml
 
-from chesslab import config, realgames, sessions
+from chesslab import config, session_boards, sessions
 from chesslab.calibration import CalibrationProfile, crop_border_px
+from chesslab.session_store import recording as store_rec
 from conftest import make_profile, write_jsonl
 
 SIDE = 320
@@ -33,7 +34,7 @@ def test_the_settle_scan_keeps_an_unmeasured_hand_frame_out_of_the_reference(
     pad = crop_border_px(prof)
     side = SIDE + 2 * pad
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = realgames.game_dir("s1")
+    sdir = store_rec.game_dir("s1")
     (sdir / "boards").mkdir(parents=True)
 
     rows = []
@@ -57,7 +58,7 @@ def test_the_settle_scan_keeps_an_unmeasured_hand_frame_out_of_the_reference(
         encoding="utf-8")
     monkeypatch.setattr("chesslab.labeling.load_profile", lambda name: prof)
 
-    sessions.settle_scan_session("rg-s1")
+    session_boards.settle_scan_session("rg-s1")
 
     from chesslab.labeling import SETTLE_LIMIT, all_squares, read_log
 
@@ -102,7 +103,7 @@ def test_the_alignment_scan_drops_the_number_it_could_not_measure(tmp_path, monk
     """
     prof = _profile()
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = realgames.game_dir("s1")
+    sdir = store_rec.game_dir("s1")
     (sdir / "frames").mkdir(parents=True)
     rows = []
     for i in range(4):
@@ -126,7 +127,7 @@ def test_the_alignment_scan_drops_the_number_it_could_not_measure(tmp_path, monk
 def _geometry_session(tmp_path, monkeypatch, rows):
     prof = _profile()
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = realgames.game_dir("s1")
+    sdir = store_rec.game_dir("s1")
     (sdir / "frames").mkdir(parents=True)
     for r in rows:
         assert cv2.imwrite(str(sdir / r["frame"]), np.full((SIDE, SIDE, 3), 90, np.uint8))
@@ -151,7 +152,7 @@ def test_an_adopted_quad_does_not_keep_the_previous_quads_alignment(tmp_path, mo
 
     sessions.adopt_corners("rg-s1", from_index=0, scope="all", overwrite=True)
 
-    from chesslab.sessions import read_log
+    from chesslab.session_store.log import read_log
 
     moved = [r for r in read_log(sdir) if r.get("corners_source") == "adopted"]
     assert moved, "das Fixture hat keinen Quad ersetzt"
@@ -173,7 +174,7 @@ def test_the_autofix_reports_the_alignment_of_the_quad_it_wrote(tmp_path, monkey
 
     got = sessions.autofix_corners("rg-s1")
 
-    from chesslab.sessions import read_log
+    from chesslab.session_store.log import read_log
 
     assert got["changed"] == 1, got
     assert read_log(sdir)[0]["align_worst_px"] == 1.4, (

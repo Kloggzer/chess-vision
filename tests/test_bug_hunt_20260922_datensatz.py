@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import yaml
 
-from chesslab import config, labeling, sessions
+from chesslab import config, labeling, session_lifecycle
 from chesslab import dataset_build as DB
 from chesslab.ioutil import read_jsonl
 from conftest import write_jsonl
@@ -126,7 +126,7 @@ def test_archiv_index_ueberlebt_einen_abgerissenen_schwanz(tmp_path):
         json.dumps({"session_id": "s-alt", "reason": "r"}) + "\n" + '{"session_id": "s-hal',
         encoding="utf-8")
 
-    sessions.archive_session("s-neu", "Testgrund", paths=paths)
+    session_lifecycle.archive_session("s-neu", "Testgrund", paths=paths)
 
     rows = read_jsonl(index / "index.jsonl")           # wirft heute ValueError
     assert [r["session_id"] for r in rows] == ["s-alt", "s-neu"]

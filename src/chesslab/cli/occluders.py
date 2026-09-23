@@ -255,7 +255,7 @@ def occluders_gate_scan(
     stehen, sonst weiss spaeter niemand, wessen Zahl in den Trainingssatz gelaufen ist.
     """
     from .. import hand_gate
-    from ..realgames import bundles_with_stored
+    from ..realgames.stored import bundles_with_stored
 
     names = bundles_with_stored() if all_sessions else [name]
     if not names or names == [None]:

@@ -6,12 +6,7 @@ import numpy as np
 
 from chesslab.calibration import CalibrationProfile, crop_border_px
 from chesslab.labeling import SETTLE_LIMIT, all_squares
-from chesslab.realgames import (
-    SETTLE_CELL_PX,
-    cell_deviations,
-    departures,
-    settle_for_ply,
-)
+from chesslab.realgames.position import SETTLE_CELL_PX, cell_deviations, departures, settle_for_ply
 from conftest import make_profile
 
 SIDE = 320

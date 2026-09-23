@@ -14,8 +14,8 @@ from . import config
 from .calibration import profile_path
 from .ioutil import read_jsonl, write_rows
 from .labeling import MATTE_DIRTY, all_squares, read_log, read_matte, read_session_meta
-from .realgames import SETTLE_MIN_FRAMES
-from .sessions import session_dir
+from .realgames.position import SETTLE_MIN_FRAMES
+from .session_store.paths import session_dir
 from .state import GameState
 
 

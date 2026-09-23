@@ -216,7 +216,9 @@ def test_slice_counts_a_stored_board_nobody_pulled_straight(tmp_path):
 
 def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypatch):
     """A re-fit must not leave a mesh from an older geometry standing — it would cut somewhere else."""
-    from chesslab import config, realgames, sessions
+    from chesslab import config, sessions
+    from chesslab.realgames import mesh as rg_mesh
+    from chesslab.session_store import log as store_log
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     sdir = _session_with_mesh(tmp_path, {"x": [1] * 9, "y": [1] * 9})
@@ -225,16 +227,16 @@ def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypat
     x = [k / 8.0 for k in range(9)]
     fresh = {"x": x, "y": list(x), "tx": [0.01] * 9, "ty": [0.0] * 9}
     answers = iter([fresh, None])
-    monkeypatch.setattr(realgames, "grid_line_fracs", lambda *a, **k: next(answers))
+    monkeypatch.setattr(rg_mesh, "grid_line_fracs", lambda *a, **k: next(answers))
     monkeypatch.setattr("chesslab.labeling._profile_for_session", lambda meta, name: _profile(
         {"boardSize": 800, "padSide": 0.05, "whitePov": True}))
 
     first = sessions.fit_mesh_session("meshy")
-    rows = sessions.read_log(tmp_path / "data" / "sessions" / "meshy")
+    rows = store_log.read_log(tmp_path / "data" / "sessions" / "meshy")
     assert (first["measured"], first["tilted"], rows[0]["grid_lines"]) == (1, 1, fresh)
 
     second = sessions.fit_mesh_session("meshy")
-    rows = sessions.read_log(tmp_path / "data" / "sessions" / "meshy")
+    rows = store_log.read_log(tmp_path / "data" / "sessions" / "meshy")
     assert second["measured"] == 0 and "grid_lines" not in rows[0]
     assert first["backup"] != second["backup"], "never overwrite a backup"
 
@@ -248,7 +250,8 @@ def _measured_session(tmp_path, monkeypatch, answers):
     """A 4-row session whose fit returns `answers` in order — the rest is the sweep under test."""
     import yaml
 
-    from chesslab import config, realgames
+    from chesslab import config
+    from chesslab.realgames import mesh as rg_mesh
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     sdir = tmp_path / "data" / "sessions" / "carry"
@@ -264,7 +267,7 @@ def _measured_session(tmp_path, monkeypatch, answers):
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "carry", "profile": "test", "mode": "live"}), encoding="utf-8")
     it = iter(answers)
-    monkeypatch.setattr(realgames, "grid_line_fracs", lambda *a, **k: next(it, None))
+    monkeypatch.setattr(rg_mesh, "grid_line_fracs", lambda *a, **k: next(it, None))
     monkeypatch.setattr("chesslab.labeling._profile_for_session", lambda meta, name: _profile(
         {"boardSize": 8, "padSide": 0.05, "whitePov": True}))
     return sdir

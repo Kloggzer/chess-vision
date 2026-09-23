@@ -15,8 +15,12 @@ import tempfile
 import time
 from pathlib import Path
 
-from chesslab import calibration, realgames
+from chesslab import calibration
 from chesslab.ioutil import read_jsonl
+from chesslab.realgames import boards as rg_boards
+from chesslab.realgames import decode as rg_decode
+from chesslab.session_store import log as store_log
+from chesslab.session_store import recording as store_rec
 
 #: Durchgaenge; jeder zweite in umgekehrter Reihenfolge. Frueher lief `uncached` immer zuerst und
 #: `cached` danach gegen den warmen Seitencache — die zitierte 23 -> 7 s war eine obere Schranke.
@@ -24,15 +28,15 @@ REPS = 2
 
 
 def benchmark(name: str, limit: int = 0, reps: int = REPS) -> dict:
-    rows = read_jsonl(realgames.game_dir(name) / "log.jsonl")
+    rows = read_jsonl(store_rec.game_dir(name) / "log.jsonl")
     if limit:
         rows = rows[:limit]
     if not rows:
         raise ValueError("The session log contains no selected rows")
-    video = realgames.video_path(name)
+    video = store_rec.video_path(name)
     wanted = {int(Path(row["frame"]).stem) for row in rows}
-    rotation = realgames.detect_rotation(video, realgames.load_candidate(name), wanted)
-    profile = calibration.load_profile(realgames.EXPORT_PROFILE)
+    rotation = rg_decode.detect_rotation(video, store_rec.load_candidate(name), wanted)
+    profile = calibration.load_profile(store_log.EXPORT_PROFILE)
     cached = calibration._crop_mesh_coordinates
     arms = {"uncached": cached.__wrapped__, "cached": cached}
     seconds = {label: [] for label in arms}
@@ -46,9 +50,9 @@ def benchmark(name: str, limit: int = 0, reps: int = REPS) -> dict:
                 with tempfile.TemporaryDirectory(prefix="chesslab-warp-") as directory:
                     destination = Path(directory)
                     started = time.perf_counter()
-                    stats = realgames.rewarp_boards(
+                    stats = rg_boards.rewarp_boards(
                         destination, planned, profile,
-                        frames=realgames.stream_frames(video, planned, rotation), progress=lambda _: None,
+                        frames=rg_decode.stream_frames(video, planned, rotation), progress=lambda _: None,
                     )
                     seconds[label].append(time.perf_counter() - started)
                     hashes = {p.relative_to(destination).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()

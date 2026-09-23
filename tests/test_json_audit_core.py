@@ -191,7 +191,7 @@ def test_a_torn_trim_leaves_the_log_intact(tmp_path, monkeypatch):
     """
     import yaml
 
-    from chesslab import sessions
+    from chesslab import session_lifecycle
 
     paths = config.Paths(root=tmp_path)
     sdir = paths.recordings / "s1"
@@ -200,11 +200,11 @@ def test_a_torn_trim_leaves_the_log_intact(tmp_path, monkeypatch):
     rows = [{"frame": f"frames/{i:04d}.png", "ply": i, "fen": "f"} for i in range(6)]
     write_jsonl(sdir / "log.jsonl", rows)
     before = (sdir / "log.jsonl").read_text(encoding="utf-8")
-    monkeypatch.setattr(sessions, "session_dir", lambda _sid, _p=None: (sdir, False))
+    monkeypatch.setattr(session_lifecycle, "session_dir", lambda _sid, _p=None: (sdir, False))
     tear_write_text(monkeypatch, sdir / "log.jsonl")
 
     with pytest.raises(OSError):
-        sessions.trim_session("s1", 3, paths)
+        session_lifecycle.trim_session("s1", 3, paths)
 
     assert (sdir / "log.jsonl").read_text(encoding="utf-8") == before, (
         "das Log ist halb — und die entfernten Frames liegen schon im Reject-Ordner")
@@ -216,7 +216,7 @@ def test_a_torn_matte_filter_leaves_the_ledger_intact(tmp_path, monkeypatch):
     `matte.jsonl` gilt dasselbe: die Coverage ist Trainingsziel, und die Frames unter einer
     halben Datei gehen mit `coverage = 0.0` ins Training — die Coverage-Matte-Falle.
     """
-    from chesslab import sessions
+    from chesslab import session_lifecycle
 
     path = tmp_path / "matte.jsonl"
     rows = [{"frame": f"{i:04d}", "coverage": {"a1": 0.5}} for i in range(6)]
@@ -225,7 +225,7 @@ def test_a_torn_matte_filter_leaves_the_ledger_intact(tmp_path, monkeypatch):
     tear_write_text(monkeypatch, path)
 
     with pytest.raises(OSError):
-        sessions._filter_matte_frames(tmp_path, {"0002"})
+        session_lifecycle._filter_matte_frames(tmp_path, {"0002"})
 
     assert path.read_text(encoding="utf-8") == before
 
@@ -235,15 +235,15 @@ def test_a_torn_interval_write_leaves_the_previous_checks_intact(tmp_path, monke
     `position_flags.interval_flags` liest jede Zeile mit blankem `json.loads` und wirft dann —
     eine halbe Datei nimmt den Report ALLER Aufnahmen mit, nicht nur den dieser einen.
     """
-    from chesslab import realgames, sessions
+    from chesslab.session_store import log as store_log
 
-    path = tmp_path / realgames.INTERVAL_FILE
+    path = tmp_path / store_log.INTERVAL_FILE
     path.write_text(json.dumps({"ply": 1, "seen": True}) + "\n", encoding="utf-8")
     before = path.read_text(encoding="utf-8")
     tear_write_text(monkeypatch, path)
 
     with pytest.raises(OSError):
-        sessions.write_interval_checks(tmp_path, [{"ply": 1, "seen": True},
+        store_log.write_interval_checks(tmp_path, [{"ply": 1, "seen": True},
                                                   {"ply": 2, "seen": False}])
 
     assert path.read_text(encoding="utf-8") == before

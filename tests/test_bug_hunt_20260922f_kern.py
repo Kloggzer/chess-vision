@@ -251,7 +251,7 @@ def test_two_capture_steps_on_one_video_index_are_refused(monkeypatch, tmp_path)
     other = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
     stored = [{"ply": 1, "fen": START, "corners": [], "ts": "t1"},
               {"ply": 2, "fen": other, "corners": [], "ts": "t2"}]
-    monkeypatch.setattr(capture_import.realgames, "stored_rows", lambda bundle: stored)
+    monkeypatch.setattr(capture_import.store_rec, "stored_rows", lambda bundle: stored)
 
     with pytest.raises(ValueError, match="teilen sich einen Video-Index"):
         capture_import.capture_rows(tmp_path, {1: (0, 1), 2: (1, 2)}, [(0, 0)], 1.0)
@@ -264,7 +264,7 @@ def test_distinct_steps_keep_their_own_frames(monkeypatch, tmp_path):
     other = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
     stored = [{"ply": 1, "fen": START, "corners": [], "ts": "t1"},
               {"ply": 2, "fen": other, "corners": [], "ts": "t2"}]
-    monkeypatch.setattr(capture_import.realgames, "stored_rows", lambda bundle: stored)
+    monkeypatch.setattr(capture_import.store_rec, "stored_rows", lambda bundle: stored)
 
     rows = capture_import.capture_rows(
         tmp_path, {1: (0, 10**9), 2: (10**9, 2 * 10**9)}, [(0, 0)], 1.0)
@@ -279,7 +279,7 @@ def test_a_ply_in_no_capture_step_is_refused_not_dropped(monkeypatch, tmp_path):
 
     stored = [{"ply": 1, "fen": START, "corners": [], "ts": "t1"},
               {"ply": 9, "fen": START, "corners": [], "ts": "t9"}]
-    monkeypatch.setattr(capture_import.realgames, "stored_rows", lambda bundle: stored)
+    monkeypatch.setattr(capture_import.store_rec, "stored_rows", lambda bundle: stored)
 
     with pytest.raises(ValueError, match="in keinem Schritt"):
         capture_import.capture_rows(tmp_path, {1: (0, 10**9)}, [(0, 0)], 1.0)
@@ -302,12 +302,12 @@ def test_a_row_whose_board_was_never_written_does_not_reach_the_log(monkeypatch,
     rows = [{"frame": "frames/000000.png", "ply": 1, "fen": START, "board": "boards/000000.webp"},
             {"frame": "frames/000001.png", "ply": 2, "fen": START}]
 
-    monkeypatch.setattr(capture_import.realgames, "stored_session_dirs", lambda n: [bundle])
-    monkeypatch.setattr(capture_import.realgames, "video_path", lambda n: tmp_path / "v.mp4")
-    monkeypatch.setattr(capture_import.realgames, "game_dir", lambda n: session)
-    monkeypatch.setattr(capture_import.realgames, "fit_rows_to_grid",
+    monkeypatch.setattr(capture_import.store_rec, "stored_session_dirs", lambda n: [bundle])
+    monkeypatch.setattr(capture_import.store_rec, "video_path", lambda n: tmp_path / "v.mp4")
+    monkeypatch.setattr(capture_import.store_rec, "game_dir", lambda n: session)
+    monkeypatch.setattr(capture_import.rg_boards, "fit_rows_to_grid",
                         lambda r, p, frames=None: {"arrived": rows})
-    monkeypatch.setattr(capture_import.realgames, "rewarp_boards",
+    monkeypatch.setattr(capture_import.rg_boards, "rewarp_boards",
                         lambda d, r, p, frames=None: {"boards": 1})
     monkeypatch.setattr(capture_import, "container_fps", lambda v: 1.0)
     monkeypatch.setattr(capture_import, "capture_steps", lambda b: {})
@@ -376,7 +376,7 @@ def test_a_composite_warps_at_the_size_its_source_gives(monkeypatch, tmp_path):
     sofort wieder weg — das waren 62 % des Pretrains (CLAUDE.md, Crop sizes).
     """
     from chesslab import calibration, composite
-    from chesslab.realgames import measured_board_size
+    from chesslab.realgames.mesh import measured_board_size
 
     frame = np.full((720, 1280, 3), 90, np.uint8)
     corners = [[100.0, 100.0], [740.0, 100.0], [740.0, 640.0], [100.0, 640.0]]
@@ -454,14 +454,15 @@ def test_a_second_clip_into_one_pool_keeps_the_first_clips_rows(monkeypatch, tmp
 def test_retime_refuses_a_model_without_an_occlusion_head(monkeypatch, tmp_path):
     """Ohne Coverage-Kopf traegt keine Lesung ein `coverage`, jede Zelle bliebe ungemessen und
     `_emission` liefe auf lauter Nullen — eine stille Null statt einer Zeitmessung."""
-    from chesslab import calibration, realgames, retime
+    from chesslab import calibration, retime
+    from chesslab.session_store import recording as store_rec
 
     model = tmp_path / "run"
     model.mkdir()
     (model / "config.json").write_text(json.dumps({"head": "identity"}), encoding="utf-8")
-    monkeypatch.setattr(realgames, "load_candidate",
+    monkeypatch.setattr(store_rec, "load_candidate",
                         lambda name: {"moves": [{"frame": 1, "fen_after": START}]})
-    monkeypatch.setattr(realgames, "video_fps", lambda cand: 30.0)
+    monkeypatch.setattr(store_rec, "video_fps", lambda cand: 30.0)
     monkeypatch.setattr(calibration, "load_profile", lambda name: object())
 
     with pytest.raises(ValueError, match="no occlusion head"):

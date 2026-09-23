@@ -93,14 +93,14 @@ def _profile_yaml(paths: config.Paths, name: str = "t", board_size: int = 64) ->
 
 def test_reviewed_can_be_set_on_a_recording(tmp_path):
     """`rg-<ts>` lives under recordings/, so the hand-built sessions/ path never found one."""
-    from chesslab import sessions
+    from chesslab import session_lifecycle
 
     paths = config.Paths(root=tmp_path)
     d = paths.recordings / "2026-01-01"
     d.mkdir(parents=True)
     (d / "session.yaml").write_text("session_id: rg-2026-01-01\nprofile: t\n", encoding="utf-8")
     (d / "log.jsonl").write_text("", encoding="utf-8")
-    assert sessions.set_session_reviewed("rg-2026-01-01", True, paths)["reviewed"] is True
+    assert session_lifecycle.set_session_reviewed("rg-2026-01-01", True, paths)["reviewed"] is True
 
 
 def test_write_boards_keeps_the_store_of_rows_it_never_rewrites(tmp_path, monkeypatch):
@@ -109,7 +109,8 @@ def test_write_boards_keeps_the_store_of_rows_it_never_rewrites(tmp_path, monkey
     import cv2
     import numpy as np
 
-    from chesslab import labeling, realgames, sessions
+    from chesslab import labeling, session_boards
+    from chesslab.realgames import boards as rg_boards
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     sdir = config.DATA.recordings / "rec"
@@ -126,13 +127,13 @@ def test_write_boards_keeps_the_store_of_rows_it_never_rewrites(tmp_path, monkey
     write_jsonl(sdir / "log.jsonl", rows)
     _profile_yaml(config.DATA, board_size=bs)
 
-    monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))
+    monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
     monkeypatch.setattr(labeling, "_profile_for_session",
                         lambda meta, name: __import__("chesslab.calibration", fromlist=["x"])
                         .load_profile("t"))
-    monkeypatch.setattr(realgames, "board_from_frame", lambda job: None)
+    monkeypatch.setattr(rg_boards, "board_from_frame", lambda job: None)
 
-    sessions.write_boards_session("rg-rec")
+    session_boards.write_boards_session("rg-rec")
     after = [json.loads(x) for x in
              (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     assert after[1].get("board") == "boards/000001.webp"
@@ -237,7 +238,7 @@ def test_alpha_worker_skips_a_dirty_row_that_never_got_a_board(tmp_path, monkeyp
 def test_no_dirty_reaches_the_path_every_export_actually_takes():
     """`--dirty/--no-dirty` was only ever read in the `--no-scan` branch, so the flag was a
     no-op on the default scan path and the whole dirty pile was written regardless."""
-    from chesslab import realgames as rg
+    from chesslab.realgames import timeline as rg_timeline
 
     candidate = {"geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
                  "moves": [{"frame": 0, "ply": 1,
@@ -246,6 +247,6 @@ def test_no_dirty_reaches_the_path_every_export_actually_takes():
                  "clock": {"fps": 30}, "created_at": "2026-09-16T05:00:00+00:00"}
     scan = [{"idx": i, "gate": 0.9 if i < 36 else 0.1, "grid": [], "cells": [200.0] * 64}
             for i in range(0, 120, 3)]
-    assert any(r.get("dirty") for r in rg.plan_scanned(candidate, scan, margin_frames=0))
-    kept = rg.plan_scanned(candidate, scan, margin_frames=0, dirty=False)
+    assert any(r.get("dirty") for r in rg_timeline.plan_scanned(candidate, scan, margin_frames=0))
+    kept = rg_timeline.plan_scanned(candidate, scan, margin_frames=0, dirty=False)
     assert kept and not any(r.get("dirty") for r in kept)

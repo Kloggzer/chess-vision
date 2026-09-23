@@ -4,7 +4,8 @@ from __future__ import annotations
 import cv2
 import pytest
 
-from chesslab.realgames import MATTE_DIR, straighten_boards
+from chesslab.realgames.boards import straighten_boards
+from chesslab.session_store.boards import MATTE_DIR
 from conftest import write_jsonl
 from test_store_straightening import BORDER, BS, EIGHTHS, TILT, _drawn
 

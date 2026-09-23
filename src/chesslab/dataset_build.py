@@ -461,7 +461,7 @@ def _ledger_hits(sdir: Path, rows: list[dict]) -> tuple[list[str], list[str]]:
 
 def _ledger_dir(sid: str, paths: config.Paths) -> Path | None:
     """The directory holding `sid`'s human ledgers; None for a composite/turntable, which has none."""
-    from .sessions import session_dir
+    from .session_store.paths import session_dir
 
     try:
         return session_dir(sid, paths)[0]

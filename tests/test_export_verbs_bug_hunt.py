@@ -55,13 +55,13 @@ def _first_row(sdir):
 
 
 def test_session_boards_keeps_a_dirty_rows_board_out_of_the_clean_stock(tmp_path, monkeypatch):
-    from chesslab import sessions
+    from chesslab import session_boards
 
     row = {"frame": "frames/000001.png", "ply": 1, "fen": FEN, "corners": CORNERS,
            "dirty": True, "dirty_reason": "occluded"}
     sdir, _prof = _session(tmp_path, monkeypatch, [row])
 
-    sessions.write_boards_session("rg-g")
+    session_boards.write_boards_session("rg-g")
 
     assert _first_row(sdir).get("board") == "dirty/000001.webp", (
         "`session boards` (sessions.write_boards_session -> realgames.board_from_frame) never "
@@ -71,14 +71,14 @@ def test_session_boards_keeps_a_dirty_rows_board_out_of_the_clean_stock(tmp_path
 
 
 def test_session_boards_leaves_a_parked_sessions_board_pointers_alone(tmp_path, monkeypatch):
-    from chesslab import sessions
+    from chesslab import session_boards
 
     row = {"frame": "frames/000001.png", "ply": 1, "fen": FEN, "corners": CORNERS,
            "board": "boards/000001.webp", "board_size": BOARD_SIZE, "board_border": 8,
            "board_straightened": True}
     sdir, _prof = _session(tmp_path, monkeypatch, [row], frame=False, board=True)
 
-    sessions.write_boards_session("rg-g")
+    session_boards.write_boards_session("rg-g")
 
     assert _first_row(sdir).get("board") == "boards/000001.webp", (
         "`session boards` has no missing_source_frames() guard (scan, autofix, fit-mesh and "
@@ -88,7 +88,8 @@ def test_session_boards_leaves_a_parked_sessions_board_pointers_alone(tmp_path, 
 
 
 def test_frame_anchor_names_the_picture_retime_actually_wrote(tmp_path, monkeypatch):
-    from chesslab.realgames import frame_anchor, game_dir
+    from chesslab.realgames.confirm import frame_anchor
+    from chesslab.session_store.recording import game_dir
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     frames = game_dir("g") / "frames"

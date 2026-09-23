@@ -28,7 +28,7 @@ from chesslab.labeling import (
     read_session_meta,
     usable_board,
 )
-from chesslab.sessions import read_log
+from chesslab.session_store.log import read_log
 
 #: Ab hier gilt eine Zelle der Matte als verdeckt (`PIECE_VISIBLE_MAX` ist die Verlustmaske).
 COVERED = MATTE_DIRTY

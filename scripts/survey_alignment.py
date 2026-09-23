@@ -26,6 +26,7 @@ import numpy as np  # noqa: E402
 from chesslab import labeling, sessions  # noqa: E402
 from chesslab.alignment import worst_offset  # noqa: E402
 from chesslab.ioutil import read_jsonl  # noqa: E402
+from chesslab.session_store import paths as store_paths  # noqa: E402
 
 
 def _rows(sdir: Path) -> list[dict]:
@@ -46,7 +47,7 @@ def main() -> int:
           f"{'median':>8}{'p90':>7}{'max':>7}{'bad':>7}")
     print("-" * 76)
     total_bad = total_seen = 0
-    for sid, sdir in sessions.all_sessions():
+    for sid, sdir in store_paths.all_sessions():
         rows = [r for r in _rows(sdir) if r.get("corners")]
         if not rows:
             # Eine Aufnahme ohne einen einzigen Quad ist ein Befund — ungemessen, nicht sauber.

@@ -41,8 +41,8 @@ from .imgops import resize_keep_aspect
 from .ioutil import mtime_size, read_jsonl
 from .matte_store import read_matte
 from .matte_store import read_rows as read_matte_rows
-from .sessions import read_log as _read_log
-from .sessions import read_session_meta
+from .session_store.log import read_log as _read_log
+from .session_store.paths import read_session_meta
 from .state import GameState
 from .work_audit import current as current_work_audit
 from .work_audit import measure
@@ -99,7 +99,7 @@ CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 SLICE_WRITE_WORKERS = 8
 
 #: How far a cell may sit from its ply interval's settled board and still be trusted
-#: (`realgames.settle_for_ply`). 15 was set against the groove sensor's recall; against the PICTURE
+#: (`realgames.position.settle_for_ply`). 15 was set against the groove sensor's recall; against the PICTURE
 #: (2026-09-09) it drops 2 999 cells the coverage does not mask, four fifths of them under 35 and
 #: ordinary material. Above 45 a 24-cell sample was 24/24 hands on squares the FEN calls a piece.
 #: A human correction outranks it either way — the gate is a doubt, not a verdict.
@@ -196,8 +196,8 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
 
     `mesh`: the frame's measured grid lines. The warp is pulled straight through them ONCE, as a
     whole raster — the cut itself stays a plain rectangle. A stored board arrives straight already
-    (`realgames.straighten_boards`) and must be handed no mesh, or it would be corrected twice.
-    `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may
+    (`realgames.boards.straighten_boards`) and must be handed no mesh, or it would be corrected twice.
+    `board`: the stored warp (`session_store.boards.write_board`) instead of warping [frame], which may
     then be None.
     `flat_cells`: Beleuchtungskarte der Session, herausgerechnet VOR dem Zuschnitt.
     `squares`: optional square names, returned in that order; default remains all 64 squares.
@@ -453,7 +453,7 @@ def iter_session_crops(
     n_unknown = 0
     #: Cells dropped because a hand was in the frame and no human ruled on them (`dirty`).
     n_dirty = 0
-    #: Cells whose pixels left the position they are labelled with (`realgames.departures`).
+    #: Cells whose pixels left the position they are labelled with (`realgames.position.departures`).
     n_unsettled = 0
     n_unusable = 0
     #: Cells a human called unlabelable (`unusable-cells.jsonl`) — never a manifest row.
@@ -492,7 +492,7 @@ def iter_session_crops(
                 n_skipped += 1   # no markers in frame -> not usable, skip
                 continue
 
-        # A stored board arrives straight (`realgames.straighten_boards`); only a session that
+        # A stored board arrives straight (`realgames.boards.straighten_boards`); only a session that
         # still has to be warped from its frame carries its own lines here.
         mesh = None if board is not None else mesh_from_lines(entry.get("grid_lines"))
         n_mesh += mesh is not None
@@ -719,7 +719,7 @@ def _session_ids_with_logs() -> list[str]:
     `all_sessions` scannt Verzeichnisse; eine stillgelegte Session, die nie verschoben wurde, kaeme
     sonst weiter in den Crop-Pool (2026-09-09).
     """
-    from .sessions import all_sessions
+    from .session_store.paths import all_sessions
 
     out = []
     for sid, d in all_sessions():
@@ -777,7 +777,7 @@ def run_slice(
 
     manifest_path, squares_root = variant_paths(variant_tag)
     rc = 0
-    from .sessions import session_dir as _resolve
+    from .session_store.paths import session_dir as _resolve
 
     try:
         with locks.pool_lock(squares_root, f"slice {len(sids)} session(s)"):
@@ -835,7 +835,7 @@ def run_slice(
 
 def _preview_session(session_id: str, profile: str | None) -> int:
     """Debug: slice the first position and show label vs. visible crop side by side."""
-    from .sessions import session_dir as _resolve
+    from .session_store.paths import session_dir as _resolve
 
     session_dir, _ = _resolve(session_id)
     try:

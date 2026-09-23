@@ -31,7 +31,7 @@ def _rows(sdir):
 
 
 def test_a_retracted_report_leaves_the_log_and_the_pile(tmp_path, monkeypatch):
-    from chesslab.realgames import adopt_reported_dirty
+    from chesslab.realgames.export import adopt_reported_dirty
 
     sdir, notes = _session(tmp_path, monkeypatch)
     notes.write_text(json.dumps({"session_id": "rg-g", "frame": "000144", "verdict": "dirty-frame"}) + "\n",
@@ -50,7 +50,7 @@ def test_a_retracted_report_leaves_the_log_and_the_pile(tmp_path, monkeypatch):
 
 
 def test_only_what_the_report_set_is_taken_back(tmp_path, monkeypatch):
-    from chesslab.realgames import adopt_reported_dirty
+    from chesslab.realgames.export import adopt_reported_dirty
 
     sdir, notes = _session(tmp_path, monkeypatch, extra={"dirty_source": "scan"})
     notes.write_text("", encoding="utf-8")
@@ -59,7 +59,8 @@ def test_only_what_the_report_set_is_taken_back(tmp_path, monkeypatch):
 
 
 def test_refuses_under_an_interrupted_export(tmp_path, monkeypatch):
-    from chesslab.realgames import EXPORT_MARKER, adopt_reported_dirty
+    from chesslab.realgames.export import adopt_reported_dirty
+    from chesslab.session_store.log import EXPORT_MARKER
 
     sdir, notes = _session(tmp_path, monkeypatch)
     notes.write_text(json.dumps({"session_id": "rg-g", "frame": "000144", "verdict": "dirty-frame"}) + "\n",

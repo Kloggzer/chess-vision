@@ -43,9 +43,9 @@ def test_without_a_resolver_it_stays_the_pile_run(worked):
 def test_the_flag_resolver_answers_per_recording(monkeypatch, tmp_path):
     # Die Naht, die dem Stapellauf gefehlt hat: `--reported` muss JE AUFNAHME aufloesen, sonst
     # bekaeme die zweite Session die Frames der ersten.
-    from chesslab import realgames
+    from chesslab.session_store import recording as store_rec
 
-    monkeypatch.setattr(realgames, "reported_dirty",
+    monkeypatch.setattr(store_rec, "reported_dirty",
                         lambda sid, verdict="dirty-frame": {1} if sid == "rg-a" else {7, 8})
 
     assert matte.flagged_frames("a", reported=True) == {"000001"}

@@ -506,7 +506,7 @@ def _straighten_maps(shape: tuple[int, int], mesh: GridMesh, board_size: int, bo
     """Die Remap-Tabellen, gemerkt: sie haengen NUR an Groesse, Mesh, board_size und Rand.
 
     Gemessen 2026-08-23 auf einem 1312er Brett: der Aufbau kostet 623 ms, der `remap` daneben 14.
-    Eine Aufnahme hat EIN Mesh (`composite.median_mesh`, `realgames.meshes_for_boards`), also
+    Eine Aufnahme hat EIN Mesh (`composite.median_mesh`, `realgames.mesh.meshes_for_boards`), also
     zahlt der Aufbau einmal je Clip statt zweimal je Frame.
     """
     return _straighten_maps_cached(shape, _mesh_key(mesh), board_size, border)

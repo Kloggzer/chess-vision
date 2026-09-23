@@ -110,7 +110,7 @@ def test_the_dirty_pile_falls_back_to_the_stale_tail_when_it_must():
 
 def test_a_corrected_frame_wins_its_slot_while_it_stays_near():
     """The 8 725 identity corrections are keyed by frame index — picking that index keeps them."""
-    from chesslab.realgames import pick_spread
+    from chesslab.realgames.timeline import pick_spread
 
     items = list(range(20))
     assert pick_spread(items, lambda i: True, 4, prefer={5}, tol=0) == [0, 6, 13, 19]
@@ -213,26 +213,28 @@ def test_an_archived_game_is_not_exported(tmp_path, monkeypatch):
     """The UI's archive flag was Python-invisible, so a re-export wrote three of them back in."""
     import json
 
-    from chesslab import config, realgames
+    from chesslab import config
+    from chesslab.realgames import export as rg_export
+    from chesslab.session_store import recording as store_rec
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = realgames.game_dir("g1")
+    g = store_rec.game_dir("g1")
     g.mkdir(parents=True)
     (g / "ui-meta.json").write_text(json.dumps({"archived": True}), encoding="utf-8")
 
-    assert realgames.is_archived("g1")
+    assert store_rec.is_archived("g1")
     with pytest.raises(ValueError, match="archived"):
-        realgames.export_session("g1")
+        rg_export.export_session("g1")
 
     (g / "ui-meta.json").write_text(json.dumps({"title": "kept"}), encoding="utf-8")
-    assert not realgames.is_archived("g1"), "un-archiving in the UI is enough to let it back"
+    assert not store_rec.is_archived("g1"), "un-archiving in the UI is enough to let it back"
 
 
 def test_deleting_a_session_counts_the_handwork_first(tmp_path, monkeypatch):
     """Crops come back from a re-slice, a human's verdict does not — so it is counted, not guessed."""
     import json
 
-    from chesslab import config, sessions
+    from chesslab import config, session_lifecycle
 
     paths = config.Paths(root=tmp_path / "data")
     monkeypatch.setattr(config, "DATA", paths)
@@ -250,7 +252,7 @@ def test_deleting_a_session_counts_the_handwork_first(tmp_path, monkeypatch):
         json.dumps({"session_id": "other", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
         encoding="utf-8")
 
-    cost = sessions.deletion_cost("s1", paths)
+    cost = session_lifecycle.deletion_cost("s1", paths)
 
     assert cost == {"session_id": "s1", "frames": 2, "crops": 0, "corrections": 1}
 

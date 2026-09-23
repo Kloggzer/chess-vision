@@ -21,7 +21,7 @@ import cv2
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.ioutil import read_jsonl
 from chesslab.labeling import _profile_for_session, read_session_meta, usable_board
-from chesslab.sessions import read_log
+from chesslab.session_store.log import read_log
 
 
 def board_path(rec: Path, frame: str) -> Path | None:

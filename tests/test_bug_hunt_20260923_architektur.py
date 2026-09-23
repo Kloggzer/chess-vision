@@ -10,7 +10,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from chesslab import config, ioutil, provenance, sessions, temporal_flags, temporal_matte
+from chesslab import (
+    config,
+    ioutil,
+    provenance,
+    session_boards,
+    session_lifecycle,
+    temporal_flags,
+    temporal_matte,
+)
+from chesslab.session_store import log as store_log
 from conftest import write_jsonl
 
 
@@ -34,16 +43,17 @@ def _recording(tmp_path: Path, monkeypatch, name: str = "g") -> Path:
                                        "0 von 27 betroffen, offene-entscheidungen A1")
 def test_rewritten_boards_drop_the_settle_measurement(tmp_path, monkeypatch):
     """Die Pixel-Seite derselben Luecke: `settle_for_ply` hat die ALTEN Bretter gemessen."""
-    from chesslab import labeling, realgames
+    from chesslab import labeling
+    from chesslab.realgames import boards as rg_boards
 
     rec = _recording(tmp_path, monkeypatch)
     monkeypatch.setattr(labeling, "_profile_for_session", lambda _meta, _x: object())
-    monkeypatch.setattr(realgames, "board_from_frame",
+    monkeypatch.setattr(rg_boards, "board_from_frame",
                         lambda _job: {"board": "boards/000001.webp", "board_size": 928})
-    monkeypatch.setattr(realgames, "straighten_boards",
+    monkeypatch.setattr(rg_boards, "straighten_boards",
                         lambda *_a, **_k: {"straightened": 0})
-    sessions.write_boards_session("rg-g")
-    assert "settle_dev" not in sessions.read_log(rec)[0]
+    session_boards.write_boards_session("rg-g")
+    assert "settle_dev" not in store_log.read_log(rec)[0]
 
 
 # H3 -------------------------------------------------------------------------------------------
@@ -100,13 +110,13 @@ def test_a_log_rewrite_keeps_a_verdict_set_meanwhile(tmp_path, monkeypatch):
     Setzt der Mensch dazwischen `unusable` (Web: `lib/frame-flag.ts`, CLI: `flag_frame`), ist es weg.
     """
     rec = _recording(tmp_path, monkeypatch)
-    snapshot = sessions.read_log(rec)
-    sessions.flag_frame("rg-g", 0, True)
+    snapshot = store_log.read_log(rec)
+    store_log.flag_frame("rg-g", 0, True)
     try:
-        sessions._write_log(rec, snapshot)
+        store_log._write_log(rec, snapshot)
     except ioutil.Contested:
         return
-    assert sessions.read_log(rec)[0].get("unusable") is True
+    assert store_log.read_log(rec)[0].get("unusable") is True
 
 
 def test_trim_keeps_a_matte_row_appended_meanwhile(tmp_path, monkeypatch):
@@ -114,7 +124,7 @@ def test_trim_keeps_a_matte_row_appended_meanwhile(tmp_path, monkeypatch):
     rec = _recording(tmp_path, monkeypatch)
     path = rec / "matte.jsonl"
     path.write_text(json.dumps({"frame": "000001", "coverage": {"a1": 0.0}}) + "\n", encoding="utf-8")
-    real = sessions.read_jsonl
+    real = session_lifecycle.read_jsonl
 
     def read_then_worker_appends(p):
         rows = real(p)
@@ -122,9 +132,9 @@ def test_trim_keeps_a_matte_row_appended_meanwhile(tmp_path, monkeypatch):
             ioutil.append_rows(path, [{"frame": "000009", "coverage": {"a1": 0.8}}])
         return rows
 
-    monkeypatch.setattr(sessions, "read_jsonl", read_then_worker_appends)
+    monkeypatch.setattr(session_lifecycle, "read_jsonl", read_then_worker_appends)
     try:
-        sessions._filter_matte_frames(rec, {"000001"})
+        session_lifecycle._filter_matte_frames(rec, {"000001"})
     except ioutil.Contested:
         return
     assert "000009" in {r["frame"] for r in real(path)}

@@ -29,9 +29,9 @@ session_app = typer.Typer(
 @session_app.command("list")
 def session_list() -> None:
     """Active and archived sessions: frames, crops, mode, review state."""
-    from .. import sessions as sessions_mod
+    from .. import session_lifecycle
 
-    rows = sessions_mod.list_sessions()
+    rows = session_lifecycle.list_sessions()
     if not rows:
         print("No sessions.")
         return
@@ -107,7 +107,7 @@ def session_settle_scan(
     move puts there while the FEN still says otherwise. Measures only — nothing is dropped here;
     the threshold is set from the distribution this writes.
     """
-    from .. import sessions as sessions_mod
+    from .. import session_boards
 
     def say(sid: str, r: dict) -> None:
         short = f", {r['too_short']} in zu kurzen Intervallen" if r["too_short"] else ""
@@ -115,7 +115,7 @@ def session_settle_scan(
         print(f"[OK] {sid}: {r['scored']}/{r['of']} Frames bewertet über {r['plies']} Intervalle"
               f"{short} — {r['intervals']} Plies geprüft{blind}, backup {r['backup']}", flush=True)
 
-    _, failed = _each_session(session, all_sessions, sessions_mod.settle_scan_session, say)
+    _, failed = _each_session(session, all_sessions, session_boards.settle_scan_session, say)
     _exit_on_bulk_failures(failed)
 
 
@@ -261,14 +261,14 @@ def session_boards(
     writes it as it fits; this retrofits a session that predates the store, and repairs one whose
     quad a later `autofix` or `adopt` moved.
     """
-    from .. import sessions as sessions_mod
+    from .. import session_boards
 
     def say(sid: str, r: dict) -> None:
         missing = f", {r['missing']} without a readable frame" if r["missing"] else ""
         print(f"[OK] {sid}: {r['written']}/{r['of']} boards{missing}, {r['straightened']} "
               f"geradegezogen — backup {r['backup']}", flush=True)
 
-    _, failed = _each_session(session, all_sessions, sessions_mod.write_boards_session, say)
+    _, failed = _each_session(session, all_sessions, session_boards.write_boards_session, say)
     _exit_on_bulk_failures(failed)
 
 
@@ -318,14 +318,14 @@ def session_rewarp(
     resample for it. Where the video exists this is strictly better, because mesh and optics fold
     into the map the warp already builds (+57 % Laplacian energy in the finished crop, 2026-08-21).
     """
-    from .. import sessions as sessions_mod
+    from .. import session_boards
 
     def say(sid: str, r: dict) -> None:
         optics = ", Optik aus lens.json" if r.get("lens") else ""
         print(f"[OK] {sid}: {r['rewarped']}/{r['of']} neu gewarpt, {r['no_mesh']} ohne Mesh, "
               f"{r['no_frame']} ohne Bild{optics} — backup {r['backup']}", flush=True)
 
-    _, failed = _each_session(session, all_sessions, sessions_mod.rewarp_boards_session, say)
+    _, failed = _each_session(session, all_sessions, session_boards.rewarp_boards_session, say)
     _exit_on_bulk_failures(failed)
 
 
@@ -341,14 +341,14 @@ def session_straighten(
     2026-08-21, that is worth 1.2 px against 1.0 for a frame's own and 16 px for none at all.
     Idempotent: a board that already says `board_straightened` is left alone.
     """
-    from .. import sessions as sessions_mod
+    from .. import session_boards
 
     def say(sid: str, r: dict) -> None:
         print(f"[OK] {sid}: {r['straightened']}/{r['of']} geradegezogen, {r['already']} schon, "
               f"{r['no_mesh']} ohne Mesh, {r['no_board']} ohne Brett — backup {r['backup']}",
               flush=True)
 
-    _, failed = _each_session(session, all_sessions, sessions_mod.straighten_boards_session, say)
+    _, failed = _each_session(session, all_sessions, session_boards.straighten_boards_session, say)
     _exit_on_bulk_failures(failed)
 
 
@@ -364,9 +364,9 @@ def session_delete(
     `archive` is the reversible door and stays the default answer. This one exists for what
     archiving would only hoard — an empty export, a session with no readable board.
     """
-    from .. import sessions as sessions_mod
+    from .. import session_lifecycle
 
-    counts = _session_call(sessions_mod.deletion_cost, session_id)
+    counts = _session_call(session_lifecycle.deletion_cost, session_id)
     if dry_run:
         # The UI shows THIS, then runs the same command without the flag — one count, one truth.
         print(json.dumps(counts))
@@ -379,7 +379,7 @@ def session_delete(
     if not yes and not typer.confirm(f"  {session_id} endgueltig loeschen?", default=False):
         print("[--] nichts geloescht")
         raise typer.Exit(0)
-    res = _session_call(sessions_mod.delete_session, session_id)
+    res = _session_call(session_lifecycle.delete_session, session_id)
     print(f"[OK] {res['session_id']} geloescht ({res['removed_crops']} Crops mit)")
 
 
@@ -393,7 +393,7 @@ def session_park_frames(
     The board carries the picture at a thirtieth of the size, so the decode is scratch that the
     video regenerates. Parked and not deleted: a frame is data, and only the user says otherwise.
     """
-    from .. import sessions as sessions_mod
+    from .. import session_boards
 
     freed: list[float] = []
 
@@ -401,7 +401,7 @@ def session_park_frames(
         freed.append(r["freed_mb"])
         print(f"[OK] {sid}: {r['moved']}/{r['of']} frames parked, {r['freed_mb']} MB -> {r['parked_to']}", flush=True)
 
-    seen, failed = _each_session(session, all_sessions, sessions_mod.park_frames_session, say)
+    seen, failed = _each_session(session, all_sessions, session_boards.park_frames_session, say)
     if all_sessions:
         print(f"[OK] {sum(freed, 0.0) / 1024:.1f} GB parked over {seen} sessions")
     _exit_on_bulk_failures(failed)
@@ -524,9 +524,9 @@ def session_flag(
                                 help="Clear the flag instead of setting it."),
 ) -> None:
     """Mark one frame unusable (or usable again). `slice` skips flagged frames."""
-    from .. import sessions as sessions_mod
+    from ..session_store import log as store_log
 
-    r = _session_call(sessions_mod.flag_frame, session, index, not usable)
+    r = _session_call(store_log.flag_frame, session, index, not usable)
     print(f"[OK] {r['session_id']} frame {r['index']}: "
           f"unusable={'yes' if r['unusable'] else 'no'}")
 
@@ -541,9 +541,9 @@ def session_review(
     It had no writer outside the web UI, and a field that is read but cannot be set is worse
     than no field: `list` would have shown "-" forever with no way to change it.
     """
-    from .. import sessions as sessions_mod
+    from .. import session_lifecycle
 
-    _session_call(sessions_mod.set_session_reviewed, session, not undo)
+    _session_call(session_lifecycle.set_session_reviewed, session, not undo)
     print(f"[OK] {session}: reviewed={'no' if undo else 'yes'}")
 
 
@@ -559,9 +559,9 @@ def session_archive(
     gitignored and a parked session with no recorded motive is a question nobody can answer
     later.
     """
-    from .. import sessions as sessions_mod
+    from .. import session_lifecycle
 
-    r = _session_call(sessions_mod.archive_session, session, reason)
+    r = _session_call(session_lifecycle.archive_session, session, reason)
     print(f"[OK] archived {session} — {r.get('removed_crops', 0)} crops left the pool")
 
 
@@ -570,9 +570,9 @@ def session_restore(
     session: str = typer.Argument(..., help="Session ID."),
 ) -> None:
     """Bring an archived session back. Re-slice afterwards to put its crops in the pool."""
-    from .. import sessions as sessions_mod
+    from .. import session_lifecycle
 
-    _session_call(sessions_mod.restore_session, session)
+    _session_call(session_lifecycle.restore_session, session)
     print(f"[OK] restored {session} — run `chesslab slice --session {session}` to re-slice")
 
 
@@ -584,18 +584,18 @@ def session_trim(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the requested trim and change nothing."),
 ) -> None:
     """Drop the tail of a session, with its crops and manifest rows."""
-    from .. import sessions as sessions_mod
+    from .. import session_lifecycle
 
     if dry_run:
         print(json.dumps({"session_id": session, "keep_frames": keep}))
         raise typer.Exit(0)
-    counts = _session_call(sessions_mod.deletion_cost, session)
+    counts = _session_call(session_lifecycle.deletion_cost, session)
     if counts["corrections"] and not yes:
         print("[FAIL] die Korrekturen sind Handarbeit — mit --yes bestaetigen, wenn das so gemeint ist")
         raise typer.Exit(1)
     if not yes and not typer.confirm(f"  {session} nach Frame {keep} abschneiden?", default=False):
         print("[--] nichts entfernt")
         raise typer.Exit(0)
-    r = _session_call(sessions_mod.trim_session, session, keep)
+    r = _session_call(session_lifecycle.trim_session, session, keep)
     print(f"[OK] {session} trimmed to {keep} frames — "
           f"{r.get('removed_frames', 0)} frames, {r.get('removed_crops', 0)} crops removed")

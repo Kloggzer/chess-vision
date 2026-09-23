@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chesslab import config, ioutil, realgames, sessions
+from chesslab import config, ioutil, session_lifecycle
+from chesslab.realgames import export as rg_export
+from chesslab.session_store import log as store_log
+from chesslab.session_store import recording as store_rec
 
 AFTER_1 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 AFTER_2 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -17,7 +20,7 @@ AFTER_2 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
 @pytest.fixture
 def game(tmp_path, monkeypatch) -> Path:
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    d = realgames.game_dir("g")
+    d = store_rec.game_dir("g")
     d.mkdir(parents=True)
     payload = {
         "name": "g", "video": "g.mp4", "confirmed": True, "created_at": "2026-08-08T00:00:00Z",
@@ -32,15 +35,15 @@ def game(tmp_path, monkeypatch) -> Path:
     }
     (d / "candidate.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
     (d / "video.mp4").write_bytes(b"")
-    monkeypatch.setattr(realgames, "ensure_export_profile", lambda *_a: None)
-    monkeypatch.setattr(realgames, "detect_rotation", lambda *_a: None)
-    monkeypatch.setattr(realgames, "decode_frames", lambda _v, wanted, _out, rotate=None: set(wanted))
+    monkeypatch.setattr(rg_export, "ensure_export_profile", lambda *_a: None)
+    monkeypatch.setattr(rg_export, "detect_rotation", lambda *_a: None)
+    monkeypatch.setattr(rg_export, "decode_frames", lambda _v, wanted, _out, rotate=None: set(wanted))
     return d
 
 
 def _export(**kw) -> list[dict]:
-    realgames.export_session("g", measure=False, fit=False, no_scan=True, workers=1, **kw)
-    return sessions.read_log(realgames.game_dir("g"))
+    rg_export.export_session("g", measure=False, fit=False, no_scan=True, workers=1, **kw)
+    return store_log.read_log(store_rec.game_dir("g"))
 
 
 def _by_stem(rows: list[dict]) -> dict[str, dict]:
@@ -49,8 +52,8 @@ def _by_stem(rows: list[dict]) -> dict[str, dict]:
 
 def test_a_re_export_keeps_the_human_unusable(game):
     first = _export()
-    sessions.flag_frame("rg-g", 0, True)
-    sessions.flag_frame("rg-g", 1, False)
+    store_log.flag_frame("rg-g", 0, True)
+    store_log.flag_frame("rg-g", 1, False)
     again = _by_stem(_export())
     assert again[Path(first[0]["frame"]).stem].get("unusable") is True
     assert again[Path(first[1]["frame"]).stem].get("unusable") is False, (
@@ -61,14 +64,14 @@ def test_a_re_export_keeps_the_human_unusable(game):
 def test_a_verdict_set_while_the_export_runs_survives(game, monkeypatch):
     """Der Export liest das alte Log fuer die Geometrie und schreibt Minuten spaeter."""
     first = _export()
-    real = realgames.carry_repaired_geometry
+    real = rg_export.carry_repaired_geometry
 
     def carry_then_human_flags(session_dir, rows):
         got = real(session_dir, rows)
-        sessions.flag_frame("rg-g", 2, True)
+        store_log.flag_frame("rg-g", 2, True)
         return got
 
-    monkeypatch.setattr(realgames, "carry_repaired_geometry", carry_then_human_flags)
+    monkeypatch.setattr(rg_export, "carry_repaired_geometry", carry_then_human_flags)
     again = _by_stem(_export())
     assert again[Path(first[2]["frame"]).stem].get("unusable") is True
 
@@ -76,34 +79,34 @@ def test_a_verdict_set_while_the_export_runs_survives(game, monkeypatch):
 def test_a_write_racing_the_log_swap_is_contested(game, monkeypatch):
     """Im letzten Fenster (gelesen, noch nicht umgehaengt) hilft nur der Riegel."""
     _export()
-    real = sessions.backup_log
+    real = store_log.backup_log
     fired = []
 
     def backup_then_human_flags(path):
         name = real(path)
         if not fired:
             fired.append(1)
-            sessions.flag_frame("rg-g", 0, True)
+            store_log.flag_frame("rg-g", 0, True)
         return name
 
-    monkeypatch.setattr(sessions, "backup_log", backup_then_human_flags)
+    monkeypatch.setattr(store_log, "backup_log", backup_then_human_flags)
     with pytest.raises(ioutil.Contested):
         _export()
-    assert sessions.read_log(game, under_export=True)[0].get("unusable") is True
+    assert store_log.read_log(game, under_export=True)[0].get("unusable") is True
 
 
 def test_a_verdict_without_a_new_row_is_named(game, capsys):
     rows = _export()
     orphan = dict(rows[0], frame="frames/999999.png", unusable=True)
     ioutil.write_rows(game / "log.jsonl", [*rows, orphan])
-    realgames.export_session("g", measure=False, fit=False, no_scan=True, workers=1,
+    rg_export.export_session("g", measure=False, fit=False, no_scan=True, workers=1,
                              drop_verdicts=True)
     out = capsys.readouterr().out
     assert "999999" in out and "unusable" in out
 
 
 def _add_orphan(game: Path, **verdict) -> str:
-    rows = sessions.read_log(game)
+    rows = store_log.read_log(game)
     ioutil.write_rows(game / "log.jsonl", [*rows, dict(rows[0], frame="frames/999999.png",
                                                         **verdict)])
     return (game / "log.jsonl").read_text(encoding="utf-8")
@@ -115,13 +118,13 @@ def test_an_orphaned_verdict_refuses_the_export(game, monkeypatch, verdict):
     _export()
     before = _add_orphan(game, unusable=verdict)
     decoded = []
-    monkeypatch.setattr(realgames, "decode_frames",
+    monkeypatch.setattr(rg_export, "decode_frames",
                         lambda _v, wanted, _out, rotate=None: decoded.append(1) or set(wanted))
-    with pytest.raises(realgames.VerdictsWouldDrop, match="999999"):
+    with pytest.raises(store_log.VerdictsWouldDrop, match="999999"):
         _export()
     assert (game / "log.jsonl").read_text(encoding="utf-8") == before
     assert not decoded, "verweigert, bevor ein Brett angefasst wird"
-    assert not realgames.export_interrupted(game)
+    assert not store_log.export_interrupted(game)
 
 
 def test_drop_verdicts_is_the_explicit_way_through(game, capsys):
@@ -138,18 +141,18 @@ def test_a_verdict_on_an_unpicked_frame_set_during_the_export_refuses(game, monk
     """Die fruehe Pruefung sah kein Urteil; das frische Lesen vor dem Schreiben sieht es."""
     _export()
     _add_orphan(game)
-    orphan = len(sessions.read_log(game)) - 1
-    real = realgames.carry_repaired_geometry
+    orphan = len(store_log.read_log(game)) - 1
+    real = rg_export.carry_repaired_geometry
 
     def carry_then_human_flags(session_dir, rows):
         got = real(session_dir, rows)
-        sessions.flag_frame("rg-g", orphan, True)
+        store_log.flag_frame("rg-g", orphan, True)
         return got
 
-    monkeypatch.setattr(realgames, "carry_repaired_geometry", carry_then_human_flags)
-    with pytest.raises(realgames.VerdictsWouldDrop, match="999999"):
+    monkeypatch.setattr(rg_export, "carry_repaired_geometry", carry_then_human_flags)
+    with pytest.raises(store_log.VerdictsWouldDrop, match="999999"):
         _export()
-    assert sessions.read_log(game, under_export=True)[orphan].get("unusable") is True
+    assert store_log.read_log(game, under_export=True)[orphan].get("unusable") is True
 
 
 @pytest.fixture
@@ -168,19 +171,19 @@ def trimmable(tmp_path, monkeypatch):
 
 def test_a_verdict_during_the_trim_is_contested_and_nothing_moves(trimmable, monkeypatch):
     paths, sdir = trimmable
-    real = sessions._reject_dir
+    real = session_lifecycle._reject_dir
     made = []
 
     def reject_dir_then_human_flags(p, sid):
         out = real(p, sid)
         made.append(out)
-        sessions.flag_frame("s1", 1, True)
+        store_log.flag_frame("s1", 1, True)
         return out
 
-    monkeypatch.setattr(sessions, "_reject_dir", reject_dir_then_human_flags)
+    monkeypatch.setattr(session_lifecycle, "_reject_dir", reject_dir_then_human_flags)
     with pytest.raises(ioutil.Contested):
-        sessions.trim_session("s1", 3, paths)
-    log = sessions.read_log(sdir)
+        session_lifecycle.trim_session("s1", 3, paths)
+    log = store_log.read_log(sdir)
     assert len(log) == 6 and log[1].get("unusable") is True
     assert sorted(p.name for p in (sdir / "frames").iterdir()) == [f"{i:04d}.png" for i in range(6)]
     assert not made[0].exists(), "der Reject-Ordner war nur Ablage und ist wieder weg"
@@ -188,9 +191,9 @@ def test_a_verdict_during_the_trim_is_contested_and_nothing_moves(trimmable, mon
 
 def test_the_retried_trim_keeps_the_verdict(trimmable):
     paths, sdir = trimmable
-    sessions.flag_frame("s1", 1, True)
-    r = sessions.trim_session("s1", 3, paths)
-    log = sessions.read_log(sdir)
+    store_log.flag_frame("s1", 1, True)
+    r = session_lifecycle.trim_session("s1", 3, paths)
+    log = store_log.read_log(sdir)
     assert [Path(e["frame"]).stem for e in log] == ["0000", "0001", "0002"]
     assert log[1].get("unusable") is True
     assert (Path(r["reject_dir"]) / "frames" / "0005.png").exists()

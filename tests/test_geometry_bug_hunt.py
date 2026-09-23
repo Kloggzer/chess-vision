@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import yaml
 
-from chesslab import config, grid_occlusion, matte, realgames
+from chesslab import config, grid_occlusion, matte
 from chesslab.calibration import (
     CalibrationProfile,
     GridMesh,
@@ -16,6 +16,7 @@ from chesslab.calibration import (
     warp_board_for_crops,
 )
 from chesslab.framescan import cell_sharpness
+from chesslab.session_store import recording as store_rec
 from conftest import make_profile, write_jsonl
 
 SIDE = 320
@@ -89,7 +90,7 @@ def test_both_warp_paths_resample_the_same_way():
 
 def _session(tmp_path, monkeypatch, rows, board_shape):
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = realgames.game_dir("s1")
+    sdir = store_rec.game_dir("s1")
     (sdir / "dirty").mkdir(parents=True)
     for row in rows:
         cv2.imwrite(str(sdir / row["board"]), np.full((*board_shape, 3), 128, np.uint8))

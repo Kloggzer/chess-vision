@@ -185,16 +185,11 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     from .calibration import crop_border_px, load_profile
     from .labeling import all_squares, crops_for_frame, effective_profile
     from .occluded_model import all_reads, model_classes
-    from .realgames import (
-        BOARD_ENCODE,
-        EXPORT_PROFILE,
-        detect_rotation,
-        game_dir,
-        load_candidate,
-        video_fps,
-        video_path,
-    )
+    from .realgames.decode import detect_rotation
     from .recording import Recording
+    from .session_store.boards import BOARD_ENCODE
+    from .session_store.log import EXPORT_PROFILE
+    from .session_store.recording import game_dir, load_candidate, video_fps, video_path
     from .training.torch_data import infer_size_of
 
     # Vor dem Lesen gestempelt: bestaetigt ein Mensch waehrend der Minuten unten, ersetzte der
@@ -321,7 +316,7 @@ def _agreement(emissions: np.ndarray, sampled: list[int], plies: list[Retimed]) 
 
 def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: dict, fps: float,
                      stamp: tuple[int, int] | None) -> None:
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     for move, p in zip(candidate["moves"], plies, strict=True):
         move["frame_phone"] = p.frame_phone

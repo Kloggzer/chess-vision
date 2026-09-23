@@ -20,9 +20,10 @@ def _session(tmp_path, small_profile, board_size: int, border: int):
 
 
 def _wire(monkeypatch, d, rows, small_profile):
-    from chesslab import calibration, labeling, realgames
+    from chesslab import calibration, labeling
+    from chesslab.session_store import recording as store_rec
 
-    monkeypatch.setattr(realgames, "game_dir", lambda name: d)
+    monkeypatch.setattr(store_rec, "game_dir", lambda name: d)
     monkeypatch.setattr(labeling, "read_log", lambda _d: rows)
     monkeypatch.setattr(labeling, "read_session_meta", lambda _d: {"profile": "p"})
     monkeypatch.setattr(calibration, "load_profile", lambda _n: small_profile)

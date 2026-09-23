@@ -6,8 +6,10 @@ import json
 import chess
 import pytest
 
-from chesslab import calibration, config, labeling, occluded_model, realgames, recording, retime
+from chesslab import calibration, config, labeling, occluded_model, recording, retime
 from chesslab.label_audit import fen_labels
+from chesslab.realgames import decode as rg_decode
+from chesslab.session_store import recording as store_rec
 from chesslab.training import torch_data
 
 FPS = 30.0
@@ -60,10 +62,10 @@ def game(monkeypatch, tmp_path):
         return [{"probs": [1.0 if c == truth[pos][i] else 0.0 for c in range(len(classes))], "coverage": 0.0}
                 for i in range(64)]
 
-    monkeypatch.setattr(realgames, "game_dir", lambda name: gdir)
-    monkeypatch.setattr(realgames, "video_fps", lambda cand: FPS)
-    monkeypatch.setattr(realgames, "video_path", lambda name: tmp_path / "v.mp4")
-    monkeypatch.setattr(realgames, "detect_rotation", lambda *a: None)
+    monkeypatch.setattr(store_rec, "game_dir", lambda name: gdir)
+    monkeypatch.setattr(store_rec, "video_fps", lambda cand: FPS)
+    monkeypatch.setattr(store_rec, "video_path", lambda name: tmp_path / "v.mp4")
+    monkeypatch.setattr(rg_decode, "detect_rotation", lambda *a: None)
     monkeypatch.setattr(calibration, "load_profile", lambda name: object())
     monkeypatch.setattr(calibration, "crop_border_px", lambda prof: 0)
     monkeypatch.setattr(labeling, "effective_profile", lambda prof, pad: prof)

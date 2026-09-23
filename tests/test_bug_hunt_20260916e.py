@@ -68,7 +68,7 @@ def test_a_row_with_only_a_board_does_not_crash_the_read(tmp_path, monkeypatch):
     sdir = tmp_path / "s"
     sdir.mkdir()
     (sdir / "log.jsonl").write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr("chesslab.realgames.game_dir", lambda name: sdir)
+    monkeypatch.setattr("chesslab.session_store.recording.game_dir", lambda name: sdir)
     monkeypatch.setattr(occluded_model, "read_session_meta",
                         lambda d: {"session_id": "rg-s", "profile": "p"})
     monkeypatch.setattr(occluded_model, "check_not_circular", lambda run, sid: None)

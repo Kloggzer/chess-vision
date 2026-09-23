@@ -25,8 +25,9 @@ from chesslab.labeling import (
     read_session_meta,
     usable_board,
 )
-from chesslab.realgames import SETTLE_CELL_PX, SETTLE_MIN_FRAMES, cell_deviations
-from chesslab.sessions import read_log, session_dir
+from chesslab.realgames.position import SETTLE_CELL_PX, SETTLE_MIN_FRAMES, cell_deviations
+from chesslab.session_store.log import read_log
+from chesslab.session_store.paths import session_dir
 
 GROUPS = ('both', 'matte_only', 'grooves_only', 'neither', 'matte_unknown')
 

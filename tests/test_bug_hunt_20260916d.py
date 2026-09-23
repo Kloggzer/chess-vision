@@ -17,7 +17,9 @@ from tests.test_store_straightening import (  # noqa: E402
 )
 
 from chesslab import matte as matte_mod  # noqa: E402
-from chesslab.realgames import MATTE_DIR, decode_frames, straighten_boards  # noqa: E402
+from chesslab.realgames.boards import straighten_boards  # noqa: E402
+from chesslab.realgames.decode import decode_frames  # noqa: E402
+from chesslab.session_store.boards import MATTE_DIR  # noqa: E402
 
 
 def _frames(tmp_path):
@@ -163,7 +165,7 @@ def test_an_unmeasured_dirty_frame_must_not_enter_the_settled_reference(tmp_path
 
     from chesslab.calibration import crop_border_px
     from chesslab.labeling import SETTLE_LIMIT, all_squares
-    from chesslab.realgames import settle_for_ply
+    from chesslab.realgames.position import settle_for_ply
 
     prof = _profile()
     pad = crop_border_px(prof)

@@ -23,7 +23,7 @@ def _paths(tmp_path: Path) -> config.Paths:
 # --- 1. sessions.archive_session ---------------------------------------------------------
 
 def test_archive_keeps_the_crops_when_the_move_fails(tmp_path, monkeypatch):
-    from chesslab import sessions
+    from chesslab import session_lifecycle
 
     paths = _paths(tmp_path)
     (paths.sessions / "s1").mkdir(parents=True)
@@ -39,7 +39,7 @@ def test_archive_keeps_the_crops_when_the_move_fails(tmp_path, monkeypatch):
 
     monkeypatch.setattr(shutil, "move", boom)
     with pytest.raises(PermissionError):
-        sessions.archive_session("s1", reason="test", paths=paths)
+        session_lifecycle.archive_session("s1", reason="test", paths=paths)
 
     assert crop.exists(), "der Move ist gescheitert — die Crops duerfen nicht weg sein"
     assert manifest.read_text(encoding="utf-8").strip(), "das Manifest ebenso wenig"
@@ -48,7 +48,7 @@ def test_archive_keeps_the_crops_when_the_move_fails(tmp_path, monkeypatch):
 # --- 2. sessions.flag_frame --------------------------------------------------------------
 
 def test_flag_frame_backs_the_log_up_like_every_other_writer(tmp_path, monkeypatch):
-    from chesslab import sessions
+    from chesslab.session_store import log as store_log
 
     paths = _paths(tmp_path)
     monkeypatch.setattr(config, "DATA", paths)
@@ -57,7 +57,7 @@ def test_flag_frame_backs_the_log_up_like_every_other_writer(tmp_path, monkeypat
     (sdir / "log.jsonl").write_text(
         json.dumps({"frame": "frames/000001.png", "ply": 1}) + "\n", encoding="utf-8")
 
-    sessions.flag_frame("s1", 0, True)
+    store_log.flag_frame("s1", 0, True)
 
     assert list(sdir.glob("log.jsonl.bak.*")), (
         "jede andere Schreibfunktion des Abschnitts sichert den Log zuerst")
@@ -81,10 +81,10 @@ def test_ingest_reports_how_many_renders_the_adapter_dropped(tmp_path):
 # --- 4. realgames.frame_anchor -----------------------------------------------------------
 
 def test_frame_anchor_uses_review_frame_zero(tmp_path, monkeypatch):
-    from chesslab import realgames
+    from chesslab.realgames import confirm as rg_confirm
 
     monkeypatch.setattr(config, "DATA", _paths(tmp_path))
-    line = realgames.frame_anchor("g1", {"ply": 1, "san": "e4", "frame": 42, "frame_review": 0})
+    line = rg_confirm.frame_anchor("g1", {"ply": 1, "san": "e4", "frame": 42, "frame_review": 0})
 
     assert "000000" in line, "Frame 0 ist ein Bild wie jedes andere, kein fehlender Wert"
 

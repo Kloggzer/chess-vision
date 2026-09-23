@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from chesslab import audit_flags, config, hand_flags, matte, provenance, realgames, sessions
+from chesslab import audit_flags, config, hand_flags, matte, provenance, sessions
+from chesslab.session_store import paths as store_paths
+from chesslab.session_store import recording as store_rec
 
 
 def _session(tmp_path: Path, name: str = "rec") -> Path:
@@ -101,7 +103,7 @@ def test_slice_refuses_a_matte_from_an_older_cut(tmp_path, monkeypatch, capsys):
     sdir = _session(tmp_path)
     row = {"frame": "0", "coverage": {}, "_source": {"log": _stale(provenance.session_stamp(sdir))}}
     (sdir / "matte.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
-    monkeypatch.setattr(sessions, "session_dir", lambda sid: (sdir, False))
+    monkeypatch.setattr(store_paths, "session_dir", lambda sid: (sdir, False))
     assert labeling.run_slice(session="rec") == 1
     assert "aelteren Schnitt" in capsys.readouterr().out
 
@@ -129,17 +131,17 @@ def test_a_new_quad_drops_the_settle_measurement(tmp_path):
 # H4 -------------------------------------------------------------------------------------------
 
 def test_session_profile_still_stands_in_for_a_review(tmp_path):
-    prof = sessions.session_profile(tmp_path)
+    prof = store_paths.session_profile(tmp_path)
     assert prof.board_size == config.DEFAULT_BOARD_SIZE
 
 
 def test_measuring_callers_refuse_an_invented_profile(tmp_path):
     """`scan_alignment`/`autofix_corners` schreiben ins Log — unter einer erfundenen Kamera nicht."""
     with pytest.raises(FileNotFoundError):
-        sessions.session_profile(tmp_path, allow_standin=False)
+        store_paths.session_profile(tmp_path, allow_standin=False)
     (tmp_path / "session.yaml").write_text("profile: nicht-da\n", encoding="utf-8")
     with pytest.raises(FileNotFoundError):
-        sessions.session_profile(tmp_path, allow_standin=False)
+        store_paths.session_profile(tmp_path, allow_standin=False)
 
 
 # H5 -------------------------------------------------------------------------------------------
@@ -161,8 +163,8 @@ def test_alpha_worker_all_reports_its_failures(monkeypatch):
 
 def test_an_unreadable_archive_flag_is_not_a_release(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
-    gdir = realgames.game_dir("g")
+    gdir = store_rec.game_dir("g")
     gdir.mkdir(parents=True)
     (gdir / "ui-meta.json").write_text('{"archived": tr', encoding="utf-8")
     with pytest.raises(ValueError, match="unlesbar"):
-        realgames.is_archived("g")
+        store_rec.is_archived("g")

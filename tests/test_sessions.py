@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chesslab import config
-from chesslab import sessions as S
+from chesslab import config, session_lifecycle
+from chesslab.session_store import paths as store_paths
 
 
 def _mk_session(paths, sid, frames=2, archived=False):
@@ -46,7 +46,7 @@ def test_list_sessions_reports_frames_and_crops(tmp_path):
     _mk_session(paths, "s1", frames=3)
     _mk_session(paths, "s0", frames=1, archived=True)
     _mk_manifest(paths, ["s1", "s1"])
-    lst = {m["session_id"]: m for m in S.list_sessions(paths)}
+    lst = {m["session_id"]: m for m in session_lifecycle.list_sessions(paths)}
     assert lst["s1"]["n_frames"] == 3 and lst["s1"]["n_crops"] == 2 and lst["s1"]["archived"] is False
     assert lst["s0"]["archived"] is True and lst["s0"]["n_crops"] == 0
 
@@ -73,7 +73,7 @@ def test_archive_prunes_an_ingested_session_from_its_variant_pool(tmp_path):
     variant.write_text(json.dumps({"session_id": "chesscog__s1"}) + "\n"
                        + json.dumps({"session_id": "chesscog__s2"}) + "\n", encoding="utf-8")
 
-    res = S.archive_session("chesscog__s1", "duplicate of the rig corpus", paths)
+    res = session_lifecycle.archive_session("chesscog__s1", "duplicate of the rig corpus", paths)
 
     assert res["removed_crops"] == 1, "the variant pool was not purged"
     assert not (pool / "chesscog__s1_0000_e1.png").exists()
@@ -89,7 +89,7 @@ def test_archive_removes_crops_and_manifest_then_restore(tmp_path):
     _mk_crop(paths, "s1")
     _mk_crop(paths, "s2")
 
-    r = S.archive_session("s1", "test", paths)
+    r = session_lifecycle.archive_session("s1", "test", paths)
     assert r["removed_crops"] == 1
     assert not (paths.sessions / "s1").exists() and (paths.sessions_archive / "s1").exists()
     kept = [json.loads(line)["session_id"] for line in _manifest(paths)
@@ -98,7 +98,7 @@ def test_archive_removes_crops_and_manifest_then_restore(tmp_path):
     assert not (paths.crop_pool / "wK" / "s1_0000_e1.png").exists()
     assert (paths.crop_pool / "wK" / "s2_0000_e1.png").exists()  # other session untouched
 
-    S.restore_session("s1", paths)
+    session_lifecycle.restore_session("s1", paths)
     assert (paths.sessions / "s1").exists() and not (paths.sessions_archive / "s1").exists()
 
 
@@ -113,7 +113,7 @@ def test_delete_removes_dir_crops_manifest_and_corrections(tmp_path, monkeypatch
         (d / "corrections.jsonl").write_text(json.dumps(
             {"session_id": sid, "frame": "0000", "square": "e1", "label": "wK"}) + "\n", encoding="utf-8")
 
-    r = S.delete_session("s1", paths)
+    r = session_lifecycle.delete_session("s1", paths)
     assert r["deleted"] and r["removed_crops"] == 1
     assert not (paths.sessions / "s1").exists()
     assert not (sdir / "corrections.jsonl").exists()
@@ -142,7 +142,7 @@ def test_trim_session_removes_tail_frames_crops_manifest_and_corrections(tmp_pat
         encoding="utf-8",
     )
 
-    r = S.trim_session("s1", 2, paths)
+    r = session_lifecycle.trim_session("s1", 2, paths)
 
     assert r["kept_frames"] == 2
     assert r["removed_frames"] == 2
@@ -172,11 +172,11 @@ def test_trim_session_removes_tail_frames_crops_manifest_and_corrections(tmp_pat
 def test_invalid_id_and_missing(tmp_path):
     paths = config.Paths(root=tmp_path)
     with pytest.raises(ValueError):
-        S.delete_session("../etc", paths)
+        session_lifecycle.delete_session("../etc", paths)
     with pytest.raises(FileNotFoundError):
-        S.archive_session("nope", "test", paths)
+        session_lifecycle.archive_session("nope", "test", paths)
     with pytest.raises(FileNotFoundError):
-        S.restore_session("nope", paths)
+        session_lifecycle.restore_session("nope", paths)
 
 
 def test_archiving_records_why(tmp_path):
@@ -192,15 +192,15 @@ def test_archiving_records_why(tmp_path):
     import pytest
     import yaml
 
-    from chesslab import sessions as S
+    from chesslab import session_lifecycle
 
     paths = config.Paths(root=tmp_path)
     _mk_session(paths, "s1")
     with pytest.raises(ValueError, match="reason"):
-        S.archive_session("s1", "   ", paths)
+        session_lifecycle.archive_session("s1", "   ", paths)
     assert (paths.sessions / "s1").exists(), "a refused archive must not have moved anything"
 
-    res = S.archive_session("s1", "blurrier than the device: 59 px/square", paths)
+    res = session_lifecycle.archive_session("s1", "blurrier than the device: 59 px/square", paths)
     assert res["reason"].startswith("blurrier")
     meta = yaml.safe_load((paths.sessions_archive / "s1" / "session.yaml").read_text(encoding="utf-8"))
     assert meta["archived_reason"].startswith("blurrier")
@@ -215,14 +215,14 @@ def test_archiving_never_overwrites_an_existing_archive(tmp_path):
     """`shutil.rmtree(dst)` used to run here. Archiving is the SAFE half of the API."""
     import pytest
 
-    from chesslab import sessions as S
+    from chesslab import session_lifecycle
 
     paths = config.Paths(root=tmp_path)
     _mk_session(paths, "s1")
-    S.archive_session("s1", "first", paths)
+    session_lifecycle.archive_session("s1", "first", paths)
     _mk_session(paths, "s1")
     with pytest.raises(FileExistsError):
-        S.archive_session("s1", "second", paths)
+        session_lifecycle.archive_session("s1", "second", paths)
     assert (paths.sessions / "s1").exists(), "the live session must survive a refused archive"
 
 
@@ -239,7 +239,7 @@ def test_archived_at_in_meta_retires_a_session_that_was_never_moved(tmp_path):
     meta["archived_at"] = "2026-08-30T12:51:10Z"
     (stamped / "session.yaml").write_text(yaml.safe_dump(meta), encoding="utf-8")
 
-    lst = {m["session_id"]: m for m in S.list_sessions(paths)}
+    lst = {m["session_id"]: m for m in session_lifecycle.list_sessions(paths)}
     assert lst["stamped"]["archived"] is True
     assert lst["live-one"]["archived"] is False
     assert d.exists() and stamped.exists(), "nichts wird dabei verschoben"
@@ -267,6 +267,6 @@ def test_a_stamped_session_is_not_sliced(tmp_path, monkeypatch):
     meta["archived_at"] = "2026-08-30T12:51:10Z"
     (stamped / "session.yaml").write_text(yaml.safe_dump(meta), encoding="utf-8")
 
-    original = S.all_sessions
-    monkeypatch.setattr(S, "all_sessions", lambda *a, **k: list(original(paths)))
+    original = store_paths.all_sessions
+    monkeypatch.setattr(store_paths, "all_sessions", lambda *a, **k: list(original(paths)))
     assert labeling._session_ids_with_logs() == ["live-one"]

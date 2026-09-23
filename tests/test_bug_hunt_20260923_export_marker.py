@@ -8,8 +8,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from chesslab import config, ioutil, realgames, sessions
+from chesslab import config, ioutil, session_boards, sessions
 from chesslab.cli import app
+from chesslab.realgames import confirm as rg_confirm
+from chesslab.realgames import export as rg_export
+from chesslab.realgames import timeline as rg_timeline
+from chesslab.session_store import log as store_log
+from chesslab.session_store import recording as store_rec
 
 
 def _session(tmp_path, monkeypatch, *, marker=True):
@@ -26,7 +31,7 @@ def _session(tmp_path, monkeypatch, *, marker=True):
         (sdir / r["board"]).write_bytes(b"x")
     ioutil.write_rows(sdir / "log.jsonl", rows)
     if marker:
-        (sdir / realgames.EXPORT_MARKER).write_text("export started x\n", encoding="utf-8")
+        (sdir / store_log.EXPORT_MARKER).write_text("export started x\n", encoding="utf-8")
     notes = config.DATA.labels / "review-notes.jsonl"
     notes.parent.mkdir(parents=True, exist_ok=True)
     notes.write_text("", encoding="utf-8")
@@ -41,7 +46,7 @@ def _note(notes: Path, *frames: str) -> None:
 def _refused(result, sdir: Path, before: bytes) -> None:
     text = result.output + repr(result.exception)
     assert result.exit_code == 1, text
-    assert isinstance(result.exception, (SystemExit, sessions.ExportInterrupted)), text
+    assert isinstance(result.exception, (SystemExit, store_log.ExportInterrupted)), text
     assert "export was interrupted" in text, text
     assert (sdir / "log.jsonl").read_bytes() == before
 
@@ -112,12 +117,12 @@ def test_the_marker_setters_and_a_human_verdict_read_past_it(tmp_path, monkeypat
 
     sdir, _ = _session(tmp_path, monkeypatch)
     monkeypatch.setattr(labeling, "_profile_for_session", lambda *_a: object())
-    assert len(sessions.read_log(sdir, under_export=True)) == 3
+    assert len(store_log.read_log(sdir, under_export=True)) == 3
     with pytest.raises(sessions.NothingToDo, match="candidate.json"):
-        sessions.rewarp_boards_session("rg-g")
-    assert "error" in sessions.write_boards_session("rg-g"), "kommt bis zur Quellbild-Pruefung"
-    assert sessions.flag_frame("rg-g", 0, True)["unusable"] is True
-    assert (sdir / realgames.EXPORT_MARKER).is_file()
+        session_boards.rewarp_boards_session("rg-g")
+    assert "error" in session_boards.write_boards_session("rg-g"), "kommt bis zur Quellbild-Pruefung"
+    assert store_log.flag_frame("rg-g", 0, True)["unusable"] is True
+    assert (sdir / store_log.EXPORT_MARKER).is_file()
 
 
 # --- W5 place_board: erst das bewachte Log, dann die Bretter ------------------------------------
@@ -125,7 +130,7 @@ def test_the_marker_setters_and_a_human_verdict_read_past_it(tmp_path, monkeypat
 def test_a_contested_adopt_leaves_the_board_where_the_log_says(tmp_path, monkeypatch):
     sdir, notes = _session(tmp_path, monkeypatch, marker=False)
     _note(notes, "000144")
-    real = sessions.backup_log
+    real = store_log.backup_log
 
     def backup_then_foreign_write(path):
         name = real(path)
@@ -134,9 +139,9 @@ def test_a_contested_adopt_leaves_the_board_where_the_log_says(tmp_path, monkeyp
         ioutil.write_rows(path, rows)
         return name
 
-    monkeypatch.setattr(sessions, "backup_log", backup_then_foreign_write)
+    monkeypatch.setattr(store_log, "backup_log", backup_then_foreign_write)
     with pytest.raises(ioutil.Contested):
-        realgames.adopt_reported_dirty("g")
+        rg_export.adopt_reported_dirty("g")
     rows = ioutil.read_jsonl(sdir / "log.jsonl")
     assert rows[0]["board"] == "boards/000144.webp" and rows[1]["unusable"] is True
     assert (sdir / "boards" / "000144.webp").is_file(), "BUG: Brett verschoben, Log nicht"
@@ -148,7 +153,7 @@ def test_a_contested_adopt_leaves_the_board_where_the_log_says(tmp_path, monkeyp
 def test_the_cli_counts_reports_and_retractions_apart(tmp_path, monkeypatch):
     sdir, notes = _session(tmp_path, monkeypatch, marker=False)
     _note(notes, "000144")
-    assert realgames.adopt_reported_dirty("g")["set"] == 1
+    assert rg_export.adopt_reported_dirty("g")["set"] == 1
     _note(notes, "000900")
     result = CliRunner().invoke(app, ["realgames", "adopt-dirty", "g"])
     assert result.exit_code == 0, result.output
@@ -177,7 +182,7 @@ def test_the_plan_marks_only_what_the_report_promoted(monkeypatch):
     verdict = {103: "stale", 109: "occluded"}
     monkeypatch.setattr(framescan, "classify",
                         lambda seg, rows, **kw: {r["idx"]: verdict.get(r["idx"], "clean") for r in rows})
-    rows = realgames.plan_scanned(CANDIDATE, scan, margin_frames=30, reported={103, 106, 109})
+    rows = rg_timeline.plan_scanned(CANDIDATE, scan, margin_frames=30, reported={103, 106, 109})
     by = {int(Path(r["frame"]).stem): r for r in rows}
     assert by[106].get("dirty_source") == "reported", "BUG: nach dem Export erreicht kein Widerruf 106"
     assert "dirty_source" not in by[103] and "dirty_source" not in by[109], "Scan-Urteile bleiben"
@@ -186,7 +191,7 @@ def test_the_plan_marks_only_what_the_report_promoted(monkeypatch):
 def test_a_report_made_while_the_export_ran_lands_after_it(tmp_path, monkeypatch):
     """`adopt-dirty` verweigert unter dem Marker; der Export holt es hinter dem Marker nach."""
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    d = realgames.game_dir("g")
+    d = store_rec.game_dir("g")
     d.mkdir(parents=True)
     payload = {
         "name": "g", "video": "g.mp4", "confirmed": True, "created_at": "2026-08-08T00:00:00Z",
@@ -203,19 +208,19 @@ def test_a_report_made_while_the_export_ran_lands_after_it(tmp_path, monkeypatch
     (d / "video.mp4").write_bytes(b"")
     notes = config.DATA.labels / "review-notes.jsonl"
     notes.parent.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(realgames, "ensure_export_profile", lambda *_a: None)
-    monkeypatch.setattr(realgames, "detect_rotation", lambda *_a: None)
+    monkeypatch.setattr(rg_export, "ensure_export_profile", lambda *_a: None)
+    monkeypatch.setattr(rg_export, "detect_rotation", lambda *_a: None)
 
     def decode_and_report(_v, wanted, _out, rotate=None):
         _note(notes, *(f"{i:06d}" for i in wanted))
         return set(wanted)
 
-    monkeypatch.setattr(realgames, "decode_frames", decode_and_report)
-    realgames.export_session("g", measure=False, fit=False, no_scan=True, workers=1)
-    rows = sessions.read_log(d)
+    monkeypatch.setattr(rg_export, "decode_frames", decode_and_report)
+    rg_export.export_session("g", measure=False, fit=False, no_scan=True, workers=1)
+    rows = store_log.read_log(d)
     hit = [r for r in rows if r.get("dirty_source") == "reported"]
     assert hit and all(r["dirty"] for r in rows), "BUG: die Meldung waehrend des Exports kam nie an"
-    assert not (d / realgames.EXPORT_MARKER).exists()
+    assert not (d / store_log.EXPORT_MARKER).exists()
 
 
 # --- confirm: der md5 gehoert zu den Bytes, gegen die geurteilt wurde ---------------------------
@@ -229,7 +234,8 @@ def test_a_reference_replaced_during_the_prompt_is_refused(tmp_path, monkeypatch
                                      for i, s in enumerate(("e4", "e5", "d4", "Nf3"))]}
     (gdir / "candidate.json").write_text(json.dumps(cand, indent=2), encoding="utf-8")
     (gdir / "reference.pgn").write_bytes(b"1. e4 e5 2. Nf3 *\n")
-    monkeypatch.setattr(realgames, "game_dir", lambda name: gdir)
+    for mod in (store_rec, rg_confirm):   # Kandidat/Referenz, und die Frame-Anker in `confirm`
+        monkeypatch.setattr(mod, "game_dir", lambda name: gdir)
     before = (gdir / "candidate.json").read_bytes()
 
     def replaced_meanwhile(*_a, **_k):

@@ -6,7 +6,7 @@ import pytest
 
 from chesslab import calibration as cal
 from chesslab.alignment import _notch_centre
-from chesslab.realgames import _field_profile
+from chesslab.realgames.mesh import _field_profile
 
 
 def _polyfit_notch(win, csp, min_depth=6.0):
@@ -131,7 +131,7 @@ def test_selected_crops_are_the_same_training_crops_in_requested_order():
 
 
 def test_parallel_settle_matches_serial_across_segments_and_missing_anchors(tmp_path):
-    from chesslab import realgames as rg
+    from chesslab.realgames import settle as rg_settle
 
     corners = [[0., 0.], [64., 0.], [64., 64.], [0., 64.]]
     profile = _field_profile(corners, (64, 64), 64)
@@ -149,8 +149,8 @@ def test_parallel_settle_matches_serial_across_segments_and_missing_anchors(tmp_
              "move": {"ply": i + 1}}
             for i, (lo, hi, commit) in enumerate([(10, 120, 100), (80, 250, 230), (200, 350, 300)])]
     kw = {"video": tmp_path / "video.avi", "quad": corners, "profile": profile, "rotate": None}
-    serial = rg.settle_cluster(jobs, **kw)
-    parallel = rg._settle_parallel(jobs, workers=3, **kw)
+    serial = rg_settle.settle_cluster(jobs, **kw)
+    parallel = rg_settle._settle_parallel(jobs, workers=3, **kw)
     assert parallel == serial == {1: {"a1": 60, "h8": 60}, 2: {"a1": 180, "h8": 180}}
 
 

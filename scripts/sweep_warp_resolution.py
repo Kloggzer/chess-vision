@@ -63,8 +63,9 @@ os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import calibration, config, labeling, sessions  # noqa: E402
+from chesslab import calibration, config, labeling  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
+from chesslab.session_store import paths as store_paths  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
     load_manifest,
@@ -151,7 +152,7 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
     if max_frames:
         groups = groups[:max_frames]
     sids = sorted({sid for sid, _, _ in groups})
-    sdirs = {sid: sessions.session_dir(sid)[0] for sid in sids}
+    sdirs = {sid: store_paths.session_dir(sid)[0] for sid in sids}
     base_profiles = {}
     logs = {}
     for sid, sdir in sdirs.items():
@@ -300,7 +301,7 @@ def main() -> None:
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
             base = labeling._profile_for_session(
-                labeling.read_session_meta(sessions.session_dir(sid)[0]), None)
+                labeling.read_session_meta(store_paths.session_dir(sid)[0]), None)
             boxes = ", ".join(f"{w}->{crop_box_px(profile_at_warp(base, w)):.0f}px" for w in warps)
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square; profile "
                 f"'{base.profile}' board_size={base.board_size} pad_side={base.crop.pad_side} "

@@ -129,7 +129,7 @@ class SessionWriter:
 
         # LAUT, nicht uebersprungen: `session.yaml` kann ausfallen, weil es nichts mehr zu
         # beschreiben gibt — ein Frame ist die Aufnahme selbst. Eine Log-Zeile auf eine Datei, die
-        # es nie gab, faellt erst Wochen spaeter beim Schneiden auf (`realgames.write_board`).
+        # es nie gab, faellt erst Wochen spaeter beim Schneiden auf (`session_store.boards.write_board`).
         if self.jpeg_quality is None:
             rel = f"frames/{self._frame_idx:04d}.png"
             ok = cv2.imwrite(str(self.dir / rel), frame)

@@ -8,20 +8,12 @@ import numpy as np
 import pytest
 
 from chesslab import config
-from chesslab.realgames import (
-    LAST_INTERVAL_S,
-    carry_repaired_geometry,
-    confirm,
-    decode_frames,
-    ensure_export_profile,
-    export_session,
-    game_dir,
-    known_segments,
-    lcs_report,
-    plan_rows,
-    unknown_for,
-    write_session,
-)
+from chesslab.realgames.confirm import confirm, lcs_report
+from chesslab.realgames.decode import decode_frames
+from chesslab.realgames.export import carry_repaired_geometry, ensure_export_profile, export_session
+from chesslab.realgames.timeline import LAST_INTERVAL_S, known_segments, plan_rows, unknown_for
+from chesslab.session_store.log import write_session
+from chesslab.session_store.recording import game_dir
 
 
 def test_lcs_matches_the_kotlin_semantics():
@@ -258,7 +250,7 @@ def test_decode_frames_applies_the_rotation(tmp_path):
     import cv2
     import numpy as np
 
-    from chesslab.realgames import decode_frames
+    from chesslab.realgames.decode import decode_frames
 
     video = tmp_path / "v.avi"
     w = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 5, (64, 32))
@@ -468,7 +460,7 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
     20-48-55's 637 rows are that, and filing them under "failed" would invent damage.
     """
     from chesslab import alignment
-    from chesslab.realgames import FIT_FAILED, FIT_KEPT, FIT_SOURCE, fit_rows_to_grid
+    from chesslab.realgames.boards import FIT_FAILED, FIT_KEPT, FIT_SOURCE, fit_rows_to_grid
 
     frames = tmp_path / "frames"
     frames.mkdir()
@@ -490,7 +482,9 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
         for i in (30, 60, 90)
     ]
 
-    from chesslab.realgames import _field_profile, disk_frames, rewarp_boards
+    from chesslab.realgames.boards import rewarp_boards
+    from chesslab.realgames.decode import disk_frames
+    from chesslab.realgames.mesh import _field_profile
     profile = _field_profile(median, (8, 8), 8)
     stats = fit_rows_to_grid(rows, profile, frames=disk_frames(tmp_path, rows))
 
@@ -594,7 +588,7 @@ def test_a_segment_with_no_next_move_vouches_for_everything():
 
 
 def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
-    from chesslab import realgames as rg
+    from chesslab.realgames import settle as rg_settle
     from chesslab.work_audit import WorkAudit, activate, deactivate
 
     starts, decoded = [], []
@@ -625,9 +619,9 @@ def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
         value = min(255, int(frame))
         return [np.full((2, 2, 3), value, np.uint8) for _ in _kwargs.get("squares", range(64))]
 
-    monkeypatch.setattr(rg, "Recording", Recording)
-    monkeypatch.setattr(rg, "crops_for_frame", crops)
-    monkeypatch.setattr(rg, "changed_squares", lambda _before, _after: {"e2"})
+    monkeypatch.setattr(rg_settle, "Recording", Recording)
+    monkeypatch.setattr(rg_settle, "crops_for_frame", crops)
+    monkeypatch.setattr(rg_settle, "changed_squares", lambda _before, _after: {"e2"})
     candidate = {
         "geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
         "start_fen": "before",
@@ -639,7 +633,7 @@ def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
     audit = WorkAudit()
     token = activate(audit)
     try:
-        result = rg.measure_settle(tmp_path / "video.mp4", candidate, profile=None)
+        result = rg_settle.measure_settle(tmp_path / "video.mp4", candidate, profile=None)
     finally:
         deactivate(token)
 
@@ -725,13 +719,9 @@ def test_fit_stored_writes_the_field_quad_the_markers_missed(tmp_path, monkeypat
     """The logged quad carries the recorder's constant 0.045 outset, and the real one differs per
     session (measured 2026-08-15: up to 14 px, an eighth of a cell, in the crops that are trained
     on AND labelled). The board's own grid is the ruler that finds the playing field anyway."""
-    from chesslab.realgames import (
-        FIT_METHOD,
-        QUAD_FIT_NAME,
-        field_quad,
-        fit_stored,
-        measured_board_size,
-    )
+    from chesslab.realgames.mesh import field_quad, measured_board_size
+    from chesslab.realgames.stored import FIT_METHOD, fit_stored
+    from chesslab.session_store.recording import QUAD_FIT_NAME
 
     session, logged = _stored_session(tmp_path, monkeypatch)
     size = measured_board_size(logged)
@@ -760,7 +750,7 @@ def test_fit_stored_writes_the_field_quad_the_markers_missed(tmp_path, monkeypat
 def test_grid_line_fracs_refuses_nan_and_unsorted_lines(monkeypatch):
     """A NaN in the JSON would break both consumer parsers on the WHOLE sidecar; a bad
     curvature only costs its own stage, never the linear mesh."""
-    from chesslab.realgames import grid_line_fracs
+    from chesslab.realgames.mesh import grid_line_fracs
 
     img = np.full((120, 120, 3), 128, np.uint8)
     quad = [[10.0, 10.0], [90.0, 10.0], [90.0, 90.0], [10.0, 90.0]]
@@ -804,7 +794,8 @@ def test_grid_line_fracs_refuses_nan_and_unsorted_lines(monkeypatch):
 def test_a_frame_whose_grid_cannot_be_read_is_named_not_patched(tmp_path, monkeypatch):
     """A hand over the board must fail LOUDLY: the consumer keeps the logged marker quad for it,
     and a silently invented quad would move every crop of that frame."""
-    from chesslab.realgames import QUAD_FIT_NAME, fit_stored
+    from chesslab.realgames.stored import fit_stored
+    from chesslab.session_store.recording import QUAD_FIT_NAME
 
     session, _ = _stored_session(tmp_path, monkeypatch)
 
@@ -817,7 +808,8 @@ def test_a_frame_whose_grid_cannot_be_read_is_named_not_patched(tmp_path, monkey
 
 def test_a_re_run_replaces_the_sidecar_and_leaves_no_partial(tmp_path, monkeypatch):
     """Derived file: re-running is how a consumer picks up a fixed fit."""
-    from chesslab.realgames import QUAD_FIT_NAME, fit_stored
+    from chesslab.realgames.stored import fit_stored
+    from chesslab.session_store.recording import QUAD_FIT_NAME
 
     session, _ = _stored_session(tmp_path, monkeypatch)
     (session / QUAD_FIT_NAME).write_text('{"frames": {}}\n', encoding="utf-8")
@@ -830,7 +822,7 @@ def test_a_re_run_replaces_the_sidecar_and_leaves_no_partial(tmp_path, monkeypat
 
 
 def test_fit_stored_says_so_when_a_bundle_has_no_stored_session(tmp_path, monkeypatch):
-    from chesslab.realgames import fit_stored
+    from chesslab.realgames.stored import fit_stored
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     game_dir("g").mkdir(parents=True)
@@ -845,10 +837,12 @@ def test_yes_refuses_to_confirm_the_tracker_against_itself(tmp_path, monkeypatch
 
     import pytest
 
-    from chesslab import config, realgames
+    from chesslab import config
+    from chesslab.realgames import confirm as rg_confirm
+    from chesslab.session_store import recording as store_rec
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = realgames.game_dir("g1")
+    g = store_rec.game_dir("g1")
     (g / "files" / "games").mkdir(parents=True)
     pgn = "[Event \"?\"]\n\n1. e4 e5 *\n"
     (g / "reference.pgn").write_text(pgn, encoding="utf-8")
@@ -857,19 +851,21 @@ def test_yes_refuses_to_confirm_the_tracker_against_itself(tmp_path, monkeypatch
         "name": "g1", "moves": [{"ply": 1, "san": "e4", "frame": 10, "fen_after": "x"}]}),
         encoding="utf-8")
 
-    assert realgames.reference_is_the_phones_own("g1")
+    assert store_rec.reference_is_the_phones_own("g1")
     with pytest.raises(ValueError, match="against itself"):
-        realgames.confirm("g1", yes=True)
+        rg_confirm.confirm("g1", yes=True)
 
 
 def test_an_outside_notation_still_confirms_unprompted(tmp_path, monkeypatch):
     """A reference the phone did not write is the witness `--yes` is allowed to trust."""
     import json
 
-    from chesslab import config, realgames
+    from chesslab import config
+    from chesslab.realgames import confirm as rg_confirm
+    from chesslab.session_store import recording as store_rec
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = realgames.game_dir("g2")
+    g = store_rec.game_dir("g2")
     (g / "files" / "games").mkdir(parents=True)
     (g / "reference.pgn").write_text("[Event \"?\"]\n\n1. e4 e5 *\n", encoding="utf-8")
     (g / "files" / "games" / "live.pgn").write_text("[Event \"?\"]\n\n1. d4 d5 *\n", encoding="utf-8")
@@ -877,8 +873,8 @@ def test_an_outside_notation_still_confirms_unprompted(tmp_path, monkeypatch):
         "name": "g2", "moves": [{"ply": 1, "san": "e4", "frame": 10, "fen_after": "x"}]}),
         encoding="utf-8")
 
-    assert not realgames.reference_is_the_phones_own("g2")
-    assert realgames.confirm("g2", yes=True)["matched"] == 1
+    assert not store_rec.reference_is_the_phones_own("g2")
+    assert rg_confirm.confirm("g2", yes=True)["matched"] == 1
 
 
 def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
@@ -887,7 +883,7 @@ def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
     Reported frames must leave the clean p8 — a hand in the clean stock is the mislabel the whole
     frame scan exists to prevent — and keep their FEN, which is what `occluded` means here.
     """
-    from chesslab import realgames
+    from chesslab.realgames import timeline as rg_timeline
 
     candidate = {
         "geometry": {"corners": [[0, 0], [8, 0], [8, 8], [0, 8]]},
@@ -903,9 +899,9 @@ def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
     # und dieser Test fragt nach der Handmeldung, nicht nach dem Licht.
     scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [200.0] * 64}
             for i in range(100, 200, 3)]
-    plain = realgames.plan_scanned(candidate, scan, margin_frames=30)
+    plain = rg_timeline.plan_scanned(candidate, scan, margin_frames=30)
     reported = {103, 106, 109}
-    marked = realgames.plan_scanned(candidate, scan, margin_frames=30, reported=reported)
+    marked = rg_timeline.plan_scanned(candidate, scan, margin_frames=30, reported=reported)
 
     def stems(rows, dirty):
         return {int(Path(r["frame"]).stem) for r in rows if bool(r.get("dirty")) is dirty}
@@ -921,7 +917,7 @@ def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
 def test_reported_dirty_reads_only_its_own_session_and_only_the_hand_verdict(tmp_path, monkeypatch):
     """One flag, one pool: the export, the alpha worker and the lane all read this set."""
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    from chesslab.realgames import reported_dirty
+    from chesslab.session_store.recording import reported_dirty
 
     assert reported_dirty("rg-a") == set()
 
@@ -941,7 +937,7 @@ def test_reported_dirty_reads_only_its_own_session_and_only_the_hand_verdict(tmp
 def test_adopt_dirty_marks_the_reported_rows_occluded_and_leaves_the_rest(tmp_path, monkeypatch):
     """`occluded` is what makes the coming matte RESCUE the row instead of condemning it."""
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    from chesslab.realgames import adopt_reported_dirty
+    from chesslab.realgames.export import adopt_reported_dirty
 
     sdir = config.DATA.recordings / "g"
     sdir.mkdir(parents=True)
@@ -975,7 +971,8 @@ def test_a_report_does_not_overrule_a_measured_stale(tmp_path, monkeypatch):
     Promoting it anyway lets its matte rescue it at slice time, and the lagging FEN then reaches
     training as a label. The report answers "the scan missed a hand", nothing more.
     """
-    from chesslab import framescan, realgames
+    from chesslab import framescan
+    from chesslab.realgames import timeline as rg_timeline
 
     candidate = {
         "geometry": {"corners": [[0, 0], [8, 0], [8, 8], [0, 8]]},
@@ -999,7 +996,7 @@ def test_a_report_does_not_overrule_a_measured_stale(tmp_path, monkeypatch):
         return out
 
     monkeypatch.setattr(framescan, "classify", classify)
-    rows = realgames.plan_scanned(candidate, scan, margin_frames=30, reported={103, 106})
+    rows = rg_timeline.plan_scanned(candidate, scan, margin_frames=30, reported={103, 106})
     by_stem = {int(Path(r["frame"]).stem): r for r in rows}
     assert by_stem[103]["dirty_reason"] == "stale", "a measured stale survives the report"
     assert by_stem[106]["dirty_reason"] == "occluded", "a clean frame is still promoted"
@@ -1039,19 +1036,20 @@ def test_threaded_board_writes_match_the_serial_ones(tmp_path, monkeypatch):
     """
     import hashlib
 
-    from chesslab import realgames as rg
+    from chesslab.realgames import boards as rg_boards
+    from chesslab.realgames import mesh as rg_mesh
 
     median = [[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]
-    profile = rg._field_profile(median, (8, 8), 8)
+    profile = rg_mesh._field_profile(median, (8, 8), 8)
     plan = [{"frame": f"frames/{i:06d}.png", "corners": median} for i in range(12)]
     pictures = {i: np.full((8, 8, 3), 10 + 7 * i, np.uint8) for i in range(12)}
 
     def run(workers):
-        monkeypatch.setattr(rg, "BOARD_WRITERS", workers)
+        monkeypatch.setattr(rg_boards, "BOARD_WRITERS", workers)
         out = tmp_path / f"w{workers}"
         rows = [dict(r) for r in plan]
         frames = ((row, pictures[i]) for i, row in enumerate(rows))
-        rg.rewarp_boards(out, rows, profile, frames=frames)
+        rg_boards.rewarp_boards(out, rows, profile, frames=frames)
         return (
             {p.relative_to(out).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
              for p in sorted(out.rglob("*.webp"))},
@@ -1071,7 +1069,7 @@ def test_plan_chunks_cuts_contiguous_stretches_and_keeps_index_order():
     The order matters as much as the split: `arrived` is what the export writes as its row list,
     and it must come out in frame order however many workers produced it.
     """
-    from chesslab.realgames import MIN_CHUNK, plan_chunks
+    from chesslab.realgames.chunks import MIN_CHUNK, plan_chunks
 
     rows = [{"frame": f"frames/{i:06d}.png"} for i in range(0, 400, 2)]
     chunks = plan_chunks(rows, 4)
@@ -1093,7 +1091,8 @@ def test_merge_fit_stats_matches_one_serial_pass():
     they happen to be the same size and symmetric, and this number is what an export reports as
     the quality of its geometry.
     """
-    from chesslab.realgames import FIT_FAILED, FIT_KEPT, FIT_SOURCE, merge_fit_stats
+    from chesslab.realgames.boards import FIT_FAILED, FIT_KEPT, FIT_SOURCE
+    from chesslab.realgames.chunks import merge_fit_stats
 
     def part(worsts, **counts):
         rows = [{"frame": f"f{w}", "align_worst_px": w} for w in worsts]

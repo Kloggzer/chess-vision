@@ -94,10 +94,10 @@ def test_recut_coverage_says_so_when_a_session_could_not_be_recut(monkeypatch):
     from typer.testing import CliRunner
 
     from chesslab import matte as matte_mod
-    from chesslab import sessions
     from chesslab.cli import app
+    from chesslab.session_store import paths as store_paths
 
-    monkeypatch.setattr(sessions, "all_sessions",
+    monkeypatch.setattr(store_paths, "all_sessions",
                         lambda *a, **k: [("rg-a", Path("a")), ("rg-b", Path("b"))])
 
     def recut(one, progress=True):

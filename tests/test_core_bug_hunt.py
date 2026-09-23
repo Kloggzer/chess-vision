@@ -156,8 +156,9 @@ def test_retime_crops_raw_frames_at_the_models_infer_size(tmp_path, monkeypatch)
     import chesslab.calibration as calibration
     import chesslab.labeling as labeling
     import chesslab.occluded_model as occluded_model
-    import chesslab.realgames as realgames
     import chesslab.recording as recording
+    from chesslab.realgames import decode as rg_decode
+    from chesslab.session_store import recording as store_rec
 
     run = tmp_path / "run"
     run.mkdir()
@@ -173,10 +174,10 @@ def test_retime_crops_raw_frames_at_the_models_infer_size(tmp_path, monkeypatch)
     }
     seen_sizes = []
 
-    monkeypatch.setattr(realgames, "load_candidate", lambda _name: candidate)
-    monkeypatch.setattr(realgames, "video_fps", lambda _candidate: 30.0)
-    monkeypatch.setattr(realgames, "video_path", lambda _name: tmp_path / "video.mp4")
-    monkeypatch.setattr(realgames, "detect_rotation", lambda *_args: 0)
+    monkeypatch.setattr(store_rec, "load_candidate", lambda _name: candidate)
+    monkeypatch.setattr(store_rec, "video_fps", lambda _candidate: 30.0)
+    monkeypatch.setattr(store_rec, "video_path", lambda _name: tmp_path / "video.mp4")
+    monkeypatch.setattr(rg_decode, "detect_rotation", lambda *_args: 0)
     monkeypatch.setattr(calibration, "load_profile", lambda _name: object())
     monkeypatch.setattr(labeling, "effective_profile", lambda profile, _pad: profile)
 

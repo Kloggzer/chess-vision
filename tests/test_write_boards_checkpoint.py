@@ -6,7 +6,8 @@ import json
 import numpy as np
 import pytest
 
-from chesslab import config, labeling, realgames, sessions
+from chesslab import config, labeling, session_boards
+from chesslab.realgames import boards as rg_boards
 from conftest import make_profile, write_jsonl
 
 BS, BORDER = 64, 4
@@ -41,9 +42,9 @@ def test_a_killed_write_boards_leaves_the_straightened_flag_on_disk(tmp_path, mo
     (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
     write_jsonl(sdir / "log.jsonl", rows)
 
-    monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))
+    monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
     monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, name: _profile())
-    monkeypatch.setattr(realgames, "STRAIGHTEN_CHECKPOINT", 1)
+    monkeypatch.setattr(rg_boards, "STRAIGHTEN_CHECKPOINT", 1)
 
     def _board(job):
         stem = job[1].split("/")[-1].split(".")[0]
@@ -51,7 +52,7 @@ def test_a_killed_write_boards_leaves_the_straightened_flag_on_disk(tmp_path, mo
         cv2.imwrite(str(sdir / rel), np.zeros((BS + 2 * BORDER, BS + 2 * BORDER, 3), np.uint8))
         return {"board": rel, "board_size": BS, "board_border": BORDER}
 
-    monkeypatch.setattr(realgames, "board_from_frame", _board)
+    monkeypatch.setattr(rg_boards, "board_from_frame", _board)
 
     from chesslab import calibration
 
@@ -67,7 +68,7 @@ def test_a_killed_write_boards_leaves_the_straightened_flag_on_disk(tmp_path, mo
     monkeypatch.setattr(calibration, "straighten_board", _killed)
 
     with pytest.raises(KeyboardInterrupt):
-        sessions.write_boards_session("rg-rec")
+        session_boards.write_boards_session("rg-rec")
 
     on_disk = [json.loads(line) for line in
                (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]

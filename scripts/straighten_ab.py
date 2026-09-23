@@ -47,8 +47,10 @@ from chesslab.calibration import (  # noqa: E402
     straighten_board,
 )
 from chesslab.ioutil import read_jsonl  # noqa: E402
-from chesslab.realgames import detect_rotation, grid_line_fracs, video_path  # noqa: E402
+from chesslab.realgames.decode import detect_rotation  # noqa: E402
+from chesslab.realgames.mesh import grid_line_fracs  # noqa: E402
 from chesslab.recording import Recording  # noqa: E402
+from chesslab.session_store.recording import video_path  # noqa: E402
 
 
 def profile_of(candidate: dict) -> CalibrationProfile:

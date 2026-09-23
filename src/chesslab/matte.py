@@ -422,7 +422,7 @@ def recut_coverage(
     `docs/class-scheme.md`. SAM laeuft nicht, das ist reine Arithmetik.
     """
     from .calibration import load_profile
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
     path = session_dir / "matte.jsonl"
@@ -482,7 +482,7 @@ def recut_fixed(
     The cut has one implementation — `coverage_of`, the same `crops_for_frame` call the image
     goes through. The UI paints pixels and hands them over, never a coverage number."""
     from .calibration import load_profile
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
 
@@ -594,7 +594,7 @@ def matte_status(name: str) -> dict:
     Matte bekommt Coverage 0 und sieht aus wie ein freies Feld ("Coverage Matte Trap").
     """
     from .labeling import read_log
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
     rows = read_log(session_dir)
@@ -625,7 +625,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     them and re-running SAM would cost hours to change the same pixels. A row a person corrected
     (`alpha: fixed`) is skipped whole: that alpha and that coverage are theirs."""
     from .calibration import load_profile
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
     path = session_dir / "matte.jsonl"
@@ -715,7 +715,7 @@ def flagged_frames(name: str, *, reported: bool = False, wanted: bool = False,
     Je Aufnahme aufgeloest, weil ein Stapellauf sonst der zweiten Session die Frames der ersten
     gaebe. Die Reihenfolge ist die des CLI: die erste gesetzte Fahne gewinnt.
     """
-    from .realgames import game_dir, reported_dirty
+    from .session_store.recording import game_dir, reported_dirty
 
     if reported:
         return {f"{index:06d}" for index in reported_dirty(f"rg-{name}")}
@@ -862,7 +862,7 @@ def alpha_worker(
     A kill loses at most the current frame. `limit` targets SUCCESSFUL alphas, not a batch size;
     `frames` re-measures exactly those stems and ignores the pile and `limit` alike."""
     from .calibration import load_profile
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
 

@@ -43,7 +43,7 @@ def pool_index(tags: list[str], paths: config.Paths) -> dict[str, str]:
 
 
 def has_dir(session_id: str, paths: config.Paths) -> bool:
-    from chesslab.sessions import session_dir
+    from chesslab.session_store.paths import session_dir
 
     try:
         session_dir(session_id, paths)

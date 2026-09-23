@@ -93,18 +93,18 @@ def test_unset_is_not_the_same_as_no_rotation():
 @pytest.mark.usefixtures("data_root")
 def test_a_report_never_creates_a_scan(monkeypatch):
     """`--report-only` rechnet die Ausbeute aus und schreibt nichts — auch keine `scan.jsonl`."""
-    from chesslab import realgames as rg
+    from chesslab.realgames import export as rg_export
 
     monkeypatch.setattr(fs, "scan_is_stale", lambda *a, **k: "keine scan.jsonl")
     monkeypatch.setattr(fs, "scan_video", lambda *a, **k: pytest.fail("ein Bericht scannt nicht"))
     with pytest.raises(ValueError, match="Bericht braucht einen gueltigen Frame-Scan"):
-        rg.ensure_scan("g", rotate=None, read_only=True)
+        rg_export.ensure_scan("g", rotate=None, read_only=True)
 
 
 @pytest.mark.usefixtures("data_root")
 def test_a_failing_scan_stops_the_export_instead_of_planning_badly(monkeypatch):
     """Der stille Rueckfall auf die Margin-Fenster ist genau der Weg, der 23 % Haende einliess."""
-    from chesslab import realgames as rg
+    from chesslab.realgames import export as rg_export
 
     def boom(*a, **k):
         raise OSError("video weg")
@@ -112,19 +112,19 @@ def test_a_failing_scan_stops_the_export_instead_of_planning_badly(monkeypatch):
     monkeypatch.setattr(fs, "scan_is_stale", lambda *a, **k: "keine scan.jsonl")
     monkeypatch.setattr(fs, "scan_video", boom)
     with pytest.raises(ValueError, match="Frame-Scan ist gescheitert"):
-        rg.ensure_scan("g", rotate=None)
+        rg_export.ensure_scan("g", rotate=None)
 
 
 @pytest.mark.usefixtures("data_root")
 def test_the_ledger_counts_a_kept_occluded_correction_as_kept(monkeypatch):
     """`occluded` ist KEIN Ausschluss: der Export nimmt bis zu acht verdeckte Bretter je Stellung
     mit, ein korrigiertes verdecktes Bild kann also uebernommen sein."""
-    from chesslab import realgames as rg
+    from chesslab.realgames import export as rg_export
 
-    monkeypatch.setattr(rg, "known_segments", lambda c: [{"start": 0, "end": 100, "ply": 1}])
+    monkeypatch.setattr(rg_export, "known_segments", lambda c: [{"start": 0, "end": 100, "ply": 1}])
     rows = [{"frame": "boards/000012.webp", "dirty": True, "dirty_reason": "occluded"}]
     scan = [{"idx": i} for i in range(0, 100, 3)] + [{"idx": 12}, {"idx": 55}]
-    book = rg.correction_ledger("g", {12, 55, 500}, rows, scan, {})
+    book = rg_export.correction_ledger("g", {12, 55, 500}, rows, scan, {})
     kept = json.loads(book["path"].read_text(encoding="utf-8").splitlines()[0])
     assert book["kept"] == 1 and kept == {"idx": 12, "kept": True, "dirty_reason": "occluded"}
     assert book["lost"] == 2
@@ -160,11 +160,11 @@ def _seg_scan(hands=(), stale_from=None, end=120, stride=3, extra=()):
 def test_a_correction_the_spread_missed_comes_along_anyway():
     """Handarbeit darf nicht an einem Slot scheitern: `prefer` gewinnt nur im Umkreis von `tol`,
     und nach einer neuen Abtastung liegt das korrigierte Bild eben daneben."""
-    from chesslab import realgames as rg
+    from chesslab.realgames import timeline as rg_timeline
 
     cand = _candidate()
     scan = _seg_scan(hands=range(0, 12), extra={13, 46})
-    rows = rg.plan_scanned(cand, scan, margin_frames=0, prefer={13, 46})
+    rows = rg_timeline.plan_scanned(cand, scan, margin_frames=0, prefer={13, 46})
     picked = {int(r["frame"].split("/")[-1].split(".")[0]) for r in rows}
     assert {13, 46} <= picked, "beide korrigierten Bilder sind drin"
     occluded = {int(r["frame"].split("/")[-1].split(".")[0])
@@ -175,11 +175,11 @@ def test_a_correction_the_spread_missed_comes_along_anyway():
 def test_a_stale_correction_is_not_forced_back_in():
     """Bei `stale` laeuft die FEN nach — die Korrektur beschreibt dann ein anderes Brett als das
     Label, und genau das darf nicht ins Training."""
-    from chesslab import realgames as rg
+    from chesslab.realgames import timeline as rg_timeline
 
     cand = _candidate()
     scan = _seg_scan(stale_from=90, extra={117})
-    rows = rg.plan_scanned(cand, scan, margin_frames=0, prefer={117})
+    rows = rg_timeline.plan_scanned(cand, scan, margin_frames=0, prefer={117})
     assert 117 not in {int(r["frame"].split("/")[-1].split(".")[0])
                        for r in rows}, "stale bleibt draussen"
 
@@ -228,13 +228,13 @@ def test_a_scan_without_sharpness_flags_nothing():
 
 def test_a_blurred_frame_is_not_picked_at_all():
     """Weder als sauberes noch als verdecktes Brett — das Bild zeigt keine Figur."""
-    from chesslab import realgames as rg
+    from chesslab.realgames import timeline as rg_timeline
 
     cand = _candidate()
     scan = _seg_scan()
     for r in scan:
         r["sharp"] = 20.0 if r["idx"] in (12, 15) else 500.0
-    rows = rg.plan_scanned(cand, scan, margin_frames=0)
+    rows = rg_timeline.plan_scanned(cand, scan, margin_frames=0)
     picked = {int(r["frame"].split("/")[-1].split(".")[0]) for r in rows}
     assert not ({12, 15} & picked), "die zwei unscharfen bleiben draussen"
     assert picked, "der Rest wird normal gewaehlt"

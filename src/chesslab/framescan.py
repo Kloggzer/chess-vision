@@ -104,7 +104,7 @@ def blurred_indices(scan: list[dict], fraction: float = SHARP_MIN_FRACTION) -> s
 
 def scan_path(name: str) -> Path:
     """Next to the candidate, not in the session: a corpus reset must not cost the scan."""
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     return game_dir(name) / "scan.jsonl"
 
@@ -123,7 +123,8 @@ def scan_provenance(name: str, *, stride: int, extra=(), tag: str = "") -> dict:
     """
     from .calibration import profile_path
     from .hand_gate import CARD_FILE, DEFAULT_GATE, GATE_DIR, WEIGHTS_FILE
-    from .realgames import EXPORT_PROFILE, load_candidate, video_path
+    from .session_store.log import EXPORT_PROFILE
+    from .session_store.recording import load_candidate, video_path
 
     def stamp(path: Path) -> list:
         st = path.stat() if path.exists() else None
@@ -217,14 +218,11 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
     from .calibration import crop_border_px, load_profile, warp_padded
     from .grid_occlusion import hand_squares, missing_edges
     from .hand_gate import load_gate, read_boards
-    from .realgames import (
-        EXPORT_PROFILE,
-        PROGRESS_EVERY,
-        detect_rotation,
-        load_candidate,
-        video_path,
-    )
+    from .realgames.decode import detect_rotation
+    from .realgames.progress import PROGRESS_EVERY
     from .recording import Recording
+    from .session_store.log import EXPORT_PROFILE
+    from .session_store.recording import load_candidate, video_path
 
     path = scan_path(name)
     stale = scan_is_stale(name, stride=stride, extra=extra, tag=tag)
@@ -366,7 +364,7 @@ def select(reasons: dict[int, str], *, per_position: int = 8, dirty_per_position
     Dirty prefers `occluded` over `stale` because only the first has a FEN that still holds — a
     real hand over a KNOWN position is the only occlusion material whose labels are worth having.
     """
-    from .realgames import pick_spread
+    from .realgames.timeline import pick_spread
 
     idxs = sorted(reasons)
     clean = pick_spread(idxs, lambda i: reasons[i] == "clean", per_position, prefer=prefer, tol=tol)

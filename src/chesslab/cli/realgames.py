@@ -29,13 +29,13 @@ def realgames_confirm(
     only decides the candidate-only plies, each printed with the review PNG that shows the
     board at that frame.
     """
-    from .. import realgames as realgames_mod
+    from ..realgames import confirm as rg_confirm
 
     def ask(move: dict) -> bool:
         return typer.confirm(f"  keep candidate ply {move['ply']} {move['san']}?", default=False)
 
     with fail_on(*LOOKUP_ERRORS, tag="ERR"):
-        r = realgames_mod.confirm(name, yes=yes, ask=None if yes else ask)
+        r = rg_confirm.confirm(name, yes=yes, ask=None if yes else ask)
     print(f"[OK] {r['path']} — confirmed, {len(r['reviewed'])} reviewed plies "
           f"({len(r['kept'])} unmatched kept)")
 
@@ -108,10 +108,10 @@ def realgames_export_session(
     Every written frame is fitted to the board's own grid on the way out (`--no-fit` to skip),
     so an export lands where `session scan` + `autofix` used to have to drag it afterwards.
     """
-    from .. import realgames as realgames_mod
+    from ..realgames import export as rg_export
 
     with fail_on(*LOOKUP_ERRORS, tag="ERR"):
-        r = realgames_mod.export_session(name, quiet_margin_s=quiet_margin_s, every=every,
+        r = rg_export.export_session(name, quiet_margin_s=quiet_margin_s, every=every,
                                          per_position=per_position or None,
                                          dirty_per_position=dirty_per_position,
                                          dirty=dirty, fit=fit, report_only=report_only,
@@ -136,11 +136,11 @@ def realgames_fit_stored(
     where the playing field really is; this writes that as the field quad (margin 0) the pack and
     the review viewer prefer. A frame the fit cannot read is listed in `failed`, never patched.
     """
-    from .. import realgames as realgames_mod
+    from ..realgames import stored as rg_stored
 
     _one_or_all(name, all_bundles)
     with fail_on(*LOOKUP_ERRORS, tag="ERR"):
-        done = realgames_mod.fit_stored_all() if all_bundles else realgames_mod.fit_stored(name)
+        done = rg_stored.fit_stored_all() if all_bundles else rg_stored.fit_stored(name)
     failed = sum(len(d["failed"]) for d in done)
     print(f"[OK] {len(done)} stored session(s), {sum(d['fitted'] for d in done)} frames fitted, "
           f"{failed} left to their logged quad")
@@ -220,7 +220,7 @@ def realgames_adopt_dirty(
     whole recording. This marks the stored rows `occluded`, which is also what makes the coming
     matte RESCUE them: measured coverage on a row still classed `clean` condemns it instead.
     """
-    from .. import realgames as rg_mod
+    from ..realgames import export as rg_export
 
     _one_or_all(name, all_recordings)
     names = [p.name for p in sorted(config.DATA.recordings.glob("*")) if (p / "log.jsonl").exists()]
@@ -228,7 +228,7 @@ def realgames_adopt_dirty(
     failed = 0
     for target in (names if all_recordings else [name]):
         try:
-            res = rg_mod.adopt_reported_dirty(target)
+            res = rg_export.adopt_reported_dirty(target)
         except LOOKUP_ERRORS as e:
             print(f"[ERR] {target}: {e}")
             failed += 1

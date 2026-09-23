@@ -589,7 +589,7 @@ def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:
     """
     from .ioutil import read_jsonl
     from .labeling import all_squares
-    from .realgames import game_dir
+    from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
     model, card, device = load_gate(tag)

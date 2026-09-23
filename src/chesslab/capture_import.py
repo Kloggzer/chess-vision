@@ -16,9 +16,11 @@ from typing import Any
 
 import cv2
 
-from . import realgames
 from .ioutil import read_jsonl, write_rows
+from .realgames import boards as rg_boards
 from .recording import Recording
+from .session_store import log as store_log
+from .session_store import recording as store_rec
 
 #: Was eine Buendel-Zeile mitnimmt. `move_san` bleibt draussen: eine Erfassung hat keine Zuege.
 CARRIED = ("ply", "fen", "corners", "ts")
@@ -31,7 +33,7 @@ MAX_FPS, INDEX_EPS = 240.0, 1e-6
 def container_fps(video: Path) -> float:
     """`CAP_PROP_FPS` des Containers — GELESEN, nie angenommen.
 
-    `realgames.video_fps` faellt ohne Kandidaten auf 30,0 zurueck; die vorhandenen Aufnahmen laufen
+    `session_store.recording.video_fps` faellt ohne Kandidaten auf 30,0 zurueck; die vorhandenen Aufnahmen laufen
     mit 28,63 und die Erfassung mit 15. Ein geratener Wert verschiebt jeden Index lautlos.
     """
     cap = cv2.VideoCapture(str(video))
@@ -116,7 +118,7 @@ def frame_range(window: tuple[int, int | None], syncs, fps: float) -> range:
 def capture_rows(bundle: Path, steps, syncs, fps: float) -> list[dict]:
     """Je Frame im Fenster eines Schritts eine Zeile, benannt nach dem GERECHNETEN Video-Index."""
     rows = []
-    for src in realgames.stored_rows(bundle):
+    for src in store_rec.stored_rows(bundle):
         window = steps.get(int(src["ply"]))
         if window is None:
             raise ValueError(f"{bundle}: Ply {src['ply']} steht im Log, aber in keinem Schritt")
@@ -139,7 +141,7 @@ def video_frames(video: Path, rows: list[dict]) -> Iterator[tuple[dict, Any]]:
 
 
 def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str, prof) -> Path:
-    """`session.yaml` neben dem Log, in der Form von `realgames.write_session`.
+    """`session.yaml` neben dem Log, in der Form von `session_store.log.write_session`.
 
     Ohne sie ueberspringen `position_flags`/`frame_hands` das Verzeichnis WORTLOS, statt zu
     meckern — der importierte Mitschnitt erreicht das Training dann nie.
@@ -163,38 +165,38 @@ def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str,
 def write_log(session_dir: Path, rows: list[dict]) -> Path:
     """TODO: `open("w")` KUERZTE die kanonische Datei der Aufnahme; ein Abbruch liess sie halb da,
     und `provenance.session_stamp` stempelt auch eine halbe, womit `chain.ts` die Sprosse fuer
-    frisch haelt. Derselbe tmp+`os.replace`-Riegel wie in `sessions._write_log`.
+    frisch haelt. Derselbe tmp+`os.replace`-Riegel wie in `session_store.log._write_log`.
     """
     log_path = session_dir / "log.jsonl"
     write_rows(log_path, rows)
     return log_path
 
 
-def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
+def import_capture(name: str, profile: str = store_log.EXPORT_PROFILE) -> dict:
     """Ein Buendel mit `capture.json` wird zu Brettern und dem `log.jsonl`, das `slice` liest."""
     from .calibration import load_profile
 
-    dirs = realgames.stored_session_dirs(name)
+    dirs = store_rec.stored_session_dirs(name)
     if len(dirs) != 1:
         raise ValueError(f"{name}: genau ein Buendel erwartet, gefunden {[str(d) for d in dirs]}")
     bundle = dirs[0]
-    video = realgames.video_path(name)
+    video = store_rec.video_path(name)
     fps = container_fps(video)
     rows = capture_rows(bundle, capture_steps(bundle), video_syncs(bundle), fps)
-    session_dir = realgames.game_dir(name)
+    session_dir = store_rec.game_dir(name)
     prof = load_profile(profile)
     # Das ArUco-Quad des Telefons ist grob (CLAUDE.md), und ohne die `grid_lines`, die erst der Fit
     # schreibt, findet `meshes_for_boards` nichts und jedes Brett bleibt gebogen.
-    fit = realgames.fit_rows_to_grid(rows, prof, frames=video_frames(video, rows))
+    fit = rg_boards.fit_rows_to_grid(rows, prof, frames=video_frames(video, rows))
     rows = fit["arrived"]
-    made = realgames.rewarp_boards(session_dir, rows, prof, frames=video_frames(video, rows))
+    made = rg_boards.rewarp_boards(session_dir, rows, prof, frames=video_frames(video, rows))
     # Eine Zeile ohne Brett benennt eine Datei, die nie geschrieben wurde — hinter dem Ende einer
     # abgeschnittenen Aufnahme gibt der Dekoder kein Bild mehr her.
     rows = [r for r in rows if r.get("board")]
     write_capture_meta(session_dir, bundle, name, profile, prof)
-    # Wie `realgames.write_session`: im Log koennen handgesetzte Quads und Urteile stehen, und
+    # Wie `session_store.log.write_session`: im Log koennen handgesetzte Quads und Urteile stehen, und
     # ein Re-Import darf sie nicht ohne Kopie ueberschreiben.
-    from .sessions import backup_log
+    from .session_store.log import backup_log
 
     if (session_dir / "log.jsonl").is_file():
         backup_log(session_dir / "log.jsonl")

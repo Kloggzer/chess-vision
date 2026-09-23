@@ -6,8 +6,9 @@ import cv2
 import numpy as np
 import yaml
 
-from chesslab import config, realgames, sessions
+from chesslab import config, session_boards
 from chesslab.calibration import CalibrationProfile, crop_border_px
+from chesslab.session_store import recording as store_rec
 from conftest import make_profile, write_jsonl
 
 SIDE = 320
@@ -31,7 +32,7 @@ def _board(side: int, border: int) -> np.ndarray:
 
 def _session(tmp_path, monkeypatch, rows, side, border):
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = realgames.game_dir("s1")
+    sdir = store_rec.game_dir("s1")
     (sdir / "boards").mkdir(parents=True)
     for row in rows:
         cv2.imwrite(str(sdir / row["board"]), _board(side, border))
@@ -59,7 +60,7 @@ def test_the_settle_scan_refuses_a_board_that_is_not_the_crop_raster(tmp_path, m
     _session(tmp_path, monkeypatch, rows, small, border)
     monkeypatch.setattr("chesslab.labeling.load_profile", lambda name: prof)
 
-    result = sessions.settle_scan_session("rg-s1")
+    result = session_boards.settle_scan_session("rg-s1")
 
     assert result["scored"] == 0, (
         f"{result['scored']} Bretter in {small} px wurden mit dem {SIDE}-px-Profil abgetastet und "
@@ -96,4 +97,4 @@ def test_the_settle_scan_still_scores_a_board_in_the_profiles_own_scale(tmp_path
     _session(tmp_path, monkeypatch, rows, SIDE, border)
     monkeypatch.setattr("chesslab.labeling.load_profile", lambda name: prof)
 
-    assert sessions.settle_scan_session("rg-s1")["scored"] == 8
+    assert session_boards.settle_scan_session("rg-s1")["scored"] == 8

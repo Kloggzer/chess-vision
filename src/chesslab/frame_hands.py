@@ -53,7 +53,7 @@ def frame_hands() -> dict:
     """Ueber jede exportierte Session mit einem Scan. -> Zusammenfassung und Pfad."""
     from .framescan import GATE_THR, SCAN_STRIDE, read_scan
     from .labeling import read_log, read_session_meta
-    from .sessions import ExportInterrupted
+    from .session_store.log import ExportInterrupted
 
     rows, per_session, scanned, without, interrupted = [], {}, [], [], []
     blind: dict[str, int] = {}

@@ -7,7 +7,7 @@ import pytest
 from chesslab import audit_flags as mod
 from chesslab import config
 from chesslab.audit_flags import class_thresholds, confident_class, session_flags
-from chesslab.realgames import game_dir
+from chesslab.session_store.recording import game_dir
 
 #: Deliberately NOT a run on disk: these tests are about flag selection, and the guard has
 #: its own. A real path would be read under the monkeypatched data root, where its split

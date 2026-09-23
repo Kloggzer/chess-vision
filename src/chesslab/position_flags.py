@@ -1,7 +1,7 @@
 """Zellen, deren Bild von der Stellung abweicht, für die ihr Intervall bürgt —
 `data/reports/position-flags.jsonl`. DERIVED, jeder Lauf schreibt sie ganz neu.
 
-Der Mensch benennt dort die Figur, die wirklich dasteht. Zahlen: `realgames.settle_for_ply`.
+Der Mensch benennt dort die Figur, die wirklich dasteht. Zahlen: `realgames.position.settle_for_ply`.
 """
 
 from __future__ import annotations
@@ -21,8 +21,7 @@ from .labeling import (
     read_matte,
     read_session_meta,
 )
-from .realgames import INTERVAL_FILE
-from .sessions import ExportInterrupted
+from .session_store.log import INTERVAL_FILE, ExportInterrupted
 from .state import GameState
 
 FLAGS_FILE = "position-flags.jsonl"

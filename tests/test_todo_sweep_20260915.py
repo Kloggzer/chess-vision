@@ -235,7 +235,8 @@ def test_validate_split_does_not_report_the_same_finding_twice():
 def test_plan_scanned_forwards_white_pov_to_classify(monkeypatch):
     """`classify` never saw anything but True, so a black-POV profile mapped `next_touches`
     onto the squares rotated by 180 degrees — `cell_sharpness` had the same defect."""
-    from chesslab import framescan, realgames
+    from chesslab import framescan
+    from chesslab.realgames import timeline as rg_timeline
 
     seen = {}
 
@@ -246,12 +247,12 @@ def test_plan_scanned_forwards_white_pov_to_classify(monkeypatch):
     monkeypatch.setattr(framescan, "classify", _classify)
     monkeypatch.setattr(framescan, "blurred_indices", lambda _s: set())
     monkeypatch.setattr(framescan, "dark_indices", lambda _s: set())
-    monkeypatch.setattr(realgames, "known_segments", lambda _c: [{"start": 0, "end": 1}])
-    monkeypatch.setattr(realgames, "base_time", lambda _c: __import__("datetime").datetime(2026, 1, 1))
-    monkeypatch.setattr(realgames, "video_fps", lambda _c: 30.0)
+    monkeypatch.setattr(rg_timeline, "known_segments", lambda _c: [{"start": 0, "end": 1}])
+    monkeypatch.setattr(rg_timeline, "base_time", lambda _c: __import__("datetime").datetime(2026, 1, 1))
+    monkeypatch.setattr(rg_timeline, "video_fps", lambda _c: 30.0)
     candidate = {"geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]}}
 
-    realgames.plan_scanned(candidate, [{"idx": 0}], margin_frames=0, white_pov=False)
+    rg_timeline.plan_scanned(candidate, [{"idx": 0}], margin_frames=0, white_pov=False)
     assert seen.get("white_pov") is False
 
 
@@ -261,13 +262,14 @@ def test_plan_scanned_forwards_white_pov_to_classify(monkeypatch):
 def test_merge_fit_stats_ignores_a_carried_align_worst_px():
     """`--workers 4` reported a spread the serial run does not: a FIT_FAILED row keeps the
     `align_worst_px` `carry_repaired_geometry` copied from the last export."""
-    from chesslab import realgames
+    from chesslab.realgames import boards as rg_boards
+    from chesslab.realgames import chunks as rg_chunks
 
-    part = {realgames.FIT_SOURCE: 1, realgames.FIT_KEPT: 0, realgames.FIT_FAILED: 1,
+    part = {rg_boards.FIT_SOURCE: 1, rg_boards.FIT_KEPT: 0, rg_boards.FIT_FAILED: 1,
             "mesh": 0, "hands": 0, "late": 0,
-            "arrived": [{"corners_source": realgames.FIT_SOURCE, "align_worst_px": 1.0},
-                        {"corners_source": realgames.FIT_FAILED, "align_worst_px": 99.0}]}
-    merged = realgames.merge_fit_stats([part])
+            "arrived": [{"corners_source": rg_boards.FIT_SOURCE, "align_worst_px": 1.0},
+                        {"corners_source": rg_boards.FIT_FAILED, "align_worst_px": 99.0}]}
+    merged = rg_chunks.merge_fit_stats([part])
     assert (merged["median"], merged["max"]) == (1.0, 1.0)
 
 
@@ -291,7 +293,7 @@ def test_discover_scans_and_pick_mesh_agree(tmp_path):
 
 
 def test_trim_session_reports_the_matte_rows_it_dropped(tmp_path, monkeypatch):
-    from chesslab import config, sessions
+    from chesslab import config, session_lifecycle
 
     paths = config.Paths(root=tmp_path)
     sdir = paths.recordings / "s1"
@@ -301,9 +303,9 @@ def test_trim_session_reports_the_matte_rows_it_dropped(tmp_path, monkeypatch):
     write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "matte.jsonl").write_text("".join(json.dumps({"frame": f"{i:04d}"}) + "\n"
                                               for i in (0, 1)), encoding="utf-8")
-    monkeypatch.setattr(sessions, "session_dir", lambda _sid, _p=None: (sdir, False))
+    monkeypatch.setattr(session_lifecycle, "session_dir", lambda _sid, _p=None: (sdir, False))
 
-    res = sessions.trim_session("s1", 1, paths=paths)
+    res = session_lifecycle.trim_session("s1", 1, paths=paths)
     assert res["removed_matte_rows"] == 1
 
 

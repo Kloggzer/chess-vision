@@ -63,7 +63,7 @@ def test_the_report_separates_what_a_standard_run_can_close(tmp_path, monkeypatc
 
     sdir = _rows_on_disk(tmp_path)
     monkeypatch.setattr(matte_mod, "game_dir", lambda name: sdir, raising=False)
-    monkeypatch.setattr("chesslab.realgames.game_dir", lambda name: sdir)
+    monkeypatch.setattr("chesslab.session_store.recording.game_dir", lambda name: sdir)
 
     res = matte_mod.matte_status("s")
 

@@ -16,8 +16,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from chesslab.ioutil import read_jsonl, write_json
 from chesslab.labeling import _profile_for_session, crop_square, read_session_meta
-from chesslab.realgames import SETTLE_CELL_PX
-from chesslab.sessions import read_log, session_dir
+from chesslab.realgames.position import SETTLE_CELL_PX
+from chesslab.session_store.log import read_log
+from chesslab.session_store.paths import session_dir
 
 
 def choose(candidates, count, rng, used):

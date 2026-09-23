@@ -27,7 +27,7 @@ flowchart TD
 
 | Stage | Command | Writes | Key module |
 |---|---|---|---|
-| Import | phone transfer, `realgames export-session` | `data/recordings/<ts>/` | `realgames.py` |
+| Import | phone transfer, `realgames export-session` | `data/recordings/<ts>/` | `realgames/export.py` |
 | Import (external) | `chesslab ingest synthetic <dir>` | `data/sessions/<id>/` | `ingest.py` |
 | Label | `chesslab slice --all` | `data/crops/default/` + its `manifest.jsonl` | `labeling.py` |
 | Curate | `chesslab dataset build <name> …` | `data/datasets/<name>/` | `dataset_build.py` |

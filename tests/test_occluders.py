@@ -29,7 +29,7 @@ def test_the_source_sets_the_warp_size_so_nothing_is_invented_and_thrown_away():
     62 % des Pretrains kamen 2026-08-23 aus solchen Clips. An `out_size` koppeln waere derselbe
     Fehler von der anderen Seite: dann skaliert man zweimal statt einmal.
     """
-    from chesslab.realgames import measured_board_size
+    from chesslab.realgames.mesh import measured_board_size
 
     def quad(edge: int):
         return [[0, 0], [edge, 0], [edge, edge], [0, edge]]

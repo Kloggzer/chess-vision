@@ -166,7 +166,7 @@ def _cut_session(task) -> int:
 
     from ..calibration import load_profile
     from ..labeling import crop_square, read_log, read_session_meta, usable_board
-    from ..realgames import game_dir
+    from ..session_store.recording import game_dir
 
     d = game_dir(sid[3:] if sid.startswith("rg-") else sid)
     profile = load_profile(read_session_meta(d)["profile"])
@@ -221,7 +221,7 @@ def cut_plan(rows: list[dict]) -> tuple[list[tuple[int, str]], dict]:
     Brett-Dateien statt 420 000 Crop-Dateien (`docs/data-pipeline.md` 3.1). Alles ohne Brett
     (Kompositen, Synth) kommt weiter aus seiner Datei; neu zu rendern waere teurer als der Umweg.
     """
-    from ..realgames import game_dir
+    from ..session_store.recording import game_dir
 
     files: list[tuple[int, str]] = []
     at: dict[str, dict[str, list[tuple[str, int]]]] = {}

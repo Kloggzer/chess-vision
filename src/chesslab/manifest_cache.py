@@ -1,6 +1,6 @@
 """mtime-based cache of per-session crop counts over crop manifests (JSONL).
 
-`sessions.py` asks "how many crops does session X have?" once per listed session, and reading a
+`session_lifecycle.py` asks "how many crops does session X have?" once per listed session, and reading a
 300k-line manifest per question is what made that list slow. Each manifest is scanned ONCE per
 file version ((mtime_ns, size) key); manifests are append-mostly, so any write invalidates the
 entry by itself. Deliberately a cache over the JSONL source of truth — nothing to keep in sync.

@@ -49,7 +49,7 @@ def _one_or_all(name: object, every: bool, what: str = "name") -> None:
 
 def _rg_recordings() -> list[str]:
     """Every recording that has a session, by its recording name (without `rg-`)."""
-    from ..sessions import all_sessions
+    from ..session_store.paths import all_sessions
 
     return [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
 
@@ -63,8 +63,8 @@ def _target_sessions(session: str | None, every: bool) -> list[str]:
     _require_target(session, every)
     if not every:
         return [session]
-    from .. import sessions as sessions_mod
-    return [s["session_id"] for s in sessions_mod.list_sessions() if not s["archived"]]
+    from .. import session_lifecycle
+    return [s["session_id"] for s in session_lifecycle.list_sessions() if not s["archived"]]
 
 
 def _session_call(fn, *args):

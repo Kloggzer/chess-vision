@@ -166,7 +166,8 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     EVERY row, not only the dirty ones: a wrong piece on a clean board is what the p8 stock
     trains on, and the proposer only ever looked at the pile (`docs/frame-scan.md`).
     """
-    from .realgames import PROGRESS_EVERY, game_dir
+    from .realgames.progress import PROGRESS_EVERY
+    from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
     if not (session_dir / "log.jsonl").exists():

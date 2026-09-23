@@ -168,7 +168,7 @@
   `export` and `matte`.
 - **Provenance, not existence:** `pass.json`, `model-reads.jsonl` and `matte.jsonl` carry `_source`
   (`chesslab.provenance`); `chain.ts` compares. A file WITHOUT a stamp stays valid.
-- **`.export-running` blocks the follow-up steps** until a new export finishes (`sessions.py`,
+- **`.export-running` blocks the follow-up steps** until a new export finishes (`session_store/log.py`,
   `chain.ts`).
 - **`log.jsonl` writers are stamp-guarded** in Python and web: `Contested` instead of overwriting.
 - **JSON trustee:** all `.json`/`.jsonl` I/O goes through `chesslab.ioutil`

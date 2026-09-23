@@ -112,7 +112,8 @@ def test_slice_session_closes_its_owned_writer_pool(monkeypatch):
 
 
 def test_run_slice_publishes_completed_batch_on_keyboard_interrupt(tmp_path, monkeypatch):
-    from chesslab import labeling, locks, sessions
+    from chesslab import labeling, locks
+    from chesslab.session_store import paths as store_paths
 
     published = []
     calls = 0
@@ -128,7 +129,7 @@ def test_run_slice_publishes_completed_batch_on_keyboard_interrupt(tmp_path, mon
     monkeypatch.setattr(labeling, "_session_ids_with_logs", lambda: ["first", "second"])
     monkeypatch.setattr(labeling, "variant_paths", lambda tag: (tmp_path / "manifest", tmp_path))
     monkeypatch.setattr(locks, "pool_lock", lambda *args, **kwargs: nullcontext())
-    monkeypatch.setattr(sessions, "session_dir", lambda sid: (tmp_path / sid, sid))
+    monkeypatch.setattr(store_paths, "session_dir", lambda sid: (tmp_path / sid, sid))
     monkeypatch.setattr(labeling, "read_session_meta", lambda path: {"profile": "test"})
     monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, profile: object())
     monkeypatch.setattr(labeling, "slice_session", fake_slice_session)

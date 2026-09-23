@@ -67,7 +67,7 @@ def capture_import_cmd(
 ) -> None:
     """Ein Buendel MIT `capture.json` wird zu Brettern — ohne Kandidat und ohne Zugerkennung."""
     from ..capture_import import import_capture
-    from ..realgames import FIT_FAILED, FIT_KEPT, FIT_SOURCE
+    from ..realgames.boards import FIT_FAILED, FIT_KEPT, FIT_SOURCE
 
     with fail_on(OSError, ValueError, KeyError):
         res = import_capture(name, profile)
