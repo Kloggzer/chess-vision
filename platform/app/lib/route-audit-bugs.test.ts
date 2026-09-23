@@ -260,6 +260,13 @@ test("ein unlesbares Review-Frame ist 500, kein 404", async () => {
   expect((await frame("g", "000100")).status).toBe(500);
 });
 
+test("ein fehlendes Review-Frame ist 404 und sagt es", async () => {
+  await writeSession({ root, name: "g" });
+  const res = await frame("g", "000100");
+  expect(res.status).toBe(404);
+  expect(await res.text()).toBe("no such frame");
+});
+
 test("ein Pfad-Segment, das `checkName` verwirft, ist 400 — nicht 'no such frame'", async () => {
   expect((await frame("g", "..")).status).toBe(400);
 });

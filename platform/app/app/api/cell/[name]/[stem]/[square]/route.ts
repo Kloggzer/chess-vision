@@ -1,4 +1,5 @@
 import { cellPng, CUT_MIME, medianPng } from "@/lib/crops";
+import { isMissing } from "@/lib/measurement";
 import { loadSession } from "@/lib/session";
 import { storedCellPng } from "@/lib/stored";
 
@@ -25,7 +26,7 @@ export async function GET(
       (e: unknown) => {
         // NUR "kein Log da" faellt auf die gespeicherten JPEGs zurueck. Ein kaputtes log.jsonl
         // servierte sonst Pixel aus einer anderen Geometrie, ohne sich zu zeigen.
-        if ((e as { code?: string })?.code === "ENOENT") return false;
+        if (isMissing(e)) return false;
         throw e;
       },
     );
@@ -37,7 +38,6 @@ export async function GET(
     // "Nicht da" ist 404, alles andere ist unser Fehler. Pauschal 404 machte aus einer korrupten
     // `log.jsonl`, einem ungeraden Brett und einem `sharp`-Fehler dieselbe Antwort wie aus einem
     // fehlenden Frame — und das `<img>` zeigt beides als kaputtes Bild.
-    const missing = (error as { code?: string })?.code === "ENOENT";
-    return Response.json({ error: String(error) }, { status: missing ? 404 : 500 });
+    return Response.json({ error: String(error) }, { status: isMissing(error) ? 404 : 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { CUT_MIME, mattePng } from "@/lib/crops";
 import { clearAlpha, restoreAlpha, saveFixedAlpha } from "@/lib/matte-fix";
+import { isMissing } from "@/lib/measurement";
 
 /** The frame's alpha as a greyscale field, aligned with `/api/board/<name>/<stem>` of the same size. */
 export async function GET(
@@ -18,8 +19,7 @@ export async function GET(
     // Wie `api/frame`: "nicht da" ist 404, alles andere unser Fehler. Pauschal 404 machte aus einem
     // unlesbaren Alpha dieselbe Antwort wie aus einem fehlenden, und die Lane zeigt beides als
     // "keine Matte" — der Mensch sucht dann eine Messung, die es gibt und die kaputt ist.
-    const missing = (error as { code?: string })?.code === "ENOENT";
-    return new Response(String(error), { status: missing ? 404 : 500 });
+    return new Response(String(error), { status: isMissing(error) ? 404 : 500 });
   }
 }
 

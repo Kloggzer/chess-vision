@@ -6,11 +6,11 @@
  * `labeling.load_corrections` dedups on. DIFF exists because datasets are snapshots and nothing is
  * incremental (docs/data-pipeline.md §5.9): without it nobody can see which labels made it in.
  */
-import { FILES } from "@/lib/fen";
-import { readFile, readdir } from "node:fs/promises";
+import { fenLabels } from "@/lib/fen";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { correctionsPath } from "@/lib/corrections";
-import { dataDir } from "@/lib/data";
+import { listGames, recordingsDir } from "@/lib/data";
 import { sameSession, type CorpusIndex, type Split } from "@/lib/corpus";
 import { sessionId } from "@/lib/session";
 import { stampOrMissing } from "@/lib/measurement";
@@ -31,29 +31,6 @@ export function dedupCorrections(read: JsonlRead): Map<string, string> {
     last.set(cellKey(r.session_id, r.frame, r.square), r.label);
   }
   return last;
-}
-
-
-/**
- * ALLE 64 Felder einer FEN, in `config.CLASSES`-Schreibweise, `empty` wo nichts steht — der Pool
- * zaehlt Zellen, nicht Figuren. Hiess bis 2026-09-15 `occupiedLabels` und verschwieg damit die
- * leeren Felder, die es mitliefert; `lib/fen.ts:fenLabels` fuellt dieselbe Tabelle anders auf.
- */
-export function squareLabels(fen: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const ranks = fen.split(" ")[0].split("/");
-  for (let i = 0; i < ranks.length && i < 8; i++) {
-    let file = 0;
-    for (const ch of ranks[i]) {
-      if (file > 7) break;
-      if (ch >= "1" && ch <= "8") {
-        for (let n = Number(ch); n > 0 && file < 8; n--) out[`${FILES[file++]}${8 - i}`] = "empty";
-      } else {
-        out[`${FILES[file++]}${8 - i}`] = (ch === ch.toUpperCase() ? "w" : "b") + ch.toUpperCase();
-      }
-    }
-  }
-  return out;
 }
 
 type LogFrame = { stem: string; fen: string; dirty: boolean };
@@ -77,7 +54,7 @@ export function foldPool(sessions: SessionLog[], corrections: Map<string, string
     pool.occludedBySession[session.sessionId] ??= 0;
     for (const frame of session.frames) {
       pool.frames += 1;
-      for (const [square, fenLabel] of Object.entries(squareLabels(frame.fen))) {
+      for (const [square, fenLabel] of Object.entries(fenLabels(frame.fen))) {
         const corrected = corrections.get(cellKey(session.sessionId, frame.stem, square));
         if (corrected !== undefined) hits += 1;
         const label = corrected ?? fenLabel;
@@ -133,26 +110,6 @@ type Store = { logs?: Cached<SessionLog[]>; pool?: Cached<Pool> };
 /** Pinned like `jobs.ts:56`: a dev reload must not re-expand 12 641 FENs and 18 k ledger rows. */
 const store: Store = ((globalThis as { __chesslabPool?: Store }).__chesslabPool ??= {});
 
-function recordingsDir(): string {
-  return path.join(dataDir(), "recordings");
-}
-
-/**
- * Directory names, not ids: the merge dropped the `rg-` prefix from the folder alone.
- *
- * Nur ein FEHLENDES Verzeichnis ist ein leerer Korpus. Jeder andere Fehler — EMFILE, EACCES —
- * ergab sonst eine kleinere NORMALE Zahl auf `/corpus`, im Extremfall `POOL 0 Zellen`.
- */
-async function recordingNames(): Promise<string[]> {
-  try {
-    const entries = await readdir(recordingsDir(), { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch (error) {
-    if ((error as { code?: string })?.code !== "ENOENT") throw error;
-    return [];
-  }
-}
-
 /**
  * Every exported session's log, mtime-keyed.
  *
@@ -164,7 +121,7 @@ export async function sessionLogs(): Promise<SessionLog[]> {
 }
 
 async function keyedLogs(): Promise<Cached<SessionLog[]>> {
-  const names = await recordingNames();
+  const names = await listGames();
   const files = names.map((name) => path.join(recordingsDir(), name, "log.jsonl"));
   // Ein `stat`, das jeden Fehler auf "keine Datei" abschneidet, nimmt die Aufnahme aus der
   // Rechnung — ohne Meldung, als kleinere normale Zahl. Dieselbe Tuer wie `lib/measurement.ts`.
@@ -188,7 +145,7 @@ async function keyedLogs(): Promise<Cached<SessionLog[]>> {
 
 export async function loadPool(): Promise<Pool> {
   const logs = await keyedLogs();
-  const names = await recordingNames();
+  const names = await listGames();
   const files = names.map((name) => correctionsPath(name));
   const stats = await Promise.all(files.map(stampOrMissing));
   const key = `${names.map((name, i) => `${name}@${stats[i] ?? "none"}`).join(",")}|${logs.key}`;

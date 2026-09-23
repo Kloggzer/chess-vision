@@ -17,8 +17,11 @@ const MISSING: Measurement<never> = { measured: false };
 
 const measurementOf = <T>(value: T): Measurement<T> => ({ measured: true, value });
 
-/** Nur ENOENT heisst „nicht da". Jeder andere Fehler gehoert dem Aufrufer — als `null` gemeldet
- *  sieht eine Stoerung aus wie eine fehlende Datei. Als `.catch(absentOnly)` hinter jedes Lesen. */
+/** Nur ENOENT heisst „nicht da" — die Routen machen daraus 404, jeden anderen Fehler 500. */
+export const isMissing = (error: unknown): boolean => (error as { code?: string })?.code === "ENOENT";
+
+/** Jeder andere Fehler gehoert dem Aufrufer — als `null` gemeldet sieht eine Stoerung aus wie
+ *  eine fehlende Datei. Als `.catch(absentOnly)` hinter jedes Lesen. */
 export function absentOnly(error: unknown): null {
   if ((error as { code?: string })?.code !== "ENOENT") throw error;
   return null;
@@ -36,13 +39,8 @@ export async function exists(file: string): Promise<boolean> {
  * Aufnahme-Faecher wurde so zur leeren Messung, gecacht bis zur naechsten mtime.
  */
 export async function stampOrMissing(file: string): Promise<string | null> {
-  try {
-    const s = await stat(file);
-    return `${s.mtimeMs}:${s.size}`;
-  } catch (e) {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return null;
-  }
+  const s = await stat(file).catch(absentOnly);
+  return s === null ? null : `${s.mtimeMs}:${s.size}`;
 }
 
 type Entry = { key: string; value: Measurement<unknown> };
@@ -74,7 +72,7 @@ export async function loadMeasurement<T>(
   } catch (e) {
     // Nur ENOENT heisst „der Producer lief nie"; die Lane schreibt dafuer `—`. Jeder ANDERE
     // Fehler ist ein Fehler — als `missing` gemeldet waere eine unlesbare Datei eine Aussage.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
+    if (!isMissing(e)) throw e;
     cache.set(file, { key, value: MISSING });
     return MISSING;
   }

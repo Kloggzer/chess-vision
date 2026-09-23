@@ -57,8 +57,12 @@ export function dataDir(): string {
   return dir;
 }
 
+export function recordingsDir(): string {
+  return path.join(dataDir(), "recordings");
+}
+
 export function gameDir(name: string): string {
-  return path.join(dataDir(), "recordings", checkName(name, "game name"));
+  return path.join(recordingsDir(), checkName(name, "game name"));
 }
 
 /**
@@ -74,7 +78,7 @@ export async function requireRecording(dir: string, session_id: string): Promise
 
 export async function listGames(): Promise<string[]> {
   try {
-    const entries = await readdir(path.join(dataDir(), "recordings"), { withFileTypes: true });
+    const entries = await readdir(recordingsDir(), { withFileTypes: true });
     return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch (e) {
     // Eine fehlende Wurzel ist ein frisches Projekt. Ein kaputtes `CHESSLAB_DATA_DIR` ist es

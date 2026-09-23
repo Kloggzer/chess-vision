@@ -207,6 +207,24 @@ test("the pile is read from the board path, extension and directory stripped", a
   expect(await matteCensus("g")).toEqual({ done: 1, total: 1, target: 1, reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
 });
 
+test("the pile names a frame by its board, not by the source frame beside it", async () => {
+  const { matteCensus } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
+  const row = JSON.stringify({ frame: "frames/000010.png", board: "boards/000011.webp", dirty: true, dirty_reason: "occluded" });
+  await writeFile(path.join(dir, "log.jsonl"), `${row}
+`, "utf8");
+  await write([JSON.stringify({ frame: "000011", coverage: { a1: 0.9 } })]);
+  expect(await matteCensus("g")).toEqual({ done: 1, total: 1, target: 1, reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
+});
+
+test("a row SAM declined is no matte, even when it carries a coverage", async () => {
+  const { matteCensus } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
+  await writeFile(path.join(dir, "log.jsonl"), pile(1), "utf8");
+  await write([JSON.stringify({ frame: "f0", skipped: "zone too big", coverage: { a1: 0.9 } })]);
+  expect(await matteCensus("g")).toEqual({ done: 0, total: 1, target: 1, reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
+});
+
 test("a merge after the verdict reopens the frame; a verdict after the merge closes it", async () => {
   const { reopened } = await import("@/lib/verify");
   expect(reopened({ matte: "ok", matteAt: "2026-09-11T20:00:00+00:00" }, "2026-09-11T23:00:00+00:00")).toBe(true);

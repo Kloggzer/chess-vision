@@ -165,54 +165,34 @@ const stemOf = (value: string): string => {
   return dot > 0 ? base.slice(0, dot) : base;
 };
 
+/** Die Stems der Zeilen, die `keep` durchlaesst; `pick` nennt die Felder, die den Frame tragen,
+ *  in der Reihenfolge, in der sie gelten. Ein Set, keine Zeilenzahl — siehe `usableStemsIn`. */
+const stemsIn = (keep: (line: string) => boolean, pick: RegExp[] = [FRAME_ONE]) => (text: string): Set<string> => {
+  const out = new Set<string>();
+  for (const line of text.split(String.fromCharCode(10))) {
+    if (!line || !keep(line)) continue;
+    const m = pick.map((re) => re.exec(line)).find((hit) => hit !== null);
+    if (m) out.add(stemOf(m[1]));
+  }
+  return out;
+};
+
 /**
  * Die Stems, die WIRKLICH eine Matte haben: kein `skipped` (SAM hat abgelehnt, es liegt kein
  * Alpha da) und eine `coverage`. Distinct, not lines: `recut_fixed` rewrites the file whole, and
  * 27 stems came back twice on 14-32-33 — line counts then read "done" while frames are missing.
  */
-const usableStemsIn = (text: string): Set<string> => {
-  const out = new Set<string>();
-  for (const line of text.split(String.fromCharCode(10))) {
-    if (!line || line.includes('"skipped"') || !line.includes('"coverage"')) continue;
-    const m = FRAME_ONE.exec(line);
-    if (m) out.add(stemOf(m[1]));
-  }
-  return out;
-};
+const usableStemsIn = stemsIn((line) => !line.includes('"skipped"') && line.includes('"coverage"'));
 
 /** Die Stems, die SAM AUSDRUECKLICH abgelehnt hat — beantwortet, aber ohne Alpha auf der Platte. */
-const skippedStemsIn = (text: string): Set<string> => {
-  const out = new Set<string>();
-  for (const line of text.split(String.fromCharCode(10))) {
-    if (!line || !line.includes('"skipped"')) continue;
-    const m = FRAME_ONE.exec(line);
-    if (m) out.add(stemOf(m[1]));
-  }
-  return out;
-};
+const skippedStemsIn = stemsIn((line) => line.includes('"skipped"'));
+
+/** Jeder Stem mit einem Brett. Der `occluded`-Stapel ist eine TEILMENGE davon. */
+const exportedStemsIn = stemsIn(() => true, [BOARD_ONE]);
 
 /** Der aktuelle Stapel: die Stems der `occluded`-Zeilen, nicht ihre Anzahl. Eine Matte-Zeile zu
  *  einem Stem, den der Export nicht mehr waehlt, ist verwaist und zaehlt nicht als erledigt. */
-/** Jeder Stem mit einem Brett. Der `occluded`-Stapel ist eine TEILMENGE davon. */
-const exportedStemsIn = (text: string): Set<string> => {
-  const out = new Set<string>();
-  for (const line of text.split(String.fromCharCode(10))) {
-    if (!line) continue;
-    const m = BOARD_ONE.exec(line);
-    if (m) out.add(stemOf(m[1]));
-  }
-  return out;
-};
-
-const occludedStemsIn = (text: string): Set<string> => {
-  const out = new Set<string>();
-  for (const line of text.split(String.fromCharCode(10))) {
-    if (!line || !OCCLUDED_ONE.test(line)) continue;
-    const m = BOARD_ONE.exec(line) ?? FRAME_ONE.exec(line);
-    if (m) out.add(stemOf(m[1]));
-  }
-  return out;
-};
+const occludedStemsIn = stemsIn((line) => OCCLUDED_ONE.test(line), [BOARD_ONE, FRAME_ONE]);
 
 /** Mtime-keyed like `loadMatte` — a card must not parse two megabytes of log per render. */
 async function cachedSet<T>(file: string, tag: string,

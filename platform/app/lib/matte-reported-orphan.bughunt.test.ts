@@ -67,3 +67,13 @@ test("a frame SAM already refused is reported but no longer open", async () => {
   expect(census.reported, "sichtbar bleibt es").toBe(1);
   expect(census.reportedOpen, "BUG: SAM hat geantwortet, die Kette wartet trotzdem weiter").toBe(0);
 });
+
+// Nur `board` macht einen Frame zum Export: die Handy-Zeile traegt `frame`, aber kein Brett zum Schneiden.
+test("eine Log-Zeile ohne Brett ist kein exportierter Frame", async () => {
+  await writeFile(path.join(rec, "log.jsonl"), JSON.stringify({ frame: "frames/000002.png", dirty: true }) + "\n", "utf8");
+  await reviews("000002");
+
+  const census = await matteCensus("g");
+  expect(census.reportedOrphan).toBe(1);
+  expect(census.reportedOpen).toBe(0);
+});

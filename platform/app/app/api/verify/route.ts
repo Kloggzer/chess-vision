@@ -1,3 +1,4 @@
+import { isMissing } from "@/lib/measurement";
 import { loadVerifyStream } from "@/lib/verify";
 
 /** Nachschub fuer die Matte-Lane: `skip` sind die offenen Frames, die der Client schon haelt. */
@@ -8,7 +9,6 @@ export async function GET(request: Request) {
   } catch (error) {
     // Dieselbe Regel wie `api/cell/…`: "nicht da" ist 404, alles andere ist unser Fehler — und
     // der Grund gehoert in den Rumpf, sonst liest der Nutzer eine nackte 500.
-    const missing = (error as { code?: string })?.code === "ENOENT";
-    return Response.json({ error: String(error) }, { status: missing ? 404 : 500 });
+    return Response.json({ error: String(error) }, { status: isMissing(error) ? 404 : 500 });
   }
 }

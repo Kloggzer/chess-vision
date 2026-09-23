@@ -1,18 +1,15 @@
-import { stat } from "node:fs/promises";
 import path from "node:path";
 import { boardPng, CUT_MIME } from "@/lib/crops";
 import { gameDir } from "@/lib/data";
+import { exists, isMissing } from "@/lib/measurement";
 import { storedBoardPng } from "@/lib/stored";
 
 /** Nur ein Bundle OHNE Export darf auf sein Handy-JPEG zurueckfallen. Beide Zeugen muessen es
  *  sagen — ENOENT statt „board is missing", und keine `log.jsonl` auf der Platte. */
 async function unexported(name: string, error: unknown): Promise<boolean> {
-  if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") return false;
+  if (!isMissing(error)) return false;
   // Ein EACCES am Log ist kein fehlender Export: sonst kaeme das Handy-JPEG unter fremdem Namen.
-  return stat(path.join(gameDir(name), "log.jsonl")).then(() => false, (e: NodeJS.ErrnoException) => {
-    if (e?.code !== "ENOENT") throw e;
-    return true;
-  });
+  return !(await exists(path.join(gameDir(name), "log.jsonl")));
 }
 
 /** The rectified playing field of one session frame — the drilldown canvas, a8 top left. */
@@ -37,7 +34,6 @@ export async function GET(
     // Wie `api/cell` und `api/frame`: "nicht da" ist 404, alles andere unser Fehler. Pauschal 404
     // machte aus einem unlesbaren Brett dieselbe Antwort wie aus einem fehlenden — und der Mensch
     // sucht dann eine Aufnahme, die es gibt und deren Pixel kaputt sind.
-    const missing = (error as { code?: string })?.code === "ENOENT";
-    return new Response(String(error), { status: missing ? 404 : 500 });
+    return new Response(String(error), { status: isMissing(error) ? 404 : 500 });
   }
 }

@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import { readJsonl } from "@/lib/jsonl";
 import type { CorpusIndex, Split } from "@/lib/corpus";
-import { dedupCorrections, squareLabels, foldPool, loadPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/pool";
+import { fenLabels } from "@/lib/fen";
+import { dedupCorrections, foldPool, loadPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/pool";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const fail = vi.hoisted(() => ({ on: null as null | ((file: string) => void) }));
@@ -49,12 +51,26 @@ const SESSION = [
 ];
 
 test("a FEN asserts 64 labels and never asserts occluded", () => {
-  const labels = squareLabels(START);
+  const labels = fenLabels(START);
   expect(Object.keys(labels)).toHaveLength(64);
   expect(labels.a1).toBe("wR");
   expect(labels.e8).toBe("bK");
   expect(labels.d4).toBe("empty");
   expect(Object.values(labels)).not.toContain("occluded");
+});
+
+/** Der Pool zaehlt je Zelle das Label, das Python ueber python-chess vergibt — dieselbe Tabelle
+ *  wie `fen-labels-parity.test.ts`, damit Pool und Lanes eine FEN nicht verschieden lesen. */
+test("the pool counts every FEN cell exactly as python-chess labels it", () => {
+  const fixture = path.join(__dirname, "../../../tests/data/fen_labels_parity.json");
+  const cases = (JSON.parse(readFileSync(fixture, "utf8")) as { cases: { fen: string; labels: Record<string, string> }[] }).cases;
+  for (const c of cases) {
+    const pool = foldPool([{ sessionId: "rg-x", frames: [{ stem: "000001", fen: c.fen, dirty: false }] }], new Map());
+    const want: Record<string, number> = {};
+    for (const label of Object.values(c.labels)) want[label] = (want[label] ?? 0) + 1;
+    expect(pool.classes, c.fen).toEqual(want);
+    expect(pool.cells).toBe(64);
+  }
 });
 
 test("the dedup is last-wins on (session_id, str(frame), square)", () => {

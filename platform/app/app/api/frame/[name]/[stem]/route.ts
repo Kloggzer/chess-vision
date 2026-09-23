@@ -1,4 +1,5 @@
 import { checkName, framePng, reviewFramePath } from "@/lib/data";
+import { isMissing } from "@/lib/measurement";
 
 /** Frames are streamed out of `data/` — never copied into the app. */
 export async function GET(_request: Request, ctx: RouteContext<"/api/frame/[name]/[stem]">) {
@@ -23,7 +24,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/frame/[name
   } catch (error) {
     // Wie `api/cell`: "nicht da" ist 404, alles andere unser Fehler. Pauschal 404 machte aus einem
     // unlesbaren File dieselbe Antwort wie aus einem fehlenden, und das `<img>` zeigt beide gleich.
-    const missing = (error as { code?: string })?.code === "ENOENT";
+    const missing = isMissing(error);
     return new Response(missing ? "no such frame" : String(error), { status: missing ? 404 : 500 });
   }
 }

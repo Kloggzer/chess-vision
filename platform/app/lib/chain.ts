@@ -105,7 +105,8 @@ async function exportedSession(name: string): Promise<{ exported: boolean; settl
   return { exported: true, settled: !measurable || rows.some((row) => row.settle_dev !== undefined), interrupted: false };
 }
 
-/** The stamp both producers write: `${ms}:${bytes}`, the shape `lib/session.ts` caches on. */
+/** Pythons `source_stamp`-Form, `${ganze ms}:${bytes}` — NICHT `stampOrMissing`: dessen
+ *  Cache-Schluessel behaelt den Bruchteil der ms und traefe den Python-Stempel nie. */
 async function stampOf(file: string): Promise<string | null> {
   const s = await stat(file).catch(absentOnly);
   return s === null ? null : `${Math.floor(s.mtimeMs)}:${s.size}`;
