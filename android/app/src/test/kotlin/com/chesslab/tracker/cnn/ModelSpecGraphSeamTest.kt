@@ -25,12 +25,6 @@ import kotlin.math.abs
  * Needs no device — the `:app` unit tests link ORT's host natives.
  */
 class ModelSpecGraphSeamTest {
-    /**
-     * Since specs/23 phase 02 this is no longer a tautology on the shipped asset either.
-     * `occ-v4-f3e20` declares `infer_size` **96** next to an `out_size` of 128, so a consumer that
-     * assumed the crop size — as the deleted `out_size == 128` guard did — now disagrees with the
-     * bundled graph and this test says so.
-     */
     @Test
     fun theBundledGraphTakesExactlyWhatItsConfigDeclares(
         @TempDir tmp: File,

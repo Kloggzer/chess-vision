@@ -79,8 +79,6 @@ internal sealed interface VerifyVerdict {
         val decider: String,
         val replacement: List<Move>? = null,
     ) : VerifyVerdict
-
-    data object Against : VerifyVerdict
 }
 
 /**

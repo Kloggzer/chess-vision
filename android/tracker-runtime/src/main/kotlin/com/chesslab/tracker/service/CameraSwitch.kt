@@ -114,13 +114,7 @@ interface TorchLampPort {
  * `EngineAction`. Every member is the same shape of request: the caller asks, the single owner acts.
  */
 interface CalibrationApply {
-    /**
-     * The accepted corners, handed to the single camera owner.
-     *
-     * There used to be a `relockOptics` flag here, because the two callers disagreed about whether
-     * their quad had been measured before or after the optics converged. With the automatic
-     * convergence gone (`OpticsLock`) there is nothing to re-arm and the question does not arise.
-     */
+    /** The accepted corners, handed to the single camera owner. */
     fun applyCalibration(
         geometry: BoardGeometry,
         corners: FloatArray,

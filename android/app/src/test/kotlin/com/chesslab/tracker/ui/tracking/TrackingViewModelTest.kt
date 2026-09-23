@@ -53,10 +53,6 @@ class FakeTrackerSession : TrackerSession {
         calls += "undo"
     }
 
-    override fun resetGame() {
-        calls += "resetGame"
-    }
-
     override fun captureBaseline() {
         calls += "captureBaseline"
     }
@@ -141,17 +137,16 @@ class TrackingViewModelTest {
         }
 
     @Test
-    fun undoResetAndRecalibrateAreThreeDistinctActions() =
+    fun undoAndRecalibrateAreDistinctActions() =
         runTest(dispatcher) {
             val session = FakeTrackerSession()
             val vm = TrackingViewModel()
             vm.attach(session)
             vm.onUndo()
-            vm.onResetGame()
             vm.onRecalibrate()
             advanceUntilIdle()
             // Recalibrate is navigation, not a tracker action: it must reach the session NOT AT ALL.
-            assertEquals(listOf("undo", "resetGame"), session.calls)
+            assertEquals(listOf("undo"), session.calls)
         }
 
     /**

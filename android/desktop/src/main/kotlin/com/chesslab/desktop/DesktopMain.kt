@@ -16,7 +16,6 @@ import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.calibrateFromBoard
 import com.chesslab.tracker.geometry.cropLine
-import com.chesslab.tracker.geometry.model
 import com.chesslab.tracker.geometry.quadOf
 import com.chesslab.tracker.geometry.rawQuadOf
 import com.chesslab.tracker.geometry.refinedQuad

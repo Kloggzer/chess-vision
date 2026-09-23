@@ -25,11 +25,6 @@ class ReconnectPolicy {
 
     /**
      * 3 / 6 / 12 / 24 / 30 / 30 … — a genuinely gone device must not be hammered forever.
-     *
-     * The base was a constructor parameter fed from `TrackerConfig.reconnectGraceS` in intent only:
-     * [TrackerCamera] always took the default and the sole caller never passed a policy, so the
-     * knob reached nothing and was deleted on 2026-08-02. Python's `max(3.0, grace)` floor made its
-     * 2.0 default inert regardless — the value could never have changed this schedule.
      */
     fun backoffS(): Double = min(CAP_S, BASE_S * 2.0.pow(min(attempts, MAX_DOUBLINGS)))
 

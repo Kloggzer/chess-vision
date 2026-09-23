@@ -72,8 +72,6 @@ interface TrackerSession {
 
     fun undo()
 
-    fun resetGame()
-
     fun captureBaseline()
 
     fun choosePromotion(piece: Char)
@@ -148,8 +146,6 @@ object NoTrackerSession : TrackerSession {
     override val focus: FocusTuner = FocusTuner.NONE
 
     override fun undo() = Unit
-
-    override fun resetGame() = Unit
 
     override fun captureBaseline() = Unit
 

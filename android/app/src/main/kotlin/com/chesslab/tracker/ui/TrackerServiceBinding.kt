@@ -61,10 +61,6 @@ private class BinderSession(
         binder.submit(EngineAction.Undo)
     }
 
-    override fun resetGame() {
-        binder.submit(EngineAction.ResetToStart)
-    }
-
     override fun captureBaseline() {
         binder.submit(EngineAction.CaptureBaseline)
     }

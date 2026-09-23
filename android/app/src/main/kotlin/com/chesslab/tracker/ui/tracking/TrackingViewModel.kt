@@ -134,12 +134,7 @@ class TrackingViewModel : ViewModel() {
 
     /**
      * The score sheet is NOT built here. It is the service's live game (`GameSessionState.game`),
-     * which is also what the review screen and the LAN spectator read.
-     *
-     * This view model used to keep its own list off the same events, and it was the only one of the
-     * three that could not see an undo: the engine emits no undo event, so a taken-back move stayed
-     * on the tracking screen's move list for the rest of the game. `LiveGame.onFen` is the one place
-     * that detects it, off the published position.
+     * which is also what the review screen and the LAN spectator read; a private list here missed undos.
      */
     private fun onEvent(event: TrackerEvent) {
         commitSans(event).takeIf { it.isNotEmpty() }?.let { lastCommitState.value = it }
@@ -150,11 +145,6 @@ class TrackingViewModel : ViewModel() {
     fun onUndo() {
         lastCommitState.value = emptyList()
         session.undo()
-    }
-
-    fun onResetGame() {
-        lastCommitState.value = emptyList()
-        session.resetGame()
     }
 
     fun onNewBaseline() = session.captureBaseline()

@@ -112,9 +112,7 @@ class EpRequestChainTest {
     /**
      * 07a's `modelAsset`: the graph NNAPI and CPU are given, and the one they report loading.
      *
-     * The alternate name is served from the FP32 bytes. `modelAsset` may name any graph in the asset
-     * directory, but since specs/23 phase 02 there is no quantized one to name — `occ-v4-f3e20` could
-     * not be quantized at its 96 px inference size (see [BundledGraphShapeTest]). What is under test
+     * The alternate name is served from the FP32 bytes: no quantized graph ships. What is under test
      * is the SELECTION, and nothing here opens a session, so the stand-in costs the test nothing.
      */
     @Test

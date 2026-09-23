@@ -172,13 +172,7 @@ class OpenCvStages<T>(
     private val frameBus: (Mat) -> Unit = {},
     /** Where the tracking screen receives the rectified board. Same contract as [frameBus]. */
     private val boardBus: (Mat) -> Unit = {},
-    /**
-     * The camera's optics, or null for raw pixels — the default, and what every host does today.
-     *
-     * Trailing and defaulted so the clip harness and the desktop, which have no lens, construct
-     * these exactly as before. Whether one belongs here is not this class's decision: the host that
-     * knows which camera this is decides, and hands over a built one or nothing.
-     */
+    /** The camera's optics, or null for raw pixels. Only the desktop replay (`lens=true`) passes one. */
     private val lens: Undistorter? = null,
     /** Ob der Rillen-Sensor mitlaeuft — dann braucht er seinen Warp in Kalibriergroesse. */
     private val gridArm: Boolean = true,

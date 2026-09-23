@@ -150,8 +150,6 @@ data class GameGrade(
      */
     fun missedChances(): List<PlyGrade> = byPly.values.filter { it.missedMate }.sortedBy { it.ply }
 
-    val forcedMatePlies: Int get() = byPly.values.count { it.forcedMateLine }
-
     fun missedMates(white: Boolean): Int = byPly.values.count { it.missedMate && it.whiteMoved == white }
 }
 

@@ -4,8 +4,6 @@ package com.chesslab.engine.api
 sealed interface EngineAction {
     data object Undo : EngineAction
 
-    data object ResetToStart : EngineAction
-
     data class SetFen(
         val fen: String,
     ) : EngineAction

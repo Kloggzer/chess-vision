@@ -7,15 +7,9 @@
   concatenation in Kotlin — German pluralises differently, and a label assembled in code cannot
   say so. Format arguments are positional (%1$s, %2$d) because a translation reorders them.
 
-  `values-de/` translates these and adds no keys of its own; a key it cannot find is a gap to be
-  reported, not one to invent in English.
-
   What does NOT belong here: `ui/debug/` and the tuning knobs behind the developer door, whose
   vocabulary IS English (`census threshold`); anything written to disk or the wire (PGN tags,
   SAN, UCI, square names, log lines), which stays Locale.ROOT.
-
-  This file held 171 entries on 2026-08-13, of which three were referenced by anything — the rest
-  described UI deleted over specs/43-51. It is a live file again, not an archive.
 -->
 <resources>
     <string name="app_name">chesslab tracker</string>
@@ -60,13 +54,11 @@
          where you can see what you are deleting. -->
     <string name="endgame_title">How did the game end?</string>
     <string name="endgame_new_title">Start a new game?</string>
-    <string name="endgame_moves">%1$d moves recorded.</string>
     <string name="endgame_nothing">Nothing is recorded yet. This re-seeds the tracker from the starting position.</string>
     <string name="endgame_question">How did it end?</string>
     <string name="endgame_mate_white">Black is checkmated — White wins.</string>
     <string name="endgame_mate_black">White is checkmated — Black wins.</string>
     <string name="endgame_drawn">The position is a draw.</string>
-    <string name="endgame_names_hint">Leave blank to skip.</string>
     <string name="endgame_save">Save &amp; new game</string>
     <string name="endgame_new">New game</string>
 

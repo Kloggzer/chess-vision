@@ -178,13 +178,7 @@ fun ChromeBanner(
     }
 }
 
-/**
- * What is applied but not stored, said once and only while it is true.
- *
- * The old screen carried three sentences of save state permanently; this one carries the single
- * sentence that is ever surprising — that the picture on screen is not what the app will come back
- * to. Saving is one tap away in the strip above.
- */
+/** What is applied but not stored, said once and only while it is true. */
 @Composable
 fun UnsavedHint() {
     ChromeBanner("Not saved — a restart would undo this.", Chrome.busy)

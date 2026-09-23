@@ -44,11 +44,8 @@ private const val FILES = "abcdefgh"
 /** Die gemessene Huelle des Korpus (1 066 309 Trace-Frames): wer sie verlaesst, beweist nur,
  *  dass der Code den Zustand HAT — nicht, dass er vorkommt. */
 internal object Envelope {
-    const val MOTION_MAX = 100.0
-    const val MOTION_P99 = 30.1
     const val HAND_SQUARES_MAX = 47
     const val OBS_LAG_MAX = 41
-    const val STABLE_MAX = 220
 }
 
 /** Was der synthetische Treiber erzeugt. Jedes Feld ist ein Suchparameter. */

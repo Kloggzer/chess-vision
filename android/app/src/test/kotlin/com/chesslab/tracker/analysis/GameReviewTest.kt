@@ -179,7 +179,6 @@ class GameReviewTest {
 
         assertTrue(graded.of(1)!!.forcedMateLine)
         assertTrue(graded.of(2)!!.forcedMateLine)
-        assertEquals(2, graded.forcedMatePlies)
         assertEquals(0, graded.white.scored)
         assertEquals(0, graded.black.scored)
     }

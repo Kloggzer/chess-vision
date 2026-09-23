@@ -18,7 +18,7 @@ app/src/main/kotlin/com/chesslab/tracker/camera/CameraModels.kt 3
 app/src/main/kotlin/com/chesslab/tracker/camera/CaptureProfile.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/OpticsLock.kt 8
 app/src/main/kotlin/com/chesslab/tracker/camera/PreRollRing.kt 3
-app/src/main/kotlin/com/chesslab/tracker/camera/ReconnectPolicy.kt 3
+app/src/main/kotlin/com/chesslab/tracker/camera/ReconnectPolicy.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/ResolutionMismatchLogger.kt 1
 app/src/main/kotlin/com/chesslab/tracker/camera/TorchLamp.kt 1
 app/src/main/kotlin/com/chesslab/tracker/camera/TrackerCamera.kt 11
@@ -66,7 +66,7 @@ app/src/main/kotlin/com/chesslab/tracker/ui/analysis/EvalBar.kt 4
 app/src/main/kotlin/com/chesslab/tracker/ui/calibration/CalibrationHost.kt 4
 app/src/main/kotlin/com/chesslab/tracker/ui/calibration/CalibrationViewModel.kt 5
 app/src/main/kotlin/com/chesslab/tracker/ui/camera/BoardMode.kt 3
-app/src/main/kotlin/com/chesslab/tracker/ui/camera/CameraChrome.kt 5
+app/src/main/kotlin/com/chesslab/tracker/ui/camera/CameraChrome.kt 4
 app/src/main/kotlin/com/chesslab/tracker/ui/camera/CameraControls.kt 7
 app/src/main/kotlin/com/chesslab/tracker/ui/camera/CameraFraming.kt 4
 app/src/main/kotlin/com/chesslab/tracker/ui/camera/CameraLookHost.kt 1
@@ -120,11 +120,11 @@ app/src/main/kotlin/com/chesslab/tracker/ui/tracking/BoardCanvas.kt 2
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/BoardPreview.kt 4
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/LastMoves.kt 1
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/ScreenBlackout.kt 1
-app/src/main/kotlin/com/chesslab/tracker/ui/tracking/StatusUiModel.kt 12
+app/src/main/kotlin/com/chesslab/tracker/ui/tracking/StatusUiModel.kt 11
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackerSession.kt 6
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackingScreen.kt 13
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackingSwitch.kt 1
-app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackingViewModel.kt 7
+app/src/main/kotlin/com/chesslab/tracker/ui/tracking/TrackingViewModel.kt 6
 app/src/main/kotlin/com/chesslab/tracker/ui/tracking/UndoLabel.kt 3
 app/src/test/kotlin/com/chesslab/tracker/analysis/AccuracyTest.kt 5
 app/src/test/kotlin/com/chesslab/tracker/analysis/GameReviewerTest.kt 2
@@ -141,7 +141,7 @@ app/src/test/kotlin/com/chesslab/tracker/capture/CaptureLightTest.kt 1
 app/src/test/kotlin/com/chesslab/tracker/capture/CaptureMeasureTest.kt 1
 app/src/test/kotlin/com/chesslab/tracker/cnn/BundledGraphShapeTest.kt 3
 app/src/test/kotlin/com/chesslab/tracker/cnn/ModelSpecCropSeamTest.kt 5
-app/src/test/kotlin/com/chesslab/tracker/cnn/ModelSpecGraphSeamTest.kt 5
+app/src/test/kotlin/com/chesslab/tracker/cnn/ModelSpecGraphSeamTest.kt 4
 app/src/test/kotlin/com/chesslab/tracker/cnn/ModelSpecTest.kt 9
 app/src/test/kotlin/com/chesslab/tracker/CommentBudgetTest.kt 1
 app/src/test/kotlin/com/chesslab/tracker/diagnostics/DiagnosticsLogTest.kt 4
@@ -417,10 +417,9 @@ tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/BoardLens.kt 6
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/CalibrationProfile.kt 5
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/CalibrationStore.kt 3
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/GeometryScan.kt 8
-tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/LensCalibration.kt 6
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/ModelCrop.kt 3
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/log/TrackerLog.kt 2
-tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/BoardWarps.kt 10
+tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/BoardWarps.kt 9
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/FramePipeline.kt 14
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/FrameSizeGuard.kt 4
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/GrayPipeline.kt 1
@@ -440,7 +439,7 @@ tracker-runtime/src/main/kotlin/com/chesslab/tracker/record/SessionStore.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/runtime/AppPaths.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/AppSettingsWiring.kt 2
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/CameraFrameBus.kt 7
-tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/CameraSwitch.kt 7
+tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/CameraSwitch.kt 6
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/CnnCropAdapter.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/DebugPayloadAssembler.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/DebugProbes.kt 5
@@ -474,7 +473,7 @@ tracker-runtime/src/test/kotlin/com/chesslab/tracker/cnn/EpProfileTest.kt 2
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/cnn/EpRequestChainTest.kt 3
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/cnn/EpRequestLabelTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/cnn/ModelSpecPartialNormalizeTest.kt 1
-tracker-runtime/src/test/kotlin/com/chesslab/tracker/cnn/OnnxSquareClassifierContractTest.kt 2
+tracker-runtime/src/test/kotlin/com/chesslab/tracker/cnn/OnnxSquareClassifierContractTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/cnn/OrtSessionRunnerTest.kt 2
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/games/BugHunt20260914bTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/games/FabricatedPositionTest.kt 1
@@ -483,7 +482,6 @@ tracker-runtime/src/test/kotlin/com/chesslab/tracker/games/LostIndexLosesGamesTe
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/games/SeamClosingTest.kt 3
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/games/UnknownStatusIsNotCleanTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/geometry/GeometryScanTest.kt 1
-tracker-runtime/src/test/kotlin/com/chesslab/tracker/geometry/LensGuardTest.kt 4
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/FramePipelineOrderTest.kt 5
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/FrameSizeGuardRequestedSizeTest.kt 1
 tracker-runtime/src/test/kotlin/com/chesslab/tracker/pipeline/NoiseFloorRearmBudgetTest.kt 1

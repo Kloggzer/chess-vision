@@ -12,8 +12,8 @@ internal const val OBS_MAX_AGE_S: Double = 3.0
 
 /** Fresh per-square hand reads surfaced for hosts that must prove a frame is safe to persist. */
 internal fun EngineState.freshCnnOccludedSquares(): Set<String> {
+    // Not position-scoped: a hand does not belong to a position; freshSnapshot() bounds the age.
     val snap = freshSnapshot() ?: return emptySet()
-    if (snap.fen != board.fen()) return emptySet()
     val hand = modelHandSquares(snap)
     return buildSet { hand.forEachSquare { add(Squares.ALL[it]) } }
 }

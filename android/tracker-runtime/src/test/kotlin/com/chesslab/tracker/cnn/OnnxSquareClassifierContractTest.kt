@@ -86,11 +86,7 @@ class OnnxSquareClassifierContractTest {
             std = listOf(0.229f, 0.224f, 0.225f),
         )
 
-    /**
-     * [side] defaults to this class's own fake [spec]. The one test that drives the REAL asset has
-     * to pass the REAL model's size instead: since specs/23 phase 02 the shipped graph takes 96 px
-     * and `preprocessInto` does not resize, it refuses a crop of any other size.
-     */
+    /** The real asset needs its own size: `preprocessInto` does not resize, it refuses any other. */
     private fun crops(side: Int = CROP): List<BgrImage> = List(ALL_SQUARES.size) { BgrImage(side, side, ByteArray(side * side * 3) { 8 }) }
 
     @Test

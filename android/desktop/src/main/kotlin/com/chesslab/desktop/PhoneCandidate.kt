@@ -41,7 +41,7 @@ import kotlin.system.exitProcess
 // decider `phone_log`) and spends minutes running the tracker and the CNN to get there. All that
 // is actually missing is the geometry scan and a frame index per ply — this verb keeps those two.
 
-/** Measured by plan/02-phone-candidate Phase 00 (STATUS.md → Notes); frames, may be negative. */
+/** Measured 2026-09-06 (`docs/phone-transfer.md`); frames, may be negative. */
 internal const val PHONE_FRAME_OFFSET: Int = 0
 
 /** The default the platform never passes — the same one `labelArgs` uses. */
