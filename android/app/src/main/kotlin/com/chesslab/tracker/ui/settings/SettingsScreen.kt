@@ -63,19 +63,8 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 
-/**
- * Settings, and behind one door the mobile equivalent of the desktop's `--flags`.
- *
- * `specs/12` D5 cut the tuning surface from the phone entirely, which made a bad board/lighting
- * combination unfixable in the field. Every knob is still here — but not HERE: specs/51 moved the
- * six tuning groups, `Device & model` and the debug panels behind **Developer**, because the ratio
- * on this screen was roughly ten machine settings to one of the user's.
- *
- * What is left is the Android Settings pattern, taken literally (the user, 2026-08-04: *"tbh make
- * the settings menu exactly like the android settings menu"*): rows with a leading icon and a
- * summary that states the CURRENT VALUE, no chevrons, grouped by heading and space rather than by
- * container. One component does both shapes — see [DisclosureRow].
- */
+/** The phone keeps every knob — cutting them made a bad board/lighting unfixable in the field — but behind
+ *  **Developer** (specs/51). The rest follows the Android Settings pattern: summaries state the CURRENT VALUE. */
 @Composable
 fun SettingsRoute(
     onBack: () -> Unit,
@@ -120,7 +109,6 @@ private fun SettingsScreen(
     val loadNote by viewModel.loadNote.collectAsStateWithLifecycle()
     val screen = remember { SettingsUiState() }
 
-    // Search belongs to the developer list, where raw keys are useful.
     val title = if (screen.searchOpen) "Search" else settingsTitle(screen.place)
     // The app-bar arrow and system Back share this parent traversal.
     val up: () -> Unit = { screen.up(onBack) }
@@ -251,10 +239,7 @@ private fun SettingsActions(
     }
 }
 
-/**
- * The SIXTH irreversible action, and specs/48's list did not have it: resetting one group throws
- * away exactly the same kind of tuning as resetting all of them, in one tap.
- */
+/** Irreversible: resetting one group throws away the same kind of tuning as resetting all. */
 @Composable
 private fun ConfirmResetGroup(
     group: KnobGroup,
@@ -273,13 +258,6 @@ private fun ConfirmResetGroup(
     )
 }
 
-/**
- * The places this screen can send you, and the two things it can reset.
- *
- * One object rather than five parameters threaded through [SettingsList] into [landing]: they travel
- * together, they are all "what happens when a row is tapped", and the list that carries them is a
- * [LazyListScope] extension where a long parameter list is at its least readable.
- */
 private class SettingsNav(
     val openGroup: (SettingsPlace) -> Unit,
     val openDebug: () -> Unit,
@@ -289,16 +267,8 @@ private class SettingsNav(
     val resetAll: () -> Unit,
 )
 
-/**
- * Android's own search bar, which is the whole specification (the user: *"like android does it in
- * the settings"*, with the magnifier on the right).
- *
- * The placeholder was *"Search settings — try \"shadow\", \"cnn\", \"timeout\""*, which wrapped to
- * two lines and made the tallest thing at the top of the screen a hint about how to use a search
- * box; the examples are in the empty result now, where somebody who found nothing can act on them.
- * The trailing icon becomes a clear ✕ once there is text — the magnifier stays on the right for as
- * long as it means anything, and the ✕ is the only affordance that can empty the field.
- */
+/** Android's own search bar. The examples moved out of the placeholder (it wrapped to two lines) into
+ *  the empty result; the ✕ is the only affordance that can empty the field. */
 @Composable
 private fun SearchField(
     query: String,
@@ -364,7 +334,6 @@ private fun SettingsList(
     }
 }
 
-/** The examples that used to be the placeholder, where they are of some use: nothing was found. */
 @Composable
 private fun NoMatch(query: String) {
     Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
@@ -377,7 +346,6 @@ private fun NoMatch(query: String) {
     }
 }
 
-/** The subpages that are not knob lists. Each is exactly what used to be a surface of its own. */
 private fun LazyListScope.subpage(
     place: SettingsPlace,
     app: AppSettings,
@@ -394,22 +362,14 @@ private fun LazyListScope.subpage(
     }
 }
 
-/**
- * **The player's screen.** Four things a chess player changes, two doors for the board, and one
- * clearly labelled door for everything that belongs to the machine.
- *
- * Every summary states the CURRENT VALUE rather than describing the destination, which is the half
- * of the Android pattern that does the work: `Spoken moves · Off` answers the question without the
- * tap. The two board rows are grouped by a heading and separated by rules, never by a container.
- */
+/** **The player's screen.** Every summary states the CURRENT VALUE (`Spoken moves · Off`), which answers
+ *  without the tap. */
 private fun LazyListScope.landing(
     app: AppSettings,
     nav: SettingsNav,
 ) {
     item(key = "board-heading") { SectionHeading("Board") }
-    // The SECOND door to calibration (specs/48 §3). It is a setup task that happens to need a live
-    // camera, so the tracker reaches it too — but somebody looking for setup looks in Settings, and
-    // two entrances to one room is not duplication as long as they are one route (`ROUTE_CAMERA`).
+    // The SECOND door to calibration: somebody looking for setup looks in Settings; one route (`ROUTE_CAMERA`).
     item(key = "calibration-row") {
         DisclosureRow(
             title = "Board calibration",
@@ -443,9 +403,7 @@ private fun LazyListScope.landing(
     item(key = "transfer-row") { TransferRow(nav) }
     item(key = "capture-row") { CaptureRow(nav) }
     item(key = "camera-heading") { SectionHeading("Camera & model") }
-    // Die drei, die der Nutzer tatsaechlich anfasst (2026-08-25: *„nutze eigentlich nur fps,
-    // aufloesung und modell"*). specs/51 hatte sie mit den 29 Reglern hinter dieselbe Tuer
-    // geschoben, die er nie oeffnet — die Tuer bleibt, diese drei nicht dahinter.
+    // Die drei, die der Nutzer tatsaechlich anfasst (fps, Aufloesung, Modell) — nicht hinter der Developer-Tuer.
     item(key = "device-row-top") {
         DisclosureRow(
             title = "Camera & model",
@@ -467,10 +425,7 @@ private fun LazyListScope.landing(
     }
 }
 
-/**
- * Not behind the developer door: it is a RECORDING task the user starts on purpose, and the plan it
- * follows lives on the PC beside the transfers.
- */
+/** Not behind the developer door: a RECORDING task the user starts on purpose. */
 @Composable
 private fun CaptureRow(nav: SettingsNav) {
     DisclosureRow(
@@ -482,7 +437,7 @@ private fun CaptureRow(nav: SettingsNav) {
     )
 }
 
-/** Read from the host rather than passed down: [landing] is a `LazyListScope`, not a composable. */
+/** From the host: [landing] is a `LazyListScope`, not a composable. */
 @Composable
 private fun AnalysisRow(nav: SettingsNav) {
     val analysis by AnalysisSettingsHost.settings.collectAsStateWithLifecycle()
@@ -495,10 +450,8 @@ private fun AnalysisRow(nav: SettingsNav) {
     )
 }
 
-/**
- * `load()` is called here because the prefs cache is otherwise the DEFAULT until the tracker service
- * has wired itself, and a summary reading "Off" over a running recorder is worse than no summary.
- */
+/** `load()` here: until the service has wired itself the cache is the DEFAULT, and "Off" over a running
+ *  recorder is worse than no summary. */
 @Composable
 private fun RecordingRow(nav: SettingsNav) {
     val context = LocalContext.current
@@ -514,7 +467,6 @@ private fun RecordingRow(nav: SettingsNav) {
     )
 }
 
-/** The recordings' way off the phone. Loaded like [RecordingRow], and for the same reason. */
 @Composable
 private fun TransferRow(nav: SettingsNav) {
     val context = LocalContext.current
@@ -531,17 +483,8 @@ private fun TransferRow(nav: SettingsNav) {
     )
 }
 
-/**
- * **The developer door.** Everything whose usable range was established by measurement rather than
- * by preference: the six tuning groups, the device and model choices, the diagnostics, the export
- * and the reset.
- *
- * **There is no gate in front of it** — no switch, no seven taps — and that is decided rather than
- * skipped. Nothing here is dangerous to LOOK at; the danger is a stray tuning knob, and a knob needs
- * a deliberate slider drag, not a stumble. A hidden entrance would recreate exactly what `specs/12`
- * D5 cost: a bad board under a strange lamp with no way to fix it in the field. `debugEnabled` keeps
- * its real job one row below, which is gating the debug PAYLOAD's cost, not access to it.
- */
+/** **The developer door**, deliberately without a gate: nothing here is dangerous to LOOK at, and a hidden
+ *  entrance recreates specs/12 D5 — a bad board under a strange lamp, unfixable in the field. */
 private fun LazyListScope.developer(
     viewModel: SettingsViewModel,
     config: TrackerConfig,
@@ -551,8 +494,7 @@ private fun LazyListScope.developer(
 ) {
     val changed = modifiedKnobs(config)
     if (changed.isNotEmpty()) {
-        // First, and only when it exists: on a tuned board this is the whole answer to "what did I
-        // do to this thing", and on a fresh one it is noise.
+        // First, and only when it exists: on a tuned board it answers "what did I do to this thing".
         item(key = "modified") {
             DisclosureRow("Modified", "${changed.size} away from the Python default") {
                 nav.openGroup(SettingsPlace.Modified)
@@ -571,9 +513,7 @@ private fun LazyListScope.developer(
     item(key = "runtime-heading") { SectionHeading("Runtime") }
     item(key = "runtime-row") { RuntimeSettingsSection(app) { viewModel.setApp(it) } }
     item(key = "diagnostics-heading") { SectionHeading("Diagnostics") }
-    // The debug panels kept their own route: `TrackerStatus.debug` is assembled only while that
-    // screen is composed, and thirteen panels do not belong inside a settings LazyColumn. What the
-    // user asked to remove was the MENU ENTRY beside "Spoken moves", and this is where it went.
+    // Its own route: `TrackerStatus.debug` is assembled only while that screen is composed.
     item(key = "debug") {
         DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = nav.openDebug)
     }
@@ -585,7 +525,6 @@ private fun LazyListScope.developer(
     }
 }
 
-/** `Off`, or the two facts the subpage would tell you anyway. */
 internal fun speechSummary(app: AppSettings): String =
     if (!app.speechEnabled) {
         "Off"
@@ -604,12 +543,8 @@ internal fun recordingSummary(prefs: RecordingPrefs): String =
         else -> "On · up to ${capLabel(prefs.capBytes)}"
     }
 
-/**
- * The honest half of live tuning: the eleven-out-of-twelve case.
- *
- * The edit is already persisted — only its effect waits — and the bar says which knobs are waiting
- * and on what. It never offers a button that silently does nothing.
- */
+/** The edit is already persisted, only its effect waits; the bar says which knobs wait. Never a button
+ *  that silently does nothing. */
 @Composable
 private fun RestartBar(
     pending: Set<String>,
@@ -629,7 +564,6 @@ private fun RestartBar(
                 color = OnSurfaceMuted,
             )
         } else {
-            // The screen's ONE filled action, and it only exists while there is something to apply.
             FilledAction("Apply & restart tracker", {
                 onRestartTracker()
                 onRestarted()
@@ -638,7 +572,6 @@ private fun RestartBar(
     }
 }
 
-/** Irreversible: every value tuned for this board. The body counts how many are about to move. */
 @Composable
 private fun ConfirmResetAll(
     modified: Int,
@@ -663,7 +596,7 @@ private fun exportText(
     app: AppSettings,
 ): String = SettingsExport.toJson(config, app, appVersion(context), "${Build.MANUFACTURER} ${Build.MODEL}")
 
-/** Read from the package, not from `BuildConfig`: this module does not generate one. */
+/** From the package: this module generates no `BuildConfig`. */
 private fun appVersion(context: Context): String =
     runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "unknown"
 

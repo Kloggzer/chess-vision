@@ -7,10 +7,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * Die Politik der drei Treuhaender, Kotlin-Seite. Zwillinge: `tests/test_io_policy_parity.py`,
- * `lib/io-policy-parity.test.ts` — wer eine Antwort hier aendert, aendert sie dort mit.
- */
+/** Zwillinge: `tests/test_io_policy_parity.py`, `lib/io-policy-parity.test.ts` — eine Antwort aendert sich dort mit. */
 class JsonlPolicyParityTest {
     @TempDir
     lateinit var dir: File
@@ -61,11 +58,9 @@ class JsonlPolicyParityTest {
         assertFalse(File(dir, "gesperrt.tmp").exists(), "die Nebendatei blieb liegen")
     }
 
-    // 9 (Anhaengen) hat Kotlin bewusst nicht: gemessen null Stellen, die an eine fremde oder
-    // aeltere Datei anhaengen — `SessionTimeline` und `SessionRecorder` kuerzen im Konstruktor.
+    // 9 (Anhaengen) hat Kotlin bewusst nicht: `SessionTimeline` und `SessionRecorder` kuerzen im Konstruktor.
 
-    /** Anders als Python (das auf einem Verzeichnis wirft) ist hier BEIDES leer — auf dem Geraet
-     *  soll ein kaputter Pfad keinen Lauf abbrechen. */
+    /** Anders als Python ist hier BEIDES leer: auf dem Geraet soll ein kaputter Pfad keinen Lauf abbrechen. */
     @Test
     fun `10 missing file and a directory are no rows`() {
         assertEquals(emptyList<Any>(), Jsonl.rows(File(dir, "gone.jsonl")))

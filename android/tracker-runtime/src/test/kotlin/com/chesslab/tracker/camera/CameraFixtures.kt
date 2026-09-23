@@ -14,7 +14,6 @@ internal class FakeLookPort(
     var sets = 0
     var lensReady = true
 
-    /** Was ein Geraete-Autofokus melden wuerde; null heisst "kann es nicht". */
     var deviceFocus: Float? = null
     var regionAsked: FocusRegion? = null
 
@@ -36,7 +35,6 @@ internal class FakeLookPort(
     }
 }
 
-/** A gray square board; [value] gives the level at pixel (x, y), clamped to a byte. */
 internal fun lumaBoard(
     size: Int,
     value: (x: Int, y: Int) -> Int,
@@ -54,11 +52,10 @@ internal fun lumaBoard(
     return BgrImage(size, size, data)
 }
 
-/** A 4-px checkerboard around 128 whose contrast is [amplitude]. */
 internal fun checkers(amplitude: Float): BgrImage =
     lumaBoard(128) { x, y -> (128f + if ((x / 4 + y / 4) % 2 == 0) amplitude / 2 else -amplitude / 2).toInt() }
 
-/** Ein Objektiv im Test: das Muster traegt Kontrast nur nahe der Gipfeldistanz 0,3. */
+/** Kontrast nur nahe der Gipfeldistanz 0,3. */
 internal fun focusBoard(focus: Float?): BgrImage {
     val f = focus ?: 1f
     return checkers(2f + 120f * exp(-(f - 0.3f) * (f - 0.3f) / (2 * 0.05f * 0.05f)))

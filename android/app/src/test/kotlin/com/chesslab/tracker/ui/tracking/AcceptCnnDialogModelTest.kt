@@ -44,8 +44,7 @@ class AcceptCnnDialogModelTest {
 
     @Test
     fun previewIsIncompleteWithoutCnnReadsAndStillNamesTheBelievedPiece() {
-        // D04x-4: the engine has no preview variant and `TrackerStatus` carries no CNN label map,
-        // so from the status alone only the believed side is knowable — and the dialog must say so.
+        // The engine has no preview variant and `TrackerStatus` no CNN label map: only the believed side is knowable.
         val preview = acceptCnnPreview(STARTPOS, listOf("d8"))
         assertEquals("black queen", preview.rows.single().from)
         assertNull(preview.rows.single().to)

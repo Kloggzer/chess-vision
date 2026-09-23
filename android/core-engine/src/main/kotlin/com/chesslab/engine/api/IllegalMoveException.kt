@@ -1,6 +1,6 @@
 package com.chesslab.engine.api
 
-/** Thrown at ingress because chesslib otherwise accepts illegal moves (2026-08-09 crash). */
+/** At ingress: chesslib otherwise accepts illegal moves. */
 class IllegalMoveException(
     val uci: String,
     val fen: String,

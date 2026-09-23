@@ -49,16 +49,12 @@ private class RecordingSpeaker : Speaker {
 
     override fun close() = Unit
 
-    /** Null means "nothing was said" — the assertion most of these tests are really making. */
     fun next(ms: Long = 2000): Triple<String, Boolean, String>? = said.poll(ms, TimeUnit.MILLISECONDS)
 
     fun nothing() = assertNull(said.poll(300, TimeUnit.MILLISECONDS))
 }
 
-/**
- * The announcer runs on real threads on purpose: its whole contract is that it does NOT run on the
- * caller's thread, which a test dispatcher would paper over.
- */
+/** Real threads on purpose: the contract is that it does NOT run on the caller's thread. */
 class MoveAnnouncerTest {
     private val scope = CoroutineScope(Dispatchers.Default)
     private val settings = SettingsRepository(MemoryStore(), CoroutineScope(Dispatchers.Unconfined)) { }
@@ -74,7 +70,6 @@ class MoveAnnouncerTest {
         return announcer
     }
 
-    /** Emitting from a thread named like the camera analyzer: nothing may be spoken on it. */
     private fun emit(event: TrackerEvent) = analyzer.submit { check(events.tryEmit(event)) }.get()
 
     private fun move(
@@ -109,7 +104,6 @@ class MoveAnnouncerTest {
         runBlocking { withTimeout(2000) { events.subscriptionCount.first { it > 0 } } }
         emit(move())
         Thread.sleep(300)
-        // Not merely silent: TextToSpeech is never even constructed.
         assertEquals(0, opens)
         announcer.close()
     }
@@ -164,7 +158,6 @@ class MoveAnnouncerTest {
         emit(move())
         emit(move("e5", FEN_BLACK_MOVED))
         speaker.nothing()
-        // The backlog was dropped at latch time, not merely skipped.
         assertTrue(speaker.drops >= 1)
     }
 
@@ -178,7 +171,6 @@ class MoveAnnouncerTest {
         speaker.nothing()
     }
 
-    /** Kategorie zuerst, Grund dahinter — und kein geratener Zug durch den SAN-Ansager. */
     @Test
     fun alarmSaysTheCategoryAndTheReason() {
         announcer()
@@ -208,7 +200,6 @@ class MoveAnnouncerTest {
         assertEquals("Springer f3", speaker.next()?.first)
     }
 
-    /** Die Stimme muss der Sprache folgen; sonst liest eine en-US-Stimme deutsche Wörter. */
     @Test
     fun theVoiceFollowsTheSetting() {
         announcer(AppSettings(speechEnabled = true, speechLanguage = "de-DE"))
@@ -224,7 +215,6 @@ class MoveAnnouncerTest {
         speaker.next()
         emit(TrackerEvent.AlarmCleared("verified"))
         assertEquals("Position restored", speaker.next()?.first)
-        // And the tracker is trusted again.
         emit(move())
         assertEquals("Knight f3", speaker.next()?.first)
     }

@@ -1,6 +1,6 @@
 package com.chesslab.engine
 
-/** Canonical square order for scalar arrays and bitboards; names cross only the `api` seam. */
+/** Names cross only the `api` seam. */
 internal object Squares {
     const val FILES = "abcdefgh"
 
@@ -8,7 +8,6 @@ internal object Squares {
 
     const val COUNT = 64
 
-    /** Rank-major from rank 1: a1,b1,…,h1,a2,…,h8. */
     val ALL: List<String> =
         buildList(COUNT) {
             for (rank in 1..N) {
@@ -22,7 +21,6 @@ internal object Squares {
 
     fun index(square: String): Int = INDEX[square] ?: -1
 
-    /** Packed `(col shl 3) or row`; malformed names or ranks outside 1..8 are rejected. */
     fun colRow(
         square: String,
         whitePov: Boolean,
@@ -34,7 +32,7 @@ internal object Squares {
         return colRow(index("${sq[0]}$rank"), whitePov)
     }
 
-    /** `col=file`, `row=8-rank`; rotated 180° when [whitePov] is false. */
+    /** Rotated 180° when [whitePov] is false. */
     fun colRow(
         index: Int,
         whitePov: Boolean,

@@ -2,7 +2,6 @@ package com.chesslab.cnn
 
 import com.chesslab.engine.api.BgrImage
 
-/** A one-hot-ish distribution from a FEN; [overrides] are `square -> (label, confidence)`. */
 class FakeSquareClassifier(
     fen: String,
     private val conf: Double = 0.99,
@@ -11,7 +10,6 @@ class FakeSquareClassifier(
 ) : SquareClassifier {
     private val expected: Map<String, String> = expectedLabels(boardOf(fen))
 
-    /** The full probability row for one square: target class at its confidence, rest uniform. */
     fun probsFor(square: String): FloatArray {
         val override = overrides[square]
         val label = override?.first ?: expected.getValue(square)
@@ -27,6 +25,5 @@ class FakeSquareClassifier(
         return Array(ALL_SQUARES.size) { probsFor(ALL_SQUARES[it]) }
     }
 
-    /** The observation this fake would produce, without going through crops. */
     fun observe(): OccupancyObservation = observationFromProbs(Array(ALL_SQUARES.size) { probsFor(ALL_SQUARES[it]) }, classes)
 }

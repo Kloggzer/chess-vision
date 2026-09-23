@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/** Sprossen-Wachen der Einzel-Leiter, die die Mutationsprobe vom 2026-09-23 ohne Test fand. */
+/** Sprossen-Wachen, die die Mutationsprobe vom 2026-09-23 ohne Test fand. */
 class VerifyLadderGuardTest {
     private fun EngineState.glance(
         cnn: CnnEvaluator,
@@ -56,8 +56,7 @@ class VerifyLadderGuardTest {
 
     @Test
     fun theModelHandHoldsTheVerdictWithoutCleanCommitsOnly() {
-        // h7h5: der Kopf meldete die Hand, das Rillenraster hinkte nach. Ohne `cleanCommitsOnly`
-        // ist `handHoldsVerdict` der einzige Riegel fuer diesen Arm.
+        // h7h5: der Kopf meldete die Hand, das Raster hinkte nach; ohne `cleanCommitsOnly` ist `handHoldsVerdict` der einzige Riegel.
         val state = pendingState().also { it.config = it.config.copy(cleanCommitsOnly = false) }
         val hand = VerifyObs(occluded = setOf("a1", "a2"))
         state.glance(VerifyEvaluator(occAgree = 1.0), hand)
@@ -67,7 +66,7 @@ class VerifyLadderGuardTest {
 
     @Test
     fun alternatingPairReadingsCannotOutliveTheVerifyWindow() {
-        // Die Paar-Haelfte von `a6fa47e3`: shadow und Farbe wechseln sich ab, keine Serie wird voll.
+        // shadow und Farbe wechseln sich ab, keine Serie wird voll.
         val state = pairState(verifyWindow = 4)
         val moves = pairMoves(state, listOf("e2e4", "e7e5"))
         val colour = PairObs(occupancy = mapOf("e4" to false), sure = setOf("e4"))
@@ -99,7 +98,6 @@ class VerifyLadderGuardTest {
         assertEquals(null, again?.moves?.map { uciOf(it) }?.takeIf { it == listOf("e2e4", "e7e5") })
     }
 
-    /** Vorher kein Widerspruch, nachher [conflicts] — ein Konflikt, den erst das Paar erzeugt. */
     private class ConflictsOnlyAfter(
         private val afterFen: String,
         private val conflicts: List<String>,

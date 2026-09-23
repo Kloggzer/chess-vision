@@ -37,10 +37,7 @@ private class LatchSpeaker : Speaker {
     override fun close() = Unit
 }
 
-/**
- * The alarm latch is the only state `MoveAnnouncer` carries between events, and the only thing that
- * releases it is an `AlarmCleared`. Nothing else in the app can reach it.
- */
+/** The latch is the only state carried between events, and only `AlarmCleared` releases it. */
 class MoveAnnouncerAlarmLatchTest {
     @Test
     fun theAlarmLatchIsStillClearedWhenSpeechWasOffWhileTheAlarmWentAway() {
@@ -51,8 +48,7 @@ class MoveAnnouncerAlarmLatchTest {
         val on = AppSettings(speechEnabled = true, speechAnnounceAlarms = true)
         settings.updateApp(on)
         val done = CompletableDeferred<Unit>()
-        // `emit` on a cold flow suspends until the collector's handler has returned, so every
-        // settings flip below provably lands between two events rather than racing them.
+        // `emit` on a cold flow suspends until the handler returned, so each settings flip lands between two events.
         val events: Flow<TrackerEvent> =
             flow {
                 emit(TrackerEvent.Alarm("illegal_move", listOf("e2"), null, null, AlarmReason.NOT_LEGAL))

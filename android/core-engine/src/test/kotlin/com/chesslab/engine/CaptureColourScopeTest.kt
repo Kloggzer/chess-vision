@@ -6,12 +6,9 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `capturesConfirmedColour` (Hypothesis.kt) liest `cnnSnap?.obs` roh: ohne Alters- und ohne
- * FEN-Wache. Es ist die einzige Stelle, die einen Zug allein aus einer Modellfarbe viabel macht.
- */
+/** `capturesConfirmedColour` las `cnnSnap?.obs` roh, ohne Alters- und FEN-Wache — die einzige Stelle, die
+ *  einen Zug allein aus einer Modellfarbe viabel macht. */
 class CaptureColourScopeTest {
-    /** Vorbedingung: mit frischem, stellungsgleichem Blick traegt die Farbe den Schlag. */
     @Test
     fun freshMatchingSnapshotCarriesTheSilentCapture() {
         val state = armed()
@@ -20,7 +17,6 @@ class CaptureColourScopeTest {
         assertTrue(state.touchedReadable(exd5(state), coldTarget(), soft(state)))
     }
 
-    /** Ein Blick aus einer ANDEREN Stellung darf keinen Schlag viabel machen. */
     @Test
     fun snapshotFromAnotherPositionMustNotCarryTheCapture() {
         val state = armed()
@@ -32,7 +28,6 @@ class CaptureColourScopeTest {
         )
     }
 
-    /** Und ein Blick von vor einer Minute auch nicht — `OBS_MAX_AGE_S` ist 3 s. */
     @Test
     fun snapshotOlderThanTheFreshnessWindowMustNotCarryTheCapture() {
         val state = armed()
@@ -58,7 +53,6 @@ class CaptureColourScopeTest {
 
     private fun coldTarget() = zOf("e4" to HOT)
 
-    /** d5 liest sicher WEISS — genau das, was der stumme Schlag dort hinterlaesst. */
     private object ColourObs : CnnObservation {
         override fun occupied(square: String) = square == "d5"
 

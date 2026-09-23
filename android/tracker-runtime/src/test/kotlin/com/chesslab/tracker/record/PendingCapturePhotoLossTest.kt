@@ -6,12 +6,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** Three white bishops: `physicalInventoryViolations` refuses it, which is what a promotion looks like. */
+/** `physicalInventoryViolations` refuses it, which is what a promotion looks like. */
 private const val THREE_BISHOPS = "rnbqkbnr/pppppppp/8/8/8/5B2/PPPPPPPP/RNBQKB1R w KQkq - 0 1"
 
 private const val AFTER_E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
 
-/** A deferred move photo that a LATER ply's gate throws away — what `supersededFrames` (2026-08-14) counts. */
 class PendingCapturePhotoLossTest {
     @TempDir
     lateinit var dir: File
@@ -22,7 +21,7 @@ class PendingCapturePhotoLossTest {
         controller.queue(1, FEN_AFTER_E4, "e4", clean = false)
         assertEquals(0, controller.recorder?.count, "an unclean commit must defer, not capture")
 
-        // Ply 2 commits into a position the inventory filter refuses. That is a verdict about ply 2.
+        // A verdict about ply 2 that throws away ply 1's deferred photo.
         controller.queue(2, THREE_BISHOPS, "e5", clean = true)
 
         assertNull(controller.flush(), "ply 1's deferred photo is gone — nothing is left to flush")
@@ -35,7 +34,7 @@ class PendingCapturePhotoLossTest {
         )
     }
 
-    /** `stop()` reset the counters only after `recorder ?: return null`, so a previous game's loss stayed. */
+    /** The reset came after `recorder ?: return null`, so a previous game's loss stayed. */
     @Test
     fun stopClearsTheLossCountersEvenWithoutAnOpenRecorder() {
         val controller =

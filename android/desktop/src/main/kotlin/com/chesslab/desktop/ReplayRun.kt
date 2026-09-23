@@ -16,6 +16,7 @@ import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.OpenCvStages
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.service.CameraFrameBus
+import com.chesslab.tracker.service.StagesFactory
 import com.chesslab.tracker.service.StatusPublisher
 import com.chesslab.tracker.service.TrackerSeed
 import com.chesslab.tracker.service.TrackerStack
@@ -43,25 +44,18 @@ internal fun replayRun(
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
-    // `label` measures the footage FIRST and refuses footage that cannot carry one — a label on
-    // crooked geometry is worse than none. `score` replays through the LABEL's stored quad, so
-    // the comparison and the label share their geometry by construction.
+    // `label` refuses footage that cannot carry one; `score` replays through the LABEL's stored quad.
     val plan = replayPlanFor(options, video)
     source.use { source ->
-        // Fitted from the board in THIS footage, not from a file, and built once for the stages
-        // that own and close it. Why, and what the board size is measured from rather than
-        // configured: `docs/desktop-replay.md`.
         val fittedLens = plan?.lens() ?: if (options.lens) fitLensFrom(source) else null
         if (options.lens && video != null && fittedLens == null) {
             error("no accepted lens fit for ${video.name} — refusing to replay raw frames as corrected")
         }
         val optics = fittedLens?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
-        // Skipped BEFORE the board is located, so the quad is measured on the game and not on the
-        // setup — it cost `2026-08-15-22-48-04` all 19 plies (`docs/desktop-replay.md`).
+        // Skipped BEFORE the board is located, so the quad is measured on the game, not the setup.
         skipPreRoll(source, video, options)?.let { println(it) }
-        // Which quad a run stood on is part of its provenance: the sources are a measured ±6-25
-        // plies apart (specs/52, still open; `docs/desktop-replay.md`).
+        // Which quad a run stood on is provenance: the sources are ±6-25 plies apart.
         val quad =
             plan?.quad()?.also { println("quad: from the label plan's geometry scan") }
                 ?: recordingDirOf(options, video)?.let(::loggedQuad)?.also {
@@ -70,26 +64,19 @@ internal fun replayRun(
                 ?: locateBoard(corrected)?.also { println("quad: located on the first decoded frames") }
         if (quad == null) {
             println("no board found: the markers never decoded")
-            // Nothing takes ownership on this path, because the stages that would are never built.
             optics?.close()
             return
         }
-        // Where locating the board left the decoder — read off the source itself, because the
-        // `VideoFileSource` cast fell through to 0 on segmented recordings
-        // (`docs/desktop-replay.md`).
+        // Off the source itself: the `VideoFileSource` cast fell through to 0 on segmented recordings.
         val replayStartFrame = source.currentDecodedIndex + 1
-        // The MODEL owns the crop composition (specs/45), and the desktop was not asking it. Read
-        // whether or not the CNN is on, so `nocnn` isolates the classifier and not the geometry
-        // (`docs/desktop-replay.md`).
+        // The MODEL owns the crop composition, read even under `nocnn` so that isolates only the classifier.
         val spec = desktopModelSpec(options.model)
         val geometry =
             replayBoardGeometry(quad, recordingDirOf(options, video), options.configFile?.let(::File)).withCropOf(spec)
-        // Before the config, because the config depends on it: `motionThr` is a per-frame-period
-        // percent, so the rate frames REACH the engine at scales it — as `TrackerService` does live.
+        // Before the config: `motionThr` is a per-frame-period percent, scaled by the rate frames REACH the engine.
         val recorded = recordedFrameGate(options, video)
         val stride = if (recorded != null) 1 else strideOf(options.fps, source.fps, live = camera != null)
-        // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`). The
-        // replay did not apply it, so it measured at 0.5 while the phone ran the model's own 0.15.
+        // The coverage gate rides in the MODEL (`docs/occlusion-gate.md`).
         val configFor = { extra: Map<String, Double> ->
             val alle = options.overrides + extra
             options
@@ -98,7 +85,6 @@ internal fun replayRun(
                 .withCoverageGateOf(spec, alle.keys)
         }
         val config = configFor(emptyMap())
-        // Der Prior des Modells verwirft ein `prior=` still; das Banner nennt den WIRKSAMEN Wert.
         println("board located from its markers: ${geometry.boardSize} px warp  ·  ${options.withPriorOf(spec)}")
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")
@@ -116,13 +102,9 @@ internal fun replayRun(
             }
         if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
         val frameClock = FrameClock(source, live = camera != null)
-        // The label's plies and the score's run come off the decision sink — streaming, one row
-        // per move (a recovery bridge writes per-move rows), so collecting rows collects plies.
         val session = plan?.session(quad, geometry.boardSize, source.fps, { source.currentDecodedIndex.toInt() }) { publisher.status.value }
         training?.configure(geometry, quad, source.fps)
-        // Held here rather than read back off the stack, and on the engine's clock like everything
-        // else in a replay — its 200 ms tap would otherwise follow this host's decode speed
-        // (`docs/desktop-replay.md`).
+        // On the engine's clock: its 200 ms tap would otherwise follow this host's decode speed.
         val needsPreview = camera != null || options.watch || options.dumpEvery > 0
         val bus =
             CameraFrameBus(
@@ -133,9 +115,8 @@ internal fun replayRun(
                 publishPreviews = needsPreview,
             )
         val view = openView(options, name)
-        // NOT seeded with this run's config, deliberately: seeding it collapsed rec-20260808 from
-        // 67 plies to 26 (2026-08-08). It holds the codec defaults, so nothing here may READ it for
-        // a knob the run owns (`docs/desktop-replay.md`).
+        // NOT seeded with this run's config: that collapsed rec-20260808 from 67 plies to 26. It holds codec
+        // defaults, so nothing may READ it for a knob the run owns.
         val settings = SettingsRepository(MemoryConfigStore, scope)
         val visualCache =
             options.visualCache?.let { path ->
@@ -199,13 +180,9 @@ internal fun replayRun(
             } else {
                 null
             }
-        // Der Prepass schneidet nach `stride`; die aufgezeichnete Auswahl folgt Zeitstempeln. Zwei
-        // Kadenzen, und der Docstring unten sagt, was das kostet — also rechnet LiveAlign dann
-        // selbst. Langsamer, aber es ist dieselbe Rechnung.
+        // Der Prepass schneidet nach `stride`, die aufgezeichnete Auswahl nach Zeitstempeln: dann rechnet LiveAlign selbst.
         val canPrecomputeMarkers = video != null && !options.lens && recorded == null && options.limitFrames == null
-        // The RUN's config, the same one `LiveAlign` obeys inside the stack: the prepass answers
-        // the alignments LiveAlign will ask for, so a prepass cut on a different cadence than the
-        // asker is a "marker prepass has no frame N" away from stopping the replay.
+        // The RUN's config: a prepass on a different cadence than LiveAlign is "marker prepass has no frame N".
         val needsMarkerDetections = visualCache?.alignmentLookup == null && config.liveAlign && config.alignEvery > 0
         val markerPrepass =
             if (canPrecomputeMarkers && needsMarkerDetections) {
@@ -220,11 +197,10 @@ internal fun replayRun(
             } else {
                 null
             }
-        val stack =
-            buildStack(
-                config,
+        val rig =
+            ReplayRig(
                 geometry,
-                frameClock,
+                frameClock::now,
                 optics,
                 bus,
                 publisher,
@@ -232,7 +208,6 @@ internal fun replayRun(
                 console,
                 scope,
                 settings,
-                session?.collector,
                 indexNow = { source.currentDecodedIndex },
                 live = camera != null,
                 visualCache = visualCache,
@@ -240,31 +215,17 @@ internal fun replayRun(
                 parallelVisual = parallelVisual,
                 priorLambda = options.priorLambda,
                 priorSafety = options.priorSafety,
-                motionDump = options.motionDump,
                 startFen = recordedStartFen(options, video),
                 cropClahe = cropClaheOf(spec),
-                trace = trace,
             )
+        val stack = rig.mainStack(config, session?.collector, options.motionDump, trace)
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        // N weitere Konfigurationen im SELBEN Bilddurchgang; ohne `configs=` entsteht hier nichts
-        // und der Lauf ist Anweisung fuer Anweisung der alte (`MultiReplay.kt`).
+        // Ohne `configs=` entsteht hier nichts, und der Lauf ist Anweisung fuer Anweisung der alte.
         val extras =
             options.extraConfigs?.let { pfad ->
                 ExtraEngines
-                    .open(
-                        readExtraConfigs(File(pfad), configFor),
-                        geometry,
-                        optics,
-                        bus,
-                        publisher,
-                        cnn,
-                        scope,
-                        settings,
-                        { source.currentDecodedIndex },
-                        frameClock::now,
-                        recordedStartFen(options, video),
-                        cropClaheOf(spec),
-                    )?.also { it.calibrate(geometry, quad, source.delivered) }
+                    .open(readExtraConfigs(File(pfad), configFor), rig)
+                    ?.also { it.calibrate(geometry, quad, source.delivered) }
             }
         if (trace != null) {
             stack.host.submit(
@@ -281,7 +242,6 @@ internal fun replayRun(
                     training?.frame(index, frame, publisher.status.value, timeMs)
                 }
             }
-        // Beside the ROI dump: the engine's own verdict per frame, so a settle delay can be read off.
         val statusDump =
             options.motionDump?.let {
                 File(
@@ -306,14 +266,12 @@ internal fun replayRun(
             )
         statusDump?.close()
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
-        // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
-        // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
+        // `observations` counts snapshots the observer EMITTED, the engine's `cnnSnaps` what arrived.
         println("cnn: state=${stack.observer.state.value} observations=${stack.observations} ${stack.observer.counters}")
         println(stack.dropLine())
         extras?.let { e -> e.tags.indices.forEach { println(e.cnnLine(it)) } }
         val totals = RunTotals(publisher.status.value?.note, stack.observations.toInt(), frames, stack.dropLine())
         session?.finish(video, options, config, geometry, totals)
-        // Je Zusatz-Engine ein eigener Bewertungsblock, gegen DASSELBE Label wie der Hauptlauf.
         extras?.let { e ->
             recordingDirOf(options, video)?.let { dir -> File(dir, "candidate.json").takeIf(File::isFile) }?.let { cand ->
                 val label = labelPlies(cand)
@@ -332,10 +290,7 @@ internal fun replayRun(
     scope.cancel()
 }
 
-/**
- * Wind the decoder to where `start=` says; null when nothing is skipped, which is the DEFAULT. The
- * old two-second lead cost a run 2 of its 4 moves (`docs/desktop-replay.md`).
- */
+/** Null when nothing is skipped, the DEFAULT: the old two-second lead cost a run 2 of its 4 moves. */
 private fun skipPreRoll(
     source: FrameSource,
     video: File?,
@@ -348,10 +303,7 @@ private fun skipPreRoll(
     return "pre-roll: $skipped frames skipped, tracking starts at ${"%.1f".format(source.timestampMs / 1000)}s"
 }
 
-/**
- * The board view, unless the run is scripted. `quiet` is what makes a replay scriptable: with no
- * window, break-on-stuck would wait forever for a key nobody presses (`docs/desktop-replay.md`).
- */
+/** Without a window, break-on-stuck would wait forever for a key nobody presses. */
 private fun openView(
     options: ReplayOptions,
     name: String,
@@ -361,10 +313,7 @@ private fun openView(
     return view
 }
 
-/**
- * The signals the engine had AT COMMIT TIME. Measured 2026-08-24: they do not separate fabrications
- * from hits (`docs/commit-latency.md`), so this stays a diagnostic.
- */
+/** They do not separate fabrications from hits (`docs/commit-latency.md`): a diagnostic. */
 private fun DebugDecision.confidenceLine(): String =
     (
         "ply=%d best=%.4f second=%.4f margin=%.4f agree=%.4f " +
@@ -385,93 +334,103 @@ private fun DebugDecision.confidenceLine(): String =
         refProvisional,
     )
 
-/** The object graph the phone builds too, with this host's frame type and this run's optics. */
-@Suppress("LongParameterList")
-private fun buildStack(
-    // Built by the caller and passed whole, because a label records it as `effective_config` —
-    // the config the engine RAN, and two constructions drift (that is how ClipDriver desynced).
+/** Haupt- und Zusatz-Engines entstehen ueber [stack], also unterscheiden sich zwei Arme nur in ihrer Konfig. */
+internal class ReplayRig(
+    val geometry: BoardGeometry,
+    val nowMs: () -> Long,
+    val optics: Undistorter?,
+    val bus: CameraFrameBus<BufferedImage>,
+    val publisher: StatusPublisher,
+    val cnn: (() -> Attached)?,
+    val logs: TrackerLogs,
+    val scope: CoroutineScope,
+    val settings: SettingsRepository,
+    val indexNow: () -> Long = { -1L },
+    val live: Boolean = false,
+    val visualCache: VisualObservationCache? = null,
+    val markerPrepass: AlignmentMarkerPrepass? = null,
+    val parallelVisual: ParallelVisualPrepass? = null,
+    val priorLambda: Double = 0.0,
+    val priorSafety: Boolean = true,
+    // Eine Aufnahme beginnt mitten im Spiel.
+    val startFen: String = STARTPOS,
+    val cropClahe: CropClahe? = null,
+) {
+    /** Only the engine that [writes] feeds the caches' sinks. */
+    @Suppress("LongParameterList")
+    fun stack(
+        // Passed whole: a label records it as `effective_config`, and two constructions drift.
+        config: TrackerConfig,
+        stages: StagesFactory<Mat>,
+        onDecision: (DebugDecision) -> Unit,
+        stateTag: String,
+        writes: Boolean,
+        logs: TrackerLogs = this.logs,
+        timings: StageTimings = StageTimings(logLine = {}),
+        // `nocnn` runs the ">2 changed squares = a hand" fallback ON PURPOSE — a different tracker.
+        classifier: () -> Attached = cnn ?: { error("running without a CNN — the engine uses its occlusion fallback") },
+    ): TrackerStack<Mat> =
+        TrackerStack(
+            TrackerSeed<Mat>(
+                // `measuredBoardSize` clamps to 320..1280: a 1600 placeholder would make `FrameLoop.step`
+                // refuse every plane, one silently dropped frame at a time.
+                config = config,
+                geometry = { geometry },
+                corners = null,
+                startFen = startFen,
+                onDecision = onDecision,
+                onState = { from, to, tsS ->
+                    val index = indexNow()
+                    println("$stateTag: %s -> %s at %.2fs".format(from, to, tsS) + if (index >= 0) " frame=$index" else "")
+                },
+                logs = logs,
+                stages = stages,
+                nowMs = nowMs,
+                // Inline inference so the snapshot lands before the next decode — else 54-vs-39-ply runs of
+                // one unchanged file. Live keeps the phone's dedicated observer thread.
+                observerDispatcher = if (live) null else Dispatchers.Unconfined,
+                parallelCrops = !live,
+                cachedVisual = parallelVisual?.lookup ?: visualCache?.lookup,
+                observationSink = visualCache?.sink?.takeIf { writes },
+                priorLambda = priorLambda,
+                priorSafety = priorSafety,
+                cachedAlignment = visualCache?.alignmentLookup,
+                alignmentSink = visualCache?.alignmentSink?.takeIf { writes },
+                cachedMarkerDetections = markerPrepass?.lookup,
+                cropClahe = cropClahe,
+            ),
+            settings,
+            publisher,
+            bus,
+            timings,
+            scope,
+            classifier,
+        )
+}
+
+internal fun ReplayRig.mainStack(
     config: TrackerConfig,
-    geometry: BoardGeometry,
-    clock: FrameClock,
-    optics: Undistorter?,
-    bus: CameraFrameBus<BufferedImage>,
-    publisher: StatusPublisher,
-    cnn: (() -> Attached)?,
-    logs: TrackerLogs,
-    scope: CoroutineScope,
-    settings: SettingsRepository,
     collector: DecisionCollector? = null,
-    /** The decoded frame under the engine right now (-1 live) — printed beside every state change. */
-    indexNow: () -> Long = { -1L },
-    live: Boolean = false,
-    visualCache: VisualObservationCache? = null,
-    markerPrepass: AlignmentMarkerPrepass? = null,
-    parallelVisual: ParallelVisualPrepass? = null,
-    priorLambda: Double = 0.0,
-    priorSafety: Boolean = true,
-    /** `motiondump=<file>`, or null. Measurement only — see `MotionDump`. */
     motionDump: String? = null,
-    // Die Stellung der Aufnahme beim ersten Frame — eine Aufnahme beginnt mitten im Spiel.
-    startFen: String = STARTPOS,
-    cropClahe: CropClahe? = null,
     trace: ReplayTrace? = null,
 ): TrackerStack<Mat> =
-    TrackerStack(
-        TrackerSeed<Mat>(
-            // NOT a preference and not a real default: `measuredBoardSize` clamps to 320..1280, so
-            // a config still carrying the 1600 placeholder disagrees with every plane the warp
-            // produces and `FrameLoop.step` refuses them, one silently dropped frame at a time.
-            config = config,
-            geometry = { geometry },
-            corners = null,
-            startFen = startFen,
-            onDecision = {
-                println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
-                println("decision-conf: " + it.confidenceLine())
-                collector?.offer(it)
-                trace?.decision(it, indexNow())
-            },
-            // The frame loop's own account of where a move's latency went, on the video clock. The
-            // phone writes the same transitions into its diagnostics file; here they go to stdout
-            // beside the decisions, which is what makes a replay's timeline readable end to end.
-            onState = { from, to, tsS ->
-                val index = indexNow()
-                println("state: %s -> %s at %.2fs".format(from, to, tsS) + if (index >= 0) " frame=$index" else "")
-            },
-            logs = logs,
-            stages = { geo, cfg, store, frameBus, boardBus ->
-                motionDumped(OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics), motionDump)
-            },
-            // The VIDEO's clock, not this machine's — see `FrameClock`.
-            nowMs = clock::now,
-            // A replay runs its inference inline so the snapshot lands before the next frame is
-            // decoded — the last wall-clock dependence, and the source of 54-vs-39-ply runs of
-            // one unchanged file. Live keeps the phone's shape: a dedicated observer thread.
-            observerDispatcher = if (live) null else Dispatchers.Unconfined,
-            parallelCrops = !live,
-            cachedVisual = parallelVisual?.lookup ?: visualCache?.lookup,
-            observationSink = visualCache?.sink,
-            priorLambda = priorLambda,
-            priorSafety = priorSafety,
-            cachedAlignment = visualCache?.alignmentLookup,
-            alignmentSink = visualCache?.alignmentSink,
-            cachedMarkerDetections = markerPrepass?.lookup,
-            cropClahe = cropClahe,
-        ),
-        settings,
-        publisher,
-        bus,
-        StageTimings(logLine = { println("chesslabPerf: $it") }),
-        scope,
-        // `nocnn` runs `Taint.cnnOcclusionFilter`'s ">2 changed squares = a hand" fallback ON
-        // PURPOSE — it is a different tracker, and the two have to be comparable.
-        cnn ?: { error("running without a CNN — the engine uses its occlusion fallback") },
+    stack(
+        config,
+        stages = { geo, cfg, store, frameBus, boardBus ->
+            motionDumped(OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics), motionDump)
+        },
+        onDecision = {
+            println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
+            println("decision-conf: " + it.confidenceLine())
+            collector?.offer(it)
+            trace?.decision(it, indexNow())
+        },
+        stateTag = "state",
+        writes = true,
+        timings = StageTimings(logLine = { println("chesslabPerf: $it") }),
     )
 
-/**
- * Frames in, until the source runs dry or the viewer's window is closed. The view is consulted
- * BEFORE the next frame is pulled, so a stop shows the state that caused it, not the one after.
- */
+/** The view is consulted BEFORE the next frame is pulled, so a stop shows the state that caused it. */
 @Suppress("LongParameterList")
 private fun drive(
     source: FrameSource,
@@ -480,17 +439,13 @@ private fun drive(
     publisher: StatusPublisher,
     view: TrackerView?,
     dumpEvery: Int = 0,
-    // Fired AFTER the engine saw the frame, index and picture in one call — the review-frame
-    // writer's correctness rests on that.
+    // Fired AFTER the engine saw the frame, index and picture in one call.
     frameHook: ((Int, Mat, Double) -> Unit)? = null,
-    // Process every stride-th decoded frame; time comes off each frame's PTS either way.
     stride: Int = 1,
-    // Die Frames, die das TELEFON sah. Ist sie da, gilt sie und [stride] ruht — ein Replay, der
-    // andere Bilder waehlt als die Messung, ist keine Reproduktion (`docs/desktop-replay.md`).
+    // Ist sie da, ruht [stride]: ein Replay, der andere Bilder waehlt als die Messung, ist keine Reproduktion.
     recorded: RecordedFrameGate? = null,
     statusDump: java.io.Writer? = null,
     limitFrames: Int? = null,
-    // Weitere Engines auf demselben Bild; null ist der gewohnte Lauf.
     extras: ExtraEngines? = null,
     trace: ReplayTrace? = null,
 ): Int {
@@ -529,19 +484,13 @@ private fun drive(
     }
 }
 
-/**
- * What a hooked frame is CALLED over the whole recording. `drive`'s own count sat 878 frames into
- * 2026-08-16-20-41-33 and put every label 29 s ahead of its picture (`docs/desktop-replay.md`).
- */
+/** `drive`'s own count sat 878 frames off and put every label 29 s ahead of its picture. */
 internal fun hookIndex(
     decoded: Long,
     counted: Int,
 ): Int = if (decoded >= 0) decoded.toInt() else counted
 
-/**
- * `fps=<n>` -> the frame stride, announced. Refused live: a camera already drops what the pipeline
- * cannot take, and the stride exists to give a replay that same reality, deterministically.
- */
+/** Refused live: a camera already drops what the pipeline cannot take. */
 private fun strideOf(
     targetFps: Double?,
     sourceFps: Double,
@@ -554,10 +503,7 @@ private fun strideOf(
     return stride
 }
 
-/**
- * The engine's clock: wall time [live], else the frame's own PTS ([FrameSource.timestampMs]). NOT
- * `frames x 1000/fps` — that assumed CFR, which the phone never delivers (`docs/desktop-replay.md`).
- */
+/** NOT `frames x 1000/fps` — that assumed CFR, which the phone never delivers. */
 private class FrameClock(
     private val source: FrameSource,
     private val live: Boolean,
@@ -565,7 +511,6 @@ private class FrameClock(
     fun now(): Long = if (live) System.currentTimeMillis() else source.timestampMs.toLong()
 }
 
-/** stdout is this host's logcat. The channel names are the shared code's, unchanged. */
 private class ConsoleLog(
     private val tag: String,
 ) : TrackerLog {
@@ -584,7 +529,7 @@ private class ConsoleLog(
     ) = println("$tag: ERROR $message${error?.let { " (${it.message})" }.orEmpty()}")
 }
 
-/** Settings a replay does not persist. The store is a seam precisely so a host can decline one. */
+/** Settings a replay does not persist. */
 private object MemoryConfigStore : ConfigStore {
     private val slots = mutableMapOf<String, String>()
 
@@ -598,7 +543,6 @@ private object MemoryConfigStore : ConfigStore {
     }
 }
 
-/** Die Stellung, auf der die Aufnahme beginnt — sonst die Grundstellung. */
 private fun recordedStartFen(
     options: ReplayOptions,
     video: File?,
@@ -609,10 +553,7 @@ private fun recordedStartFen(
     return fen
 }
 
-/**
- * Die Frame-Auswahl der Aufnahme, oder `null` wo keine gemessen wurde. `fps=<n>` trifft die Anzahl
- * der Frames, aber nicht die Bilder, die CameraX durchliess (`docs/desktop-replay.md`).
- */
+/** `fps=<n>` trifft die Anzahl der Frames, aber nicht die Bilder, die CameraX durchliess. */
 private fun recordedFrameGate(
     options: ReplayOptions,
     video: File?,
@@ -624,9 +565,6 @@ private fun recordedFrameGate(
     return RecordedFrameGate(times)
 }
 
-/**
- * Wie `TrackerService`: die Vorverarbeitung kommt aus der `config.json` des Modells — der Desktop
- * baute sie nie und servierte `p4a-80-clahe` rohe Crops.
- */
+/** Wie `TrackerService`: der Desktop baute sie nie und servierte `p4a-80-clahe` rohe Crops. */
 private fun cropClaheOf(spec: ModelSpec?): CropClahe? =
     spec?.takeIf { it.claheClip > 0.0 }?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }

@@ -8,52 +8,35 @@ import com.chesslab.tracker.service.DebugCrops
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * Everything the debug screen may see of the running tracker.
- *
- * Note what is NOT here: no engine, no camera, no frame pipeline, no second status flow. The
- * panels are a pure function of [status] plus the two pull-only probes below, which exist because
- * pixels and the ONNX provider cannot travel through `TrackerStatus` — `:core-engine` holds no
- * frame history and knows nothing about execution providers.
- */
+/** No engine, camera or pipeline: [status] plus two pull-only probes, because pixels and the ONNX provider
+ *  cannot travel through `TrackerStatus`. */
 interface DebugSession {
     val status: StateFlow<TrackerStatus?>
     val cnnState: StateFlow<CnnState>
     val config: StateFlow<TrackerConfig>
 
-    /**
-     * 07a's `SettingsRepository.debugEnabled` — the user's explicit "keep it on" switch. When it is
-     * off, closing the screen disarms the payload; when it is on, the payload survives so a live
-     * session can be inspected after the fact.
-     */
+    /** Off: closing the screen disarms the payload; on: it survives for inspection after the fact. */
     val debugPinned: StateFlow<Boolean>
 
-    /** Exact cross-thread source-work profiling is offered only by a debuggable Android build. */
     val workProfilingAvailable: Boolean
     val workProfilingEnabled: StateFlow<Boolean>
 
-    /** Arms the extra `TrackerStatus.debug` payload AND the crop tap. Off is the default. */
     fun setDebugEnabled(on: Boolean)
 
-    /** Starting after a stop creates a fresh profile; stopping keeps the last report exportable. */
     fun setWorkProfilingEnabled(on: Boolean)
 
     fun workProfileReport(): String?
 
-    /** The crops of the last glance, or null. Called at most at 2 Hz, off the analyzer thread. */
+    /** Called at most at 2 Hz, off the analyzer thread. */
     fun latestCrops(): DebugCrops?
 
     fun cnnRuntime(): CnnRuntimeInfo
 
-    /** The one way out of the sticky `CnnState.Failed` (05c's `CnnObserver.retryAttach`). */
+    /** The one way out of the sticky `CnnState.Failed`. */
     fun retryCnnAttach()
 }
 
-/**
- * Where the debug screen picks its session up — the same pattern as `TrackerSessionHost`, for the
- * same reason: the service publishes, the composition reads, and a screen that renders before the
- * service is bound gets [NoDebugSession] instead of a crash.
- */
+/** A screen rendered before the service binds gets [NoDebugSession] instead of a crash. */
 object DebugSessionHost {
     private val current = MutableStateFlow<DebugSession?>(null)
 
@@ -64,7 +47,6 @@ object DebugSessionHost {
     }
 }
 
-/** The unbound session: renders, arms nothing. */
 object NoDebugSession : DebugSession {
     override val status: StateFlow<TrackerStatus?> = MutableStateFlow(null)
     override val cnnState: StateFlow<CnnState> = MutableStateFlow(CnnState.Off)

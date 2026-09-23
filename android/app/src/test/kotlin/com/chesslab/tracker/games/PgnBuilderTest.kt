@@ -44,7 +44,6 @@ class PgnBuilderTest {
         val pgn = buildPgn(game(startFen = SCHOLARS_FEN, moves = movesOf("Kxf7"), result = "*"))
         assertTrue(pgn.contains("[SetUp \"1\"]"), pgn)
         assertTrue(pgn.contains("[FEN \"$SCHOLARS_FEN\"]"), pgn)
-        // Black to move on move 4: the ellipsis form, or every later move number is off by a ply.
         assertEquals("4... Kxf7 *", pgn.trim().lines().last())
     }
 

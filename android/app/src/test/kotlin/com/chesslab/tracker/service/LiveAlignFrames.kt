@@ -26,7 +26,6 @@ internal open class BlankFrames(
     override val cameraHealth: StateFlow<CameraHealth> = MutableStateFlow(CameraHealth.Up)
 }
 
-/** The four board markers really rendered, so the async path finds corners to hand on. */
 internal object MarkerFrames : BlankFrames(MARKER_CANVAS) {
     override fun latestCalibrationFrame(): Mat {
         val img = Mat(MARKER_CANVAS, MARKER_CANVAS, CvType.CV_8UC3, Scalar(WHITE, WHITE, WHITE))
@@ -42,7 +41,6 @@ internal object MarkerFrames : BlankFrames(MARKER_CANVAS) {
         return img
     }
 
-    /** Ids in `[a8, h8, h1, a1]` order, inset from the canvas edges. */
     private fun markerOrigin(id: Int): Pair<Int, Int> {
         val far = MARKER_CANVAS - MARKER_INSET - MARKER_PX
         return when (id) {

@@ -6,10 +6,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/**
- * `raiseAlarmIfDue` latchte die AKTUELLE Konfliktliste statt des Kerns aus `advanceDesyncStreak`
- * (Bug-Audit E10, `docs/bug-audit-2026-09-13.md`).
- */
+/** `raiseAlarmIfDue` latchte die AKTUELLE Konfliktliste statt des Kerns (`docs/bug-audit-2026-09-13.md` E10). */
 class AlarmTransientExtrasBugTest {
     @Test
     fun raisesAlarmWithStableCoreNotTransientExtras() {

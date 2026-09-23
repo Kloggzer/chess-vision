@@ -11,7 +11,6 @@ import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.File
 
-/** Compact first-pass visual results for a deterministic full-frame replay. */
 internal class VisualObservationCache private constructor(
     private val file: File,
     private val reader: CachedRows?,
@@ -23,8 +22,8 @@ internal class VisualObservationCache private constructor(
     private var lastSeq = 0L
     private var lastAlignmentFrame = 0L
 
-    /** Streng: ein fehlender Frame ist ein Fehler. TOLERANT: er wird gerechnet — noetig, weil der
-     *  Beobachter hoechstens jeden zweiten Frame sieht (`docs/desktop-replay.md`). */
+    /** Streng: ein fehlender Frame ist ein Fehler. TOLERANT: er wird gerechnet — der Beobachter sieht
+     *  hoechstens jeden zweiten Frame. */
     val lookup: ((Long) -> CropFrameStore.CachedVisual?)? =
         reader?.let { rows ->
             { seq ->
@@ -33,16 +32,15 @@ internal class VisualObservationCache private constructor(
             }
         }
 
-    /** Inspection seam for the bounded parallel visual prepass; absent while this cache is built. */
     val observationSequences: Set<Long>? = reader?.observations?.keys
 
-    /** Expected rows let the experimental prepass prove byte-for-byte probability parity. */
+    /** Lets the experimental prepass prove byte-for-byte probability parity. */
     val expectedObservation: ((Long) -> CropFrameStore.CachedVisual?)? =
         reader?.let { rows -> { seq -> rows.observations[seq] } }
 
     val sink: ((CnnSnapshot) -> Unit)? = output?.let { { snap -> write(snap) } }
 
-    /** Null for legacy caches: they replay observations but still calculate LiveAlign normally. */
+    /** Null for legacy caches: they still calculate LiveAlign normally. */
     val alignmentLookup: ((Long) -> FloatArray?)? =
         reader?.takeIf(CachedRows::hasAlignmentStream)?.let { rows ->
             { frame -> rows.alignments[frame]?.copyOf() }
@@ -266,8 +264,7 @@ internal class VisualObservationCache private constructor(
 
         private const val MAGIC = 0x43564F31
 
-        // 8: die Zeilen gehen durch `withoutPriorSafety`, und erst seit 2026-09-22 steht
-        // `prior-mode` in der Signatur — was davor geschrieben wurde, sagt seinen Modus nicht.
+        // 8: erst seitdem steht `prior-mode` in der Signatur.
         private const val VERSION = 8
         private const val RECORD_OBSERVATION = 1
         private const val RECORD_ALIGNMENT = 2

@@ -18,10 +18,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
 
-/**
- * Der Rillen-Sensor liest die Kalibriergroesse, die Crops das Modell: bei `outW` 80 ist der Crop-Warp
- * 576 px, und dort flaggten die Rillen 13 Felder auf ruhigem Rig-Brett (2026-09-04, 0 von 25 Plies).
- */
+/** Bei `outW` 80 ist der Crop-Warp 576 px, und dort flaggten die Rillen 13 Felder auf ruhigem Brett. */
 class GridWarpTest {
     private val geometry = BoardGeometry(boardSize = 1000, outW = 80, padSide = 0.05)
     private val corners = floatArrayOf(100f, 100f, 1100f, 100f, 1100f, 1100f, 100f, 1100f)
@@ -44,7 +41,6 @@ class GridWarpTest {
         pending.release()
     }
 
-    /** Ein Abbruch NACH dem Crop-Warp: der Store darf nichts sehen, und die Warps gehoeren niemandem mehr. */
     @Test
     fun aFailureAfterTheWarpHandsNothingOver() {
         val store = CropFrameStore()

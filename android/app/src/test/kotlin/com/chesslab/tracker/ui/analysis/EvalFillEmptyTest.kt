@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Ohne Bewertung bleibt die Flaeche LEER: 50 % waeren die haeufigste Luege, die sie erzaehlen kann. */
+/** Ohne Bewertung bleibt die Flaeche LEER: 50 % waeren ihre haeufigste Luege. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w411dp-h914dp-port", application = Application::class)
 class EvalFillEmptyTest {

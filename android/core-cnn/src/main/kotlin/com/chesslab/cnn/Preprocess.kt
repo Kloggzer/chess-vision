@@ -9,13 +9,8 @@ private const val CHANNELS = 3
 private const val BYTE_MASK = 0xFF
 private const val MAX_U8 = 255.0f
 
-/**
- * What the first convolution is fed — the port of `torch_data.INPUT_REPRS`.
- *
- * A run records its choice in `config.json` (`input_repr`) and the exported graph's stem is built
- * for [channels]; reading the name from the asset is what stops serving from drifting away from
- * training, and a wrong channel count would surface only as a shape error inside ORT.
- */
+/** Read from the asset's `input_repr`, so serving cannot drift from training; a wrong channel count would
+ *  surface only as a shape error inside ORT. */
 enum class InputRepr(
     val id: String,
     val hasRgb: Boolean,
@@ -28,7 +23,7 @@ enum class InputRepr(
     SOBEL("sobel", hasRgb = false, hasGray = false, hasSobel = true),
     ;
 
-    /** Derived, not declared — the stack IS the channel count, in `torch.cat` order. */
+    /** Derived: the stack IS the channel count, in `torch.cat` order. */
     val channels: Int get() = (if (hasRgb) CHANNELS else 0) + (if (hasGray) 1 else 0) + (if (hasSobel) 1 else 0)
 
     companion object {
@@ -38,10 +33,7 @@ enum class InputRepr(
     }
 }
 
-/**
- * `config.py CLASSES`. Used ONLY to assert the order of the class list read from the
- * model asset's `config.json` — the runtime source of truth is that asset, never this list.
- */
+/** Used ONLY to assert the order of the asset's class list — the asset is the source of truth. */
 val EXPECTED_CLASSES: List<String> =
     listOf(
         "empty",
@@ -60,33 +52,18 @@ val EXPECTED_CLASSES: List<String> =
         "occluded",
     )
 
-/** `config.py NORMALIZE_MEAN / NORMALIZE_STD` (ImageNet). */
 val IMAGENET_MEAN: List<Float> = listOf(0.485f, 0.456f, 0.406f)
 val IMAGENET_STD: List<Float> = listOf(0.229f, 0.224f, 0.225f)
 
-/**
- * `dataset_build.py class_list_for("pieces13")` — the 14-class list minus `occluded`.
- *
- * `occluded` never comes from a FEN, only from a hand label, and the real corpus holds zero of
- * them, so an identity run trained on camera data has no column for it. Dropping the column rather
- * than carrying a permanently-empty one is what `pieces13` is; the prefix is identical to
- * [EXPECTED_CLASSES], so every index a caller reads by name lands in the same place.
- */
+/** The 14-class list minus `occluded`: the real corpus holds no hand label. Identical prefix, so every index
+ *  read by name lands in the same place. */
 val PIECES13_CLASSES: List<String> = EXPECTED_CLASSES.filterNot { it == "occluded" }
 
-/** The class lists this app knows how to consume, in the order they must appear. */
 private val ACCEPTED_CLASS_LISTS: List<List<String>> =
     listOf(EXPECTED_CLASSES, PIECES13_CLASSES)
 
-/**
- * Fails loudly when the model asset's class list is neither of the two in [ACCEPTED_CLASS_LISTS]:
- * the canonical 14-class order or the 13-class identity order. Returns the asset list so callers
- * keep using THAT, not [EXPECTED_CLASSES].
- *
- * A reordered list silently relabels every piece, so refusing to load is the only safe answer —
- * and the message has to name every accepted order, because the one it omits is the one the
- * failing model is closest to.
- */
+/** A reordered list silently relabels every piece, so refuse to load; the message names every accepted order,
+ *  because the one it omits is the one the failing model is closest to. */
 fun requireExpectedClasses(classes: List<String>): List<String> {
     require(classes in ACCEPTED_CLASS_LISTS) {
         "model classes $classes is none of the accepted orders: " +
@@ -95,23 +72,9 @@ fun requireExpectedClasses(classes: List<String>): List<String> {
     return classes
 }
 
-/**
- * Contract from `serving.py predict_arrays` (the `all_at_size` fast path, which is the live
- * path): BGR uint8 HWC -> BGR->RGB flip -> `/255` -> `(x - mean) / std` -> NCHW float32, N first,
- * then the R, G and B planes. Into a **caller-owned** buffer.
- *
- * Crops arrive already at `outW x outH`. A differently sized crop is a programming error — this
- * does NOT resize, colour-correct or CLAHE.
- *
- * The live path observes a few times per second with `64 * 3 * 128 * 128` floats = 12.6 MB per
- * call, which is sustained GC pressure next to a 15 fps camera loop. [out] must hold exactly
- * `crops.size * repr.channels * outW * outH` floats; every element is written, so a reused buffer
- * carries nothing over from the previous observation.
- *
- * `LongParameterList` is suppressed on purpose. All eight are primitive and all eight vary per
- * call; the holder object detekt is asking for would exist only to satisfy detekt, hiding which
- * knobs there are behind a type nothing else in the module needs.
- */
+/** BGR uint8 HWC -> RGB -> `/255` -> `(x - mean) / std` -> NCHW float32, into a **caller-owned** buffer:
+ *  12.6 MB per call a few times a second is GC pressure beside a 15 fps loop. Crops must already be
+ *  `outW x outH` — no resize, no CLAHE. Every element is written, so a reused buffer carries nothing over. */
 @Suppress("LongParameterList")
 fun preprocessInto(
     crops: List<BgrImage>,
@@ -128,27 +91,21 @@ fun preprocessInto(
     require(out.size == crops.size * repr.channels * plane) {
         "out holds ${out.size} floats, expected ${crops.size * repr.channels * plane}"
     }
-    // `per_crop` und ein Nicht-RGB-Stapel schliessen sich aus, und Python lehnt das Paar ab
-    // (`training/train.py`). `ModelSpec` liest beide Schluessel unabhaengig, also KANN eine
-    // `config.json` es verlangen — dann wurde `perCrop` hier stillschweigend fallengelassen und
-    // das Modell bekam eine Normalisierung, unter der es nie trainiert hat.
+    // `per_crop` und ein Nicht-RGB-Stapel schliessen sich aus (Python lehnt das Paar ab), aber `ModelSpec` liest
+    // beide unabhaengig: still fallengelassen bekam das Modell eine Normalisierung, unter der es nie trainierte.
     require(!perCrop || repr == InputRepr.RGB) { "normalize.mode=per_crop is not defined for input_repr=${repr.id}" }
     if (perCrop) {
         standardisePerCrop(crops, outW, outH, out)
         return
     }
     if (repr != InputRepr.RGB) {
-        // Python normalisiert hier NICHT mit den Werten des Laufs: `build_transform` haengt
-        // `InputRepresentation` statt `Normalize` an, und die greift fest auf die
-        // ImageNet-Konstanten. Ein Lauf mit eigenen mean/std las sonst anders als er trainierte.
+        // Python normalisiert hier fest mit ImageNet (`InputRepresentation` statt `Normalize`), nicht mit den
+        // Werten des Laufs.
         representInto(crops, outW, outH, out, IMAGENET_MEAN, IMAGENET_STD, repr)
         return
     }
-    // Unboxed ONCE. `mean`/`std` are `List<Float>`, i.e. boxed `java.lang.Float`, and reading them
-    // inside the pixel loop cost six interface calls plus six unboxings per pixel — 18.9 M of each
-    // per 64-crop batch. Measured on an SM8650 the whole call took 259 ms of a 485 ms observation,
-    // which is why the CNN looked expensive long before the graph was ever the problem. The
-    // arithmetic below is unchanged and bit-identical; only the operand loads moved out.
+    // Unboxed ONCE: `List<Float>` in the pixel loop cost six interface calls and unboxings per pixel — 259 ms
+    // of a 485 ms observation on an SM8650. Bit-identical.
     val meanR = mean[0]
     val meanG = mean[1]
     val meanB = mean[2]
@@ -176,18 +133,12 @@ fun preprocessInto(
     }
 }
 
-/**
- * The model head emits **log-probabilities** (`training/model.py HierarchicalHead`
- * returns `occ_term + piece_term * occ_mask`, both `log_softmax`) and Python applies
- * `torch.softmax` to them anyway (`serving.py`). `softmax(log p) == p` up to normalization,
- * so applying softmax to the ONNX output is CORRECT — do not "optimise" it to `exp()`.
- * Max-subtracting stable form.
- */
+/** The head emits log-probabilities and Python applies `torch.softmax` anyway; `softmax(log p) == p`, so
+ *  softmax here is CORRECT — do not "optimise" it to `exp()`. */
 fun softmax(logProbs: FloatArray): FloatArray = softmaxAt(logProbs, 1.0)
 
-/** Mit der gefitteten `temperature` (`training/data.py fit_temperature`); der Argmax bleibt, nur
- *  die Konfidenz wird ehrlich. `temperature <= 0` ist keine Temperatur, wie in [calibratedConfThr]
- *  und [priorOnTempered]: 0 gab lauter `NaN`, negativ einen GEDREHTEN Argmax. */
+/** Der Argmax bleibt, nur die Konfidenz wird ehrlich. `temperature <= 0` ist keine Temperatur: 0 gab lauter
+ *  `NaN`, negativ einen GEDREHTEN Argmax. */
 fun softmaxAt(
     logProbs: FloatArray,
     temperature: Double,
@@ -204,25 +155,13 @@ fun softmaxAt(
     return FloatArray(exps.size) { exps[it] / sum }
 }
 
-/**
- * The occlusion head's coverage unit (`training/occlusion.py` regresses it with `BCEWithLogits`).
- * It is an INDEPENDENT sigmoid, never part of [softmax] — see `ModelSpec.coverageOutput`.
- */
+/** An INDEPENDENT sigmoid, never part of [softmax] (`ModelSpec.coverageOutput`). */
 
 fun sigmoid(logit: Float): Float = (1.0 / (1.0 + exp(-logit.toDouble()))).toFloat()
 
-/**
- * `(x - mean) / std` computed over EACH crop, channels together — the port of
- * `torch_data._PerCropStandardize`.
- *
- * This is the contrast stretch GroupNorm used to perform inside the network. A black piece on a
- * DARK square stands 6.0 grey levels off its background against 40.2 on a light square; doing the
- * normalisation per crop closes that 6.6x gap to 1.5x, and doing it HERE lets the network's
- * BatchNorms fold into their convolutions (573 graph nodes -> 89).
- *
- * `std` is the UNBIASED estimate, because `torch.Tensor.std()` defaults to `correction=1` and the
- * two sides have to agree to the last bit or the model sees inputs it was never trained on.
- */
+/** The contrast stretch GroupNorm did inside the network: a black piece on a dark square stands 6.0 grey
+ *  levels off against 40.2 on light; per crop that gap shrinks 6.6x -> 1.5x and BatchNorm folds (573 -> 89
+ *  nodes). `std` is UNBIASED, as `torch.Tensor.std()` — the two must agree to the last bit. */
 private fun standardisePerCrop(
     crops: List<BgrImage>,
     outW: Int,
@@ -267,30 +206,20 @@ private fun standardisePerCrop(
 /** `torch_data._PerCropStandardize`'s epsilon — the two must agree. */
 private const val PER_CROP_EPS: Double = 1e-5
 
-// --- input representation --------------------------------------------------------------------
-//
-// The port of `torch_data.InputRepresentation`. Pinned to golden numbers from the Python transform
-// in `PreprocessTest`, because "the two normalise the same way" is not a property one can assert.
+// Port of `torch_data.InputRepresentation`, pinned to golden Python numbers in `PreprocessTest`.
 
-/** ITU-R BT.601 luma — `torch_data._LUMA`, the coefficients `cv2.COLOR_BGR2GRAY` uses. */
 private const val LUMA_R = 0.299f
 private const val LUMA_G = 0.587f
 private const val LUMA_B = 0.114f
 
-/** `torch_data._GRAY_MEAN` / `_GRAY_STD` — ImageNet projected through the luma weights. */
 private const val GRAY_MEAN = 0.449f
 private const val GRAY_STD = 0.226f
 
-/** `torch_data._SOBEL_MEAN` / `_SOBEL_STD`, measured over 4000 occ-real crops at 128x128. */
+/** `torch_data._SOBEL_MEAN` / `_SOBEL_STD`, measured over 4000 crops at 128x128. */
 private const val SOBEL_MEAN = 0.3704f
 private const val SOBEL_STD = 0.5259f
 
-/**
- * Build [repr]'s channel stack for every crop.
- *
- * Channel order follows the `torch.cat` in `InputRepresentation.forward`: RGB first when present,
- * then gray, then the gradient magnitude.
- */
+/** Channel order follows `InputRepresentation.forward`'s `torch.cat`: RGB, gray, gradient magnitude. */
 private fun representInto(
     crops: List<BgrImage>,
     outW: Int,
@@ -332,21 +261,9 @@ private fun representInto(
     }
 }
 
-/**
- * `|Gx| + |Gy|` of [gray] into `out[base until base + w*h]`, normalised by the constants above.
- *
- * This is exactly
- *
- *     cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3, borderType=cv2.BORDER_REFLECT_101)
- *
- * plus the same for `dy`. **ksize=3** because the piece silhouette IS the signal and a wider
- * derivative smooths it away; **BORDER_REFLECT_101** because it is `cv2.Sobel`'s default AND
- * `torch.nn.functional.pad(mode="reflect")`, so this port and the training transform agree on the
- * crop's frame instead of each inventing an edge; **float32 on the [0,1] image** rather than uint8,
- * because OpenCV's uint8 rounding is the one step that could not be reproduced here bit-for-bit.
- *
- * Reflect-101 means the border pixel is not repeated: row -1 mirrors to row 1, row h to row h-2.
- */
+/** Exactly `cv2.Sobel(gray, CV_32F, 1, 0, ksize=3, BORDER_REFLECT_101)` plus `dy`: ksize 3 keeps the
+ *  silhouette, reflect-101 matches both cv2 and torch's reflect pad, float32 on [0,1] because OpenCV's
+ *  uint8 rounding cannot be reproduced bit-for-bit. Row -1 mirrors to row 1, row h to h-2. */
 private fun sobelInto(
     gray: FloatArray,
     w: Int,
@@ -376,9 +293,8 @@ private fun sobelInto(
     }
 }
 
-/** Dieselbe Forderung in den Zahlen DIESES Modells: 0,85 auf ueberkonfidenten Werten ist eine
- *  andere Huerde als auf kalibrierten. Gleichmaessiger Rest angenommen; am Satz deckungsgleich.
- *  `temperature <= 0` ist keine Temperatur — ungeprueft wurde daraus 0,005 statt 0,85 (Phantome). */
+/** 0,85 auf ueberkonfidenten Werten ist eine andere Huerde als auf kalibrierten. Gleichmaessiger Rest
+ *  angenommen. `temperature <= 0` ungeprueft machte aus 0,85 ein 0,005 (Phantome). */
 fun calibratedConfThr(
     engineThr: Double,
     temperature: Double,

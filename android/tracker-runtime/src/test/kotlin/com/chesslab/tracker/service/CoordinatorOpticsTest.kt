@@ -31,19 +31,17 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 
-/** A 1920x1080 sensor frame with the board filling the middle — the live phone case. */
 private val FRAME = DeliveredSize(width = 1920, height = 1080, rotationDegrees = 0)
 
-/** `[a8, h8, h1, a1]` in SOURCE-image pixels, which is what `FramePipeline.corners` carries. */
 private val BOARD_QUAD = floatArrayOf(600f, 300f, 1500f, 300f, 1500f, 900f, 600f, 900f)
 
-/** `detSize` = boardSize * detectScale — the size of the detection warp, NOT of the frame. */
+/** The detection warp's size, NOT the frame's. */
 private const val DET_SIDE = 464
 
 private val CONFIG = TrackerConfig(liveAlign = false)
 
 class CoordinatorOpticsTest {
-    /** The autofocus meters in normalised FRAME coordinates (`CameraLookControl.focusOn`), not the warp's. */
+    /** The autofocus meters in normalised FRAME coordinates, not the warp's. */
     @Test
     fun theFocusRegionIsNormalisedAgainstTheDeliveredFrame() {
         Harness().use { harness ->
@@ -97,7 +95,6 @@ class CoordinatorOpticsTest {
     }
 }
 
-/** The whole analyzer-thread loop with the OpenCV stages and the engine faked out. */
 private class Harness(
     val focus: FakeFocus = FakeFocus(),
     exposure: ExposureGovernor = ExposureGovernor.NONE,
@@ -150,7 +147,6 @@ private class FakeFocus : FocusGovernor {
     }
 }
 
-/** Dark enough that the exposure governor would lift it the moment it is allowed to. */
 private const val DARK_LEVEL: Byte = 10
 
 private fun darkBoard(side: Int) = BgrImage(side, side, ByteArray(side * side * 3) { DARK_LEVEL })

@@ -33,7 +33,6 @@ private const val PACK_SIDE = 80
 private const val PACK_BYTES = PACK_SIDE * PACK_SIDE * 3
 private const val UNREVIEWED_LABEL = "unreviewed"
 
-/** Result of matching one visually stable board against the known positions of the played game. */
 internal data class VideoPositionMatch(
     val ply: Int?,
     val mismatches: Int,
@@ -45,7 +44,6 @@ internal data class TrainingFrameRisk(
     val squares: Set<String>,
 )
 
-/** A frame with any independent warning is review material, never automatic training truth. */
 internal fun trainingFrameRisk(
     cnnOccluded: Set<String>,
     cnnConflicts: Set<String>,
@@ -60,10 +58,7 @@ internal fun trainingFrameRisk(
     return TrainingFrameRisk(reasons, cnnOccluded + cnnConflicts + engineOccluded)
 }
 
-/**
- * Keeps extraction monotonic. A physical take-back is useful evidence, but it is not part of the
- * mapped game and must not silently label an old position as if play had continued normally.
- */
+/** A physical take-back is not part of the mapped game and must not label an old position as current. */
 internal class VideoPositionGate {
     private var furthestPly = 0
 
@@ -83,14 +78,9 @@ internal class VideoPositionGate {
     }
 }
 
-/**
- * `training-video-pack <video> <game.json> <outDir> [every=N] [stable=N] [fps=N] [model=name] [visualcache=file]`.
- *
- * The Windows Kotlin tracker makes every admission decision. The game contributes only its trusted
- * sequence of FENs, while labels are generated from the matching FEN. Motion, tracker alarms,
- * unknown positions and take-backs are excluded. A clustered grid-groove loss is packed separately
- * as `occluded`, square by square.
- */
+/** `training-video-pack <video> <game.json> <outDir> [every=N] [stable=N] [fps=N] [model=name] [visualcache=file]`.
+ *  The game contributes only its FEN sequence; motion, alarms, unknown positions and take-backs are excluded,
+ *  clustered grid-groove loss is packed as `occluded`. */
 fun packTrainingVideo(args: List<String>) {
     require(args.size >= 3) { trainingVideoUsage() }
     val video = args[0].fileArg()
@@ -102,11 +92,8 @@ fun packTrainingVideo(args: List<String>) {
     val trackerFps = options.doubleOption("fps")
     val model = options.stringOption("model") ?: DEFAULT_MODEL
     val visualCache = options.stringOption("visualcache")
-    // The pack's rows are keyed by this, and `corrections.jsonl` dedups on
-    // `(session_id, frame, square)` with LAST LINE WINNING — so an id that is not unique per
-    // recording makes one human's verdict apply to another recording's crop. The video's own stem
-    // was unique while videos came off a camera roll; every LAN-transferred phone recording is
-    // `files/sessions/<id>/video.mp4`, so the stem is now the constant "video" for all of them.
+    // `corrections.jsonl` dedups on `(session_id, frame, square)`, LAST LINE WINNING: a non-unique id applies one
+    // verdict to another recording. Every phone recording is `video.mp4`, so the stem is no longer unique.
     val id = options.stringOption("id") ?: video.nameWithoutExtension
     require(video.isFile && gameFile.isFile) { "video and game.json must exist" }
     require(every >= 1 && stableNeeded >= 2) { "every must be >= 1 and stable must be >= 2" }
@@ -134,9 +121,7 @@ private fun gamePositions(file: File): List<KnownPosition> {
     val out = mutableListOf(KnownPosition(board.getFen(true, true), expectedLabels(board)))
     for ((index, row) in root.getValue("moves").jsonArray.withIndex()) {
         val uci = (row as JsonObject).getValue("uci").jsonPrimitive.content
-        // `doMove(Move)` is `doMove(move, false)`, and even `fullValidation` never checks move
-        // GEOMETRY — only king safety and castling rights. A garbage uci would be applied and
-        // silently label every later position. Only the generator knows what a piece can do.
+        // `doMove(Move)` never checks move GEOMETRY, even with `fullValidation`; only the generator knows.
         val move = Move(uci, board.sideToMove)
         val fen = board.getFen(true, true)
         require(MoveGenerator.generateLegalMoves(board).any { it.toString() == move.toString() }) {
@@ -192,8 +177,7 @@ private class TrainingVideoCapture(
     private var lastFen: String? = null
     private var lastPly: Int? = null
 
-    // A log from a different run would label every crop with someone else's game — the one way
-    // this can go wrong silently, so it is checked before a single frame is read.
+    // A log from a different run would label every crop with someone else's game — checked before any frame.
     init {
         timeline?.marks?.forEach { mark ->
             val known = positions.getOrNull(mark.ply)?.fen?.substringBefore(' ')
@@ -240,19 +224,16 @@ private class TrainingVideoCapture(
                 audit.row(frameNo, timeMs, "quarantine_occluded", extras = ",\"squares\":${jsonArray(squares)}")
                 return
             }
-            // `state` is the lifecycle gate, not `verifyState`: after a commit the verdict stays
-            // "confirmed" while the engine is already waiting again. A latched ALARM disqualifies
-            // the frame only while the tracker IS the ply source — on the time axis it describes a
-            // replay that lost the game, not the picture.
+            // `state`, not `verifyState`: after a commit the verdict stays "confirmed". A latched ALARM
+            // disqualifies only while the tracker IS the ply source.
             val alarm = status.alarm?.takeIf { timeline == null }
             if (status.state != "waiting" || alarm != null) {
                 reject(frameNo, timeMs, alarm?.let { "alarm_${it.kind}" } ?: status.state)
                 return
             }
             val ply = (if (timeline != null) timedPly(frameNo, timeMs) else matchedPly(frameNo, timeMs, status)) ?: return
-            // A CNN conflict is measured against the ENGINE's board, which is the thing the time
-            // axis exists to stop trusting — a desynced replay would conflict on every frame and
-            // quarantine the whole recording. Occlusion warnings stay: they are about the picture.
+            // A CNN conflict is against the ENGINE's board, which the time axis exists to distrust: a desynced
+            // replay would quarantine the whole recording. Occlusion warnings stay: they are about the picture.
             val conflicts = if (timeline == null) status.cnnConflicts else emptySet()
             val risk = trainingFrameRisk(status.cnnOccluded, conflicts, status.occlusionVetoed)
             if (risk.reasons.isNotEmpty()) {
@@ -299,7 +280,6 @@ private class TrainingVideoCapture(
         )
     }
 
-    /** The ply the phone's clock puts on the board, once it has held still for [stableNeeded]. */
     private fun timedPly(
         frameNo: Int,
         timeMs: Double,
@@ -318,7 +298,7 @@ private class TrainingVideoCapture(
         return ply
     }
 
-    /** The tracker's own FEN, matched against the game — the only source a camera-roll video has. */
+    /** The only source a camera-roll video has. */
     private fun matchedPly(
         frameNo: Int,
         timeMs: Double,

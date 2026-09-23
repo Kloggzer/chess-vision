@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** `_cnn_tick` — evaluation gates, the occupancy fallback, the recovery confirmer and the anchoring rule. */
 class CnnTickTest {
     @Test
     fun obsoletePositionDoesNotEvaluateOrDelayTheNextFreshReading() {
@@ -58,7 +57,6 @@ class CnnTickTest {
 
     @Test
     fun observerRunsWhileEvaluationIsNotDue() {
-        // Observation is unconditional, evaluation is not.
         val state = recoveryState()
         state.clearStuck()
         state.lastCnnTs = state.nowS
@@ -92,17 +90,13 @@ class CnnTickTest {
 
     @Test
     fun stuckEvaluationDoesNotRequireAStableBoard() {
-        // `stuck` is precisely the case where the board never looks quiet enough.
         val state = recoveryState()
         assertEquals(0, state.grayBuf.size)
         state.cnnTick(RecoveryEvaluator(match = true), recoverySnap(state, obsForBoard(state.board), seq = 1))
         assertEquals("ok", state.cnnStatus)
     }
 
-    /**
-     * `stuckCount >= settleFrames` had no coverage: every fixture here sets `settleFrames` to 1, so
-     * deleting the clause left all 365 `:core-engine` tests green.
-     */
+    /** Every fixture sets `settleFrames` to 1, so deleting the clause left all 365 engine tests green. */
     @Test
     fun theStuckGateNeedsSettleFramesOfTheSameReason() {
         val state = EngineState(recoveryConfig().copy(settleFramesOverride = 3), STARTPOS, whitePov = true)
@@ -135,8 +129,7 @@ class CnnTickTest {
 
     @Test
     fun matchOkPullsReferenceForwardFromSnapshot() {
-        // entry.md invariant 5: the reference becomes the frame the CNN LOOKED at, never `lastCur`
-        // — which is several frames newer and may already contain the opponent's next move.
+        // Invariant 5: the frame the CNN LOOKED at, never `lastCur` — which may already hold the opponent's next move.
         val state = recoveryState()
         val observed = grayFrame(listOf("e2"))
         state.lastCur = grayFrame(listOf("e4"))
@@ -150,7 +143,7 @@ class CnnTickTest {
 
     @Test
     fun matchOkDoesNotRebuildTheGamut() {
-        // invariant 6: the CNN tolerates partial occlusion, so this frame is not verifiably clean.
+        // Invariant 6: the CNN tolerates partial occlusion, so this frame is not verifiably clean.
         val state = recoveryState()
         state.cnnTick(
             RecoveryEvaluator(match = true),
@@ -161,7 +154,6 @@ class CnnTickTest {
 
     @Test
     fun snapshotWarpMustBeAtDetSize() {
-        // entry.md invariant 1: a reference at the wrong resolution corrupts every later diff.
         val state = recoveryState()
         val wrongSize = grayFrame(boardSize = TEST_BOARD_SIZE / 2)
         state.lastCur = grayFrame(listOf("e4"))
@@ -172,8 +164,7 @@ class CnnTickTest {
 
     @Test
     fun occupancyFallbackRescuesIdentityMismatch() {
-        // The b8b6->c6 incident: identity is the weak axis, so an identity-only mismatch that
-        // occupancy contradicts counts as a MATCH.
+        // The b8b6->c6 incident: an identity-only mismatch that occupancy contradicts counts as a MATCH.
         val state = recoveryState()
         val cnn = RecoveryEvaluator(match = false, conflicts = listOf("b8"), occupancyMatch = true)
         state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board, mapOf("b8" to "bB")), 1, grayFrame()))
@@ -182,10 +173,8 @@ class CnnTickTest {
         assertNull(state.stuckReason)
     }
 
-    /**
-     * The dangerous direction: identity conflicts come from LABEL-confident squares only, so an extra
-     * piece read wN 0.50 / wB 0.45 was never checked and `onMatchOk` pulled the reference over it.
-     */
+    /** Identity conflicts come from LABEL-confident squares only, so an extra piece read wN 0.50 / wB 0.45 was
+     *  never checked and `onMatchOk` pulled the reference over it. */
     @Test
     fun anIdentityMatchThatOccupancyContradictsIsNotAMatch() {
         val (state, cnn) = alarmedState()
@@ -203,7 +192,7 @@ class CnnTickTest {
 
     @Test
     fun recoveryNeedsConfirmFramesVotes() {
-        // specs/12 D6: the legacy port pushed a whole sequence on ONE glance.
+        // The legacy port pushed a whole sequence on ONE glance.
         val state = recoveryState(confirmFrames = 2)
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
         val obs = obsForBoard(state.board)
@@ -214,10 +203,7 @@ class CnnTickTest {
         assertEquals(listOf("e4"), state.history)
     }
 
-    /**
-     * 2026-08-08-00-39-57: a shadow re-proposed `a2a4` every cycle and each dispatch cleared the
-     * streak, so the correct `c3e4` never got past 1/2 — 17 plies lost.
-     */
+    /** A shadow re-proposed `a2a4` every cycle and each dispatch cleared the streak: `c3e4` never got past 1/2. */
     @Test
     fun aCandidateEnteringVerifyDoesNotResetTheRecoveryVote() {
         val state = recoveryState(confirmFrames = 2)
@@ -252,10 +238,7 @@ class CnnTickTest {
         assertEquals(1, state.recoveryConfirmer.count, "a rejected pair may not cost the whole-board vote")
     }
 
-    /**
-     * 2026-08-08-11-59-12: bridge `f2f4 e5c4` at vote 1/2, the next glance 98 frames later after two
-     * more plies — the key never repeated and the session never recovered.
-     */
+    /** Bridge at vote 1/2, the next glance 98 frames later after two more plies: the key never repeated. */
     @Test
     fun anOpenRecoveryVoteIsDueDespiteTheCooldown() {
         val state = recoveryState(confirmFrames = 2)
@@ -288,7 +271,7 @@ class CnnTickTest {
         assertTrue(state.note!!.contains("CNN recovery"), state.note!!)
     }
 
-    /** The model arm of `recoveryVoteConfirmed` is blind on 13-class models; the grid arm must refuse alone. */
+    /** The model arm is blind on 13-class models; the grid arm must refuse alone. */
     @Test
     fun aGridOccludedGlanceRefusesTheRecoveryVote() {
         val state = recoveryState()
@@ -321,12 +304,12 @@ class CnnTickTest {
         val events = state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
         assertEquals(listOf("e4", "e5"), state.history)
         assertEquals("e7e5", state.lastMove)
-        // COMMIT rows only: `markStuck` writes its own provenance line, and this state starts stuck.
+        // COMMIT rows only: `markStuck` writes its own row, and this state starts stuck.
         assertEquals(2, state.decisionLog.count { it.accepted }, "one row per move — a bridge is not one decision")
         assertTrue(events.any { it is TrackerEvent.SequenceCommitted })
     }
 
-    /** 2026-08-02: a four-move bridge left ONE log line and a four-ply gap in the ply numbers. */
+    /** A four-move bridge left ONE log line and a four-ply gap in the ply numbers. */
     @Test
     fun everyMoveOfARecoveryGetsItsOwnRow() {
         val state = recoveryState()
@@ -343,7 +326,6 @@ class CnnTickTest {
         assertEquals(state.board.fen(), rows.last().fenAfter)
     }
 
-    /** The common case must not get noisier: one recovery, one row, the same text as before. */
     @Test
     fun aOneMoveRecoveryStillWritesExactlyOneUnchangedRow() {
         val state = recoveryState()
@@ -370,7 +352,6 @@ class CnnTickTest {
             listOf("[move 1/3 of recovery $key]", "[move 2/3 of recovery $key]", "[move 3/3 of recovery $key]"),
             rows.map { it.reason.substringAfter(DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY)).trim() },
         )
-        // The log line is the only form anyone reads live (`toDebugDecision`, specs/34).
         val line = rows.last().toDebugDecision().toLogLine()
         assertTrue(line.contains("[move 3/3 of recovery $key]"), line)
     }
@@ -402,7 +383,7 @@ class CnnTickTest {
         assertEquals(0, state.bgrBuf.size, "der Farbpuffer traegt noch Frames der alten Stellung")
     }
 
-    /** specs/39 phase 02: a derivation that CHANGES between glances used to commit whichever came first. */
+    /** A derivation that CHANGES between glances used to commit whichever came first. */
     @Test
     fun aBridgeThatChangesBetweenGlancesNeverCommits() {
         val state = recoveryState()
@@ -443,10 +424,7 @@ class CnnTickTest {
         assertEquals(listOf("e4"), state.history, "two clean agreeing glances commit")
     }
 
-    /**
-     * 20260814-142947: `real14-80` phantom `occluded` flags refused every vote under
-     * `RECOVERY_OCCLUDED_LIMIT = 0`; a lone flag is not hand-shaped (`modelHandSquares`).
-     */
+    /** Phantom `occluded` flags refused every vote; a lone flag is not hand-shaped (`modelHandSquares`). */
     @Test
     fun aPhantomOccludedFlagCannotStarveRecovery() {
         val state = recoveryState()
@@ -460,7 +438,6 @@ class CnnTickTest {
         assertEquals(listOf("e4"), state.history, "a lone misread flag must not refuse the vote")
     }
 
-    /** One snapshot, one vote: re-feeding the same `seq` must not count the second time. */
     @Test
     fun oneSnapshotCannotVoteTwice() {
         val state = recoveryState()
@@ -474,8 +451,7 @@ class CnnTickTest {
 
     @Test
     fun aBlindGlanceCannotReportTheBoardUnchanged() {
-        // Zero confident squares give an empty conflict set, i.e. a vacuous match; the verify ladder
-        // always guarded this, the periodic check (and Python) never did.
+        // Zero confident squares give a vacuous match; the verify ladder always guarded this, the periodic check never did.
         val state = recoveryState(NF3_NO_CASTLING)
         state.markStuck(STUCK_NO_LEGAL_MOVE)
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e1"), null, null)

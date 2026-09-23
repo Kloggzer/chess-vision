@@ -32,35 +32,16 @@ import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.ui.theme.InkPalette
 import com.chesslab.tracker.ui.theme.Space
 
-/**
- * The camera screen's chrome is ALWAYS the ink palette, in both app themes.
- *
- * Every other screen follows the system light/dark setting, because every other screen is paper.
- * This one is drawn on a PHOTOGRAPH of a dark wooden board under a desk lamp, where the paper
- * theme's sepia ink is unreadable and its olive accent disappears into the grain. Camera chrome is
- * light-on-dark everywhere for the same reason, and this is not the screen to be original on.
- *
- * The palette object itself rather than eight copied literals: the colours stay whatever the theme
- * says they are, they are simply not chosen by the system here.
- */
+/** ALWAYS the ink palette: this screen is drawn on a PHOTOGRAPH of a dark board, where the paper theme's
+ *  ink is unreadable and its accent disappears into the grain. */
 internal val Chrome = InkPalette
 
-/** What chrome sits on when it overlaps the picture. Dark enough for AA text over pale wood. */
 internal val ChromeScrim = Color(0xCC141110)
 
-/** Top and bottom fades, so a tile at the screen edge never floats on bare image. */
 internal val TopFade = Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent))
 internal val BottomFade = Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000)))
 
-/**
- * The thin strip at the top: out of here, what state the settings are in, and the way to an empty
- * screen.
- *
- * It is not a `TopAppBar` and the screen does not wear `ChesslabScaffold`. That bar is a solid
- * 64 dp band of `SurfaceRaised` — on a camera screen it is 64 dp of picture traded for a title
- * nobody needs, and the app bar's whole job (pushing scrolling content out from under itself) is
- * a job this screen does not have.
- */
+/** Not a `TopAppBar`: 64 dp of solid band is picture traded for a title nobody needs. */
 @Composable
 fun CameraTopBar(
     unsaved: Boolean,
@@ -80,18 +61,13 @@ fun CameraTopBar(
         IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Chrome.onSurface)
         }
-        // Calibrating is no longer a button up here. It is the screen's other MODE, reached from
-        // the strip above the deck — the one-press version could only ever do the half that needs
-        // no judgement, and it sat next to a viewfinder that was already showing the board.
         Box(Modifier.weight(1f))
         if (unsaved) {
             TextButton(onClick = onSave) {
                 Text("Save", style = MaterialTheme.typography.labelLarge, color = Chrome.accent)
             }
         }
-        // Labelled with what it DOES, not with the state it is in: on a picture that fills the
-        // screen edge to edge there is no visual cue which of the two you are looking at, and a
-        // button that names the state would be the only thing saying so.
+        // Labelled with what it DOES: edge to edge, nothing else says which of the two views is showing.
         TextButton(onClick = onFill) {
             Text(
                 text = if (fill) "Fit" else "Fill",
@@ -106,13 +82,6 @@ fun CameraTopBar(
     }
 }
 
-/**
- * Undo and back-to-automatic, folded away.
- *
- * They were two full-width buttons at the bottom of the old deck, permanently occupying the most
- * reachable part of the screen for two acts that are taken once a session at most. Save stays out
- * in the open because it is the one that is taken often, and only when there is something to save.
- */
 @Composable
 private fun CameraOverflow(
     unsaved: Boolean,
@@ -151,13 +120,7 @@ private fun OverflowItem(
     )
 }
 
-/**
- * A line of chrome text over the viewfinder, always on its own scrim.
- *
- * Measured on the phone: the same line without one, laid over pale boxwood in the screen-filling
- * view, was a grey sentence on a cream board and could not be read at all. Chrome that sits on the
- * picture carries its own background or it does not carry text.
- */
+/** Always on its own scrim: without one, over pale boxwood, the line could not be read at all. */
 @Composable
 fun ChromeBanner(
     text: String,
@@ -178,7 +141,6 @@ fun ChromeBanner(
     }
 }
 
-/** What is applied but not stored, said once and only while it is true. */
 @Composable
 fun UnsavedHint() {
     ChromeBanner("Not saved — a restart would undo this.", Chrome.busy)

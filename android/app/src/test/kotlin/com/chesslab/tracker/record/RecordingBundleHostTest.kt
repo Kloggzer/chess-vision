@@ -34,7 +34,6 @@ import kotlin.concurrent.thread
 private const val OPENING_FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 private const val STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-/** Long enough that the changeover is provably still inside `close`, short enough to stay a test. */
 private const val HANDOVER_WAIT_MS = 300L
 private const val DRAIN_GUARD_S = 30L
 
@@ -54,8 +53,7 @@ class RecordingBundleHostTest {
     private fun TestScope.host(camera: FakeVideoCamera = FakeVideoCamera()) =
         RecordingBundleHost(camera, RecordingSettings(MemoryStore()), sessionsRoot, this, UnconfinedTestDispatcher(testScheduler))
 
-    /** The double "armed" of 2026-08-14 (two log lines ~180 ms apart): a teardown stops the encoder
-     *  from two sides, and the re-arm hung off the encoder's own final callback, so both armed. */
+    /** A teardown stops the encoder from two sides, and the re-arm hung off its final callback: both armed. */
     @Test
     fun aSessionChangeoverArmsTheEncoderExactlyOnce() =
         runTest {
@@ -68,18 +66,14 @@ class RecordingBundleHostTest {
             assertEquals(1, camera.arms, "tracking start arms the pre-roll")
 
             host.finished()
-            // `TrackerCamera.stop`: the encoder's final callback must not read as "arm for the next game".
             camera.stopVideo()
 
             assertEquals(2, camera.arms, "the changeover armed more than once and discarded the first ring")
             host.close()
         }
 
-    /**
-     * `rg-2026-08-30-14-33-02`: 6,27 s of video ahead of the commit, and a `timeline.jsonl` whose
-     * first frame row already read the position after `e4 e5` — the rows of the armed phase fell
-     * on a null timeline while the footage they describe was kept.
-     */
+    /** The armed phase's frame rows fell on a null timeline while their footage was kept: the first row read
+     *  the position after `e4 e5`. */
     @Test
     fun theArmedPhasesFramesReachTheTimelineAheadOfTheCommit() =
         runTest {
@@ -107,7 +101,6 @@ class RecordingBundleHostTest {
             )
         }
 
-    /** A timeline write that fails (disk full) must neither kill the writer's scope nor go unreported. */
     @Test
     fun aTimelineThatCannotBeWrittenIsReportedPastItsClose() =
         runTest {
@@ -125,7 +118,6 @@ class RecordingBundleHostTest {
             assertNotNull(host.timelineFailure, "the failure outlives the session it ended")
         }
 
-    /** The ring is the video's: a frame row the footage no longer covers describes nothing. */
     @Test
     fun aFrameOlderThanTheVideoRingIsDropped() =
         runTest {
@@ -141,10 +133,7 @@ class RecordingBundleHostTest {
             assertEquals(1, rows.size, "the row outside the pre-roll window survived")
         }
 
-    /**
-     * Die Zusage ist der BYTE-Deckel, nicht die 45 s: bei 1440p/30 traegt der Ring 22 s Video, die
-     * Zeilen hielten aber weiter 45 — genau die Reihen ohne Footage, die das Fenster ausschliesst.
-     */
+    /** Die Zusage ist der BYTE-Deckel: bei 1440p/30 traegt der Ring 22 s Video, die Zeilen hielten weiter 45. */
     @Test
     fun theFrameWindowFollowsTheVideoRingAtThirtyFps() =
         runTest {
@@ -163,8 +152,8 @@ class RecordingBundleHostTest {
             assertEquals(1, rows.size, "a frame row the video has no footage for survived")
         }
 
-    /** `opened` was not `@Synchronized` while `SessionTimeline.close` BLOCKS draining: a frame in that
-     *  window `trySend`ed into a closed channel — gone, and not even counted as evicted. */
+    /** `SessionTimeline.close` BLOCKS draining; an unsynchronised `opened` let a frame `trySend` into a closed
+     *  channel — gone, not even counted. */
     @Test
     fun aFrameDeliveredWhileTheSessionChangesOverIsNotLost() {
         val blocked = CountDownLatch(1)
@@ -195,10 +184,7 @@ class RecordingBundleHostTest {
         assertTrue(rows.any { it.contains("7000000000") }, "the frame fell into the closed timeline: $rows")
     }
 
-    /**
-     * Nicht verloren heisst ZWEI erlaubte Ausgaenge: die endende Sitzung oder der Vorlauf der
-     * naechsten. Verboten ist nur der dritte — senden in den schon geschlossenen Kanal.
-     */
+    /** Zwei erlaubte Ausgaenge: die endende Sitzung oder der Vorlauf der naechsten; verboten nur der geschlossene Kanal. */
     @Test
     fun aFrameDeliveredWhileTheSessionFinishesIsNotLost() {
         val blocked = CountDownLatch(1)
@@ -245,7 +231,6 @@ class RecordingBundleHostTest {
 
 private const val FAKE_FPS = 15
 
-/** Refuses a second arm exactly as `CameraVideo.start` does (`codec != null`). */
 private class FakeVideoCamera(
     private val fps: Int = FAKE_FPS,
 ) : VideoRecorderPort {

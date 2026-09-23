@@ -19,8 +19,8 @@ class AlarmGuessTest {
         }
     }
 
-    /** The shape is occupancy, so the confidence must be too: read off the identity axis, a 90 %
-     *  occupied square split between knight and bishop was invisible to the alarm. */
+    /** The shape is occupancy, so the confidence must be too: on the identity axis a 90 % occupied square split
+     *  between knight and bishop was invisible. */
     @Test
     fun `a destination sure in occupancy but split in identity still counts`() {
         val board = Board()
@@ -42,8 +42,7 @@ class AlarmGuessTest {
 
     @Test
     fun `an occupancy-only run guesses the same move as its identity twin`() {
-        // The shape never compared piece names, only "empty vs not". This used to return null,
-        // which disarmed the alarm on every model this app ships.
+        // This used to return null, which disarmed the alarm on every model this app ships.
         val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "one_source_one_destination" }
         val withIdentity = guessIllegalMove(row.board(), row.observation(), row.num("confThr"))
         assertEquals(withIdentity, guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")))
@@ -52,9 +51,7 @@ class AlarmGuessTest {
 
     @Test
     fun `an occupancy-only run still refuses a shape that is not one move`() {
-        // The discipline is the SHAPE, not the axis: dropping identity must not become the "any
-        // contradiction alarms" variant measured on the clips and rejected. A pawn read as a knight
-        // (identity_only_conflict) is neither source nor destination on the occupancy axis.
+        // The discipline is the SHAPE, not the axis: dropping identity must not become "any contradiction alarms".
         for (name in listOf("two_sources", "no_conflict", "identity_only_conflict")) {
             val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == name }
             assertNull(guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")), name)

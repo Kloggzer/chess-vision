@@ -6,11 +6,8 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/** Was ein Zug BERUEHRT und wie er heisst, wenn er das Modul verlaesst. Beides entscheidet
- *  darueber, ob die Leiter danach noch denselben Zug meint. */
 class MoveShapeTest {
-    /** En passant raeumt DREI Felder: von, nach und den geschlagenen Bauern daneben. Fehlt das
-     *  dritte, bestaetigt `verifyMove` den Zug mit 1,0, obwohl der geschlagene Bauer noch steht. */
+    /** En passant raeumt DREI Felder: fehlt das dritte, bestaetigt `verifyMove` mit 1,0, obwohl der geschlagene Bauer steht. */
     @Test
     fun `en passant is verified over the captured pawn as well`() {
         val obs = FakeSquareClassifier(EP_AFTER_WITH_PAWN).observe()
@@ -20,7 +17,6 @@ class MoveShapeTest {
         assertEquals(2.0 / 3.0, agreement, TOLERANCE)
     }
 
-    /** Die Umwandlungsfigur gehoert in die uci — ohne sie ist `e7e8` kein legaler Zug mehr. */
     @Test
     fun `a derived promotion keeps its piece letter`() {
         val obs: CnnObservation = FakeSquareClassifier(PROMO_AFTER).observe()
@@ -29,8 +25,7 @@ class MoveShapeTest {
         assertEquals(listOf("e7e8q"), derived.moves)
     }
 
-    /** `marginSquares` 1 heisst "streng besser reicht": ein SCHLAG aendert die Belegung auf genau
-     *  einem Feld, erklaert also eines mehr als der Stillstand. Bei 2 kaeme hier nichts zurueck. */
+    /** Ein SCHLAG aendert die Belegung auf genau einem Feld; bei `marginSquares` 2 kaeme hier nichts zurueck. */
     @Test
     fun `one explained square more is enough, and exactly what is demanded`() {
         val obs = FakeSquareClassifier(AFTER_CAPTURE).observe()

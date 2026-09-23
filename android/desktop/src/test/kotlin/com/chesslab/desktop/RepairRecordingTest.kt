@@ -9,13 +9,11 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
 
-/** A repair that guesses looks fine and is worse than a broken file: every `mdat` byte is
- *  accounted for, or it throws — never a shorter list. */
+/** Every `mdat` byte is accounted for, or it throws — never a shorter list. */
 class RepairRecordingTest {
     @TempDir
     lateinit var dir: File
 
-    /** `ftyp` + a 64-bit `mdat` whose size is the placeholder a killed muxer leaves behind. */
     private fun broken(vararg nals: ByteArray): File {
         val out = ByteArrayOutputStream()
         DataOutputStream(out).use { data ->

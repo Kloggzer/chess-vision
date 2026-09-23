@@ -3,33 +3,20 @@ package com.chesslab.desktop
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 
-/**
- * The index an interrupted recording never got: a `moov` built from the samples themselves.
- *
- * Writing it by hand rather than remuxing through FFmpeg is a decision the measurements forced.
- * A raw H.264 stream carries no timing, so every route through the demuxer produced an MP4 that
- * reported `1001k fps` and a zero duration — twice, with the frame rate set two different ways. The
- * frames were always right; only the clock was invented, and the clock is what the replay's virtual
- * time is derived from. Here the timing is stated: one constant sample delta, from the reference
- * recording's frame rate.
- *
- * The payload is not touched. `mdat` keeps its position, so a sample's offset is the one it already
- * has — this appends an index to bytes that were correct all along.
- */
+// A `moov` built from the samples of an interrupted recording, by hand: every FFmpeg remux of the raw H.264
+// reported `1001k fps` and zero duration, and the replay's clock comes from that. `mdat` is not touched.
 private const val MOVIE_TIMESCALE = 1000
 private const val UNITY_MATRIX_A = 0x00010000
 private const val VISUAL_DEPTH = 0x0018
 private const val RESOLUTION_72_DPI = 0x00480000
 
-// The VisualSampleEntry's fixed fields, by the ISO base media format's own layout: six reserved
-// bytes, then twelve `pre_defined`, and a 32-byte compressor name nobody reads.
+// VisualSampleEntry fixed fields per ISO BMFF: six reserved bytes, twelve `pre_defined`, a 32-byte name.
 private const val ENTRY_RESERVED = 6
 private const val ENTRY_PRE_DEFINED = 12
 private const val COMPRESSOR_NAME = 32
 private const val PRE_DEFINED_MINUS_ONE = -1
 private const val MATRIX_W = 0x40000000
 
-/** Every box carries its own 32-bit length and its four-character type. */
 private const val BOX_HEADER = 8
 
 data class Sample(
@@ -37,9 +24,7 @@ data class Sample(
     val key: Boolean,
 )
 
-/**
- * @param firstSampleOffset absolute position of sample 0 in the file this index will belong to
- */
+/** @param firstSampleOffset absolute position of sample 0 in the file this index will belong to */
 @Suppress("LongParameterList")
 fun buildMoov(
     samples: List<Sample>,
@@ -49,8 +34,7 @@ fun buildMoov(
     height: Int,
     fps: Double,
 ): ByteArray {
-    // A timescale of fps*1000 with a delta of 1000 keeps the rate exactly as measured instead of
-    // rounding it into a 90 kHz grid, which on 28.63 fps would drift a frame every few seconds.
+    // fps*1000 with delta 1000 keeps the rate exact: a 90 kHz grid drifts a frame every few seconds at 28.63 fps.
     val timescale = Math.round(fps * 1000.0).toInt()
     val delta = 1000
     val durationTicks = samples.size.toLong() * delta
@@ -103,7 +87,6 @@ private fun stss(samples: List<Sample>): ByteArray {
     return box("stss", int(0) + int(keys.size) + bytes { out -> keys.forEach { out.writeInt(it + 1) } })
 }
 
-/** The visual sample entry every MP4 reader expects in front of `avcC`. */
 private fun avc1(
     avcc: ByteArray,
     width: Int,

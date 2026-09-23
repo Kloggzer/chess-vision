@@ -8,13 +8,8 @@ data class SessionInfo(
     val bytes: Long,
 )
 
-/**
- * `filesDir/sessions` as the games screen sees it: what is there, what it costs, and how to get
- * rid of it. Recording is the only feature in this app that grows without bound, so "how big is it"
- * and "delete it" are part of the feature, not an afterthought.
- *
- * [totalBytes] walks the tree, so it is called on screen entry and cached — never per frame.
- */
+/** Recording is the only feature that grows without bound, so size and delete are part of it. [totalBytes]
+ *  walks the tree: on screen entry, cached, never per frame. */
 class SessionStore(
     private val root: File,
 ) {
@@ -27,17 +22,15 @@ class SessionStore(
 
     fun totalBytes(): Long = root.walkBottomUp().sumOf(File::length)
 
-    /** ONE session's cost. [totalBytes] walks the whole tree; the size cap adds finished games this way. */
+    /** ONE session's cost; the size cap adds finished games this way. */
     fun bytesOf(id: String): Long = dir(id).walkBottomUp().sumOf(File::length)
 
-    /** Wie viele Aufnahmen auf der Platte liegen. Von der PLATTE, nicht aus einem Zaehler je
-     *  Instanz: jeder Bildschirm baut sich seinen eigenen Store, und der Groessen-Etat haelt
-     *  wieder einen anderen — eine Loeschung dort erreichte ihn nie. */
+    /** Von der PLATTE: jeder Bildschirm baut seinen eigenen Store, eine Loeschung erreichte den Etat sonst nie. */
     fun count(): Int = root.list()?.size ?: 0
 
     fun delete(id: String): Boolean = dir(id).deleteRecursively()
 
-    /** A fresh session directory. `collect.py::generate_session_id` is `%Y%m%d-%H%M%S`. */
+    /** `collect.py::generate_session_id` is `%Y%m%d-%H%M%S`. */
     fun create(sessionId: String): File = dir(sessionId).also { it.mkdirs() }
 }
 

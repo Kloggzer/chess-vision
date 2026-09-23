@@ -27,8 +27,7 @@ class RealGameScoreTest {
 
     @Test
     fun aSwapThatNeverReachesTheSamePositionStaysMissedAndInvented() {
-        // Order is negotiable only where the board comes back together: `e5` is not legal for
-        // White, so this run never stands where the label stands and the swap is a real failure.
+        // `e5` is not legal for White: the run never stands where the label stands, a real failure.
         val label = plies("e4", "e5")
         val run = plies("e5", "e4")
         val score = scoreMoves(label, run)
@@ -40,8 +39,7 @@ class RealGameScoreTest {
 
     @Test
     fun aTranspositionIsFoundAndReordered() {
-        // Both sides stand on the same board after four plies — the frames cannot prove which
-        // order produced it (11-59-12 commits whole bundles on one frame).
+        // Same board after four plies: frames cannot prove the order (11-59-12 commits bundles on one frame).
         val label = plies("Nf3", "Nf6", "g3", "g6")
         val run = plies("g3", "g6", "Nf3", "Nf6")
         val score = scoreMoves(label, run)
@@ -67,7 +65,6 @@ class RealGameScoreTest {
 
     @Test
     fun aRunThatLeavesTheLineKeepsItsPhantom() {
-        // Legal, but the run never comes back onto the label's board: no order excuse.
         val label = plies("e4", "e5", "Nf3", "Nc6", "Bb5")
         val run = plies("e4", "e5", "Nf3", "a6", "Bb5")
         val score = scoreMoves(label, run)
@@ -87,7 +84,6 @@ class RealGameScoreTest {
 
     @Test
     fun aRunThatKeepsPlayingPastTheReferenceIsBeyondAndNotInvented() {
-        // The video runs on after the labeled game: those plies are unjudged, not phantoms.
         val label = plies("e4", "e5", "Nf3")
         val run = plies("e4", "e5", "Nf3", "Nc6", "Bb5")
         val score = scoreMoves(label, run)
@@ -107,8 +103,7 @@ class RealGameScoreTest {
 
     @Test
     fun aPhantomStaysAPhantomWhenTheLabelCarriesNoFrames() {
-        // `labelPlies` stamps `frame = -1` on plies the reference.pgn and the candidate disagree
-        // about; `referenceEnd` then went to -1 and every late commit escaped into `beyond`.
+        // `referenceEnd` went to -1 and every late commit escaped into `beyond`.
         val label = listOf("e4", "e5", "Nf3").map { ScoredPly(it, frame = -1, decider = "reference") }
         val score = scoreMoves(label, plies("e4", "e5", "Bc4"))
         assertEquals(listOf("Nf3"), score.missed.map { it.san })
@@ -118,7 +113,7 @@ class RealGameScoreTest {
 
     @Test
     fun theRealPythonLabelRoundTripsThroughTheReader() {
-        // Data is gitignored, so an absent candidate skips, like the video-gated harness runs.
+        // Data is gitignored, so an absent candidate skips.
         val candidate = File("../../data/recordings/game-2026-08-02/candidate.json")
         if (!candidate.isFile) return
         val label = labelPlies(candidate)

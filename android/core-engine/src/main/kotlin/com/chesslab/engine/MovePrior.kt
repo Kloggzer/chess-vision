@@ -12,11 +12,8 @@ internal const val PRIOR_FORWARD = 0.2
 /** The prior decides near-ties only, never against clear image evidence. */
 internal const val PRIOR_CAP = 1.0
 
-/**
- * Small plausibility prior in LL units, without an engine: capture, check and forward bonuses capped at
- * 1.0. "Forward" is relative to the side to move and never negative. The caller decides WHEN it is
- * added — it is never folded into [loglikScores].
- */
+/** Capture, check and forward bonuses in LL units, capped at 1.0. The caller decides WHEN it is added — never
+ *  folded into [loglikScores]. */
 internal fun movePrior(
     g: Game,
     mv: Move,

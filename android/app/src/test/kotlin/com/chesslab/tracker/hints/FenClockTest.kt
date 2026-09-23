@@ -3,7 +3,6 @@ package com.chesslab.tracker.hints
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** Was auf dem Geraet entscheidet, ob eine Stellung das Rueckzieher-Fenster ueberlebt hat. */
 class FenClockTest {
     @Test
     fun aStandingPositionAccumulatesTime() {

@@ -2,7 +2,6 @@ package com.chesslab.tracker
 
 import com.chesslab.engine.api.DebugDecision
 
-/** One engine decision with every field set, lists non-empty; tests override what they assert on. */
 internal fun debugDecision(
     ply: Int = 2,
     uci: String = "e2e4",

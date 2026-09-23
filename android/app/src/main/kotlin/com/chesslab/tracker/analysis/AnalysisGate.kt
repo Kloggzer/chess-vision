@@ -13,7 +13,6 @@ private const val WARMUP_MS = 3_000L
 
 private const val MEDIAN_WINDOW = 15
 
-/** Everything that can make analysis a bad idea right now. Plain data, so the decision is testable. */
 data class GateInputs(
     val thermalStatus: Int = 0,
     val powerSaveMode: Boolean = false,
@@ -23,7 +22,6 @@ data class GateInputs(
     val medianFrameMs: Double = 0.0,
 )
 
-/** User-facing analysis configuration. Off by default — the tracker is the product, this is not. */
 data class AnalysisSettings(
     val enabled: Boolean = false,
     val respectPressure: Boolean = true,
@@ -54,12 +52,7 @@ fun gateBlock(
         else -> null
     }
 
-/**
- * Rolling median of the tracker's `total` stage timing.
- *
- * A median and not a mean: one 300 ms frame (a GC pause, a rebind) must not stop analysis, but a
- * sustained slide below 15 fps must.
- */
+/** A median, not a mean: one 300 ms GC pause must not stop analysis, a sustained slide below 15 fps must. */
 class RollingMedian(
     private val window: Int = MEDIAN_WINDOW,
 ) {

@@ -4,28 +4,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/**
- * **In a localized package, no user-visible word may be written in Kotlin.**
- *
- * `res/values/strings.xml` held 171 entries on 2026-08-13 and exactly three were referenced by
- * anything; the whole Compose surface had its words inline. Once those words come back into the
- * resources they have to STAY there, or the next screen quietly forks the vocabulary again — which
- * is how the file became an archive the first time.
- *
- * The rule is deliberately narrow: a literal is a finding only where it is passed to a **text
- * sink**, i.e. something that renders words at a human ([SINKS], plus the named arguments in
- * [SINK_ARGUMENTS]). Route names, JSON keys, SAN, square names, `Locale.ROOT` format strings and
- * log lines are all string literals too and none of them are translatable.
- *
- * **What it does not see**, stated so nobody mistakes it for a proof: a literal that sits alone on
- * its own line as a multi-line named argument, and any word assembled from pieces. It is a ratchet
- * against drift, not a certificate. Each conversion phase reports its own before/after count from
- * `grep -rhoE '"[A-Z][^"]{2,}"' <pkg>` beside it.
- *
- * [LOCALIZED] grows one package at a time, as each is converted. `ui/debug/` and the tuning knobs
- * behind the developer door are never in it: their vocabulary IS English (`census threshold`), and
- * translating it makes it unfindable (specs/51).
- */
+/** **No user-visible word written in Kotlin in a localized package**: 168 of 171 resources once sat unused
+ *  beside inline words. Narrow on purpose — only literals passed to a text sink. Not a proof: a literal on
+ *  its own line or an assembled word escapes. `ui/debug/` stays English (specs/51). */
 class StringLiteralGuardTest {
     /** A guard that reads no files passes for the wrong reason, so it says how many it found. */
     @Test
@@ -69,19 +50,14 @@ class StringLiteralGuardTest {
     }
 }
 
-/**
- * Packages under `ui/` whose user-visible strings are resources. Each conversion phase adds its
- * own; specs/54 phase 04 finishes the list.
- */
+/** Each conversion phase adds its own package; specs/54 phase 04 finishes the list. */
 private val LOCALIZED = emptySet<String>()
 
-/** There were 60 UI files when this was written; anything near zero means the walk missed them. */
+/** Near zero means the walk missed the sources. */
 private const val MIN_SOURCES = 40
 
-/** The test runs with the module directory as its working directory. */
 private val ROOT = File("src/main/kotlin/com/chesslab/tracker")
 
-/** Composables whose first positional argument is words on a screen. */
 private val SINKS =
     listOf(
         "Text",
@@ -95,7 +71,6 @@ private val SINKS =
         "ConfirmDialog",
     )
 
-/** Named arguments that carry words wherever they appear, including `contentDescription`. */
 private val SINK_ARGUMENTS = listOf("contentDescription", "title", "body", "verb", "label", "summary", "placeholder")
 
 private val SINK_CALL = Regex("""\b(${SINKS.joinToString("|")})\(\s*"""")

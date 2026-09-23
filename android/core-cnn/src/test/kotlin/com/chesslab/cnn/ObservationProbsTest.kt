@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The rows an engine scores by likelihood can go missing two ways: dropped on the way through, or
- *  weighted by a prior the engine's own legality search applies a second time. */
+/** The rows go missing two ways: dropped on the way, or prior-weighted and then counted twice by a legality search. */
 class ObservationProbsTest {
     private val classes = listOf("empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")
 
@@ -25,7 +24,6 @@ class ObservationProbsTest {
         assertArrayEquals(doubleArrayOf(0.1, 0.9) + DoubleArray(11), obs.classProbs("e4"), 1e-9)
     }
 
-    /** A prior weights by legality; a legality search would count it twice. */
     @Test
     fun `the rows stay raw under a prior`() {
         val possible = ALL_SQUARES.associateWith { setOf("empty") }
@@ -34,7 +32,6 @@ class ObservationProbsTest {
         assertArrayEquals(conditioned.classProbs("e4"), conditioned.rawObservation().classProbs("e4"), 1e-9)
     }
 
-    /** Identity stripped means the distribution goes too, or the claim is false. */
     @Test
     fun `occupancyOnly keeps no rows`() {
         val stripped = observationFromProbs(rows(), classes).occupancyOnly()
@@ -42,7 +39,6 @@ class ObservationProbsTest {
         assertTrue(stripped.classNames.isEmpty())
     }
 
-    /** An implementation that keeps none must say so rather than pretend a uniform guess. */
     @Test
     fun `the default is empty, not invented`() {
         val bare =

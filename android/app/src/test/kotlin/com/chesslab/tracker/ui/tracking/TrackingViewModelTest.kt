@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
-/** Records what the UI dispatched. It cannot do anything else — the real one only sends requests too. */
 class FakeTrackerSession : TrackerSession {
     override val status = MutableStateFlow<TrackerStatus?>(idleTrackerStatus())
     override val events = MutableSharedFlow<TrackerEvent>(extraBufferCapacity = 32)
@@ -31,7 +30,6 @@ class FakeTrackerSession : TrackerSession {
 
     val calls = mutableListOf<String>()
 
-    /** The real service answers by flipping its own flow, so the fake does too. */
     override fun setCameraOn(on: Boolean) {
         calls += "setCameraOn:$on"
         cameraOn.value = on
@@ -41,7 +39,6 @@ class FakeTrackerSession : TrackerSession {
 
     override val hasTorch = true
 
-    /** Same contract as the camera switch: the flow is the service's answer, not the tap. */
     override fun setTorchOn(on: Boolean) {
         calls += "setTorchOn:$on"
         torchOn.value = on
@@ -93,8 +90,7 @@ class TrackingViewModelTest {
             )
             advanceUntilIdle()
             assertEquals(statusFen, vm.ui.value.fen)
-            // And no score sheet is kept here at all: the game's plies are the service's live game
-            // (`GameSessionState.game`), the one source the review screen and the LAN page also read.
+            // No score sheet here: the plies are the service's live game, also read by the review and the LAN page.
             assertEquals(listOf("e4"), vm.lastCommit.value, "only the LAST COMMIT, for the undo label")
         }
 
@@ -108,8 +104,7 @@ class TrackingViewModelTest {
             session.events.emit(TrackerEvent.PromotionPending("e7", "e8"))
             advanceUntilIdle()
             assertEquals(PromotionPrompt("e7", "e8"), vm.promotion.value)
-            // The engine is blocked on the answer: nothing but the matching commit closes it, and
-            // the view model exposes no dismiss action at all.
+            // Nothing but the matching commit closes it; the view model exposes no dismiss action at all.
             listOf(
                 TrackerEvent.Note("anything"),
                 TrackerEvent.Stuck("no_legal_move"),
@@ -145,15 +140,11 @@ class TrackingViewModelTest {
             vm.onUndo()
             vm.onRecalibrate()
             advanceUntilIdle()
-            // Recalibrate is navigation, not a tracker action: it must reach the session NOT AT ALL.
+            // Recalibrate is navigation: it must reach the session NOT AT ALL.
             assertEquals(listOf("undo"), session.calls)
         }
 
-    /**
-     * The undo control reads the LAST COMMIT, not the last ply — a `SequenceCommitted` is one press.
-     * The record is of the last commit only, so the press itself spends it and the next one is an
-     * ordinary single-move undo, exactly as the engine treats it.
-     */
+    /** The press itself spends the last-commit record, so the next one is an ordinary single-move undo. */
     @Test
     fun theUndoControlCountsTheWholeLastCommit() =
         runTest(dispatcher) {
@@ -194,7 +185,6 @@ class TrackingViewModelTest {
             vm.onToggleCamera()
             advanceUntilIdle()
             assertEquals(listOf("setCameraOn:false"), session.calls)
-            // The last status stands forever once frames stop; the header must not keep reporting it.
             assertEquals(TrackerLabel.CAMERA_OFF, vm.ui.value.state)
 
             vm.onToggleCamera()
@@ -202,12 +192,7 @@ class TrackingViewModelTest {
             assertEquals(TrackerLabel.LIVE, vm.ui.value.state)
         }
 
-    /**
-     * Stopping the tracker leaves the Board tab on the position it had.
-     *
-     * The session goes away with the service, and the fallback used to be the START position — so a
-     * stopped game snapped back to a board nobody had played, which reads as data loss.
-     */
+    /** The fallback was the START position, so a stopped game snapped back — which reads as data loss. */
     @Test
     fun theBoardKeepsItsPositionWhenTheServiceGoes() =
         runTest(dispatcher) {

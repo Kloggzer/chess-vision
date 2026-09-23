@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Records what reached the platform and hands back the completion callbacks, one at a time. */
 private class FakeTts(
     private val language: SpeechState = SpeechState.Ready("en-US"),
 ) : Tts {
@@ -69,11 +68,9 @@ class SpeechEngineTest {
         val (engine, opens) = engine(FakeSilence(silent = true), tts)
         engine.say("Knight f3")
         assertTrue(tts.spoken.isEmpty())
-        // And the engine is not even opened: a silenced phone never binds the TTS service.
         assertEquals(0, opens())
     }
 
-    /** Do-Not-Disturb and the ringer switch are the same decision, made by one pure function. */
     @Test
     fun dndDropsUtterance() {
         val normal = 2 // AudioManager.RINGER_MODE_NORMAL
@@ -111,8 +108,7 @@ class SpeechEngineTest {
         val (engine, _) = engine(FakeSilence(), tts)
         engine.setLanguage("de-DE")
         engine.say("Springer f3")
-        // The fallback to Locale.US happens inside AndroidTts; what the engine owes the UI is
-        // the state, so the settings screen can offer the voice-data intent.
+        // The fallback to Locale.US is inside AndroidTts; the engine owes the UI the state (voice-data intent).
         assertEquals(SpeechState.LanguageMissing("de-DE"), engine.state.value)
         assertEquals(1, tts.spoken.size)
     }
@@ -124,7 +120,7 @@ class SpeechEngineTest {
         assertTrue(engine.state.value is SpeechState.Failed)
     }
 
-    /** The focus is taken BEFORE the engine is opened, so the path that never speaks must give it back. */
+    /** The focus is taken BEFORE the engine opens, so the path that never speaks must give it back. */
     @Test
     fun aMissingEngineGivesTheAudioFocusBack() {
         val silence = FakeSilence()
@@ -149,7 +145,6 @@ class SpeechEngineTest {
     }
 }
 
-/** The backlog policy, in isolation — it is the part that decides what a listener never hears. */
 class UtteranceQueueTest {
     private val out = mutableListOf<Pair<String, Boolean>>()
     private val gen = mutableListOf<Int>()
@@ -159,13 +154,11 @@ class UtteranceQueueTest {
             gen += at
         }
 
-    /** Die Meldung des GERADE sprechenden Spruchs — der Normalfall. */
     private fun done() = queue.done(gen.last())
 
     @Test
     fun queueIsBoundedToThree() {
         repeat(10) { queue.offer("m$it") }
-        // Only the first is in flight; the rest of the burst is capped at two waiting.
         assertEquals(listOf("m0" to false), out.toList())
         repeat(4) { done() }
         assertEquals(
@@ -191,7 +184,6 @@ class UtteranceQueueTest {
         queue.flush("Position mismatch")
         assertEquals("Position mismatch" to true, out.last())
         done()
-        // Nothing survives the alarm — not the waiting moves, not the "and N more" summary.
         assertEquals("Position mismatch" to true, out.last())
         assertTrue(queue.idle)
     }

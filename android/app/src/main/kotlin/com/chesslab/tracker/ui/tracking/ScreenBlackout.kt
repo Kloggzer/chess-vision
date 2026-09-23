@@ -22,16 +22,9 @@ import androidx.compose.ui.semantics.semantics
 import com.chesslab.tracker.R
 import kotlinx.coroutines.delay
 
-/** How long the board waits for a touch before it goes black. One tap brings it back. */
 private const val BLACKOUT_AFTER_MS = 60_000L
 
-/**
- * Blacks the tracking screen out after a minute without a touch.
- *
- * Only the PICTURE goes: camera, engine, recorder and the spoken moves live in `TrackerService`,
- * which owns the camera on its own lifecycle and never sees this. The display measured 25-71 mA of
- * ~740 mA, so this is for not having a lit phone beside the board (`docs/android-performance.md`).
- */
+/** Only the PICTURE goes: camera, engine, recorder and speech live in `TrackerService`, which never sees this. */
 @Composable
 fun ScreenBlackout(content: @Composable () -> Unit) {
     var touches by remember { mutableIntStateOf(0) }
@@ -43,8 +36,7 @@ fun ScreenBlackout(content: @Composable () -> Unit) {
         black = true
     }
     Box(
-        // The INITIAL pass: a touch is only counted here, never taken from the control under the
-        // finger. Presses only — a drag would otherwise restart the timer on every move event.
+        // The INITIAL pass counts a touch without taking it from the control; presses only, or a drag resets per move.
         Modifier.pointerInput(Unit) {
             awaitPointerEventScope {
                 while (true) {
@@ -59,7 +51,7 @@ fun ScreenBlackout(content: @Composable () -> Unit) {
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black)
-                    // Consumed, so the tap that wakes the screen cannot also hit the board under it.
+                    // Consumed, so the waking tap cannot also hit the board under it.
                     .pointerInput(Unit) { detectTapGestures { touches += 1 } }
                     .semantics { contentDescription = wake },
             )

@@ -9,15 +9,13 @@ import org.junit.jupiter.api.assertThrows
 import kotlin.math.abs
 import kotlin.math.ln
 
-/** The live observation shape: 64 squares at the bundled model's 128x128. */
 private const val BATCH = 64
 private const val SIDE = 128
 
-/** JIT/measurement noise floor — the real difference is 12.6 MB, so this is not a close call. */
+/** The real difference is 12.6 MB, so this noise floor is not a close call. */
 private const val ALLOC_NOISE_B = 64L * 1024
 
-/** HotSpot's per-thread allocation counter, reflective: this module compiles its unit tests
- *  against `android.jar`, which has no `java.lang.management`. */
+/** Reflective: this module compiles its unit tests against `android.jar`, which has no `java.lang.management`. */
 private fun allocatedBytes(body: () -> Unit): Long {
     val bean = Class.forName("java.lang.management.ManagementFactory").getMethod("getThreadMXBean").invoke(null)
     val counter = Class.forName("com.sun.management.ThreadMXBean").getMethod("getCurrentThreadAllocatedBytes")
@@ -26,8 +24,7 @@ private fun allocatedBytes(body: () -> Unit): Long {
     return counter.invoke(bean) as Long - before
 }
 
-/** The allocating call these tests want and production does not: the phone always writes into a
- *  reused buffer, so the convenience lives here, not in the shipped module. */
+/** Production always writes into a reused buffer; the allocating convenience lives only here. */
 private fun preprocess(
     crops: List<BgrImage>,
     outW: Int,
@@ -67,13 +64,11 @@ class PreprocessTest {
         }
     }
 
-    /** 64 x 3 x 128 x 128 floats is 12.6 MB, observed several times a second next to a 15 fps
-     *  camera loop: "allocates nothing" is the claim the design rests on. */
+    /** 12.6 MB several times a second beside a 15 fps loop: "allocates nothing" is what the design rests on. */
     @Test
     fun `preprocessInto reuses its buffer and allocates nothing`() {
         val crops = List(BATCH) { BgrImage(SIDE, SIDE, ByteArray(SIDE * SIDE * 3) { (it % 251).toByte() }) }
         val reused = FloatArray(BATCH * 3 * SIDE * SIDE)
-        // Warm up: the first call loads classes.
         preprocessInto(crops, SIDE, SIDE, reused)
         val first = reused.copyOf()
 
@@ -146,8 +141,7 @@ class PreprocessTest {
         assertTrue(abs(expected - actual) <= 1e-6f, "$what: expected $expected, got $actual")
     }
 
-    /** Golden vector from `torch_data._PerCropStandardize`. `std` is the UNBIASED estimate
-     *  (`torch.Tensor.std()` defaults to `correction=1`); the biased one shifts every value ~4 %. */
+    /** `std` is UNBIASED (`correction=1`); the biased one shifts every value ~4 %. */
     @Test
     fun perCropStandardisationMatchesTheTorchTransform() {
         val crop = BgrImage(2, 2, bytes("10 20 30 40 50 60 70 80 90 100 110 120"))
@@ -176,9 +170,8 @@ class PreprocessTest {
         }
     }
 
-    /** Golden numbers from `torch_data.build_transform(..., input_repr=…)`: a port that gets the
-     *  kernel (`cv2.Sobel` ksize 3), the border (`BORDER_REFLECT_101`) or the normalisation wrong
-     *  still yields a plausible edge map, and the model would silently see an unseen input. */
+    /** A port with the wrong kernel, border or normalisation still yields a plausible edge map — and the model
+     *  would silently see an unseen input. */
     @Test
     fun grayPlusSobelMatchesTheTorchTransform() {
         assertRepr(InputRepr.GRAY_SOBEL, GRAY_SOBEL_GOLDEN)
@@ -194,8 +187,7 @@ class PreprocessTest {
         assertRepr(InputRepr.SOBEL, SOBEL_GOLDEN)
     }
 
-    /** At 128x128, because a 4-wide crop is small enough that a wrong row offset still lands inside
-     *  it. A sum over all 32768 floats plus nine probes pins layout and arithmetic. */
+    /** At 128x128: in a 4-wide crop a wrong row offset still lands inside. */
     @Test
     fun grayPlusSobelMatchesTheTorchTransformAtTheLiveCropSize() {
         val data = ByteArray(SIDE * SIDE * 3)
@@ -236,8 +228,7 @@ class PreprocessTest {
         }
     }
 
-    /** `build_transform` appends `InputRepresentation` INSTEAD of `Normalize(mean, std)` for every
-     *  repr but `rgb`, yet `ModelSpec` passes the run's pair anyway — it must not reach the graph. */
+    /** Every repr but `rgb` normalises with ImageNet in `build_transform`; the run's pair must not reach the graph. */
     @Test
     fun `a non-rgb repr ignores the run's own mean and std`() {
         val out = FloatArray(InputRepr.RGB_SOBEL.channels * 4 * 4)
@@ -272,8 +263,7 @@ class PreprocessTest {
     }
 }
 
-/** 4x4 BGR, sixteen DISTINCT pixels: with repeated rows `BORDER_REFLECT_101` and `BORDER_REPLICATE`
- *  give the same numbers, and the first quadrant fixture let the border mutation run green. */
+/** DISTINCT pixels: with repeated rows reflect-101 and replicate agree, and a border mutation ran green. */
 private val DISTINCT_CROP =
     bytes(
         """
@@ -284,8 +274,7 @@ private val DISTINCT_CROP =
         """,
     )
 
-/** The four corners are exactly `(0 - SOBEL_MEAN) / SOBEL_STD`: under reflect-101 both `gx` taps
- *  land on the same mirrored column at x=0, so the derivative there is identically zero. */
+/** Under reflect-101 both `gx` taps land on the same mirrored column at x=0, so the corners are exact. */
 private val SOBEL_GOLDEN =
     floats(
         """

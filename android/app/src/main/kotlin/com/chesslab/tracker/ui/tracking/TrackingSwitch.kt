@@ -24,7 +24,6 @@ import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.Space
 
-/** Notifications are only needed for the foreground-service notification, and only from API 33. */
 private val REQUESTED_PERMISSIONS: Array<String>
     get() =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -33,17 +32,8 @@ private val REQUESTED_PERMISSIONS: Array<String>
             arrayOf(Manifest.permission.CAMERA)
         }
 
-/**
- * The one control in the app that opens a camera, and the one that closes it.
- *
- * It also owns the camera permission, which used to be a gate in front of the whole activity: the
- * app asked for a camera before it would show a stored game. Asking here means the request arrives
- * beside the thing it is for, and everything that needs no frames works without it.
- *
- * Stopping ENDS the game (it is saved on the way out) and releases the device. Pausing the camera
- * while keeping the game is the separate chip above — the two are different acts and read as
- * different acts.
- */
+/** Owns the camera permission, asked beside the thing it is for; everything without frames works without it.
+ *  Stopping ENDS the game (saved); pausing the camera is the separate chip. */
 @Composable
 fun TrackingSwitch(
     running: Boolean,
@@ -62,17 +52,13 @@ fun TrackingSwitch(
         if (hasCamera(context)) TrackerRun.start() else request.launch(REQUESTED_PERMISSIONS)
     }
 
-    // Entering this route means the user already chose "Start a game" on Home. Requiring a second
-    // button press here made that first action a navigation button rather than the promised start.
-    // Android's permission dialog is the only unavoidable interaction on a fresh installation.
+    // "Start a game" on Home already chose this; a second press here made that a mere navigation button.
     LaunchedEffect(Unit) {
         if (!running) start()
     }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-        // Starting is what this screen is for, so it is the screen's ONE filled button. Stopping is
-        // not: while a game runs the screen is for the board, and the alarm card — when it exists —
-        // is then the one thing the screen is for. It gets no confirmation either; the game is saved.
+        // Starting is the screen's ONE filled button; stopping is not, and needs no confirmation (the game is saved).
         if (!running && denied) {
             FilledAction("Allow camera & start", start, Modifier.fillMaxWidth())
         }

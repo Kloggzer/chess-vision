@@ -5,14 +5,8 @@ import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.MoveList
 import java.io.File
 
-/**
- * One tracker, one recording, frames in order.
- *
- * The arena keeps the board so a tracker cannot invent a legal-looking history: it pushes what
- * `onFrame` returns and refuses the rest. The quad is re-measured every [alignEvery] frames
- * because the camera is mounted and does not move — searching it per frame doubles the cost of
- * a run and changes nothing.
- */
+/** The arena keeps the board, so a tracker cannot invent a legal-looking history. The quad is re-measured
+ *  only every [alignEvery] frames: the camera is mounted, and per-frame search doubles the cost. */
 fun runTracker(
     video: File,
     tracker: ArenaTracker,
@@ -48,7 +42,6 @@ fun runTracker(
     return RunResult(plies, frames, models.total, illegal, (System.nanoTime() - started) / NANOS_PER_SECOND)
 }
 
-/** Push a UCI move if it is legal here, recording its SAN. An illegal one is refused and named. */
 private fun commit(
     board: Board,
     uci: String,
@@ -74,7 +67,6 @@ private fun commit(
     }
 }
 
-/** The plies of a run, one JSON row each — the deliverable a run is judged on. */
 fun writePlies(
     out: File,
     result: RunResult,
@@ -88,7 +80,6 @@ fun writePlies(
     )
 }
 
-/** Once a second at 30 fps. The mount is fixed; the board does not walk off between reads. */
 private const val ALIGN_EVERY = 30
 
 private const val NANOS_PER_SECOND = 1_000_000_000.0

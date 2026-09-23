@@ -8,15 +8,13 @@ private const val CELL = BOARD_PX / GRID
 private const val MASK = 0xFF
 private const val CHANNELS = 3
 
-// BT.601 luma weights match OpenCV `BGR2GRAY`, whose output set the thresholds below.
+// BT.601 weights as OpenCV `BGR2GRAY`, whose output set the thresholds below.
 private const val B_WEIGHT = 0.114
 private const val G_WEIGHT = 0.587
 private const val R_WEIGHT = 0.299
 
-/**
- * Uses the raw warp because CLAHE/blur changes the gray-level meaning of tuned thresholds.
- * Area-weighted downsampling to 160x160 keeps the noise floor independent of source board size.
- */
+/** The raw warp: CLAHE/blur change the meaning of tuned thresholds. Area-downsampled to 160x160, so the
+ *  noise floor is independent of board size. */
 fun grayBoard(bgr: BgrImage): ByteArray? {
     if (bgr.width <= 0 || bgr.height <= 0) return null
     val out = ByteArray(BOARD_PX * BOARD_PX)
@@ -57,7 +55,7 @@ private fun boxLuma(
     return if (n == 0) 0 else (sum / n).toInt().coerceIn(0, MASK).toByte()
 }
 
-/** Median subtraction removes global exposure/daylight shifts while retaining local scene motion. */
+/** Median subtraction removes global exposure shifts, keeping local motion. */
 fun cellDeltas(
     a: ByteArray,
     b: ByteArray,
@@ -78,7 +76,7 @@ fun cellDeltas(
 
 fun peak(deltas: DoubleArray): Double = deltas.max()
 
-/** The upper quartile estimates noise because a move touches only two to four of 64 cells. */
+/** The upper quartile estimates noise: a move touches only two to four of 64 cells. */
 fun busyLevel(deltas: DoubleArray): Double = deltas.sorted()[deltas.size * UPPER_QUARTILE_NUM / UPPER_QUARTILE_DEN]
 
 private const val UPPER_QUARTILE_NUM = 3

@@ -24,7 +24,6 @@ class HintMarkOnCommitTest {
         assertEquals(HintRecord("WHITE", quota = 3, delivered = 1), stored.hints)
     }
 
-    /** Derselbe Tipp, aber aus einer anderen Stellung gerechnet: er gehoert diesem Ply nicht. */
     @Test
     fun aTipForAnotherPositionMarksNothing() {
         val ledger = HintLedger().apply { startGame("WHITE", quota = 3) }
@@ -33,7 +32,6 @@ class HintMarkOnCommitTest {
         assertEquals(HintStatus.NONE, stored.reviewView().let { it.hintStatusOf(it.plies.first()) })
     }
 
-    /** Der Tipp nannte e4, gespielt wurde d4 — ein Vermerk, aber kein vorgesagter Zug. */
     @Test
     fun aTipThatWasNotFollowedIsMarkedAsSuch() {
         val ledger = HintLedger().apply { startGame("WHITE", quota = 3) }
@@ -42,7 +40,7 @@ class HintMarkOnCommitTest {
         assertEquals(HintStatus.GIVEN, stored.reviewView().let { it.hintStatusOf(it.plies.first()) })
     }
 
-    /** Ohne Ledger wurde nichts BEOBACHTET — und der Record sagt genau das, nicht "kein Tipp". */
+    /** Ohne Ledger sagt der Record "nicht beobachtet", nicht "kein Tipp". */
     @Test
     fun aGamePlayedWithoutTheLedgerRecordsNothingAndClaimsNothing() {
         val stored = playE4(ledger = null)
@@ -51,7 +49,6 @@ class HintMarkOnCommitTest {
         assertEquals(HintStatus.NOT_RECORDED, stored.reviewView().let { it.hintStatusOf(it.plies.first()) })
     }
 
-    /** Das naechste Spiel erbt nichts: `endAndSave` raeumt den Ledger an der Record-Grenze. */
     @Test
     fun theLedgerIsClearedWithTheRecordItBelongsTo() {
         val ledger = HintLedger().apply { startGame("WHITE", quota = 3) }

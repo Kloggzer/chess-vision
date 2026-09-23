@@ -7,8 +7,7 @@ import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** Bug-Audit C8: `startedMs = now + 1000`, gelesen als `now - startedMs >= intervalMs` — die
- *  Pause ist damit eine Sekunde PLUS ein Beobachtungsintervall, nicht eine Sekunde. */
+/** `startedMs = now + 1000` machte die Pause eine Sekunde PLUS ein Beobachtungsintervall. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CnnObserverBackoffBugTest {
     private val scheduler = TestCoroutineScheduler()

@@ -5,11 +5,10 @@ import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 
-/** Red proof from the 2026-09-14 edge audit of the desktop module. */
 class EdgeAuditBugsTest {
     @Test
     fun thePrintedP90IsNotSimplyTheMaximum() {
-        // `sorted[(n * 9) / 10]` is floor(0.9 n); for n <= 10 that is n - 1, i.e. `max` itself.
+        // `sorted[(n * 9) / 10]` is floor(0.9 n); for n <= 10 that is `max` itself.
         val cost = Cost()
         repeat(9) { cost.of("op") { } }
         cost.of("op") { Thread.sleep(SLOW_MS) }

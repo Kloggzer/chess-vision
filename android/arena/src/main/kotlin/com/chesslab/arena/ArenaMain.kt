@@ -8,15 +8,9 @@ import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 import java.util.Locale
 
-/**
- * `arena <verb> …` — the whole environment.
- *
- *   arena list
- *   arena models
- *   arena run <recording> [tracker=<fqcn>] [model=<name>] [align=N] [limit=N] [out=<file>]
- *   arena score <plies.jsonl> <recording>
- *   arena dump <recording> [every=N] [model=<name>] [out=<file>]
- */
+/** `arena <verb> …`:
+ *    list | models | run <recording> [tracker=<fqcn>] [model=] [align=N] [limit=N] [out=]
+ *    score <plies.jsonl> <recording> | dump <recording> [every=N] [model=] [out=] */
 fun main(args: Array<String>) {
     NativeCv.require()
     val rest = args.drop(1)
@@ -31,7 +25,6 @@ fun main(args: Array<String>) {
     }
 }
 
-/** Everything the arena can play, and whether it has a reference to be judged against. */
 private fun listRecordings() {
     val dirs =
         RECORDINGS
@@ -47,10 +40,7 @@ private fun listRecordings() {
     }
 }
 
-/**
- * The models on offer, each with what its OWN evaluation says about it — measured on that run's
- * test split, so it describes the classifier and never a tracker built on it.
- */
+/** Each model with what its OWN test split says — it describes the classifier, never a tracker on it. */
 private fun listModels() {
     for (name in COVERAGE_MODELS) {
         println(name + if (name == DEFAULT_MODEL) "  (default)" else "")
@@ -94,16 +84,13 @@ private fun runVerb(args: List<String>) {
     report(truthOf(dir), result.plies)
 }
 
-/** Score a ply list produced anywhere — including by a tracker written outside this JVM. */
+/** Scores a ply list produced anywhere, including outside this JVM. */
 private fun scoreVerb(args: List<String>) {
     require(args.size >= 2) { "usage: arena score <plies.jsonl> <recording>" }
     report(truthOf(recordingDir(args[1])), readPlies(File(args[0])))
 }
 
-/**
- * Durch [Jsonl], nicht durch eine Regex auf rohen Zeilen: dort wurde eine kaputte Zeile MITTENDRIN
- * zu einem Ply mit `frame = -1` — dem Wert, der sonst "nicht gemessen" heisst.
- */
+/** Durch [Jsonl], nicht per Regex auf rohen Zeilen: eine kaputte Zeile MITTENDRIN wurde ein Ply mit `frame = -1`. */
 internal fun readPlies(file: File): List<RunPly> =
     Jsonl.rows(file).map { row ->
         RunPly(
@@ -113,10 +100,7 @@ internal fun readPlies(file: File): List<RunPly> =
         )
     }
 
-/**
- * `dump` — the model's per-frame reading of the board as text, for a tracker that is not written
- * in Kotlin. One row per sampled frame: index, timestamp, and 64 rows of probabilities.
- */
+/** The per-frame reading as text, for a tracker not written in Kotlin: index, timestamp, 64 probability rows. */
 private fun dumpVerb(args: List<String>) {
     val name = args.firstOrNull() ?: error("usage: arena dump <recording> [every=N] [model=…] [out=<file>]")
     val opts = options(args.drop(1))
@@ -146,12 +130,7 @@ private fun dumpVerb(args: List<String>) {
     }
 }
 
-/**
- * `board` — one rectified board as a picture, with the grid and the corner squares drawn on it.
- *
- * The plain warp goes beside it, so what the annotation adds is visible and what a tracker
- * actually receives is not confused with it.
- */
+/** The plain warp goes beside it, so what a tracker actually receives is not confused with the annotation. */
 private fun boardVerb(args: List<String>) {
     val name = args.firstOrNull() ?: error("usage: arena board <recording> [frame=N] [size=N] [out=<dir>]")
     val opts = options(args.drop(1))
@@ -184,7 +163,6 @@ private fun boardVerb(args: List<String>) {
     }
 }
 
-/** Runs to one frame, hands it over, commits nothing. */
 private class ShotTracker(
     private val at: Long,
     private val shoot: (FrameView) -> Unit,
@@ -210,7 +188,6 @@ private fun row(
         rows.joinToString(",", "[", "]") { r -> r.joinToString(",", "[", "]") { fixed(it.toDouble(), PROB_DIGITS) } } +
         "}"
 
-/** Reads every `every`-th frame and hands the rows to a sink. Commits nothing — it is not a tracker. */
 private class DumpTracker(
     private val every: Int,
     private val sink: (FrameView, Array<FloatArray>) -> Unit,
@@ -239,13 +216,9 @@ private fun newTracker(fqcn: String): ArenaTracker = Class.forName(fqcn).getDecl
 private fun recordingDir(name: String): File =
     File(RECORDINGS, name).also { check(File(it, "video.mp4").isFile) { "no video at ${it.absolutePath}/video.mp4" } }
 
-/** The arena's working directory is `android/arena`; the corpus lives at the repository root. */
 private val RECORDINGS = File("../../data/recordings")
 
-/**
- * Numbers in a machine-read file are never locale-formatted: a German JVM writes `0,5` and the row
- * stops being JSON. Measured the hard way on the first dump this arena ever produced.
- */
+/** Never locale-formatted: a German JVM writes `0,5` and the row stops being JSON. */
 fun fixed(
     value: Double,
     digits: Int,

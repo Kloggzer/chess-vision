@@ -17,7 +17,7 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.random.Random
 
-/** Was die Knotenschicht unter zufaellig wechselndem Bedarf kostet — Fuzz, weil gilt: wer nichts zieht, bezahlt nichts. */
+/** Fuzz, weil gilt: wer nichts zieht, bezahlt nichts. */
 class StageFuzzProfileTest {
     private val geom = BoardGeometry(boardSize = BOARD_SIZE)
     private val config = TrackerConfig(boardSize = BOARD_SIZE)
@@ -41,7 +41,6 @@ class StageFuzzProfileTest {
         return m
     }
 
-    /** `[a8, h8, h1, a1]`, flach — die Ecken-Reihenfolge des Projekts. */
     private val corners =
         floatArrayOf(
             QUAD_X.toFloat(),
@@ -76,8 +75,7 @@ class StageFuzzProfileTest {
                     s.convert(src)
                     if (!s.warpDetection(corners)) return@repeat
                     s.lumaPreClahe()
-                    // Die zwei Engines schliessen einander aus: die Diff-Engine liest grayDet,
-                    // Stillness/Changeset stattdessen board(160).
+                    // Die Diff-Engine liest grayDet, Stillness/Changeset stattdessen board(160).
                     if (rng.nextBoolean()) {
                         s.grayDet()
                         s.bgrDet()
@@ -100,16 +98,14 @@ class StageFuzzProfileTest {
 
         val gray = requireNotNull(snap.operation(WorkOperation.LUMA_GRAY)) { "kein LUMA_GRAY" }
         val board = requireNotNull(snap.operation(WorkOperation.BOARD_WARP)) { "kein BOARD_WARP" }
-        // Genau der Doppelgaenger, den der Ist-Zustand hatte: `lumaPreClahe` und `grayDet` zogen
-        // dieselbe Graustufe. Jeder solche Frame ist jetzt ein Treffer.
+        // `lumaPreClahe` und `grayDet` zogen dieselbe Graustufe; jeder solche Frame ist jetzt ein Treffer.
         assertEquals(lumaAndGray.toLong(), gray.cacheHits, "ein Treffer je Frame mit beiden Lesern")
         assertEquals(FRAMES.toLong(), gray.cacheMisses, "und genau eine Rechnung je Frame")
-        // `boardAt` rechnete frueher je Aufruf neu; ab dem zweiten Zug im selben Frame ist es frei.
+        // Ab dem zweiten `boardAt` im selben Frame ist es frei.
         assertEquals((boardPulls - board.cacheMisses).toLong(), board.cacheHits)
         assertTrue(board.cacheHits > 0, "der Fuzz muss Mehrfachzuege erzeugt haben")
     }
 
-    /** `FramePipeline.emit` ruft `grayDet()`/`bgrDet()` UNBEDINGT, obwohl Stillness/Changeset nur `board(160)` lesen. */
     @Test
     fun `what stillness pays for nothing`() {
         fun run(emitLikeToday: Boolean): Long {
@@ -164,7 +160,7 @@ class StageFuzzProfileTest {
             }
         }
         val snap = probe.snapshot()
-        // Der Dunkelframe-Gate-Pfad zieht nur die Graustufe — CLAHE und Blur laufen NICHT.
+        // Der Dunkelframe-Pfad zieht nur die Graustufe — CLAHE und Blur laufen NICHT.
         assertEquals(null, snap.operation(WorkOperation.DETECTION_GRAY))
         assertEquals(null, snap.operation(WorkOperation.BOARD_WARP))
     }

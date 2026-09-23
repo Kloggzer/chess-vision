@@ -9,23 +9,9 @@ import com.chesslab.tracker.geometry.squareOffsetOf
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 
-/**
- * `rectify <video> <outDir> [frames=<file>] [every=N] [size=N]` — the board, straightened, per frame.
- *
- * The geometry crosses the language boundary as an IMAGE, not as a formula. On 2026-08-09 five
- * separate Python reconstructions of this warp were written and all five were wrong — `margin` left
- * at 0 twice, a stored median quad used where the recording needs a per-frame one, the model's
- * normalisation omitted, and a distribution described by its maximum. The Kotlin path got the same
- * recordings right every time, because it is the path the device runs. So it emits the rectified
- * playing field and the caller draws on top of it; nobody downstream computes a homography again.
- *
- * The quad is detected and grid-refined PER FRAME (`quadOf`), which is the part a stored median
- * cannot do: a phone that settles, a board that turns, a marker that a hand covers.
- *
- * A frame whose board cannot be found is SKIPPED and named in the receipt. It is not written black
- * and it is not written from a neighbour's quad — a straightened picture of the wrong thing is
- * worse than a missing one, because only the missing one is visible.
- */
+/** `rectify <video> <outDir> [frames=<file>] [every=N] [size=N]`. The geometry crosses the language boundary
+ *  as an IMAGE: five Python reconstructions of this warp were all wrong. Quad per frame; a frame without a
+ *  board is SKIPPED and named — a straightened picture of the wrong thing is worse than a missing one. */
 fun rectifyVideo(args: List<String>) {
     val video = File(args.getOrNull(0) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N] [lens]"))
     val outDir = File(args.getOrNull(1) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N] [lens]"))
@@ -36,11 +22,8 @@ fun rectifyVideo(args: List<String>) {
     check(video.isFile) { "no such video: ${video.absolutePath}" }
     require(every >= 1) { "every= must be at least 1, got $every" }
 
-    // `lens` — take the barrel out BEFORE the quad and the warp, exactly like the replay's
-    // option. Without it the corners land right (ArUco + grid refinement) while the content
-    // between them stays bowed, which is plainly visible on a straightened full board
-    // ("da ist ein barrel effekt drauf", 2026-08-10). Same contract as `undistort`: a fit the
-    // grid does not accept aborts loudly rather than silently delivering raw boards.
+    // `lens`: without it the corners land right while the content between them stays bowed. A fit the grid
+    // does not accept aborts loudly.
     val model =
         if ("lens" in rest) {
             openRecording(video).use { fitLensFrom(it) }
@@ -74,14 +57,13 @@ fun rectifyVideo(args: List<String>) {
     )
 }
 
-/** NICHT 0.0, wenn nichts geschrieben wurde: das ist der BESTE erreichbare Wert, und ein Lauf
- *  ohne ein einziges gefundenes Brett haette damit perfekte Geometrie gemeldet. */
+/** NICHT 0.0, wenn nichts geschrieben wurde: ein Lauf ohne ein Brett haette sonst perfekte Geometrie gemeldet. */
 internal fun meanWorstSquareOffset(
     written: Int,
     offsetSum: Double,
 ): Double? = if (written == 0) null else offsetSum / written
 
-/** Die Quittung als reiner Text, damit sie ohne Video zu pruefen ist. */
+/** Als reiner Text, damit sie ohne Video zu pruefen ist. */
 internal fun rectifyReceipt(
     source: String,
     lens: Boolean,
@@ -111,7 +93,6 @@ private class Rectified(
     val offsetSum: Double,
 )
 
-/** The loop alone, so the `use` block above stays one statement (detekt's nesting rule). */
 private fun rectifyEach(
     source: FrameSource,
     outDir: File,
@@ -134,8 +115,7 @@ private fun rectifyEach(
             if (quad == null) {
                 missed += at
             } else {
-                // Ohne `dst` legt `warpFromCorners` je Bild ein neues `Mat` an — bei `every=1`
-                // rund 4,6 MB nativ, die der GC nicht sieht.
+                // Ohne `dst` rund 4,6 MB nativ je Bild, die der GC nicht sieht.
                 val board = warpFromCorners(frame, boardGeometryFor(quad), cornersFromFlat(quad), size)
                 try {
                     Imgcodecs.imwrite(File(outDir, "${at.toString().padStart(STEM_DIGITS, '0')}.png").path, board)
@@ -150,7 +130,7 @@ private fun rectifyEach(
     return Rectified(index, written, missed, offsetSum)
 }
 
-/** Written beside the boards so a consumer can tell a rectified set from a folder of frames. */
+/** So a consumer can tell a rectified set from a folder of frames. */
 const val RECEIPT = "rectify.json"
 
 private const val DEFAULT_EVERY = 3

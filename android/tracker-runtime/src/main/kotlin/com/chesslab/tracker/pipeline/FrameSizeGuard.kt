@@ -1,29 +1,15 @@
 package com.chesslab.tracker.pipeline
 
-// Port of `tracker.py::_note_frame_size` (+ the request half of `_regenerate_profile`).
-//
-// The requested camera mode is only a wish: drivers silently fall back to their nearest
-// supported mode, so the size of an actually delivered frame is the only trustworthy number.
-// A changed frame size also invalidates the calibration profile, whose board corners are
-// PIXEL coordinates — they must be re-detected, never rescaled by a requested/delivered
-// ratio (that is commit a7dab73 verbatim).
-//
-// Deliberately OpenCV-free and Android-free so the decision is unit-testable.
+// The requested camera mode is only a wish: drivers fall back silently. A changed size invalidates the profile,
+// whose corners are PIXELS — re-detect, never rescale by a ratio (commit a7dab73).
 
-/** A profile/camera size disagreement that the UI shows and the service must resolve. */
 data class SizeMismatch(
     val note: String,
     val width: Int,
     val height: Int,
 )
 
-/**
- * Watches the delivered frame size.
- *
- * @param requested what the camera was asked for, for the log line only — never for geometry.
- * @param requestRegeneration asks the service (06c) to re-detect the board corners. It is a
- *   signal, not the work: ArUco must not run on the analyzer thread.
- */
+/** @param requestRegeneration a signal to re-detect, not the work: ArUco must not run on the analyzer thread. */
 class FrameSizeGuard(
     private val warn: (String) -> Unit = {},
     private val info: (String) -> Unit = {},
@@ -35,11 +21,9 @@ class FrameSizeGuard(
     private var profileW = 0
     private var profileH = 0
 
-    /** Non-null while the active profile does not match the delivered size. */
     var mismatch: SizeMismatch? = null
         private set
 
-    /** The active calibration profile. Setting it re-arms the check on the next frame. */
     fun setProfile(
         name: String,
         width: Int,
@@ -52,13 +36,8 @@ class FrameSizeGuard(
         actualH = 0
     }
 
-    /**
-     * One frame's delivered size.
-     *
-     * Runs its full body only when the size changed — EXCEPT while a mismatch is unresolved:
-     * a regeneration can fail transiently (a hand covers the markers at the wrong moment), and
-     * with the size latched there would never be a second attempt. So we retry every frame.
-     */
+    /** Retries every frame while a mismatch is unresolved: a regeneration can fail transiently (a hand over the
+     *  markers), and a latched size would never try again. */
     fun note(
         width: Int,
         height: Int,
@@ -72,23 +51,17 @@ class FrameSizeGuard(
             mismatch = null
             return
         }
-        // Before the first calibration there IS no profile, and the stale-profile wording came out
-        // as `profile '' was calibrated at 0x0` — a sentence about a profile that never existed.
-        // The two cases need different words because they need different actions from the user.
+        // Before the first calibration there IS no profile; the two cases need different actions from the user.
         val calibrated = profileW > 0 && profileH > 0
         val text =
             if (calibrated) {
                 "profile '$profileName' was calibrated at ${profileW}x$profileH, camera delivers ${width}x$height"
             } else {
-                // It said "tap Recalibrate", which named the third of three identical outline
-                // buttons. specs/49 made the tracker's filled button read `Calibrate` in exactly
-                // this state, so the sentence names no control at all: whatever the screen needs
-                // now is the one thing on it that is filled. The wording also has to work as the
-                // NOTIFICATION text, where there is nothing to tap.
+                // Names no control: the one filled button is what the screen needs, and the text is also the
+                // NOTIFICATION, where there is nothing to tap.
                 "not calibrated yet — point the camera at the whole board"
             }
         mismatch = SizeMismatch(text, width, height)
-        // Rate limit: the retry path must not spam the log every frame.
         if (firstSeen) {
             val why = " — its board corners are pixel coordinates and no longer valid; re-detecting them."
             warn(if (calibrated) "$text$why" else "$text (camera delivers ${width}x$height)")
@@ -100,8 +73,7 @@ class FrameSizeGuard(
         width: Int,
         height: Int,
     ) {
-        // Die angefragte gegen die gelieferte Groesse meldet `camera/ResolutionMismatchLogger`,
-        // ratenbegrenzt und verdrahtet. Dieser Guard REAGIERT (Profil neu erzeugen), er meldet nicht.
+        // Requested vs delivered reports `camera/ResolutionMismatchLogger`; this guard REACTS.
         info("camera delivers ${width}x$height.")
     }
 }

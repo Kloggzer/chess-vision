@@ -8,8 +8,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 
-/** Eine Datei JE AUFNAHME statt je Eintrag: 655 588 Winzdateien kosteten unter Last bis zu 70 %
- *  eines Replays (`docs/desktop-replay.md`). */
 class CachingClassifierTest {
     @TempDir
     lateinit var temp: Path
@@ -30,7 +28,7 @@ class CachingClassifierTest {
 
     private fun crops(seed: Byte) = listOf(BgrImage(2, 2, ByteArray(2 * 2 * 3) { seed }))
 
-    /** Ein Lauf, der seine Crops sieht und danach zumacht — sonst haelt Windows das Temp fest. */
+    /** Zumachen, sonst haelt Windows das Temp fest. */
     private fun lauf(
         inner: Zaehlend,
         recording: String,
@@ -88,5 +86,4 @@ class CachingClassifierTest {
 
 private const val CLASSES = 13
 
-/** Genug, um den LETZTEN Satz zu zerstoeren und den ersten stehen zu lassen. */
 private const val HALBER_SATZ = 20

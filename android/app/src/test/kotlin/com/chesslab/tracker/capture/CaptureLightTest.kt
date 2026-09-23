@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Die Livemessung entscheidet, nicht der Plan. Gemessen ohne Bitmap — [assign] und [lightAdvice]
- * bekommen die Helligkeiten als Karte, damit die Regel ohne Kamera pruefbar ist.
- */
+/** Ohne Bitmap: [assign] und [lightAdvice] bekommen die Helligkeiten als Karte. */
 class CaptureLightTest {
     @Test
     fun aSuggestionIsOverriddenByTheSquareThatIsActuallyInBand() {
@@ -82,18 +79,13 @@ class CaptureLightTest {
         assertTrue(fenOfTargets(targets).startsWith("2Q5/"), fenOfTargets(targets))
     }
 
-    /**
-     * Gemessen am Manifest: eine Figur verschiebt den Crop-Mittelwert ihres Feldes um bis zu 61
-     * Grauwerte (Median -22 fuer Schwarz), 16 von 80 Verschiebungen ueberspringen ein ganzes Band.
-     * Ohne [refit] haette die erste hingestellte Figur die Belegung neu gewuerfelt.
-     */
+    /** Eine Figur verschiebt ihr Feld um bis zu 61 Grauwerte; ohne [refit] wuerfelte die erste die Belegung neu. */
     @Test
     fun aPlacedPieceMustNotMakeTheAssignmentWander() {
         val place = listOf(Placement("a8", "wQ", "sehr dunkel", 0, 40))
         val onEmptyBoard = assign(place, mapOf("a8" to 115, "c8" to 20, "e8" to 30))
         assertEquals("c8", onEmptyBoard.single().square)
 
-        // Die Dame steht jetzt auf c8 und hat das Feld um 40 Grauwerte gehoben.
         val withPiece = mapOf("a8" to 115, "c8" to 60, "e8" to 30)
 
         assertEquals("e8", assign(place, withPiece).single().square, "ohne refit wandert sie")
@@ -120,10 +112,6 @@ class CaptureLightTest {
         assertEquals(Fit.UNMEASURED, refit(frozen, emptyMap()).single().fit)
     }
 
-    /**
-     * Ueber acht Drehungen kann das Licht wandern — eine Aufnahme, die dabei aus dem Band laeuft,
-     * faellt sonst erst im fertigen Datensatz auf, wenn die Frames schon geschrieben sind.
-     */
     @Test
     fun theDriftIsMeasuredAgainstTheMomentTheSquaresWereFrozen() {
         val frozen = listOf(at("c8", 200), at("e8", 190), at("g8", 180))

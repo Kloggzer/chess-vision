@@ -2,32 +2,24 @@ package com.chesslab.engine
 
 import kotlin.math.abs
 
-/**
- * Invariant 2: occlusion removes `changed` and zeroes z; shadow preserves z.
- * Invariant 6: rebuild the reference gamut only on a quiet re-anchor, never after a commit.
- */
+/** Invariant 2: occlusion removes `changed` and zeroes z; shadow preserves z. Invariant 6: rebuild only on a
+ *  quiet re-anchor, never after a commit. */
 
 private const val BYTE_MASK = 0xFF
 private const val CHANNELS = 3
 private const val DIM = 3
 private const val DIM_SQ = 9
 
-/** At least 8 usable squares are required for a meaningful covariance. */
 private const val MIN_USABLE_SQUARES = 8
 
-/**
- * Regularizer added to the covariance diagonal: keeps a flat chroma axis (a near-neutral board)
- * from exploding the Mahalanobis distance.
- */
+/** Keeps a flat chroma axis (a near-neutral board) from exploding the Mahalanobis distance. */
 private const val COV_REGULARIZER = 4.0
 
-/** Determinants below this are treated as singular. */
 private const val DET_EPS = 1e-12
 
 private const val DEFAULT_OCCLUSION_THR = 4.0
 
-// Dropping L* makes [Lab a*, Lab b*, HSV S] robust to exposure and shadow.
-// a*/b* remain in OpenCV's 8-bit +128 encoding because thresholds use those values.
+// Without L*, `[a*, b*, S]` is robust to exposure and shadow; a*/b* stay in OpenCV's +128 encoding (thresholds use it).
 private const val LAB_A = 1
 private const val LAB_B = 2
 private const val HSV_S = 1
@@ -40,7 +32,7 @@ internal class ColorGamut(
     val n: Int,
 )
 
-/** Uses base boxes (`extendUp = 0.0`); null with fewer than 8 samples or singular covariance. */
+/** Base boxes (`extendUp = 0.0`); null with fewer than 8 samples or a singular covariance. */
 internal fun boardColorGamut(
     ref: ColorPlanes,
     geom: PlaneGeometry,
@@ -57,7 +49,6 @@ internal fun boardColorGamut(
     return colorGamutFromFeatures(feats, n)
 }
 
-/** Regularized sample covariance and inverse over row-major `[a*, b*, S]` features. */
 internal fun colorGamutFromFeatures(
     feats: DoubleArray,
     n: Int,
@@ -95,10 +86,8 @@ internal fun colorGamutFromFeatures(
     return invert3x3(cov)?.let { inv -> ColorGamut(mu, inv, feats.copyOf(n * DIM), n) }
 }
 
-/**
- * Flags colours farther than [thr] Mahalanobis sigma from every reference square.
- * A piece can match an existing piece; a hand or sleeve usually cannot. Checks base and overhang.
- */
+/** Farther than [thr] sigma from EVERY reference square: a piece can match another piece, a hand or sleeve
+ *  usually cannot. Checks base and overhang. */
 internal fun occlusionColorSquares(
     cur: ColorPlanes,
     geom: PlaneGeometry,
@@ -121,7 +110,6 @@ internal fun occlusionColorSquares(
     return out
 }
 
-/** Squared Mahalanobis distance to the closest reference square, never [ColorGamut.mu]. */
 private fun nearestMahalanobis(
     cur: ColorPlanes,
     geom: PlaneGeometry,

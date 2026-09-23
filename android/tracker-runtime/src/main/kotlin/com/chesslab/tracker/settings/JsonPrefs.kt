@@ -5,8 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 
-/** One JSON document in one [ConfigStore] slot, cached for synchronous readers. A slot that does not
- *  decode loads [defaults], never a partial value; [json] is the slot's own on-disk format. */
+/** A slot that does not decode loads [defaults], never a partial value. */
 open class JsonPrefs<T>(
     private val store: ConfigStore,
     private val slot: String,

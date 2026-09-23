@@ -37,9 +37,8 @@ internal fun assertClose(
     assertTrue(abs(expected - actual) <= tolerance, "$what: expected $expected, got $actual")
 }
 
-/** Two orders of the same plies are ONE `deriveMovesDeep` hypothesis, tie-broken by move-enumeration
- *  order, which differs between chesslib and python-chess: differing sequences must match in length
- *  AND resulting placement. */
+/** Tie-broken by move-enumeration order, which differs between chesslib and python-chess: differing
+ *  sequences must match in length AND resulting placement. */
 internal fun assertSequenceEquivalent(
     expected: List<String>,
     actual: List<String>,

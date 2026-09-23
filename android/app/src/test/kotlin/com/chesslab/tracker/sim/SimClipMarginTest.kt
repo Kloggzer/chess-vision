@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/** ArUco quads at margin 0.0 oversize the board 6-8 % (2232 of 2996 frames without a commit, fixed
- *  in Python `721901a`); the DEFAULT must stay 0.0 so every Blender parity fixture stays byte-identical. */
+/** ArUco quads at margin 0.0 oversize the board 6-8 %; the DEFAULT stays 0.0 so every Blender parity
+ *  fixture stays byte-identical. */
 class SimClipMarginTest {
     private fun clip(geometry: BoardGeometry) = SimClip("t", VIDEO, CORNERS, geometry, 30.0, TrackerConfig(), TRUTH)
 

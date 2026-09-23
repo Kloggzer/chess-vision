@@ -3,11 +3,7 @@ package com.chesslab.cnn
 import com.github.bhlangonijr.chesslib.Board
 import kotlin.math.max
 
-/**
- * Ported from `cnn_recovery.py resync_check` when Python still carried the tracker — whole-board (unlike `verifyMove`, which is
- * local). Conflicts are iterated in [ALL_SQUARES] order. `move` is set only when exactly one
- * legal move sufficiently explains the observation.
- */
+/** Whole-board, unlike `verifyMove`. `move` is set only when exactly one legal move explains the observation. */
 fun CnnRecovery.resyncCheckFull(
     board: Board,
     obs: OccupancyObservation,
@@ -27,13 +23,8 @@ fun CnnRecovery.resyncCheckFull(
     )
 }
 
-/**
- * Port of `cnn_recovery.py has_occupancy_conflict` — **the alarm gate**.
- *
- * True only when at least one conflict square disagrees on OCCUPANCY on the model's reliable
- * empty axis. Identity-only conflicts (right occupancy, wrong piece type — the known N/B/R
- * gap) are almost always CNN error, never evidence of an illegal move, and must NEVER alarm.
- */
+/** **The alarm gate**: only an OCCUPANCY disagreement on the reliable empty axis. Identity-only conflicts
+ *  (the known N/B/R gap) are almost always CNN error and must NEVER alarm. */
 fun hasOccupancyConflict(
     board: Board,
     obs: OccupancyObservation,

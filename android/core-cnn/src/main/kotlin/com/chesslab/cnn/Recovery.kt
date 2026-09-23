@@ -19,27 +19,21 @@ internal const val NO_AGREEMENT = 0.0
 internal const val FULL_AGREEMENT = 1.0
 internal const val NO_HITS = -1
 
-// verify_move: at least the FROM and TO square must be readable (cnn_recovery.py).
+// Verify: at least the FROM and TO square must be readable.
 private const val MIN_VERIFIED_SQUARES = 2
 
-/** `score_moves` result: the accepted move (or null) plus both agreement fractions. */
 data class ScoredMove(
     val move: Move?,
     val best: Double,
     val second: Double,
 )
 
-/** `derive_moves_identity` / `derive_moves_deep` result. */
 data class DerivedMoves(
     val moves: List<Move>,
     val best: Double,
     val second: Double,
 )
 
-/**
- * `cnn_recovery.py resync_check` result. Declared here with the other result types;
- * `Resync.kt` holds the functions.
- */
 data class ResyncCheck(
     val match: Boolean,
     val conflicts: List<String>,
@@ -47,7 +41,7 @@ data class ResyncCheck(
     val agreement: Double,
 )
 
-/** `board_matches_identity` — three-valued: an inconclusive check is NOT a mismatch. */
+/** Three-valued: an inconclusive check is NOT a mismatch. */
 data class IdentityCheck(
     val match: Boolean,
     val conflicts: List<String>,
@@ -55,15 +49,8 @@ data class IdentityCheck(
     val inconclusive: Boolean,
 )
 
-/**
- * Ported from `cnn_recovery.py CnnRecovery` when Python still carried the tracker — the pure-evaluation half only. `observe`
- * (pixels -> probabilities) lives behind [SquareClassifier]; the ONNX implementation is
- * phase 05c in `:app`.
- *
- * Implements the frozen engine seam [CnnEvaluator] (phase 00a), which takes the position as a
- * FEN. The seam is still narrower than Python on the identity axis, so the Python-faithful
- * [boardMatchesIdentityFull] (which carries `n`) stays exposed alongside it.
- */
+/** The pure-evaluation half; pixels -> probabilities lives behind [SquareClassifier]. Implements the FEN
+ *  seam [CnnEvaluator]; [boardMatchesIdentityFull] (which carries `n`) stays exposed beside it. */
 class CnnRecovery(
     val config: CnnConfig = CnnConfig(),
 ) : CnnEvaluator {
@@ -71,19 +58,9 @@ class CnnRecovery(
     override val minConfidentBoard: Int get() = config.minConfidentBoard
     override val minAgreement: Double get() = config.minAgreement
 
-    /**
-     * `cnn_recovery.py score_moves` — the legal move whose resulting OCCUPANCY best
-     * explains the observation over the confident squares.
-     *
-     * The position AS IT STANDS is one of the rivals, not the baseline the moves are measured
-     * against. Without it a SINGLE square the model reads as wrongly empty fabricates a move
-     * whenever exactly one legal move vacates that square: "no move" and that move then explain
-     * the observation equally well, and only the move gets ranked. Observed live (30.07.2026) as
-     * a phantom g6 — the g7 pawn stood on the square's upper edge, read `p(occupied) = 0.13`, and
-     * g7g6 won 58/59 against a field whose best rival was 57/59. [deriveMovesDeepFull] has always
-     * seeded its beam with the empty sequence for exactly this reason; this is the same rule one
-     * search shallower.
-     */
+    /** The standing position is one of the RIVALS, not the baseline: otherwise a single square misread as empty
+     *  fabricates the one move that vacates it — the live phantom g6 (g7 read `p(occupied) = 0.13`, g7g6 won
+     *  58/59 against 57/59). [deriveMovesDeepFull] seeds its beam with the empty sequence for the same reason. */
     fun scoreMoves(
         board: Board,
         obs: OccupancyObservation,
@@ -98,8 +75,7 @@ class CnnRecovery(
             val picked = pick(board.legalMoves().map { listOf(it) to board.clone().also { b -> b.doMove(it) } }, hitsOf)
             val rival = maxOf(picked.second, hitsOf(board))
             val best = frac(picked.hits, n)
-            // Margin in SQUARES: promotion variants (e7e8q vs e7e8r) are occupancy-identical
-            // (0 squares apart) -> intentionally no answer.
+            // Promotion variants are occupancy-identical (0 squares apart) -> intentionally no answer.
             val accepted =
                 picked.seq.isNotEmpty() &&
                     best >= config.minAgreement &&
@@ -109,11 +85,8 @@ class CnnRecovery(
         return result
     }
 
-    /**
-     * `cnn_recovery.py verify_move` — LOCAL, not whole-board: only squares physically
-     * changed by the move count. Fewer than two confident touched squares leaves the move
-     * unconfirmed (0.0) so the multi-frame window waits for a clear view.
-     */
+    /** LOCAL: only squares the move physically changes count. Fewer than two confident ones leaves it
+     *  unconfirmed (0.0), so the window waits for a clear view. */
     override fun verifyMove(
         boardFen: String,
         moveUci: String,
@@ -160,8 +133,7 @@ class CnnRecovery(
     ): ResyncResult {
         val o = asObservation(obs)
         val full = resyncCheckFull(boardOf(boardFen), o)
-        // `move`/`agreement` ARE the overrule rung and `_cnn_tick`'s occupancy path; dropping them
-        // made both silently dead against the real evaluator (STATUS D04a-1).
+        // `move`/`agreement` ARE the overrule rung and `_cnn_tick`'s occupancy path; dropped, both were dead.
         return ResyncResult(
             match = full.match,
             conflicts = full.conflicts,
@@ -176,7 +148,7 @@ class CnnRecovery(
         obs: CnnObservation,
         thr: Double,
         conflicts: List<String>,
-        // fully qualified: the member would otherwise shadow the top-level function
+        // Fully qualified: the member would otherwise shadow the top-level function.
     ): Boolean = com.chesslab.cnn.hasOccupancyConflict(boardOf(boardFen), asObservation(obs), thr, conflicts)
 
     override fun guessIllegalMove(
@@ -186,10 +158,7 @@ class CnnRecovery(
     ): String? = com.chesslab.cnn.guessIllegalMove(boardOf(boardFen), asObservation(obs), thr)
 }
 
-/**
- * `cnn_recovery.py board_matches_identity`. Fewer than `minConfidentBoard` label-confident
- * squares is the blind-glance guard: **inconclusive**, never a mismatch.
- */
+/** Fewer than `minConfidentBoard` label-confident squares is the blind-glance guard: inconclusive, never a mismatch. */
 fun CnnRecovery.boardMatchesIdentityFull(
     board: Board,
     obs: OccupancyObservation,
@@ -203,7 +172,6 @@ fun CnnRecovery.boardMatchesIdentityFull(
     return IdentityCheck(match = conflicts.isEmpty(), conflicts = conflicts, n = checked.size, inconclusive = false)
 }
 
-/** The seam speaks FEN (see [CnnEvaluator]); this is the one place it becomes a chesslib board. */
 internal fun boardOf(fen: String): Board = Board().also { it.loadFromFen(fen) }
 
 internal fun asObservation(obs: CnnObservation): OccupancyObservation {
@@ -211,13 +179,8 @@ internal fun asObservation(obs: CnnObservation): OccupancyObservation {
     return obs
 }
 
-/**
- * The seam's chokepoint: [CnnEvaluator] takes the move as a STRING, so this is where a fabrication
- * would enter `:core-cnn`.
- *
- * It throws rather than abstaining, and that is the point — an abstention is indistinguishable
- * from "too few confident squares", which means something else entirely to the verify ladder.
- */
+/** The seam takes the move as a STRING, so a fabrication would enter here. It THROWS: an abstention would
+ *  read as "too few confident squares", which means something else to the verify ladder. */
 internal fun parseMove(
     board: Board,
     moveUci: String,
@@ -233,10 +196,7 @@ internal fun uciOf(move: Move): String {
     return move.from.value().lowercase() + move.to.value().lowercase() + suffix
 }
 
-/**
- * `cnn_recovery.py _move_touched_squares` — from, to, + the rook squares on castling,
- * + the captured pawn on en passant.
- */
+/** From, to, the rook squares on castling, and the captured pawn on en passant. */
 internal fun moveTouchedSquares(
     board: Board,
     move: Move,
@@ -257,7 +217,6 @@ internal fun moveTouchedSquares(
             }
         rookFiles.mapTo(squares) { squareNameAt(it, from.rank) }
     }
-    // en passant: a pawn changing file onto an empty square
     if (type == PieceType.PAWN && fromFile != toFile && board.getPiece(to) == Piece.NONE) {
         squares.add(squareNameAt(to.file, from.rank))
     }
@@ -277,7 +236,7 @@ private data class Picked(
     val second: Int,
 )
 
-/** Python's `_pick`: the best/second update keeps the FIRST maximum (strict `>`). */
+/** Python's `_pick`: keeps the FIRST maximum (strict `>`). */
 private fun pick(
     candidates: List<Pair<List<Move>, Board>>,
     hitsOf: (Board) -> Int,

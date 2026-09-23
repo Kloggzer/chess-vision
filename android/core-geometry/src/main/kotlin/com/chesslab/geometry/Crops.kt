@@ -9,28 +9,12 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.min
 
-// The 64 CNN crops. Ports of `labeling.py all_squares`, `:112 crop_square` and
-// `imgops.py resize_keep_aspect`.
-//
-// `crops_for_frame` itself is NOT ported any more: the phone cuts its crops in
-// `OpenCvStages.updateCropFrame`, which calls `warpBoardForCrops` once and `cropSquare` per square
-// so the bordered warp is reused rather than re-cut. The port sat here with no caller on either
-// host. (The comment this replaces said this file was the only caller of `warpBoardForCrops`,
-// which stopped being true the moment the pipeline called it.)
+// `crops_for_frame` is not ported: the phone cuts in `OpenCvStages.updateCropFrame`, reusing one bordered warp.
 
-/**
- * Crop order — `a1,b1,..,h1,a2,..,h8`, rank-major from rank 1 (`labeling.py`).
- * NOT the corner order `[a8, h8, h1, a1]` — entry.md invariant 11.
- */
+/** Crop order, rank-major from a1 — NOT the corner order `[a8, h8, h1, a1]` (entry.md invariant 11). */
 fun allSquares(): List<String> = (1..BOARD_SIDE).flatMap { r -> FILES.map { f -> "$f$r" } }
 
-/**
- * Scale to `outW x outH` WITHOUT distortion: uniform scale, remainder centred and filled with
- * black (letterbox). Port of `imgops.py resize_keep_aspect`.
- *
- * With the square crop box this is a borderless resize; the letterbox path exists for a
- * non-square `outW x outH`.
- */
+/** Uniform scale, remainder letterboxed black; with a square box it is a borderless resize. */
 fun resizeKeepAspect(
     img: Mat,
     outW: Int,
@@ -62,14 +46,8 @@ fun resizeKeepAspect(
     return canvas
 }
 
-/**
- * One square crop out of the BORDERED board (`warpBoardForCrops`).
- * Port of `labeling.py crop_square`.
- *
- * A plain rectangle, always — the board's lines are pulled straight once, over the whole raster
- * ([straightenBoard]). Overhang is BLACK (never replicate, never reflect) so the crop geometry is
- * constant across all 64 squares, then letterbox-resized to `outW x outH`.
- */
+/** A plain rectangle, always: the board was straightened once ([straightenBoard]). Overhang is BLACK (never
+ *  replicate or reflect), so the geometry is constant across all 64 squares. */
 fun cropSquare(
     boardWarped: Mat,
     square: String,
@@ -110,10 +88,7 @@ fun cropSquare(
     }
 }
 
-/**
- * Sequential crop scratch for the phone observer. The returned Mat is owned by this object and is
- * overwritten by the next call; consume or copy it before asking for another square.
- */
+/** The returned Mat is owned here and overwritten by the next call. */
 class SquareCropper : AutoCloseable {
     private val resized = Mat()
     private val output = Mat()
@@ -192,12 +167,8 @@ class SquareCropper : AutoCloseable {
 
 private val BLACK = Scalar(0.0, 0.0, 0.0)
 
-/**
- * A bordered board pulled straight GLOBALLY: every pixel read where the board's OWN lines say it
- * sits. The pipeline's only straightening — cuts after it are plain rectangles, and a second pass
- * corrects twice. CUBIC because the map is a near-identity and bilinear would low-pass what the
- * crop keeps (-44 % against -22 %, measured). Twin: `calibration.straighten_board`.
- */
+/** The pipeline's only straightening: cuts after it are plain rectangles, and a second pass corrects twice.
+ *  CUBIC: bilinear would low-pass what the crop keeps (-44 % against -22 %). Twin: `calibration.straighten_board`. */
 fun straightenBoard(
     boardWarped: Mat,
     mesh: GridMesh,

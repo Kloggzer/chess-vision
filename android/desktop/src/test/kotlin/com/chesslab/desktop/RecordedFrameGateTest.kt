@@ -5,9 +5,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Das Tor waehlt die Bilder, gegen die ALLES danach gemessen wird. Ohne die "noch nicht
- *  erreicht"-Sperre nimmt es die ersten n statt der aufgezeichneten: ein anderer Film, lautlos,
- *  weil die ANZAHL stimmt. */
+/** Ohne die "noch nicht erreicht"-Sperre nimmt das Tor die ersten n statt der aufgezeichneten: ein anderer Film,
+ *  lautlos, weil die ANZAHL stimmt. */
 class RecordedFrameGateTest {
     @Test
     fun `ein Bild vor der Zielzeit geht nicht durch`() {
@@ -19,7 +18,6 @@ class RecordedFrameGateTest {
         assertEquals(1, gate.taken)
     }
 
-    /** Greedy und einmal vorwaerts: ueberholte Ziele verfallen, statt spaeter Bilder zu ziehen. */
     @Test
     fun `ein Bild verfaellt die Ziele, die es ueberholt hat`() {
         val gate = RecordedFrameGate(listOf(100.0, 110.0, 120.0, 500.0))

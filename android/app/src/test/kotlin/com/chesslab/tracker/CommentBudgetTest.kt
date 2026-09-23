@@ -4,13 +4,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/**
- * A ratchet, not a rule: `config/comment-budget.txt` holds what each file carries today, and both
- * directions fail — gaining a block, or paying one off without lowering the entry. [LIMIT] is five,
- * the hard ceiling CLAUDE.md names; three is the target new code should aim for.
- */
+/** A ratchet: gaining a block or paying one off without lowering the entry both fail. [LIMIT] is the hard
+ *  ceiling; three is the target. */
 class CommentBudgetTest {
-    /** A guard that reads no files passes for the wrong reason. */
     @Test
     fun theGuardCanSeeTheKotlinSources() {
         assertTrue(sources().size > MIN_SOURCES, "found ${sources().size} sources under ${ROOT.absolutePath}")
@@ -29,10 +25,7 @@ class CommentBudgetTest {
         )
     }
 
-    /**
-     * The other half of the ratchet. Without it a cleaned-up file keeps its old allowance, and the
-     * budget silently becomes a ceiling nobody is under.
-     */
+    /** Without it a cleaned-up file keeps its old allowance. */
     @Test
     fun theBudgetMatchesWhatTheTreeActuallyCarries() {
         val counts = counted()
@@ -62,10 +55,7 @@ class CommentBudgetTest {
             .toList()
 }
 
-/**
- * Laeufe aufeinanderfolgender Kommentarzeilen; Zeilen in einem rohen String zaehlen NICHT --
- * `startsWith` allein las die als Kommentar (`CommentBudgetCounterCheckTest`).
- */
+/** Zeilen in einem rohen String zaehlen NICHT — `startsWith` allein las sie als Kommentar. */
 internal fun commentBlocks(text: String): Int {
     var found = 0
     var run = 0
@@ -87,12 +77,11 @@ internal fun commentBlocks(text: String): Int {
 /** Keep in sync with `LIMIT` in `android/scripts/comment_budget.py`. */
 private const val LIMIT = 5
 
-/** There were 605 Kotlin sources when this was written; anything near zero means the walk missed them. */
+/** Near zero means the walk missed the sources. */
 private const val MIN_SOURCES = 400
 
 private val SKIP = setOf("build", "bin", "third_party", ".gradle")
 
-/** The test runs with the module directory as its working directory. */
 private val ROOT = File("..").canonicalFile
 
 private val budget: Map<String, Int> =

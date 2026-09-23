@@ -13,9 +13,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// The occlusion taint latch and `_cnn_occlusion_filter`. entry.md invariant 2: an occluded square's
-// z is ZEROED on every frame until the latch releases (`Vetoes.kt` does the opposite); invariant 4:
-// latched squares still COUNT toward `maxChanged`.
+// Invariant 2: an occluded square's z is ZEROED every frame until release (`Vetoes.kt` does the opposite);
+// invariant 4: latched squares still COUNT toward `maxChanged`.
 
 private const val U8 = 0xFF
 
@@ -26,7 +25,7 @@ private const val BGR = 3
 private const val MS_PER_S = 1000.0
 
 class TaintTest {
-    /** entry.md 2: zeroed on EVERY latched frame — zeroing only at taint time let a still hand outlive the 0.4 s hold. */
+    /** Zeroed on EVERY latched frame: zeroing only at taint time let a still hand outlive the hold. */
     @Test
     fun occlusionVetoZeroesZ() {
         val state = handState()
@@ -37,14 +36,13 @@ class TaintTest {
 
         assertEquals(ofSquares("e3", "e4", "e5"), state.tainted, "the hand must latch")
         state.assertZeroed("e3", "e4", "e5")
-        // Next frame: nothing new is occluded, no motion, evidence still hot -> still latched.
         state.nowS += 1.0
         state.setZ("e3", "e4", "e5")
         state.applyTaints()
         state.assertZeroed("e3", "e4", "e5")
     }
 
-    /** entry.md 4: the hypothesis gate reads `blockedN = tainted.countOneBits()`; 3 changed + 4 latched > 6. */
+    /** `blockedN = tainted.countOneBits()`: 3 changed + 4 latched > 6. */
     @Test
     fun taintedSquaresCountTowardMaxChanged() {
         val state = handState(maxChanged = 6)
@@ -84,7 +82,6 @@ class TaintTest {
         assertFalse(taint.has(Squares.index("e2")), "a confident CNN/FEN disagreement is a real move")
     }
 
-    /** The latch never releases on the timer alone; motion releases it. */
     @Test
     fun latchReleaseNeedsMotionOrBaselineReturn() {
         val state = handState()
@@ -97,14 +94,12 @@ class TaintTest {
         assertTrue(state.tainted.has(Squares.index("e3")), "an expired taint without motion must survive")
         state.assertZeroed("e3")
 
-        // Motion after the taint was last refreshed -> released at expiry.
         state.lastMotionTs = state.nowS - 1.0
         state.setZ("e3")
         state.applyTaints()
         assertFalse(state.tainted.has(Squares.index("e3")), "motion since the taint releases the latch")
     }
 
-    /** `test_resting_hand_taints_and_blocks_reanchor` — the observer's `occluded` class latches. */
     @Test
     fun restingHandTaintsAndBlocksReanchor() {
         val state = handState()
@@ -120,7 +115,7 @@ class TaintTest {
         assertExactList(listOf("e3", "e4"), state.occludedVetoed.sortedSquareNames(), "latched squares are occluded")
     }
 
-    /** 2026-08-14: `real14-80` phantom `occluded` flags each latched a taint; a LONE flag is not hand-shaped. */
+    /** Phantom `occluded` flags each latched a taint; a LONE flag is not hand-shaped. */
     @Test
     fun aLoneOccludedFlagIsAMisreadNotAHand() {
         val state = handState()
@@ -134,7 +129,6 @@ class TaintTest {
         assertTrue(state.lastZ[Squares.index("e3")] >= state.config.zThr, "e3 keeps its evidence")
     }
 
-    /** The queenside-flank incident: a connected phantom cluster on a quiet board, grid arm silent. */
     @Test
     fun aQuietBoardCannotGrowAHand() {
         val state = handState()
@@ -149,7 +143,7 @@ class TaintTest {
         assertFalse(state.handInFrame(), "and must not read as a hand in frame")
     }
 
-    /** The grid arm vouches for a hand at REST beyond the motion window (003957's incident shape). */
+    /** The grid arm vouches for a hand at REST beyond the motion window (003957's shape). */
     @Test
     fun theGrooveReadCarriesARestingHandPastStaleMotion() {
         val state = handState()
@@ -167,7 +161,6 @@ class TaintTest {
         assertEquals(ofSquares("e3", "e4"), state.tainted, "grid corroboration keeps the resting hand latched")
     }
 
-    /** `modelHandShapeFilter=false` restores the raw head — the A/B arm a replay measures against. */
     @Test
     fun theGateOffPositionRestoresTheRawHead() {
         val state = handState()
@@ -181,8 +174,7 @@ class TaintTest {
         assertEquals(ofSquares("e3"), state.tainted, "the raw head taints a lone quiet flag")
     }
 
-    /** Nicht symmetrisch, und das ist der Punkt: auf demselben Feld gibt der Formfilter AUS die
-     *  rohe Menge, der Arm-Schalter AUS gibt nichts. Verwechselt weitet die Ablation den Arm. */
+    /** Nicht symmetrisch: Formfilter AUS gibt die rohe Menge, Arm-Schalter AUS gibt nichts. Verwechselt weitet die Ablation den Arm. */
     @Test
     fun theShapeFilterWidensWhereTheArmSwitchSilences() {
         fun handSquares(config: (TrackerConfig) -> TrackerConfig): Long {
@@ -204,12 +196,10 @@ class TaintTest {
         )
     }
 
-    /** `test_taint_persists_without_motion_while_evidence_hot` — a still hand cannot vanish. */
     @Test
     fun taintPersistsWithoutMotion() {
         val state = handState()
         state.nowS = 100.0
-        // Last motion long BEFORE the taint was set, hold long expired.
         state.lastMotionTs = state.nowS - 60.0
         state.latch("e3", expiry = state.nowS - 5.0)
 
@@ -219,20 +209,17 @@ class TaintTest {
         assertTrue(state.tainted.has(Squares.index("e3")), "the latch must survive — no motion since the taint")
     }
 
-    /** `test_taint_releases_on_motion_or_baseline` — both release paths. */
     @Test
     fun taintReleasesOnMotionOrBaseline() {
         val state = handState()
         state.nowS = 100.0
 
-        // A: motion AFTER the taint was last refreshed.
         state.latch("e3", expiry = state.nowS - 5.0)
         state.lastMotionTs = state.nowS - 1.0
         state.setZ("e3")
         state.applyTaints()
         assertFalse(state.tainted.has(Squares.index("e3")), "release path A (motion)")
 
-        // B: no motion since, but the evidence is back to baseline.
         state.latch("f5", expiry = state.nowS - 5.0)
         state.lastMotionTs = state.nowS - 60.0
         state.setZ()
@@ -240,10 +227,7 @@ class TaintTest {
         assertFalse(state.tainted.has(Squares.index("f5")), "release path B (evidence back to baseline)")
     }
 
-    /**
-     * `motionHoldS` had three readers in this latch; setting the settle wait to zero expired every hand
-     * taint the instant it was set. The two knobs are separate now, and this test keeps them so.
-     */
+    /** `motionHoldS` had three readers here: a zero settle wait expired every hand taint at once. The knobs stay separate. */
     @Test
     fun theOcclusionLatchKeepsItsHoldWhenTheSettleWaitIsOff() {
         val state = EngineState(testConfig(boardSize = BOARD).copy(motionHoldS = 0.0), STARTPOS, whitePov = true)
@@ -254,7 +238,6 @@ class TaintTest {
         state.applyTaints()
         assertEquals(ofSquares("e3", "e4", "e5"), state.tainted, "the hand latches")
 
-        // Under one shared knob the taint would already be expired and released on the motion arm.
         state.nowS += 0.1
         state.lastMotionTs = state.nowS
         state.motionOccluded = 0L
@@ -265,7 +248,6 @@ class TaintTest {
         state.assertZeroed("e3", "e4", "e5")
     }
 
-    /** `test_stale_snapshot_does_not_taint` — an old observation says nothing about this frame. */
     @Test
     fun staleSnapshotFallsBackToHeuristic() {
         val state = handState()
@@ -279,7 +261,6 @@ class TaintTest {
         assertEquals(0L, state.tainted, "a stale snapshot must not taint anything")
     }
 
-    /** `test_occlusion_filter_ignores_old_snapshot` — stale falls back to the `>2 = hand` heuristic. */
     @Test
     fun oldSnapshotIgnored() {
         val state = handState()
@@ -299,7 +280,6 @@ class TaintTest {
         )
     }
 
-    /** `test_hand_over_pieces_keeps_base_truth` — no latch out of "much change"; that gate is 03c's. */
     @Test
     fun handOverPiecesKeepsBaseTruth() {
         val state = handState(maxChanged = 6)
@@ -314,7 +294,6 @@ class TaintTest {
         }
     }
 
-    /** `test_textured_occluder_is_occluded`. */
     @Test
     fun texturedOccluderIsOccluded() {
         val ref = smoothTexture(seed = 3L)
@@ -333,7 +312,7 @@ class TaintTest {
         assertTrue(state.tainted.has(c3), "and latched")
     }
 
-    /** `test_flat_hand_needs_chroma_to_be_occlusion` — flat and darker, a skin tone reads as a shadow without chroma. */
+    /** Flat and darker, a skin tone reads as a shadow without chroma. */
     @Test
     fun flatHandNeedsChroma() {
         val refBgr = BgrImage(BOARD, BOARD, ByteArray(BOARD * BOARD * BGR) { NEUTRAL_BOARD.toByte() })
@@ -369,7 +348,7 @@ class TaintTest {
         assertFalse(seen.shadow.has(f6), "and no longer a shadow")
     }
 
-    /** Parity: the clips run with `cnn_run=None`, so Python's `_tainted` is empty on all 969 frames. */
+    /** The clips run with `cnn_run=None`, so Python's `_tainted` is empty on all 969 frames. */
     @Test
     fun taintStaysEmptyOnEveryFixtureFrame() {
         var checked = 0
@@ -396,7 +375,6 @@ class TaintTest {
         assertTrue(checked >= MIN_TIER_A_FRAMES, "only $checked tier-A frames replayed")
     }
 
-    /** The dilated/core keep-alive stamps expire on `nowS`, never on a frame count. */
     @Test
     fun expiryStampsAreReadAgainstTheEngineClock() {
         val state = handState()
@@ -410,7 +388,6 @@ class TaintTest {
         assertEquals(ofSquares("a3"), state.liveExpiry(state.occlCoreExpiry), "expired core stamps are dead")
     }
 
-    /** Der echte Weg durch `applyTaints`, nicht der Filter allein: der Zug darf nicht latchen. */
     @Test
     fun applyTaintsLetsAConfidentDisagreementThrough() {
         val state = handState()
@@ -422,7 +399,6 @@ class TaintTest {
         assertEquals(0L, state.tainted)
     }
 
-    /** Die Heuristik ohne Beobachtung: zwei Felder sind noch keine Hand, erst drei. */
     @Test
     fun twoSquaresWithoutAnObservationAreNoHand() {
         val state = handState()
@@ -441,15 +417,12 @@ class TaintTest {
         assertEquals(ofSquares("d2"), state.cnnOcclusionFilter(ofSquares("d2")))
     }
 
-    // -- helpers -----------------------------------------------------------------------------------
-
     private fun handState(maxChanged: Int = 6): EngineState {
         val state = EngineState(testConfig(boardSize = BOARD, maxChanged = maxChanged), STARTPOS, whitePov = true)
         state.nowS = 10.0
         return state
     }
 
-    /** Every square cold except the named ones, written into the state's live z. */
     private fun EngineState.setZ(vararg hot: String) {
         lastZ.fill(0.0)
         for (square in hot) lastZ[Squares.index(square)] = Z_HOT
@@ -461,7 +434,6 @@ class TaintTest {
         }
     }
 
-    /** Latch [square] with an explicit expiry stamp — the shape `releaseLatches` reads. */
     private fun EngineState.latch(
         square: String,
         expiry: Double,
@@ -469,8 +441,7 @@ class TaintTest {
         val i = Squares.index(square)
         tainted = tainted.with(i)
         taintExpiry[i] = expiry
-        // Wie die Produktion: der Beginn wird MITGESCHRIEBEN, nicht aus dem Hold
-        // zurueckgerechnet — sonst laege er auf 0 und jede Bewegung zaehlte als danach.
+        // Wie die Produktion: der Beginn wird MITGESCHRIEBEN — sonst laege er auf 0 und jede Bewegung zaehlte als danach.
         taintStart[i] = expiry - config.occluderHoldS
     }
 
@@ -514,7 +485,6 @@ class TaintTest {
         return ColorPlanes(lab, hsv)
     }
 
-    /** `cv2.cvtColor(bgr, COLOR_BGR2GRAY)` for the flat patches this test builds. */
     private fun grayOf(image: BgrImage): GrayImage {
         val out = ByteArray(image.width * image.height)
         for (i in out.indices) {
@@ -574,7 +544,6 @@ class TaintTest {
     }
 }
 
-/** Minimal [CnnObservation] stub — the `_FakeObs` of `tests/test_move_tracker.py`. */
 private class FakeObservation(
     private val occupied: Map<String, Boolean> = emptyMap(),
     private val confident: Set<String> = emptySet(),

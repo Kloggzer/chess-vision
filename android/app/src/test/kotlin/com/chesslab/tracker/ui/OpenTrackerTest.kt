@@ -7,10 +7,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 
-/**
- * The cold start from the notification: `MainActivity.onCreate` requests BEFORE `setContent`, so
- * nothing is subscribed when the request is made.
- */
+/** `MainActivity.onCreate` requests BEFORE `setContent`: nothing is subscribed when the request is made. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class OpenTrackerTest {
     @Test

@@ -9,10 +9,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * MEMORY `android-live-bringup-2607`: the attach failed silently and the tracker ran diff-only
- * for a whole session. A failure must be a state AND an ERROR log, and it must stay put.
- */
+/** A failure must be a state AND an ERROR log, and it must stay put. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CnnStateTest {
     private val scheduler = TestCoroutineScheduler()
@@ -71,7 +68,6 @@ class CnnStateTest {
         assertEquals(CnnState.Failed("IllegalStateException"), observer.state.value)
     }
 
-    /** `TrackerStack` calls `setEnabled(config.cnnVerify)` and then `attach` unconditionally. */
     @Test
     fun anObserverDisabledBeforeTheAttachNeverReportsReady() {
         val observer = observer()

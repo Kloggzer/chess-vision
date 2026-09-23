@@ -12,10 +12,7 @@ private const val QR_MARGIN = 1
 private const val BLACK = 0xFF000000.toInt()
 private const val WHITE = 0xFFFFFFFF.toInt()
 
-/**
- * The URL as a QR code. Split in two so the encoding is testable on the desktop JVM: [matrixFor]
- * is pure ZXing, only [forUrl] needs an Android `Bitmap`.
- */
+/** Split so [matrixFor] (pure ZXing) is testable on the desktop JVM; only [forUrl] needs a `Bitmap`. */
 object QrCode {
     /** Below 64 px a phone camera cannot resolve the modules; above 2048 px it is a pointless allocation. */
     fun clampSize(sizePx: Int): Int = sizePx.coerceIn(QR_MIN_PX, QR_MAX_PX)

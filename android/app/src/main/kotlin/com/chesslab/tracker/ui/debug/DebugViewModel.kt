@@ -19,18 +19,12 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 2 Hz. The crops arrive at observer rate anyway; decoding 64 bitmaps faster buys nothing. */
 private const val CROP_REFRESH_MS = 500L
 
 enum class DebugTab { TIMINGS, EVIDENCE, CROPS, READS, DECISIONS, CNN }
 
-/**
- * Drives the debug screen and — this is the part that matters — owns the debug **gate**.
- *
- * Arming happens in [attach] and disarming in [onCleared]: while this screen is not composed the
- * engine assembles no payload, the crop tap retains nothing, and the tracker's per-frame cost is
- * bit-for-bit what it was before this phase existed.
- */
+/** Owns the debug GATE: armed in [attach], disarmed in [onCleared] — closed, the engine assembles no
+ *  payload and the per-frame cost is what it was without this screen. */
 class DebugViewModel : ViewModel() {
     private var session: DebugSession = NoDebugSession
     private val jobs = mutableListOf<Job>()
@@ -60,7 +54,6 @@ class DebugViewModel : ViewModel() {
     private val workProfilingAvailableFlow = MutableStateFlow(false)
     val workProfilingAvailable: StateFlow<Boolean> = workProfilingAvailableFlow.asStateFlow()
 
-    /** 07a's persisted switch: keeps the payload armed after the screen closes. */
     private val pinned: Boolean get() = session.debugPinned.value
 
     val config: TrackerConfig get() = session.config.value
@@ -104,20 +97,13 @@ class DebugViewModel : ViewModel() {
         if (!pinned) session.setDebugEnabled(false)
     }
 
-    /**
-     * Kacheln und ihre Kennung gehen zusammen: bleibt `decoded` stehen, haelt die Schleife die
-     * geleerte Liste fuer aktuell und der Reiter bleibt leer (`CropTabReturnTest`).
-     */
+    /** Kacheln und Kennung gehen zusammen: bleibt `decoded` stehen, haelt die Schleife die geleerte Liste fuer aktuell. */
     private fun dropCrops() {
         cropsFlow.value = emptyList()
         decoded = NO_OBSERVATION
     }
 
-    /**
-     * The crop grid is built ONLY while its tab is open, and never on the analyzer thread: the
-     * source is the immutable crop list of a finished observation, and the decode runs on
-     * [Dispatchers.Default].
-     */
+    /** ONLY while its tab is open, never on the analyzer thread. */
     private suspend fun pollCrops() {
         while (true) {
             runtimeFlow.value = session.cnnRuntime()
@@ -133,7 +119,6 @@ class DebugViewModel : ViewModel() {
     }
 }
 
-/** One tile of the 64-crop grid; [square] is its `all_squares()` name. */
 class CropTile(
     val square: String,
     val image: ImageBitmap,

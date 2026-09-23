@@ -6,8 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
-// Hand-written behaviour of phase 01d: the properties the fixtures cannot pin down (empty inputs,
-// the four classification branches in isolation, the neighbour topology, the exclusion algebra).
+// What the fixtures cannot pin: empty inputs, the four branches in isolation, neighbour topology, exclusion algebra.
 
 private const val BOARD = 160
 private const val REF_LEVEL = 100
@@ -16,8 +15,6 @@ private const val OCCL_CENSUS_THR = 24.0
 private const val WHITE_POV = true
 
 class BaselineOcclusionUnitTest {
-    // -- baseline occlusion / shadow ------------------------------------------------------
-
     @Test
     fun identicalFramesYieldEmptySets() {
         val ref = flat(REF_LEVEL)
@@ -107,8 +104,6 @@ class BaselineOcclusionUnitTest {
         }
     }
 
-    // -- SquareNoise -----------------------------------------------------------------------
-
     @Test
     fun emptyExcludeLearnsEverySquare() {
         val noise = SquareNoise()
@@ -168,14 +163,12 @@ class BaselineOcclusionUnitTest {
         }
     }
 
-    // -- motionScore -----------------------------------------------------------------------
-
     @Test
     fun motionScoreIsAPercentage() {
         val a = ByteArray(1000) { 0 }
         assertEquals(0.0, motionScore(a, a.copyOf()), 0.0)
         assertEquals(100.0, motionScore(a, ByteArray(1000) { 255.toByte() }), 0.0)
-        // Desk wobble: a uniform +19 shift stays below px_thr = 20 (strict >) -> nothing moved.
+        // Desk wobble: a uniform +19 shift stays below px_thr = 20 (strict >).
         assertEquals(0.0, motionScore(a, ByteArray(1000) { 19 }), 0.0)
         assertEquals(100.0, motionScore(a, ByteArray(1000) { 21 }), 0.0)
         assertEquals(0.0, motionScore(a, ByteArray(1000) { 20 }), 0.0, "the comparison is strict >")
@@ -200,8 +193,6 @@ class BaselineOcclusionUnitTest {
             assertEquals(expected, motionScore(zeros, ramp, thr), 1e-12, "px_thr=$thr")
         }
     }
-
-    // -- helpers ---------------------------------------------------------------------------
 
     private fun run(
         ref: ByteArray,
@@ -233,7 +224,6 @@ class BaselineOcclusionUnitTest {
         forEachPixel(plane, square) { _, _, index -> plane[index] = level.toByte() }
     }
 
-    /** Dark/mid checkerboard: strong absdiff, strong census change, and DARKER than the reference. */
     private fun checkerboard(
         plane: ByteArray,
         square: String,

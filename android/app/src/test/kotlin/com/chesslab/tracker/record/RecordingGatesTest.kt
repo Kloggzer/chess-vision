@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test
 
 private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-/** Three white bishops — legal FEN, impossible board. */
 private const val THREE_BISHOPS = "rnbqkbnr/pppppppp/8/8/8/5B2/PPPPPPPP/RNBQKB1R w KQkq - 0 1"
 
 class RecordingGatesTest {
@@ -36,7 +35,6 @@ class RecordingGatesTest {
 
     @Test
     fun aSecondQueenIsAViolationButATrackedPromotionIsNot() {
-        // One queen per colour is what a real set has, promotion or not.
         assertEquals(listOf("wQ 2/1"), physicalInventoryViolations("4k3/8/8/8/8/8/8/3QKQ2 w - - 0 1"))
         assertTrue(physicalInventoryViolations("4k3/8/8/8/8/8/8/3QK3 w - - 0 1").isEmpty())
     }
@@ -52,7 +50,7 @@ class RecordingGatesTest {
         val gates = RecordingGates()
         assertTrue(gates.blocks(START, geometryNote(1920, 1080, 1280, 720)))
         assertTrue(gates.reason.orEmpty().startsWith("Recording paused"), gates.reason)
-        // The remedy has to be in the string: it is the only diagnostic the user is shown.
+        // The remedy must be in the string: it is the only diagnostic the user is shown.
         assertTrue(gates.reason.orEmpty().contains("Recalibrate"), gates.reason)
         assertEquals(1, gates.skipped)
     }

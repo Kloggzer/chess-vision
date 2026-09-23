@@ -12,8 +12,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 
-/** Die Staerke reitet im Modell wie `coverage_gate`. Die Wache `possibleFor` fragte aber den
- *  Konstruktor-Wert (im Replay 0) und liess den Prior ausfallen, bevor er zum Zug kam. */
+/** `possibleFor` fragte den Konstruktor-Wert (im Replay 0) und liess den Prior des Modells ausfallen. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PriorFromTheModelTest {
     private val scheduler = TestCoroutineScheduler()
@@ -35,7 +34,7 @@ class PriorFromTheModelTest {
         return observer
     }
 
-    /** Ohne Prior gibt es gar keine verbotene Menge: `invalidMass` ist dann per Bauart 0. */
+    /** Ohne Prior ist `invalidMass` per Bauart 0. */
     private fun pOn(spec: ModelSpec?): Double {
         snapshots.clear()
         val observer = observerWith(spec)
@@ -69,7 +68,7 @@ class PriorFromTheModelTest {
             priorLambda = prior,
         )
 
-    /** Jede Klasse gleich wahrscheinlich: dann ist der Prior das Einzige, was etwas bewegt. */
+    /** Dann ist der Prior das Einzige, was etwas bewegt. */
     private class OneClass : SquareClassifier {
         override val classes: List<String> = EXPECTED_CLASSES
 
@@ -80,7 +79,6 @@ class PriorFromTheModelTest {
     private companion object {
         const val OPENING = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-        /** Auf e4 steht in der Grundstellung nichts, und keine Figur kann dort stehen. */
         const val FORBIDDEN = "e4"
         const val PRIOR = 5.98
         const val T_SHIPPED = 1.495

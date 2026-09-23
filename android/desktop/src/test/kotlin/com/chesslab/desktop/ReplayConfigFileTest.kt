@@ -13,8 +13,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** `config=<file>` replays a phone recording under its TRUE config (`settings.json`), the
- *  question `2026-08-13-19-34-23` could not answer; the measured geometry wins over the file. */
+/** The measured geometry wins over the file. */
 class ReplayConfigFileTest {
     @TempDir
     lateinit var dir: File
@@ -27,7 +26,6 @@ class ReplayConfigFileTest {
     fun `a recorded knob survives, the recorded boardSize does not`() {
         val recorded = TrackerConfig().copy(maxChanged = 7, cleanCommitsOnly = true, boardSize = 1600)
         val file = File(dir, "settings.json")
-        // The wrapper the phone writes: the envelope sits under `config`, history beside it.
         file.writeText("""{"recorded_at":"t","config":${envelope(recorded)},"history":[]}""")
         val config = ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false)
         assertEquals(7, config.maxChanged)
@@ -36,8 +34,7 @@ class ReplayConfigFileTest {
         assertEquals(552, config.detSize)
     }
 
-    /** An all-defaults envelope must equal the no-config path field for field: the 2026-08-14
-     *  discriminator on `2026-08-13-19-34-23` suspected this seam, the divergence was the QUAD source. */
+    /** An all-defaults envelope must equal the no-config path field for field. */
     @Test
     fun `an all-defaults envelope reproduces the no-config path exactly`() {
         val file = File(dir, "defaults.json")
@@ -49,8 +46,7 @@ class ReplayConfigFileTest {
 
     @Test
     fun `a pretty-printed envelope with NaN optional-ints decodes like the compact one`() {
-        // The hand-readable form the discriminator's fixture files used — bare NaN literals and
-        // one-key-per-line — must decode to the very same object as ConfigCodec's compact output.
+        // Bare NaN literals and one-key-per-line must decode like ConfigCodec's compact output.
         val file = File(dir, "pretty.json")
         file.writeText(
             """
@@ -69,8 +65,7 @@ class ReplayConfigFileTest {
         assertEquals(TrackerConfig().copy(alignEvery = 2, boardSize = 1104), config)
     }
 
-    /** `LiveAlign` and the marker prepass read the align knobs off the settings repository, so
-     *  20260814-143233's recorded `alignEvery=2` replayed every 3rd frame. */
+    /** Read off the settings repository, 20260814-143233's recorded `alignEvery=2` replayed every 3rd frame. */
     @Test
     fun `the recorded alignment knobs reach the run, not the settings defaults`() {
         val file = File(dir, "settings.json")
@@ -82,12 +77,11 @@ class ReplayConfigFileTest {
             signatureOf(config).contains("align=true,2,0.25"),
             "the visual cache signed a run under alignment knobs it did not run: ${signatureOf(config)}",
         )
-        // ...and a defaults run must still sign as one, or every existing cache is invalidated.
+        // A defaults run must still sign as one, or every existing cache is invalidated.
         val plain = ReplayOptions().trackerConfig(geometry, live = false)
         assertTrue(signatureOf(plain).contains("align=true,3,0.5"), signatureOf(plain))
     }
 
-    /** The signature's non-config inputs are fixed here; only the config under test varies. */
     private fun signatureOf(config: TrackerConfig): String =
         visualCacheSignature(
             config,
@@ -116,9 +110,7 @@ class ReplayConfigFileTest {
     fun `the CLI arms override the file, their absence does not`() {
         val file = File(dir, "settings.json")
         file.writeText(envelope(TrackerConfig().copy(requireMotionForMove = false)))
-        // Absence: the recorded `false` stands rather than the default stamping `true` back.
         assertFalse(ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false).requireMotionForMove)
-        // Presence: `nomotion` still forces the arm off over a file that had it on.
         val on = File(dir, "on.json").apply { writeText(envelope(TrackerConfig())) }
         val forced = ReplayOptions(configFile = on.path, motionGate = false).trackerConfig(geometry, live = false)
         assertFalse(forced.requireMotionForMove)

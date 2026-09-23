@@ -9,10 +9,7 @@ import java.nio.ByteBuffer
 
 private const val FLAT_CHROMA: Byte = -128
 
-/**
- * `cvtColor` is OpenCV's and Android-only here (STATUS D05b-2). Fixture: the strided Y/U/V planes
- * (Y stride 80, U/V stride 64 at pixelStride 2) and their expected NV21 packing, both from numpy.
- */
+/** `cvtColor` is Android-only here. Fixture: strided planes and their NV21 packing, both from numpy. */
 class YuvToBgrTest {
     private val width = 64
     private val height = 48
@@ -46,7 +43,6 @@ class YuvToBgrTest {
         val w = 4
         val h = 4
         val packed = YuvToBgr().pack(densePlanes(w, h), w, h)
-        // luma 0,1,2,... then V,U alternating from the two dense chroma planes.
         assertEquals(w * h + w * h / 2, packed.size)
         assertEquals(0.toByte(), packed[0])
         assertEquals((w * h - 1).toByte(), packed[w * h - 1])
@@ -56,7 +52,6 @@ class YuvToBgrTest {
 
     @Test
     fun `a shared chroma buffer is recognised in both interleavings`() {
-        // Backwards swaps U and V and tints the whole board.
         assertEquals(ChromaOrder.NV21, chromaOrder(semiPlanar(vFirst = true)))
         assertEquals(ChromaOrder.NV12, chromaOrder(semiPlanar(vFirst = false)))
     }
@@ -70,7 +65,6 @@ class YuvToBgrTest {
         assertNull(chromaOrder(fixturePlanes()), "the wrapped fixture is not a direct buffer")
     }
 
-    /** One semi-planar chroma buffer as two overlapping views, one a byte after the other, as Android hands it out. */
     private fun semiPlanar(
         vFirst: Boolean,
         pixelStride: Int = 2,
@@ -92,7 +86,6 @@ class YuvToBgrTest {
         return if (vFirst) YuvPlanes(luma, second, first) else YuvPlanes(luma, first, second)
     }
 
-    /** Two chroma planes that are NOT views of one buffer: neither reads as the other shifted. */
     private fun separateChromaBuffers(): YuvPlanes {
         val size = width * height / 4
 
@@ -125,7 +118,6 @@ class YuvToBgrTest {
         )
     }
 
-    /** Dense (`rowStride == width`, `pixelStride == 1`) planes: luma `0,1,2,…`, U `0`, V `100`. */
     private fun densePlanes(
         w: Int,
         h: Int,

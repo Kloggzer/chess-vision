@@ -4,30 +4,12 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.imgproc.Imgproc
 
-// Carrying a measured grid correction onto a quad that was derived without one.
-//
-// Kept apart from `Alignment.kt`, which MEASURES: this file never looks at a pixel. The split is
-// the point of the pair — measuring is tens of milliseconds (70-85 ms at boardSize 800 on a
-// desktop since specs/41 widened it to 8 bands over 18 lines; not measured on device) and cannot
-// run at the live alignment cadence, while applying is four points through a 3x3 and can.
+// Applying never looks at a pixel: measuring costs 70-85 ms and cannot run at the live cadence, applying is
+// four points through a 3x3 and can.
 
-/**
- * The RECTIFIED-space correction a refinement implies, reusable on a later quad.
- *
- * This is what makes the measurement survive live alignment. `boardCornersForFrame` re-derives the
- * quad from the ArUco markers every few frames and knows nothing about grooves, so a refined quad
- * written into the pipeline is overwritten within ~0.2 s and every crop is cut with the geometry
- * the refinement exists to remove. Re-measuring at that cadence is not affordable; re-APPLYING is
- * free — four points through a 3x3.
- *
- * Rectified space, not frame space, is what makes it reusable: the correction says "the grid sits
- * this far off inside the warp", which is a property of the board and the lens, not of where the
- * quad currently is. The residual is systematic per setup (`docs/data-pipeline.md` §13.3) — two sessions of
- * the same rig agree to 0.1 px — while differing in SIGN between setups, which is exactly the
- * profile of something worth measuring once per calibration and carrying.
- *
- * Returns null when the two quads do not define a usable map.
- */
+/** `boardCornersForFrame` re-derives the quad from markers and knows no grooves, overwriting a refined quad
+ *  within ~0.2 s. Re-APPLYING in rectified space is free: the residual is systematic per setup (two sessions
+ *  of one rig agree to 0.1 px). Null when the quads define no usable map. */
 fun gridCorrection(
     raw: List<DoubleArray>,
     refined: List<DoubleArray>,
@@ -42,7 +24,6 @@ fun gridCorrection(
     return mul3(mul3(h, a), hInv)
 }
 
-/** [quad] with a [gridCorrection] applied through its OWN homography, or null if it does not map. */
 fun applyGridCorrection(
     correction: DoubleArray,
     quad: List<DoubleArray>,
@@ -55,7 +36,6 @@ fun applyGridCorrection(
     return if (moved.any { it == null }) null else moved.filterNotNull()
 }
 
-/** The frame-space homography taking [from]'s four corners onto [to]'s. */
 private fun quadToQuad(
     from: List<DoubleArray>,
     to: List<DoubleArray>,
@@ -71,19 +51,9 @@ private fun quadToQuad(
     return if (out.all { it.isFinite() }) out else null
 }
 
-/**
- * How far two quads are apart, as a fraction of ONE CELL — never in raw pixels.
- *
- * A pixel means nothing without the board size: four pixels is 4 % of a square at `boardSize` 800
- * and 2 % at 1600. Cells is the unit that transfers between the phone, the rig and the recorded
- * clips, which is why every offset in this project is reported that way.
- *
- * Mean over the four corners rather than the worst, deliberately: what this answers is "has the
- * setup moved", and one corner's detection jitter should not be able to say yes on its own.
- *
- * Returns 0.0 for malformed input — a caller cannot act on "I don't know" and a spurious large
- * number would throw away a correction that is probably still good.
- */
+/** In CELLS, never pixels: 4 px is 4 % of a square at 800 and 2 % at 1600. The mean over corners: one
+ *  corner's jitter must not say "moved" alone. 0.0 for malformed input — a spurious large number would
+ *  throw away a correction that is probably good. */
 fun quadDriftCells(
     a: FloatArray,
     b: FloatArray,

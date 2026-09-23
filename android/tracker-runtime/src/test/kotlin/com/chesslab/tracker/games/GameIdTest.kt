@@ -7,9 +7,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** Two ways `GameStore` lost stored games without a word. */
 class GameIdTest {
-    /** At minute resolution two games shared an id, and `save` overwrote the first one's files. */
     @Test
     fun `two games started in the same minute do not share an id`() {
         val first = gameId(START_MS)
@@ -30,7 +28,7 @@ class GameIdTest {
         assertEquals(gameId(START_MS), gameId(START_MS).filter { it.isLetterOrDigit() || it == '-' || it == '_' })
     }
 
-    /** `list()` read a corrupt index as an empty library and `save()` rewrote it from that (Codex, 2026-09-15). */
+    /** `list()` read a corrupt index as an empty library and `save()` rewrote it from that. */
     @Test
     fun `a corrupt index does not orphan the games already stored`(
         @TempDir root: File,

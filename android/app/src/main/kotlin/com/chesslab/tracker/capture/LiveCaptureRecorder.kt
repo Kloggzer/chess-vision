@@ -14,11 +14,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * The game path's own pieces, driven without a game: `SessionRecorder` writes the bundle,
- * `RecordingBundleHost` arms the encoder and names the video file. `moveSan` is null because a
- * turn is not a move — see `02-erfassungs-modus.md`.
- */
+/** The game path's own pieces, driven without a game. `moveSan` is null: a turn is not a move. */
 @Suppress("LongParameterList")
 class LiveCaptureRecorder(
     private val source: CaptureSource,
@@ -39,9 +35,8 @@ class LiveCaptureRecorder(
     /** No video, no capture: the turning pan IS the material, and stills alone would not carry it. */
     override fun begin(shot: Shot): CaptureRun? {
         if (!prefs().enabled) return null
-        // Idempotent, and the arm the profile's own rebind already earned: [prepare] took the
-        // encoder down, and the first frame at the new size brought it back through
-        // `videoAvailability`. This one only covers a run that skipped the setup screen.
+        // Idempotent: [prepare]'s rebind already re-armed through `videoAvailability`; this covers a run that
+        // skipped the setup screen.
         host.armVideo()
         val frame = source.sessionFrame() ?: return null
         val id = newId()
@@ -55,10 +50,8 @@ class LiveCaptureRecorder(
     }
 }
 
-/**
- * One run over one bundle. Testable against the REAL `SessionRecorder` because everything Android
- * about it — the encoder, the clock — arrives as a lambda.
- */
+/** Everything Android — the encoder, the clock — arrives as a lambda, so it is testable against the real
+ *  `SessionRecorder`. */
 class BundleCaptureRun(
     private val shot: Shot,
     private val recorder: SessionRecorder,
@@ -72,10 +65,7 @@ class BundleCaptureRun(
 
     override val sessionId: String get() = recorder.sessionId
 
-    /**
-     * A step with no frame is not a step: it writes no row, so `steps` and `log.jsonl` keep the same
-     * length and the caller stays on the same turn instead of skipping one silently.
-     */
+    /** A step with no frame writes no row: `steps` and `log.jsonl` keep the same length, the turn stays open. */
     override fun step(
         ply: Int,
         orientationDeg: Int,
@@ -88,10 +78,7 @@ class BundleCaptureRun(
         return true
     }
 
-    /**
-     * `finally`, because the disk is what fails here: a `capture.json` that cannot be written must
-     * still close the bundle and release the encoder, or the run stays open and nothing says so.
-     */
+    /** `finally`: a `capture.json` the full disk refuses must still close the bundle and release the encoder. */
     override fun finish(placed: List<Target>): File? =
         try {
             val session = captureSessionOf(shot, steps.toList(), placed, captureRecordingOf(observed()))

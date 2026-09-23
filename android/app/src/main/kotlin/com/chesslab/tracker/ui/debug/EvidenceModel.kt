@@ -6,11 +6,8 @@ import com.chesslab.engine.api.TrackerStatus
 private const val FILES = "abcdefgh"
 private const val RANKS = 8
 
-/**
- * Why a cell looks the way it does. The three sets carry OPPOSITE meanings for z (entry.md
- * invariant 2) and must never collapse into one visual channel, so this is an enum and not a
- * severity number: a shadow veto PRESERVES z as vacate evidence, an occlusion veto ZEROES it.
- */
+/** The sets mean OPPOSITE things for z (entry.md invariant 2), so an enum, not a severity: a shadow veto
+ *  PRESERVES z as vacate evidence, an occlusion veto ZEROES it. */
 enum class EvidenceRole {
     PLAIN,
     CHANGED,
@@ -20,28 +17,20 @@ enum class EvidenceRole {
 
 data class EvidenceCell(
     val square: String,
-    /** Null when the selected channel produced NO value this frame — see [evidenceCells]. */
     val value: Double?,
     val role: EvidenceRole,
     val tainted: Boolean,
 )
 
-/** The seam carries all three channels; dark-on-dark moves are visible only in census. */
+/** Dark-on-dark moves are visible only in census. */
 enum class EvidenceChannel {
     FUSED_Z,
     GRAY,
     CENSUS,
 }
 
-/**
- * The 8x8 grid, **a8 top-left** — corner order `[a8, h8, h1, a1]` (invariant 11). The 64-crop grid
- * uses `all_squares()` instead; rendering either one in the other's order is that invariant's
- * failure mode, so the two orders live in two functions that never meet.
- *
- * A cell's value is null where the channel carries nothing: census is an EMPTY map whenever
- * `censusZWeight` is 0 or its own hot-square guard dropped the frame, and a board of 0.0 would
- * report the disturbance this panel exists to show as a measured calm.
- */
+/** **a8 top-left** (invariant 11); the crop grid uses `all_squares()` — the two orders never meet. Null where
+ *  the channel carries nothing: an empty census map rendered as 0.0 would report a disturbance as calm. */
 fun evidenceCells(
     status: TrackerStatus,
     payload: DebugPayload,
@@ -58,8 +47,7 @@ fun evidenceCells(
         val role = roleOf(square, status)
         EvidenceCell(
             square = square,
-            // The occlusion veto zeroed z in the engine; rendering the raw channel here would put
-            // the number back and hide exactly the invariant this panel exists to check.
+            // The engine zeroed z here; the raw number would hide exactly the invariant this panel checks.
             value = if (role == EvidenceRole.OCCLUSION) 0.0 else values[square],
             role = role,
             tainted = square in payload.tainted,
@@ -67,7 +55,7 @@ fun evidenceCells(
     }
 }
 
-/** Occlusion outranks shadow outranks changed — a square that survived every veto is `changed`. */
+/** Occlusion outranks shadow outranks changed. */
 private fun roleOf(
     square: String,
     status: TrackerStatus,

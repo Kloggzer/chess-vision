@@ -8,42 +8,31 @@ import org.opencv.core.Size
 import org.opencv.imgproc.CLAHE
 import org.opencv.imgproc.Imgproc
 
-// Bild rein, Bild raus — als Knoten statt als handverdrahtete Stage-Folge.
-//
-// Die Reihenfolge faellt aus den Datenabhaengigkeiten, nicht aus dem Aufrufort, und zwei Zweige
-// mit demselben Praefix rechnen ihn EINMAL. Was fachlich vor etwas anderem stehen muss (das
-// Dunkelframe-Gate vor CLAHE, die Linse vor der Brett-Homographie), gehoert weiterhin in den
-// aufrufenden Code: das leitet kein Graph ab.
+// Die Reihenfolge faellt aus den Datenabhaengigkeiten, und gemeinsame Praefixe rechnen EINMAL. Fachliche
+// Reihenfolge (Dunkelframe-Gate vor CLAHE, Linse vor Homographie) gehoert in den Aufrufer.
 
 private const val FNV_OFFSET = -3750763034362895579L
 
 private const val FNV_PRIME = 1099511628211L
 
-/** Schluesselmischung. Kein Inhalts-Hash — der Scope IST der Frame, es zaehlt nur die Herkunft. */
+/** Kein Inhalts-Hash — der Scope IST der Frame, es zaehlt nur die Herkunft. */
 fun mixKey(vararg parts: Long): Long {
     var h = FNV_OFFSET
     for (p in parts) h = (h xor p) * FNV_PRIME
     return h
 }
 
-/** Was zwei Puffer austauschbar macht. */
 data class MatShape(
     val rows: Int,
     val cols: Int,
     val type: Int,
 )
 
-/**
- * Puffer, ueber Frames hinweg wiederverwendet.
- *
- * Die Stages, die das hier ersetzt, hielten je ein eigenes `Mat` ("`dst` lets the caller reuse an
- * output Mat across frames"). Ein Allokator je Frame machte das rueckgaengig — `PlaneRing` misst
- * den Frame-Pfad mit 77 MB/s Grossobjekt-Muell bei 30 fps.
- */
+/** Ein Allokator je Frame machte die Wiederverwendung rueckgaengig: 77 MB/s Grossobjekt-Muell bei 30 fps. */
 class MatPool : AutoCloseable {
     private val free = HashMap<MatShape, ArrayDeque<Mat>>()
 
-    /** Wie viele Puffer der Pool anlegen musste. Nach dem Warmlaufen muss die Zahl stehen. */
+    /** Nach dem Warmlaufen muss die Zahl stehen. */
     var allocated: Int = 0
         private set
 
@@ -61,17 +50,12 @@ class MatPool : AutoCloseable {
     }
 }
 
-/**
- * Eine Bildoperation. REIN: derselbe [key] im selben [FrameScope] heisst dieselben Pixel.
- *
- * Der Schluessel traegt den Frame NICHT — der Scope ist der Frame und stirbt mit ihm. Genau das
- * haelt den Clip-Replay frei von versteckten Eingaben, und es macht Knoten wiederverwendbar:
- * sie werden einmal gebaut, nicht je Frame.
- */
+/** REIN: derselbe [key] im selben [FrameScope] heisst dieselben Pixel. Der Schluessel traegt den Frame NICHT
+ *  — das haelt den Replay frei von versteckten Eingaben. */
 abstract class ImageNode(
     val op: WorkOperation,
     val key: Long,
-    /** Der Vorgaenger, EINMAL je Knoten aufgeloest — sonst zaehlt jeder Zugriff doppelt. */
+    /** EINMAL je Knoten aufgeloest — sonst zaehlt jeder Zugriff doppelt. */
     val dep: ImageNode? = null,
 ) : AutoCloseable {
     abstract fun shape(
@@ -88,13 +72,8 @@ abstract class ImageNode(
     override fun close() = Unit
 }
 
-/**
- * Ein Frame, seine Zwischenergebnisse und deren Lebensdauer.
- *
- * [corners] steht wie [seq] nicht im Schluessel: innerhalb eines Frames sind sie fest, und der
- * Scope endet mit dem Frame. Wer ein Ergebnis laenger haelt, KOPIERT es — der `PlaneRing` haelt
- * Ebenen per Referenz, ein wieder ausgegebener Puffer verfaelschte seinen laufenden Mittelwert.
- */
+/** Wer ein Ergebnis laenger haelt, KOPIERT es: der `PlaneRing` haelt Ebenen per Referenz, ein wieder
+ *  ausgegebener Puffer verfaelschte seinen Mittelwert. */
 class FrameScope(
     val source: Mat,
     val geom: BoardGeometry,
@@ -105,13 +84,7 @@ class FrameScope(
 ) : AutoCloseable {
     private val memo = HashMap<Long, Mat>()
 
-    /**
-     * Der Wert des Knotens, gerechnet oder aus dem Memo.
-     *
-     * Gezaehlt wird hier, gemessen nicht: die Zeitspanne gehoert dem Knoten, weil die Warp-Knoten
-     * ihre Spanne von der aufgerufenen Funktion erben und eine zweite Spanne desselben Namens die
-     * Zeit doppelt zaehlte.
-     */
+    /** Gezaehlt, nicht gemessen: die Warp-Knoten erben ihre Spanne, eine zweite zaehlte die Zeit doppelt. */
     fun get(node: ImageNode): Mat {
         memo[node.key]?.let {
             WorkProfiler.cache(node.op, true, seq)
@@ -125,7 +98,6 @@ class FrameScope(
         return out
     }
 
-    /** Wie viele Knoten dieser Frame wirklich gerechnet hat. */
     val computed: Int get() = memo.size
 
     override fun close() {
@@ -134,7 +106,6 @@ class FrameScope(
     }
 }
 
-/** Die randlose Rektifizierung auf [size] — `warpFromCorners`, das seine Spanne selbst setzt. */
 class BoardWarpNode(
     private val size: Int,
     op: WorkOperation = WorkOperation.DETECTION_WARP,
@@ -170,10 +141,7 @@ class ToGrayNode(
     }
 }
 
-/**
- * Lokaler Kontrast. Der Handle haengt am Knoten und nicht am Frame: `createCLAHE` je Frame ist
- * ein messbarer Posten bei 15 fps, und ein Knoten lebt so lange wie seine Konfiguration.
- */
+/** Der Handle haengt am Knoten: `createCLAHE` je Frame ist bei 15 fps messbar. */
 class ClaheNode(
     source: ImageNode,
     private val clip: Double,
@@ -218,8 +186,6 @@ class BlurNode(
     }
 }
 
-/** `config.PHOTOMETRY.clahe_tile` — dasselbe Raster, das `GrayPipeline` faehrt. */
 const val DEFAULT_CLAHE_TILE: Int = 8
 
-/** `cv2.GaussianBlur(g, (5, 5), 0)`. */
 const val DEFAULT_BLUR_KSIZE: Int = 5

@@ -1,7 +1,6 @@
 package com.chesslab.cnn
 
-// A small JSON reader for the golden fixtures: `:core-cnn` carries no JSON dependency, and
-// `org.json` is stubbed in Android unit tests.
+// `:core-cnn` carries no JSON dependency, and `org.json` is stubbed in Android unit tests.
 internal class MiniJson(
     private val src: String,
 ) {

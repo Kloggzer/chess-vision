@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
-/** `:core-cnn` handed a uci it cannot play — everything else is [VerifyEvaluator]'s canned answer. */
 private class RefusingEvaluator(
     private val uci: String,
     delegate: CnnEvaluator = VerifyEvaluator(),
@@ -26,10 +25,7 @@ private class RefusingEvaluator(
     ): Pair<Double, Int> = throw IllegalMoveException(uci, boardFen)
 }
 
-/**
- * Refusal AND propagation. A test that only asserted "the board did not move" would pass for a
- * silent swallow, which leaves the tracker running against a position nobody was told about.
- */
+/** Refusal AND propagation: "the board did not move" alone would pass for a silent swallow. */
 class IllegalMoveRefusalTest {
     @Test
     fun `push refuses a well-formed but impossible move and names both halves of it`() {
@@ -53,10 +49,7 @@ class IllegalMoveRefusalTest {
         assertNull(game.pieceCharAt("e2"))
     }
 
-    /**
-     * Killing the frame loop would only move the 2026-08-09 crash one layer up, so the refusal
-     * arrives as the latch that stops commits and shows itself — with the uci and the position.
-     */
+    /** Killing the frame loop would only move the crash one layer up: the refusal arrives as the latch. */
     @Test
     fun `a refusal at the cnn seam becomes a latched alarm naming the move and the position`() {
         val engine = engineWithPending()
@@ -87,10 +80,7 @@ class IllegalMoveRefusalTest {
         assertTrue(row.reason.contains("REFUSED") && row.reason.contains(STARTPOS), row.reason)
     }
 
-    /**
-     * The 2026-08-09 crash was an ADOPTION, not a move: `cnnAdoptedFen` has screened its own since,
-     * `setFen` screened nothing at all.
-     */
+    /** The crash was an ADOPTION, not a move: `cnnAdoptedFen` screened its own, `setFen` nothing. */
     @Test
     fun `setFen refuses a position where the side not to move is in check`() {
         val engine = TrackerEngine(testConfig())
@@ -125,7 +115,6 @@ class IllegalMoveRefusalTest {
     }
 }
 
-/** [pendingState]'s verify setup, moved onto a real engine so the PUBLIC entry point is exercised. */
 private fun engineWithPending(): TrackerEngine {
     val engine = TrackerEngine(testConfig().copy(verifyWindow = 8))
     val donor = pendingState()

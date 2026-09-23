@@ -7,10 +7,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayInputStream
 import java.io.File
 
-/**
- * Staging was size-guarded: `coverage_gate` 0.25 and 0.35 are the same number of bytes, so an A/B
- * of the two replayed the stale config both times (found 2026-09-14).
- */
+/** `coverage_gate` 0.25 and 0.35 are the same number of bytes: a size guard replayed the stale config. */
 class CnnModelAssetsStagingTest {
     private fun assets(
         dir: File,
@@ -44,10 +41,7 @@ class CnnModelAssetsStagingTest {
         assertEquals("""{"coverage_gate": 0.25}""", File(dir, MODEL_CONFIG_FILE).readText())
     }
 
-    /**
-     * `available()` is "readable without blocking", not a file length. A stream that reports the OLD
-     * file's length leaves the stale graph — and with it the compiled QNN context — standing.
-     */
+    /** `available()` is not a file length: a stream reporting the OLD length left the stale graph standing. */
     @Test
     fun `a graph of a different length still reaches the staged copy`(
         @TempDir tmp: File,
@@ -60,7 +54,7 @@ class CnnModelAssetsStagingTest {
         assertEquals(48, File(dir, MODEL_FP32_FILE).length().toInt())
     }
 
-    /** The recopy has to be SEEN, or the compiled context of the old nodes survives it. */
+    /** Or the compiled context of the old nodes survives it. */
     @Test
     fun `a replaced graph drops the compiled QNN context`(
         @TempDir tmp: File,

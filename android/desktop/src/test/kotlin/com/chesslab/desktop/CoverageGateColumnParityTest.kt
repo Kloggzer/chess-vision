@@ -5,10 +5,8 @@ import com.chesslab.tracker.cnn.ModelSpec
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * Der Zwilling in `:app` steigt ohne `coverage_output` aus (`CoverageGateConfigTest.withCoverageGateOfIgnoresAGateWithoutTheColumn`),
- * dieser hier fragt die Spalte nie. Faellt die Entscheidung andersherum, gehoert der Fix dorthin.
- */
+/** Der Zwilling in `:app` steigt ohne `coverage_output` aus (`CoverageGateConfigTest`); dieser fragt die Spalte
+ *  nie. Faellt die Entscheidung andersherum, gehoert der Fix dorthin. */
 class CoverageGateColumnParityTest {
     private val classes =
         listOf("empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")

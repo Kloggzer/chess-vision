@@ -27,7 +27,6 @@ private class Accepting : ConfigStore {
     ) = Unit
 }
 
-/** The transfer page saves the way the recording page does: a failed write is named, never a crash. */
 class TransferSaveFailureTest {
     @Test
     fun aPairingThatCouldNotBeSavedSaysSoAndKeepsWhatTheWorkerReads() =

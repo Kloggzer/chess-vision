@@ -29,7 +29,6 @@ private const val GLYPH_SCALE = 0.78f
 private const val GLYPH_BASELINE = 0.72f
 private const val GLYPH_STROKE = 0.05f
 
-/** The placement field of [fen] as square ("e4") -> piece char. The ONLY board source (see [BoardCanvas]). */
 internal fun parseFenPlacement(fen: String): Map<String, Char> {
     val out = LinkedHashMap<String, Char>()
     fen.substringBefore(' ').split('/').forEachIndexed { index, rankField ->
@@ -57,7 +56,6 @@ private fun parseRank(
 private const val UCI_MIN = 4
 private const val SQUARE_CHARS = 2
 
-/** The two squares of a UCI move, or an empty set. Highlight only — it never places a piece. */
 internal fun lastMoveSquares(uci: String?): Set<String> =
     if (uci == null || uci.length < UCI_MIN) {
         emptySet()
@@ -76,25 +74,9 @@ private fun glyph(piece: Char): String =
         else -> ""
     }
 
-/**
- * The board, rendered from [fen] and from nothing else.
- *
- * There is deliberately no move-list replay and no internal position: a second reconstruction path
- * drifts from the engine's truth silently, and the user would be looking at a position the tracker
- * does not believe in. [lastMoveUci] only tints two squares.
- *
- * [suggestedUci] draws an arrow and nothing else. It is the review's "what you could have played
- * instead", and it must be visibly a SUGGESTION rather than a move that happened — so it never
- * touches a piece and never tints a square, both of which mean "this was played".
- *
- * [lastMoveArrow] draws [lastMoveUci] as an arrow too, in the last-move colour rather than the
- * accent. The review wants it: a suggestion beside the move it is an alternative TO is a comparison,
- * while an accent arrow alone on a board is just a move with no stated relation to the one played.
- * The tracker does not — there the tint is the whole story and the board must stay quiet.
- *
- * [alarmed] paints the whole board with the danger scrim — while the alarm is latched the engine
- * blocks every commit (invariant 9), so this position is provably NOT what is on the table.
- */
+/** Rendered from [fen] and nothing else: a second reconstruction drifts from the engine silently.
+ *  [suggestedUci] only draws an arrow — never a piece or tint, which would mean "played". [alarmed]
+ *  scrims the board: while latched, this position is provably NOT on the table. */
 @Composable
 fun BoardCanvas(
     fen: String,
@@ -107,8 +89,7 @@ fun BoardCanvas(
 ) {
     val pieces = remember(fen) { parseFenPlacement(fen) }
     val highlight = remember(lastMoveUci) { lastMoveSquares(lastMoveUci) }
-    // Read once, here: the draw lambda below is not a composable scope, so the palette cannot be
-    // looked up inside it.
+    // The draw lambda is not a composable scope.
     val palette = LocalChesslabPalette.current
     // Solid-filled glyphs: outline pieces vanish against a mid-grey square at a metre.
     val paint =
@@ -135,8 +116,7 @@ fun BoardCanvas(
                 drawGlyph(palette, paint, piece, topLeft, cell)
             }
         }
-        // Played first, engine's move on top: where the two share a square the advice must be the
-        // one that stays readable.
+        // Played first, the engine's move on top: where both share a square, the advice must stay readable.
         if (lastMoveArrow) lastMoveUci?.let { drawMoveArrow(palette.primary, it, cell, whitePov, PLAYED_STROKE) }
         suggestedUci?.let { drawMoveArrow(palette.accent, it, cell, whitePov, ARROW_STROKE) }
         if (alarmed) drawAlarm(palette.danger, cell)
@@ -145,11 +125,9 @@ fun BoardCanvas(
 
 private const val ARROW_STROKE = 0.13f
 
-/** Thinner than the advice: the played move is context, and the two must not read as one weight. */
 private const val PLAYED_STROKE = 0.08f
 private const val ARROW_HEAD = 0.34f
 
-/** One move as an arrow from square centre to square centre. */
 private fun DrawScope.drawMoveArrow(
     color: Color,
     uci: String,
@@ -166,7 +144,6 @@ private fun DrawScope.drawMoveArrow(
     if (length <= 0f) return
     val unit = along / length
     val head = cell * ARROW_HEAD
-    // The shaft stops where the head begins, so the two do not overlap into a blob at short range.
     drawLine(color, from, to - unit * head, strokeWidth = cell * stroke, cap = StrokeCap.Round)
     val side = Offset(-unit.y, unit.x) * (head / 2f)
     drawPath(
@@ -190,13 +167,7 @@ private fun squareCentre(
     return squareOrigin(file, rank, cell, whitePov) + Offset(cell / 2f, cell / 2f)
 }
 
-/**
- * The latched alarm, as a wash AND a hard border.
- *
- * The wash alone was enough on the old near-black scheme; over warm boxwood and walnut a warm red
- * at a third of its opacity just reads as a slightly pinker board. The border does not compete with
- * the square colours at all, so it survives any palette.
- */
+/** A wash AND a border: over warm boxwood a red wash alone reads as a slightly pinker board. */
 private fun DrawScope.drawAlarm(
     danger: Color,
     cell: Float,
@@ -248,8 +219,7 @@ private fun DrawScope.drawGlyph(
     val y = topLeft.y + cell * GLYPH_BASELINE + (cell - paint.textSize) / 2f
     val white = piece.isUpperCase()
     drawIntoCanvas {
-        // Filled glyph plus a contrasting outline in BOTH colours: a white outline piece is a
-        // hairline on a light square, which is exactly what must be readable across a table.
+        // An outline in BOTH colours: a white outline piece is a hairline on a light square.
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = cell * GLYPH_STROKE
         paint.color = (if (white) palette.pieceBlack else palette.pieceWhite).toArgb()

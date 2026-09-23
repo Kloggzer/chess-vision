@@ -11,26 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import java.io.File
 import kotlin.coroutines.CoroutineContext
 
-/**
- * Android orchestration around the platform-free still/session recorder.
- *
- * The video runs in two phases since the pre-roll (2026-08-14): [armVideo] starts the ENCODER as
- * soon as recording is wanted and the camera can deliver — its samples buffer in memory
- * (`PreRollRing`) — and the first committed move ([event], or [opened], whichever sees the
- * session first) is what names a file and lets the muxer write. A tracker run that never commits
- * a move therefore leaves no video at all, which is the point: nine of eleven transferred
- * recordings on 2026-08-13/14 carried no game.
- *
- * Since 2026-08-14, the session opens (timeline is created) BY the first committed move, so
- * everything the armed phase produces is emitted before a timeline exists. Two things are held
- * back for it: the opening move's decision row (only the most recent — the incident is exactly one
- * row) and the frame rows, which get the video ring's own window (see [preRollFrames]). Both are
- * written to the fresh timeline as soon as [opened] is called.
- *
- * This class is also the ONE owner of the arming decision. [armVideo], [opened],
- * [videoAvailability] and [finished] only *request* an arm; [startVideo] alone decides, against
- * `videoStarted`, the preference and the size cap. Nothing else may arm — see [finished].
- */
+/** The encoder arms early and buffers in memory; the first committed move names the file — a run that
+ *  never commits leaves no video. Held back for the new timeline: the opening decision row and the armed
+ *  frame rows. The ONE owner of arming: the others only *request*, [startVideo] decides. */
 class RecordingBundleHost(
     private val camera: VideoRecorderPort,
     private val settings: RecordingSettings,
@@ -50,39 +33,23 @@ class RecordingBundleHost(
     @Volatile
     private var closedFailure: String? = null
 
-    /** Why the session's timeline stopped being written; kept past its close until the next session. */
     val timelineFailure: String? get() = timeline?.failure ?: closedFailure
 
     @Volatile
     private var closed = false
 
-    /**
-     * The most recent decision row, buffered if it arrived before the timeline was created.
-     * Volatile because it may be written from the engine thread and read from the session opener.
-     */
+    /** Only the most recent row: in normal play exactly one decision races ahead of the session opening. */
     @Volatile
     private var bufferedDecision: Pair<com.chesslab.engine.api.DebugDecision, Long>? = null
 
-    /**
-     * The armed phase's frame rows, held for the same window the video ring holds its samples.
-     *
-     * The video reaches back past the first move; the timeline did not, because these rows fell on
-     * a null timeline — 6,27 s of footage on `rg-2026-08-30-14-33-02` against a first frame row
-     * already reading `e4 e5`, which is what made the replay start on a position that never stood.
-     */
+    /** The armed phase's frame rows, for the video ring's window: dropped, the replay started on a position
+     *  that never stood (`e4 e5` on the first row of `rg-2026-08-30-14-33-02`). */
     private val preRollFrames = ArrayDeque<TimelineFrame>()
 
-    /**
-     * Arm the encoder ahead of any session: the ring must already hold the pre-roll when the
-     * first move commits. Idempotent, and a no-op while recording is off or the camera cannot
-     * deliver QHD yet.
-     */
+    /** The ring must already hold the pre-roll when the first move commits. Idempotent. */
     fun armVideo() = startVideo()
 
-    /**
-     * The new timeline is built OUTSIDE the lock — its construction writes a file, and
-     * `SessionTimeline.close` blocks for the writer's drain. Only the changeover itself is locked.
-     */
+    /** The timeline is built OUTSIDE the lock: construction writes a file, and `close` blocks on the drain. */
     fun opened(recorder: SessionRecorder) {
         val next = SessionTimeline(recorder.dir, scope, timelineContext)
         adopt(next)
@@ -93,13 +60,8 @@ class RecordingBundleHost(
         camera.keepVideo(File(recorder.dir, VIDEO_FILE))
     }
 
-    /**
-     * A session ended: finish the file, then arm ONCE for the next game.
-     *
-     * The re-arm used to hang off the encoder's final callback, which fires for EVERY stop — and a
-     * teardown stops the encoder from two sides. Measured twice on 2026-08-14 (20:36:33, 20:50:22):
-     * the second arm came ~180 ms later and threw away the ring the first had already filled.
-     */
+    /** Arms ONCE for the next game. Re-arming off the encoder's final callback fired for EVERY stop, and a
+     *  teardown stops it from two sides — the second arm threw away the ring the first had filled. */
     fun finished() {
         camera.stopVideo()
         // Idempotent: the stop's callback already closed the timeline when a video was running.
@@ -127,12 +89,8 @@ class RecordingBundleHost(
         while (frame.elapsedNs - preRollFrames.first().elapsedNs > window) preRollFrames.removeFirst()
     }
 
-    /**
-     * The whole changeover under the lock [frame] takes: closing the old timeline first and adopting
-     * outside it let a frame land in a channel that was already closed — lost, and not even counted
-     * as evicted. The held rows go in FIRST, or the file leaves chronological order and the replay
-     * reads the wrong starting position off row one (`RecordedFrames.startFen`).
-     */
+    /** Under the lock [frame] takes: adopting outside it lost frames into a closed channel, uncounted. The
+     *  held rows go FIRST, or the replay reads the wrong starting position off row one. */
     @Synchronized
     private fun adopt(next: SessionTimeline) {
         timeline?.close()
@@ -140,8 +98,6 @@ class RecordingBundleHost(
         preRollFrames.forEach(next::frame)
         preRollFrames.clear()
         timeline = next
-        // The opening move's decision row was emitted before any timeline existed (2026-08-14: ply 1
-        // decision rows missing from every session), so it goes in before anything live can.
         bufferedDecision?.let { (decision, elapsedNs) ->
             next.decision(decision, elapsedNs)
             bufferedDecision = null
@@ -149,9 +105,7 @@ class RecordingBundleHost(
     }
 
     fun event(event: TrackerEvent) {
-        // A committed ply is the proof the footage carries a game — the buffered window becomes a
-        // file here. Which collector wins the race against `opened` does not matter: `keepVideo`
-        // latches once, and with no session yet `opened` is the one that will carry the file.
+        // `keepVideo` latches once, so the race against `opened` does not matter.
         if (event is TrackerEvent.MoveCommitted || event is TrackerEvent.SequenceCommitted) {
             session?.let { camera.keepVideo(File(it.dir, VIDEO_FILE)) }
         }
@@ -164,10 +118,7 @@ class RecordingBundleHost(
         if (tl != null) {
             tl.decision(decision, elapsedNs)
         } else {
-            // Timeline has not been created yet (session has not opened). Buffer this decision
-            // so it can be written when the session opens. Only the MOST RECENT decision is kept;
-            // earlier ones are overwritten. This is safe because in normal play only ONE decision
-            // races ahead of the session opening.
+            // No timeline yet: keep only the MOST RECENT row — one decision races ahead of the opening.
             bufferedDecision = decision to elapsedNs
         }
     }
@@ -194,9 +145,8 @@ class RecordingBundleHost(
             camera.videoFailure?.let { session?.updateVideo(SessionVideoMeta(0, 0, 0L, 0L, it)) }
             return
         }
-        // Snapshotted per arm, never on the sample path: it is a directory walk. A cap already
-        // spent must refuse the arm outright — [finished] arms again after every session, and an
-        // encoder that stops on its first sample would keep taking that arm.
+        // Per arm, never per sample: it is a directory walk. A spent cap refuses the arm outright — [finished]
+        // re-arms after every session, and an encoder stopping on its first sample would keep taking it.
         val used = SessionStore(sessionsRoot).totalBytes()
         if (prefs.capBytes in 1..used) return
         val remaining = if (prefs.capBytes > 0L) prefs.capBytes - used else 0L
@@ -238,15 +188,11 @@ class RecordingBundleHost(
         detach()?.let(::closeKeepingFailure)
         session = null
         videoStarted = false
-        // Deliberately no re-arm: this runs for EVERY stop — the cap, the disabled toggle, the
-        // camera being released — and re-arming from here made the encoder its own second owner.
-        // [finished] is what re-arms for the next game.
+        // No re-arm: this runs for EVERY stop, and re-arming here made the encoder its own second owner.
     }
 
-    /**
-     * Abhaengen unter der Sperre, schliessen ausserhalb: `close` schliesst den Kanal SOFORT und
-     * wartet erst dann auf den Drain — ein Frame in diesem Fenster ging ungezaehlt verloren.
-     */
+    /** Abhaengen unter der Sperre, schliessen ausserhalb: `close` schliesst den Kanal SOFORT und wartet erst
+     *  dann auf den Drain — ein Frame in diesem Fenster ging ungezaehlt verloren. */
     private fun closeCurrent() {
         detach()?.let(::closeKeepingFailure)
         session = null
@@ -261,11 +207,7 @@ class RecordingBundleHost(
     private fun detach(): SessionTimeline? = timeline.also { timeline = null }
 }
 
-/** The bundle's video name — segment 0; later segments derive from it (`CameraVideo.segmentFile`). */
 private const val VIDEO_FILE = "video.mp4"
 
-/**
- * One window for both rings: a frame row the video has no footage for describes nothing. The
- * video's own window is the BYTE cap, not the nominal 45 s — at 1440p/30 that is 22 s of 45.
- */
+/** One window for both rings. The video's own window is the BYTE cap, not the nominal 45 s. */
 private const val NS_PER_S = 1_000_000_000L

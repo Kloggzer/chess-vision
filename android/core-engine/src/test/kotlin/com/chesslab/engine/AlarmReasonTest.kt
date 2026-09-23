@@ -6,9 +6,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/** The reason comes FIRST and short: behind the squares in brackets, the eye had left by then (User, 2026-08-26). */
+/** The reason comes FIRST and short: behind the squares in brackets, the eye had left by then. */
 class AlarmReasonTest {
-    /** Black to move and in check; White's suggested move is the one that cannot be. */
     @Test
     fun `check is named in three words`() {
         val game = Game("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")

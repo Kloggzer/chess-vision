@@ -7,17 +7,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * specs/37 phase 02 — a resync adopts the observed position, keeps the history, and appends
- * NOTHING: the gap is the record. The auto arm is a replay instrument (`autoResyncObsN`, 0 = off
- * everywhere by default) and these tests drive it through `cnnTick`, the path a replay uses.
- *
- * Timing contract (see `maybeAutoResync`'s KDoc): the observation that latches the alarm is also
- * the FIRST vote — latch and vote run in the same tick. With `desyncObsN = 3` the latch lands on
- * seq 3, so `autoResyncObsN = n` resyncs on seq `3 + n - 1`.
- */
+/** A resync keeps the history and appends NOTHING: the gap is the record. The latching observation is also
+ *  the FIRST vote, so with `desyncObsN = 3` `autoResyncObsN = n` resyncs on seq `3 + n - 1`. */
 class ResyncTest {
-    /** Alarm latched at seq 3 (`desyncObsN`), auto arm set to [votes] consistent looks. */
     private fun alarmedAutoState(votes: Int): Triple<EngineState, RecoveryEvaluator, RecoveryObs> {
         val state =
             EngineState(recoveryConfig().copy(autoResyncObsN = votes), NF3_NO_CASTLING, whitePov = true).armed().underWay()
@@ -30,7 +22,6 @@ class ResyncTest {
 
     @Test
     fun autoResyncFiresAfterNConsistentLooksAndKeepsTheHistory() {
-        // The ply is already on the record — `alarmedAutoState` needs one to latch at all.
         val (state, cnn, obs) = alarmedAutoState(votes = 3)
         val abandoned = state.board.fen()
         val expected = state.cnnAdoptedFen(obs, state.config.cnnConfThr)
@@ -43,7 +34,7 @@ class ResyncTest {
         assertNull(state.alarm, "the third consistent look resyncs and releases the latch")
         assertEquals(expected, state.board.fen())
         assertEquals(listOf("Nf3"), state.history, "history is KEPT — the gap is the record")
-        // `clearAlarm` appends its own provenance row after the resync's — find ours, exactly one.
+        // `clearAlarm` appends its own row after the resync's — find ours, exactly one.
         val row = state.decisionLog.single { it.decider == DECIDER_CNN_RESYNC }
         assertNull(row.san, "a resync is not a ply — no consumer may count it as one")
         assertEquals(abandoned, row.fenBefore)
@@ -98,10 +89,8 @@ class ResyncTest {
 
     @Test
     fun aPositionWithTheOpponentInCheckIsNeverAdopted() {
-        // The 2026-08-09 crash, reproduced as a unit: white to move, BLACK already in check —
-        // no game reaches this. `legalMoves()` on it works, so the old guard passed it; the deep
-        // search then captures the exposed king and the NEXT generateLegalMoves dies with
-        // `Index 64` (Square.NONE) four layers away from the adoption.
+        // White to move with BLACK already in check: `legalMoves()` works, the old guard passed it, and the deep
+        // search then captured the king — the NEXT move generation died with `Index 64`.
         val state = recoveryState("4k3/8/8/8/8/8/8/4K2R w - - 0 1")
         val obs = obsForBoard(state.board, mapOf("e7" to "wR"))
         assertNull(
@@ -120,13 +109,8 @@ class ResyncTest {
 
     @Test
     fun whateverIsAdoptedCanBePlayed() {
-        // The 2026-08-09 crash: a minimal edit produced a placement chesslib ACCEPTS as a FEN
-        // and then throws on from the move generator plies later (`Index 64` = a king it can no
-        // longer find), so the replay died at ply 70 with nothing pointing at the adoption that
-        // caused it. Two kings is not the same as a legal board; the contract is that anything
-        // returned here can generate moves. Asserted over a spread of readings rather than one
-        // synthetic position — the exact crashing board came out of a real video, and pinning
-        // this to one chesslib quirk would test the quirk instead of the guarantee.
+        // Chesslib ACCEPTS such a FEN and throws plies later (`Index 64`). The contract is that anything returned
+        // can generate moves — asserted over many readings, not one chesslib quirk.
         val state = recoveryState(NF3_NO_CASTLING)
         val readings =
             listOf(

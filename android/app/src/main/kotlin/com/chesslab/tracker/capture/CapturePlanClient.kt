@@ -7,11 +7,7 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URI
 
-/**
- * Two GETs, in this package on purpose: `IngestClient` is the upload protocol (hello/declare/chunk/
- * complete) and `HttpIngestClient.call` is private, so a plan fetch there would widen a seam that
- * exists for transfers. Host and token are the SAME pairing the upload uses (`SyncSettings`).
- */
+/** Here, not in `IngestClient`: its `call` is private to the upload protocol. Same pairing as the upload. */
 suspend fun fetchCapturePlan(prefs: SyncPrefs): PlanAnswer =
     withContext(Dispatchers.IO) {
         val base = baseUrl(prefs.host.ifBlank { prefs.lastHost }, prefs.port)
@@ -50,7 +46,6 @@ private fun call(
     }
 }
 
-/** The seam the test drives: every refusal the screen can show is decided here, off one string. */
 internal fun planAnswer(
     status: Int,
     body: String,

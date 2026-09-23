@@ -16,11 +16,10 @@ class NoiseFloorTest {
         floor.observe(1, still) { board(0) }
         assertEquals(NOISE_UNMEASURED, floor.busy)
         floor.observe(2, still) { board(RAISED) }
-        // 20 of 64 cells moved by DELTA, so the median is 0 and the quartile sits on the raised set.
+        // 20 of 64 cells moved, so the median is 0 and the quartile sits on the raised set.
         assertEquals(DELTA.toDouble(), floor.busy, EPS)
     }
 
-    /** The whole cost argument: 30 frames, four board warps, and nothing at all in between. */
     @Test
     fun `at most one pair per interval`() {
         val floor = NoiseFloor(everyFrames = INTERVAL)
@@ -34,7 +33,6 @@ class NoiseFloorTest {
         assertEquals(4, pulls)
     }
 
-    /** A re-measured quad shifts the warp by a fraction of a pixel in every cell: no evidence, just a late measurement. */
     @Test
     fun `a re-alignment between the two frames is dropped, not measured`() {
         val floor = NoiseFloor()
@@ -45,7 +43,6 @@ class NoiseFloorTest {
         assertEquals(0.0, floor.busy, EPS)
     }
 
-    /** An exposure step between the two frames would be reported as the board's own noise. */
     @Test
     fun `a disarm drops the armed frame`() {
         val floor = NoiseFloor()
@@ -55,7 +52,7 @@ class NoiseFloorTest {
         assertEquals(NOISE_UNMEASURED, floor.busy)
     }
 
-    /** Corners that never match used to re-arm without advancing `due`, so `LiveAlign` made it measure EVERY frame. */
+    /** Corners that never match re-armed without advancing `due`, so `LiveAlign` made it measure EVERY frame. */
     @Test
     fun `corners that never match do not turn the interval off`() {
         val floor = NoiseFloor(everyFrames = INTERVAL)

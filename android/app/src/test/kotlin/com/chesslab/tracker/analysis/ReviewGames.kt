@@ -6,7 +6,6 @@ import com.chesslab.tracker.games.StoredMove
 import com.chesslab.tracker.games.reviewView
 import com.github.bhlangonijr.chesslib.move.MoveList
 
-/** The first [count] plies of SAN move text, projected exactly as the review screen renders them. */
 internal fun reviewGameOf(
     san: String,
     count: Int = Int.MAX_VALUE,

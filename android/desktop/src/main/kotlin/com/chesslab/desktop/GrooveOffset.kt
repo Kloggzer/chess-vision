@@ -15,12 +15,8 @@ import kotlin.math.roundToInt
 private const val LINES_PER_AXIS = 7
 private const val SQUARES = 8
 
-/**
- * How far a quad's 8x8 grid sits beside the board's own grooves, in cells — the worse axis.
- * The frame is warped with [quad]; each interior grid line is compared with the darkest column
- * (row) within half a cell, the median per axis is the offset. The scan gates every SAMPLE and
- * never its median: on 2026-08-30-16-20-19 all passed and the median sat 0.14 cells off (2026-09-06).
- */
+/** The worse axis, in cells. The scan gates every SAMPLE and never its median: on 2026-08-30-16-20-19 all
+ *  passed and the median sat 0.14 cells off. */
 internal fun grooveOffset(
     frame: Mat,
     quad: FloatArray,
@@ -50,7 +46,6 @@ internal fun grooveOffset(
     return offsets.maxOf { abs(it) }
 }
 
-/** Mean brightness per column (or per row) of a grayscale board. */
 private fun profile(
     gray: Mat,
     columns: Boolean,
@@ -63,7 +58,7 @@ private fun profile(
     return out
 }
 
-/** The median of [offsets] — a hand over one sampled frame must not pick the quad. */
+/** A hand over one sampled frame must not pick the quad. */
 internal fun medianOffset(offsets: List<Double>): Double {
     val sorted = offsets.sorted()
     return sorted[sorted.size / 2]

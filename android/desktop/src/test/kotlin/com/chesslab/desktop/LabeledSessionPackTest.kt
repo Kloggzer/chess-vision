@@ -24,10 +24,7 @@ import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import java.io.File
 
-/**
- * `quad-fit.json` decides which quad a stored session is packed with. The fixture's logged quad is
- * deliberately off, so preferring the sidecar shows in the packed BYTES and not only in the counts.
- */
+/** The fixture's logged quad is deliberately off, so preferring the sidecar shows in the packed BYTES. */
 class LabeledSessionPackTest {
     @TempDir
     lateinit var dir: File
@@ -55,7 +52,6 @@ class LabeledSessionPackTest {
         assertEquals(2 * 64, assertPackConsistent(out, dir, "session"))
     }
 
-    /** No file: exactly the pack that ran before the fit existed, and other pixels for it. */
     @Test
     fun `without the sidecar the logged marker quad still cuts the crops`() {
         val session = session(fitted = listOf("0000", "0001"))
@@ -76,7 +72,6 @@ class LabeledSessionPackTest {
         )
     }
 
-    /** A frame the fit gave up on is absent from `frames`, and falls back on its own. */
     @Test
     fun `a session the fit only partly covered is packed both ways`() {
         val session = session(fitted = listOf("0000"))
@@ -107,7 +102,7 @@ class LabeledSessionPackTest {
         assertEquals(emptyMap<String, FittedQuad>(), storedQuadFit(File(dir, "nowhere")))
     }
 
-    /** The mesh cut must show in the BYTES, not only in the count — else the wire is decorative. */
+    /** In the BYTES, not only the count — else the wire is decorative. */
     @Test
     fun `grid lines in the sidecar move the packed bytes and are counted`() {
         val quadOut = File(dir, "quad")
@@ -148,7 +143,6 @@ class LabeledSessionPackTest {
         assertEquals(1, meta(out).getValue("fitted_frames").jsonPrimitive.int)
     }
 
-    /** Malformed tilts drop exactly ONE stage: the offsets survive, no half axis pair ever does. */
     @Test
     fun `malformed tilts fall back to the scalar mesh, valid ones ride along`() {
         val session = session(fitted = listOf("0000"))
@@ -170,7 +164,6 @@ class LabeledSessionPackTest {
         assertNotNull(storedQuadFit(session).getValue("0000").mesh?.tx)
     }
 
-    /** Same ladder one rung up: a bad curvature pair costs the curved stage, never the tilts. */
     @Test
     fun `malformed curvature falls back to the linear mesh, valid pairs ride along`() {
         val session = session(fitted = listOf("0000"))
@@ -228,10 +221,7 @@ class LabeledSessionPackTest {
         )
     }
 
-    // --- the fixture ------------------------------------------------------------------------------
-
-    /** Eine exportierte Aufnahme traegt `frame` UND `board` in der Zeile, aber `frames/` liegt
-     *  nicht mehr auf der Platte — `boards/` ist der Vorrat, aus dem geschnitten wird. */
+    /** Eine exportierte Aufnahme hat kein `frames/` mehr — `boards/` ist der Vorrat. */
     @Test
     fun `eine exportierte Aufnahme wird mit Hinweis abgelehnt`() {
         NativeCv.require()
@@ -249,7 +239,6 @@ class LabeledSessionPackTest {
         assertTrue(fehler.message!!.contains("session pack"), fehler.message)
     }
 
-    /** A stored session of two frames of the same board, with a sidecar covering [fitted]. */
     private fun session(
         fitted: List<String>,
         mesh: String? = null,
@@ -281,7 +270,6 @@ class LabeledSessionPackTest {
 
     private fun meta(out: File): JsonObject = Json.parseToJsonElement(File(out, "packed_meta.json").readText()) as JsonObject
 
-    /** A rectified board with a surround: alternating cells and a dark groove on every boundary. */
     private fun board(): Mat {
         val n = BS + 2 * BORDER
         val img = Mat(n, n, CvType.CV_8UC3, Scalar(SURROUND, SURROUND, SURROUND))
@@ -314,24 +302,22 @@ class LabeledSessionPackTest {
         const val GROOVE_V = 20.0
         const val FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-        /** The playing field itself, [a8, h8, h1, a1] — what the fit measures and writes. */
         val FIELD = floatArrayOf(64f, 64f, 704f, 64f, 704f, 704f, 64f, 704f)
 
-        /** What the phone logged: the field plus the 4.5 % outset, off by the drift the fit removes. */
+        /** The field plus the 4.5 % outset, off by the drift the fit removes. */
         val MARKER = floatArrayOf(41.2f, 39.2f, 738.8f, 39.2f, 738.8f, 736.8f, 41.2f, 736.8f)
 
-        /** Interior lines shifted a hundredth of the field — enough to move every crop's pixels. */
+        /** A hundredth of the field — enough to move every crop's pixels. */
         const val MESH =
             """{"x":[0.0,0.115,0.24,0.365,0.49,0.615,0.74,0.865,1.0],""" +
                 """"y":[0.0,0.115,0.24,0.365,0.49,0.615,0.74,0.865,1.0]}"""
 
-        /** A well-formed axis, so each malformed variant differs in exactly one way. */
+        /** Well-formed, so each malformed variant differs in exactly one way. */
         const val NOMINAL = """[0,0.125,0.25,0.375,0.5,0.625,0.75,0.875,1]"""
 
         const val ZEROS = """[0,0,0,0,0,0,0,0,0]"""
 
-        /** The measured 004251 magnitude, |c| = 0.046 on the outer lines, as the SMOOTH ramp a real
-         *  lens produces — a lone 0.046 next to zeros is what [smoothMeshCurvature] rightly flattens. */
+        /** As the SMOOTH ramp a real lens produces — a lone 0.046 is what [smoothMeshCurvature] rightly flattens. */
         const val REAL_CURV = """[0.046,0.0345,0.023,0.0115,0,-0.0115,-0.023,-0.0345,-0.046]"""
     }
 }

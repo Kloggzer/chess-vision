@@ -78,16 +78,10 @@ class ReviewUiModelTest {
         assertEquals("−35 %", moveImpactLabel(plyGrade(MoveQuality.BLUNDER, before = 47.0, after = 12.0)))
         assertEquals("−8 %", moveImpactLabel(plyGrade(MoveQuality.INACCURACY, before = 60.0, after = 51.6)))
         assertEquals("0 %", moveImpactLabel(plyGrade(MoveQuality.BEST, before = 60.0, after = 50.0)))
-        // A move that gave away less than half a point reads a plain zero, never `−0 %`.
         assertEquals("0 %", moveImpactLabel(plyGrade(MoveQuality.GOOD, before = 60.0, after = 59.7)))
         assertNull(moveImpactLabel(null))
     }
 
-    /**
-     * The position column speaks ONE unit with the rest of the app: win expectancy. It printed
-     * `White +1.2` — a pawn count — beside a `−10 %` cost, over a background drawn from the
-     * percentage, until specs/47.
-     */
     @Test
     fun positionColumnReadsWinExpectancyAndKeepsMateInWords() {
         assertEquals("96 %", positionLeadLabel(96.4, null))
@@ -99,12 +93,7 @@ class ReviewUiModelTest {
         assertEquals("—", positionLeadLabel(null, null))
     }
 
-    /**
-     * The engine's state is a property of the SCREEN, so it is decided here and not inside one tab.
-     *
-     * The bug it closes: `Review this game`, `Starting the engine…` and the progress bar all lived
-     * under Moments, so tapping the button from the board tab produced no visible change anywhere.
-     */
+    /** The engine's state belongs to the SCREEN: under Moments only, the button from the board tab showed nothing. */
     @Test
     fun theEngineStateIsWhatEveryTabShows() {
         val partial = gameGrade().copy(scored = 30, positions = 84)
@@ -114,15 +103,12 @@ class ReviewUiModelTest {
         assertEquals(AnalysisPhase.PARTIAL, analysisPhase(ReviewUi(grade = partial)))
         assertEquals(AnalysisPhase.MISSING_ENGINE, analysisPhase(ReviewUi(engineMissing = true)))
         assertEquals(AnalysisPhase.ERROR, analysisPhase(ReviewUi(error = "Stockfish stopped")))
-        // A finished review has nothing left to say, so the card is absent rather than empty.
         assertNull(analysisPhase(ReviewUi(grade = complete)))
-        // And a run in flight is the BANNER's, not the screen's — two progress bars, one above the
-        // other, was what drawing it in both places produced.
+        // A run in flight is the BANNER's: drawn in both places, two progress bars stacked.
         assertNull(analysisPhase(ReviewUi(running = true, grade = partial)))
         assertNull(analysisPhase(ReviewUi(running = true)))
     }
 
-    /** A run that outlives the screen has to be legible from anywhere — see `AnalysisBanner`. */
     @Test
     fun aRunInFlightSaysWhichGameAndHowFar() {
         assertEquals("Reviewing 2026-08-02_2159 · 30 / 84", analysisLine("2026-08-02_2159", 30, 84))
@@ -140,7 +126,6 @@ class ReviewUiModelTest {
 
         assertEquals("White missed 1 mating chance · Black missed 1 mating chance.", mateStory(grade))
         assertEquals("2/3 moves graded", accuracyDenominator(2, 3))
-        // The words live in strings.xml now; what this pins is that each result maps to its own key.
         assertEquals(R.string.games_result_white, resultHeadline(GameResult.WHITE))
         assertEquals(R.string.games_result_unfinished, resultHeadline(GameResult.UNFINISHED))
         assertEquals(
@@ -243,14 +228,7 @@ class ReviewUiModelTest {
         )
     }
 
-    /**
-     * The arrow on the board and the move named beside it are ONE ply's engine move.
-     *
-     * They were a ply apart: the card showed the alternative to the move just played while the board
-     * drew the best move from the resulting position. *"Die Zuordnung der Pfeile stimmt nicht, die
-     * werden um ein[s] versetzt dargestellt"* — and it is the same answer for a White ply and a
-     * Black one, which is the second half of the same report.
-     */
+    /** The board's arrow and the card's move are ONE ply's engine move; they were a ply apart, for either colour. */
     @Test
     fun theBoardsArrowAndTheVerdictsEngineMoveAreTheSamePly() {
         val game =

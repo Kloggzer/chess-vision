@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.concurrent.thread
 
-/** Records what the switch was holding at each step: a frame during the teardown must find NO stack. */
 private class FakeStack(
     val id: Int,
     private val trace: MutableList<String>,
@@ -28,10 +27,7 @@ private class FakeStack(
     }
 }
 
-/**
- * D07a-1: 34 of the 46 knobs are read at construction, so applying them means rebuilding the
- * tracker — in the running process, without a second camera owner and without two ONNX sessions.
- */
+/** Rebuilt in the running process, without a second camera owner and without two ONNX sessions. */
 class TrackerRestartTest {
     private val trace = mutableListOf<String>()
 
@@ -68,7 +64,6 @@ class TrackerRestartTest {
         assertTrue(live.closed)
     }
 
-    /** A restart builds a NEW [EngineHost]: the old one keeps rejecting foreign threads, the new one latches afresh. */
     @Test
     fun aRebuiltEngineHostRelatchesOnItsNewOwningThread() {
         val old = EngineHost(RecordingOps())

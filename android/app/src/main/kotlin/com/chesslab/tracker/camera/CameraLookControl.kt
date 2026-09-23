@@ -13,33 +13,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * The camera's controls, held the way [TorchLamp] holds the lamp: a small owner of one concern,
- * attached to whatever camera is currently bound.
- *
- * Its own class rather than four fields on [OpticsLock] for the reason the lamp got one — that one
- * owns the repeating request and the stabilizers, and steering the camera is a different act.
- *
- * The WANT and the DEVICE are separate on purpose, the same rule again: a rebind (resolution change,
- * reconnect, downshift) starts the session at the device's defaults, so the want outlives [detach]
- * and [attach] re-asserts it.
- *
- * **Which API each axis uses, and why:**
- *
- * | axis | route | why |
- * |---|---|---|
- * | zoom | `CameraControl.setZoomRatio` | CameraX; range from `CameraInfo.zoomState` |
- * | brightness | `CameraControl.setExposureCompensationIndex` | CameraX; steers AE, never replaces it |
- * | torch | `CameraControl.enableTorch` (in [TorchLamp]) | CameraX |
- * | white balance | `CONTROL_AWB_MODE` preset | CameraX has no white-balance API at all |
- * | focus | `CONTROL_AF_MODE_OFF` + `LENS_FOCUS_DISTANCE` | CameraX can only ask AF to run, not to hold a distance |
- *
- * The two interop axes are capture-request options, and [OpticsLock] owns the repeating request, so
- * this class hands them over rather than issuing them itself.
- */
+/** The camera's controls. The WANT outlives a rebind ([detach]/[attach] re-assert it): a rebind starts
+ *  at device defaults. White balance and focus go through Camera2 interop — CameraX has no API for
+ *  either — and [OpticsLock] owns the repeating request, so this class only hands the values over. */
 @OptIn(ExperimentalCamera2Interop::class)
 class CameraLookControl(
-    /** Re-issue the repeating capture request — [OpticsLock] owns it; this class owns the values. */
     private val reissue: () -> Unit,
     private val focusReady: () -> Boolean = { true },
     private val settledAutoFocus: () -> Float? = { null },
@@ -67,12 +45,7 @@ class CameraLookControl(
 
     override fun focusReady(): Boolean = focusReady.invoke()
 
-    /**
-     * Den Geraete-Autofokus auf das Brett richten und laufen lassen.
-     *
-     * `disableAutoCancel`, weil CameraX die Messung sonst nach fuenf Sekunden zurueckdreht — der
-     * Startpunkt waere dann schon wieder fort, bevor die Gegenprobe ihn bestaetigt hat.
-     */
+    /** `disableAutoCancel`: CameraX cancels metering after five seconds, before the counter-check confirms it. */
     override fun focusOn(region: FocusRegion): Boolean {
         val control = camera?.cameraControl ?: return false
         val point = SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(region.cx, region.cy, region.size)
@@ -90,7 +63,6 @@ class CameraLookControl(
         }
     }
 
-    /** Dioptrien zurueck auf die 0..1-Skala — dieselbe Abbildung wie [focusDiopters], invers. */
     override fun autoFocus(): Float? {
         val min = offers.value?.minFocusDiopters ?: return null
         if (min <= 0f) return null
@@ -103,25 +75,13 @@ class CameraLookControl(
         reissue()
     }
 
-    /**
-     * The `CONTROL_AWB_MODE` value, or null for [WhiteBalance.AUTO] — for which the key is left
-     * UNSET rather than written as `CONTROL_AWB_MODE_AUTO`, so "automatic" means the device's own
-     * default and not a second opinion about what automatic is.
-     */
+    /** Null for [WhiteBalance.AUTO]: the key stays UNSET, so "automatic" is the device's own default. */
     fun awbMode(): Int? = awbModeFor(want.value.whiteBalance)
 
-    /**
-     * `LENS_FOCUS_DISTANCE` in diopters for a manual focus, or null while focus is automatic.
-     *
-     * 0..1 maps onto 0..`LENS_INFO_MINIMUM_FOCUS_DISTANCE`, i.e. infinity to the lens's nearest —
-     * the same mapping the reference IP-camera app uses, and the only one that is device-independent.
-     */
+    /** 0..1 maps onto 0..`LENS_INFO_MINIMUM_FOCUS_DISTANCE` (infinity to nearest) — the only device-independent map. */
     fun focusDiopters(): Float? = want.value.focus?.let { it * (offers.value?.minFocusDiopters ?: 0f) }
 
-    /**
-     * The axes CameraX has an API for. Both return futures nobody awaits: a rejected zoom or an
-     * out-of-range index is the device's answer, and the state to render is [look] either way.
-     */
+    /** Futures nobody awaits: a rejected value is the device's answer, and [look] is rendered either way. */
     private fun applyCameraX() {
         val control = camera?.cameraControl ?: return
         val look = want.value
@@ -135,7 +95,6 @@ class CameraLookControl(
         }
     }
 
-    /** Everything the device advertises, asked once per bind. */
     private fun read(bound: Camera): CameraAbilities {
         val info = bound.cameraInfo
         val interop = Camera2CameraInfo.from(info)
@@ -162,7 +121,6 @@ class CameraLookControl(
     }
 
     companion object {
-        /** The framework constant for an illuminant, or null for [WhiteBalance.AUTO]. */
         fun awbModeFor(value: WhiteBalance): Int? =
             when (value) {
                 WhiteBalance.AUTO -> null

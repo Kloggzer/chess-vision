@@ -9,16 +9,13 @@ private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQ
 
 private const val AFTER_E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
 
-/** Eine Partei, wie sie vor dem Vermerk auf der Platte lag — kein `hints`, kein `hint` je Ply. */
+/** Wie vor dem Vermerk auf der Platte: kein `hints`, kein `hint` je Ply. */
 private const val OLD_GAME =
     """{"id":"2026-07-24_1822","startFen":"$STARTPOS","startedAtEpochMs":1,"finishedAtEpochMs":2,
        "profileName":"default","result":"*",
        "moves":[{"ply":1,"san":"e4","uci":"e2e4","tsEpochMs":1}]}"""
 
-/**
- * Was der Record ueber einen vorgesagten Zug sagt — und was er ueber eine Partie NICHT sagt, die
- * den Vermerk gar nicht kennt. "Nicht aufgezeichnet" ist nicht "kein Tipp".
- */
+/** "Nicht aufgezeichnet" ist nicht "kein Tipp". */
 class HintProvenanceTest {
     @Test
     fun anOldGameWithoutTheFieldClaimsNothing() {
@@ -29,7 +26,6 @@ class HintProvenanceTest {
         assertEquals(HintStatus.NOT_RECORDED, view.hintStatusOf(view.plies.first()))
     }
 
-    /** Erst wenn die Partie den Log traegt, heisst ein leerer Vermerk auch "kein Tipp". */
     @Test
     fun aWatchedGameWithoutATipSaysThereWasNone() {
         val stored = played(hint = null, recorded = true)
@@ -46,7 +42,7 @@ class HintProvenanceTest {
         assertEquals(HintStatus.NONE, view.hintStatusOf(view.plies[1]))
     }
 
-    /** Ein Schnellspiel-Paar wird aus EINER Stellung committet: nur der erste Ply war vorgesagt. */
+    /** Ein Schnellspiel-Paar kommt aus EINER Stellung: nur der erste Ply war vorgesagt. */
     @Test
     fun aSequenceCarriesTheMarkOnItsFirstPlyOnly() {
         val game = LiveGame(STARTPOS, 1L, "default", hintsRecorded = true)
@@ -63,7 +59,6 @@ class HintProvenanceTest {
         assertNull(stored.moves[1].hint)
     }
 
-    /** Der Vermerk ueberlebt die Platte, und die alte Datei bleibt daneben lesbar. */
     @Test
     fun theMarkSurvivesAJsonRoundTrip() {
         val stored = played(MoveHint("e4", "e2e4", followed = false), recorded = true)
@@ -74,7 +69,6 @@ class HintProvenanceTest {
     }
 }
 
-/** Eine Partie mit zwei Plies, deren erster [hint] traegt. */
 private fun played(
     hint: MoveHint?,
     recorded: Boolean,

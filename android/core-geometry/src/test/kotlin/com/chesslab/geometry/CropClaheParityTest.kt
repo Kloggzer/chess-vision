@@ -9,8 +9,8 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import kotlin.random.Random
 
-/** Goldene Zahlen aus `tmp/clahe_golden.py` (`training/torch_data.py:_Clahe`): ein Modell, das auf
- *  behandelten Crops trainiert wurde und rohe bekommt, ist still schlechter. */
+/** Goldene Zahlen aus `tmp/clahe_golden.py`: ein Modell, das auf behandelten Crops trainiert wurde
+ *  und rohe bekommt, ist still schlechter. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class CropClaheParityTest {
     private fun mat(fill: (y: Int, x: Int) -> Int): Mat {
@@ -48,16 +48,13 @@ class CropClaheParityTest {
 
     @Test
     fun `a cell inside the band matches the training transform`() {
-        // Derselbe Verlauf und dasselbe Rauschen wie in `tmp/clahe_golden.py` (Seed 11), innerer
-        // Mittelwert 31,59 — mitten im Band.
         val rng = Random(SEED)
         val noise = Array(SIZE) { DoubleArray(SIZE) { gauss(rng) * NOISE_SD } }
         val m = mat { y, x -> (RAMP_LO + (RAMP_HI - RAMP_LO) * x / (SIZE - 1.0) + noise[y][x]).toInt() }
         clahe().use { c ->
             assertTrue(c.applyTo(m)) { "eine Zelle im Band muss behandelt werden" }
         }
-        // Die Summe ist der Fingerabdruck: Rauschen macht eine exakte Matrix unbrauchbar, aber ein
-        // anderer Operator (falsche Kacheln, falscher Kanal, falscher Farbraum) verschiebt sie weit.
+        // Die Summe ist der Fingerabdruck: ein anderer Operator (Kacheln, Kanal, Farbraum) verschiebt sie weit.
         val got = sum(m)
         assertTrue(kotlin.math.abs(got - GOLDEN_SUM) < GOLDEN_SUM / TOLERANCE_DIV) {
             "Summe $got weicht von Python ($GOLDEN_SUM) ab"
@@ -84,8 +81,7 @@ class CropClaheParityTest {
 
     @Test
     fun `only the inner region decides`() {
-        // Der Rand traegt das Nachbarfeld (`pad_side`): ein heller Nachbar darf eine dunkle Zelle
-        // nicht aus dem Band schieben. Python schneidet `h // 10` ab, hier dieselbe Zahl.
+        // Der Rand traegt das Nachbarfeld: ein heller Nachbar darf eine dunkle Zelle nicht aus dem Band schieben.
         val m = mat { y, x -> if (y in EDGE until SIZE - EDGE && x in EDGE until SIZE - EDGE) CORE else RIM }
         clahe().use { assertTrue(it.applyTo(m)) { "der Kern liegt im Band, also wird behandelt" } }
         assertEquals(MAX, at(m, 0, 0)) { "der gesaettigte Rand bleibt gesaettigt" }
@@ -125,7 +121,6 @@ class CropClaheParityTest {
         const val CORE = 32
         const val EDGE = 8
 
-        /** `tmp/clahe_golden.py`, Fall "im Band, Verlauf". */
         const val GOLDEN_SUM = 977_985L
 
         /** 2 % — das Rauschen ist ein anderes, der Operator derselbe. */

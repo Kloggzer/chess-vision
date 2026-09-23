@@ -7,42 +7,23 @@ import org.opencv.core.Size
 import org.opencv.imgproc.CLAHE
 import org.opencv.imgproc.Imgproc
 
-// Ported from `tracker.py _gray` when Python still carried the tracker.
-//
-// CLAHE runs BEFORE the blur and on EVERY frame: reference and current must be enhanced
-// identically or the per-square noise model is invalid.
-//
-// The dark-frame gate reads mean luma BEFORE CLAHE (`FrameInput.lumaPreClahe`) - that is
-// phase 05b's job, not this class's.
+// CLAHE runs BEFORE the blur and on EVERY frame: reference and current must be enhanced identically, or the
+// per-square noise model is invalid.
 
-/** `config.PHOTOMETRY.clahe_tile` (config.py) — `tileGridSize = tile x tile`. */
 private const val CLAHE_TILE: Double = 8.0
 
-/** Denoise kernel of `cv2.GaussianBlur(g, (5, 5), 0)`. */
 private const val BLUR_KSIZE: Double = 5.0
 
-/**
- * BGR warp -> the detection gray plane: `cvtColor` + optional CLAHE + Gaussian blur.
- *
- * A class, not a top-level function, so the CLAHE handle is created ONCE
- * (`Imgproc.createCLAHE` per frame is a measurable cost at 15 fps).
- */
+/** A class, so the CLAHE handle is created ONCE: `createCLAHE` per frame is a measurable cost at 15 fps. */
 class GrayPipeline(
     private val claheClip: Double,
 ) : AutoCloseable {
     private var clahe: CLAHE? = null
 
-    /** CLAHE's source plane. A member, not a local — see [toGray]. */
     private val scratch = Mat()
 
-    /**
-     * `dst` lets the caller reuse an output `Mat` across frames.
-     *
-     * CLAHE cannot run in place (it reads its source while writing its destination), which used
-     * to mean a fresh `Mat` plus a full-plane `copyTo` per frame. Converting into a reused
-     * [scratch] and letting CLAHE write straight into [dst] needs neither: the extra plane is
-     * allocated once and the copy is gone entirely.
-     */
+    /** CLAHE cannot run in place: converting into the reused [scratch] and letting CLAHE write into [dst] drops a
+     *  fresh `Mat` and a full-plane copy per frame. */
     fun toGray(
         warpedBgr: Mat,
         dst: Mat? = null,

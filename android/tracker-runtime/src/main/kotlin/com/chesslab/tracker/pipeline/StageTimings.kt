@@ -2,11 +2,7 @@ package com.chesslab.tracker.pipeline
 
 import java.util.Locale
 
-// Per-stage frame timings for `TrackerStatus.stageTimingsMs`.
-//
-// The app has to measure these: `:core-engine` is under a wall-clock ban (its only notion of time
-// is `FrameInput.timestampMs`), which is what makes the clip replay deterministic. The engine
-// fills the evidence/veto/score keys; the ones below are the analyzer thread's.
+// Measured here: `:core-engine` has no wall clock, which is what makes the clip replay deterministic.
 
 private const val NANOS_PER_MS = 1_000_000.0
 
@@ -14,49 +10,25 @@ private const val NANOS_PER_S = 1_000_000_000.0
 
 private const val LOG_INTERVAL_NS = 1_000_000_000L
 
-/** `CameraRate`'s weights, so the two rates on the perf line and the header settle the same way. */
 private const val FPS_EMA_OLD = 0.9
 
 private const val FPS_EMA_NEW = 0.1
 
-/** A stage that did not run this frame. Never a number — see [StageTimings.begin]. */
+/** Never a number — see [StageTimings.begin]. */
 private const val NOT_RUN = "-"
 
 const val PERF_TAG = "chesslabPerf"
 
-/**
- * The analyzer thread's stages, in the order they run.
- *
- * [FRAME] is the whole `analyze()` callback and is the only one that can be compared against the
- * frame period; everything else is a slice of it. [TOTAL] ends where the `FrameInput` is ready, so
- * `TOTAL + ENGINE + POST == FRAME` up to rounding.
- *
- * [LENS] is its own stage rather than part of [CONVERT] because there is no measurement of a
- * full-frame `remap` on a phone anywhere in this repo, and a cost folded into another stage is a
- * cost nobody can decide about. It reads `-` whenever no lens is configured, which is the default.
- *
- * [PUBLISH] and [POST] exist because they were previously measured by nothing at all: the
- * coordinator ran the preview bus BEFORE the timer started and the status publish, observer poke
- * and live-align clone AFTER the last mark, which is why `total + engine` never added up to the
- * observed period.
- */
+/** [FRAME] is the whole callback, the only one comparable with the frame period; `TOTAL + ENGINE + POST == FRAME`.
+ *  [LENS] stands alone: a folded cost is one nobody can decide about. [PUBLISH]/[POST] were measured by nothing. */
 enum class Stage { PUBLISH, CONVERT, LENS, WARP, GRAY, MOTION, GRID, TOTAL, ENGINE, POST, FRAME }
 
-/**
- * Accumulates one frame's stage durations and emits at most one `chesslabPerf` line per second.
- *
- * [nowNs], [cameraFps] and [logLine] are injected so the throttle is testable without a clock or a
- * device.
- */
+/** At most one `chesslabPerf` line per second. [nowNs], [cameraFps], [logLine] are injected for tests. */
 class StageTimings(
     private val nowNs: () -> Long = System::nanoTime,
     private val logLine: (String) -> Unit = {},
 ) {
-    /**
-     * Appended to each perf line. The stack wires its drop counters here, so the one log line
-     * that exists on BOTH hosts carries what was thrown away — the cadence regression of
-     * 2026-08-08 was invisible precisely because nothing on this line counted refusals.
-     */
+    /** The stack's drop counters: the 2026-08-08 cadence regression was invisible because nothing counted refusals. */
     @Volatile
     var extras: (() -> String)? = null
 
@@ -71,30 +43,17 @@ class StageTimings(
     private var fps = 0.0
     private var idle = 0.0
 
-    /**
-     * A new frame starts here — at the top of the analyzer callback, not at the top of the frame
-     * pipeline.
-     *
-     * The per-stage "did it run" flags are cleared, and NOT the durations: a skipped frame runs
-     * neither `grayDet` nor the engine, and reporting the previous frame's numbers for them reads
-     * as work that happened. [snapshot] keeps the last known value for the debug panel, the log
-     * line prints [NOT_RUN].
-     */
+    /** Clears the "did it run" flags, NOT the durations: a skipped frame must not report the previous frame's
+     *  numbers as work. [snapshot] keeps the last value, the log line prints [NOT_RUN]. */
     fun begin() {
         val now = nowNs()
-        // The stage sum is NOT the frame period: CameraX does its own work on this thread before
-        // `analyze()` is called. Only the gap between two `begin`s answers "how many frames a
-        // second is the analyzer actually getting through".
+        // CameraX works on this thread before `analyze()`: only the gap between two `begin`s is the real rate.
         if (lastBegin != 0L && now > lastBegin) {
             val instant = NANOS_PER_S / (now - lastBegin)
             fps = if (fps != 0.0) FPS_EMA_OLD * fps + FPS_EMA_NEW * instant else instant
         }
-        // How long this thread sat with nothing to do since the last frame ended. THIS is the
-        // camera-bound / CPU-bound question, and it is the one the old line could not answer:
-        // `fps` and a camera-rate EMA count the same delivered-frame events and are equal by
-        // construction. Idle near zero means we are the bottleneck; idle well above zero means
-        // the sensor is — typically auto-exposure stretching the frame period in low light,
-        // and then no amount of pipeline work buys a single frame.
+        // Idle time answers camera-bound vs CPU-bound: near zero we are the bottleneck, well above it the sensor
+        // is (auto-exposure stretching the period), and no pipeline work buys a frame.
         if (lastEnd != 0L && now > lastEnd) {
             val gap = (now - lastEnd) / NANOS_PER_MS
             idle = if (idle != 0.0) FPS_EMA_OLD * idle + FPS_EMA_NEW * gap else gap
@@ -105,10 +64,7 @@ class StageTimings(
         ran.fill(false)
     }
 
-    /**
-     * The feed stopped — the next frame starts a fresh rate measurement, like [CameraRate.reset]:
-     * a restart's gap between two [begin]s is no frame period, and the EMA read it as idle time.
-     */
+    /** A restart's gap between two [begin]s is no frame period; the EMA read it as idle time. */
     fun onFeedStopped() {
         lastBegin = 0L
         lastEnd = 0L
@@ -116,7 +72,6 @@ class StageTimings(
         idle = 0.0
     }
 
-    /** Time since the previous mark — except [Stage.TOTAL] and [Stage.FRAME], measured from [begin]. */
     fun mark(stage: Stage) {
         val now = nowNs()
         val from = if (stage == Stage.TOTAL || stage == Stage.FRAME) frameStart else previous
@@ -126,22 +81,10 @@ class StageTimings(
         previous = now
     }
 
-    /**
-     * Immutable snapshot for `TrackerStatus.stageTimingsMs`, keys stable once a stage has run.
-     *
-     * The LAST KNOWN value of a stage that did not run THIS frame, because a run of skipped frames
-     * blanking half the panel would be unreadable — but a stage that never ran at all is ABSENT,
-     * never 0.0: `LENS` is off by default, and a zero there reads as a free full-frame remap.
-     */
+    /** A stage that never ran is ABSENT, never 0.0: `LENS` is off by default, and zero reads as a free remap. */
     fun snapshot(): Map<String, Double> = Stage.entries.filter { everRan[it.ordinal] }.associate { it.name.lowercase() to ms[it.ordinal] }
 
-    /**
-     * The frame is over — every stage, including the ones after the engine, has run.
-     *
-     * Called by the coordinator rather than the pipeline, and unconditionally: a SKIPPED frame
-     * still costs a convert, a warp and a status publish, and logging only the emitted ones hid
-     * that cost entirely whenever the board was dark or the markers were lost.
-     */
+    /** Unconditional: a SKIPPED frame still costs a convert, a warp and a status publish. */
     fun endFrame(
         skipNote: String? = null,
         luma: Double = -1.0,
@@ -153,7 +96,6 @@ class StageTimings(
         lastEnd = nowNs()
     }
 
-    /** One line per second, so the perf log stays readable at 15-30 fps. The first frame logs. */
     fun maybeLog(
         skipNote: String? = null,
         luma: Double = -1.0,
@@ -163,15 +105,10 @@ class StageTimings(
         if (lastLog == 0L || now - lastLog >= LOG_INTERVAL_NS) {
             lastLog = now
             val stages = Stage.entries.joinToString(" ") { "${it.name.lowercase()}=${stageValue(it)}" }
-            // WHY the frame ended as it did, and the number that decided it. A dash for gray/motion
-            // /grid says a frame was skipped and says nothing about which of the three exits took
-            // it; `skip=` distinguishes all of them and `luma=` carries the dark gate's own input,
-            // so a bright board reading luma=6 is visible without opening the app. One nullable
-            // string and one double per second.
+            // `skip=` names which exit took a skipped frame, `luma=` carries the dark gate's own input.
             val why = if (skipNote != null) " skip=$skipNote" else " skip=-"
             val lum = if (luma >= 0) " luma=${format(luma)}" else ""
-            // `luma` says how much light reaches the sensor, `noise` what survives the cell mean —
-            // the two are what an exposure change trades against each other (`NoiseFloor`).
+            // `luma` is light on the sensor, `noise` what survives the cell mean — an exposure change trades them.
             val floor = if (noise >= 0) " noise=${formatFine(noise)}" else ""
             val extra = extras?.invoke()?.let { " $it" }.orEmpty()
             logLine("$stages fps=${format(fps)} idle=${format(idle)}$why$lum$floor$extra")
@@ -182,6 +119,6 @@ class StageTimings(
 
     private fun format(value: Double): String = String.format(Locale.US, "%.1f", value)
 
-    /** The noise floor lives between 0 and a few grey levels; one decimal would quantise it away. */
+    /** Between 0 and a few grey levels; one decimal would quantise it away. */
     private fun formatFine(value: Double): String = String.format(Locale.US, "%.2f", value)
 }

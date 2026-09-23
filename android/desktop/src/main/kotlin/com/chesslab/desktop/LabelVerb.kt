@@ -29,24 +29,18 @@ import kotlin.system.exitProcess
 
 private const val MS_PER_SECOND = 1000.0
 
-// The `label` and `score` verbs' machinery, kept beside the replay rather than inside it.
-//
-// `label`: measure the geometry with the shipping stack, refuse footage that cannot carry a
-// label, replay through the measured MEDIAN quad, and write the tracker's proposal where the
-// Python labeler wrote its own. `score`: replay through the LABEL's stored quad and print
-// found / missed / invented — never one merged accuracy.
+// `label`: replay through the measured MEDIAN quad and write the tracker's proposal where Python wrote its own.
+// `score`: replay through the LABEL's stored quad — found / missed / invented, never one merged accuracy.
 
-/** What this replay does besides tracking: label, score, decisive frames, or any mix. */
 internal class ReplayPlan(
     private val labelRun: LabelRun?,
     private val scoreCandidate: File?,
     private val framesDir: File?,
     private val timeline: PlyTimeline?,
 ) {
-    /** The quad the run is pinned to, when the plan carries one — measured or the label's own. */
     fun quad(): FloatArray? = labelRun?.quad ?: scoreCandidate?.let(::quadFromCandidate)
 
-    /** The exact per-recording fit used to measure a label's quad; replay must use the same pixels. */
+    /** The exact fit used to measure a label's quad; replay must use the same pixels. */
     fun lens(): LensModel? = labelRun?.lens
 
     fun session(
@@ -74,8 +68,7 @@ internal fun replayPlanFor(
         }
     val framesDir =
         if (options.frames) {
-            // Beside the candidate (or where one would live), not under tmp/: the decisive frames
-            // are review material, and review material lives with the game it reviews.
+            // Review material lives with the game it reviews, not under tmp/.
             File(requireNotNull(recordingDirOf(options, video)) { "frames needs a video file" }, "frames-decisive")
         } else {
             null
@@ -83,7 +76,6 @@ internal fun replayPlanFor(
     return ReplayPlan(labelRun, scoreCandidate, framesDir, video?.let { sessionTimeline(it, emptyList()) })
 }
 
-/** What a `label` run measured before it replayed: the name, the directory, the quad, the scan. */
 internal class LabelRun(
     val name: String,
     val dir: File,
@@ -92,13 +84,8 @@ internal class LabelRun(
     val lens: LensModel?,
 )
 
-/**
- * Measure the footage with the shipping geometry stack, refuse footage that cannot carry a label.
- *
- * The quad the replay then runs through is the per-corner MEDIAN over every sampled frame that
- * passed the absolute alignment gate — not the first frame's quad, because one frame's quad is a
- * sample and the label should stand on the whole video's evidence.
- */
+/** Refuses footage that cannot carry a label. The quad is the per-corner MEDIAN over every sample that passed
+ *  the absolute alignment gate: one frame's quad is a sample. */
 internal fun prepareLabel(
     video: File,
     options: ReplayOptions,
@@ -122,7 +109,6 @@ internal fun prepareLabel(
     return LabelRun(name, File(RECORDINGS_DIR, name), cornersToFlat(scan.corners), scan, lens)
 }
 
-/** Every frame, undistorted when [lens] is given, offered to one scan over the whole video. */
 private fun FrameSource.scanGeometry(lens: LensModel?): ScannedGeometry? {
     val scan = GeometryScan(fps) { println("  $it") }
     val optics = lens?.let { Undistorter(it, delivered.width, delivered.height) }
@@ -137,13 +123,8 @@ private fun FrameSource.scanGeometry(lens: LensModel?): ScannedGeometry? {
     return scan.result()
 }
 
-/**
- * What the scan found: the report, then what it costs, then what it forbids.
- *
- * A WARNING names the next step (a moving board needs a per-frame re-fit after export); a REFUSAL
- * ends the run. Keeping the two apart is the point — the spread measures movement, never
- * correctness, and reading it as a gate refused a recording that aligns on 97.2 % of its samples.
- */
+/** A WARNING names the next step, a REFUSAL ends the run. The spread measures movement, never correctness:
+ *  read as a gate it refused a recording that aligns on 97.2 % of its samples. */
 private fun reportGeometry(scan: ScannedGeometry) {
     println(geometryReport(scan))
     geometryWarnings(scan).forEach { println("  ! $it") }
@@ -159,7 +140,6 @@ internal fun candidateFileFor(
     options: ReplayOptions,
 ): File = File(requireNotNull(recordingDirOf(options, video)), "candidate.json")
 
-/** The LABEL's stored quad, so a score run replays through the same geometry as the label did. */
 internal fun quadFromCandidate(candidate: File): FloatArray {
     val geometry =
         Json
@@ -175,15 +155,8 @@ internal fun quadFromCandidate(candidate: File): FloatArray {
     return cornersToFlat(corners)
 }
 
-/**
- * Everything a label/score/frames run collects WHILE the replay drives, and what it does
- * afterwards. Owns the decision collector, the annotated-frame writers, and the epilogue.
- *
- * Both writers emit the NORMALISED picture — the rectified board, never the raw camera frame.
- * The review writer triggers on COMMITS (what a human confirms) and paints nothing on it; the
- * decisive writer triggers on every decision row, rejections included, and keeps the engine's
- * verdicts on the picture, because a refusal is exactly the moment worth looking at.
- */
+/** Both writers emit the rectified board. The review writer triggers on COMMITS and paints nothing; the
+ *  decisive writer triggers on every row, rejections included, and keeps the verdicts on the picture. */
 internal class LabelSession(
     private val labelRun: LabelRun?,
     private val scoreCandidate: File?,
@@ -197,8 +170,7 @@ internal class LabelSession(
 ) {
     val collector = DecisionCollector(fps, { status()?.alarm?.kind }, { status()?.corners }, indexNow)
 
-    // Plain board, no verdict tints: these are what a human judges the move on, and the engine's
-    // opinion painted over the picture is the one thing that must not steer that judgement.
+    // No verdict tints: the engine's opinion must not steer the human's judgement.
     private val review =
         labelRun?.let { AnnotatedFrames(File(it.dir, "frames"), quad, boardSize, annotate = false) { status()?.corners } }
     private val decisive = framesDir?.let { AnnotatedFrames(it, quad, boardSize) }
@@ -207,11 +179,8 @@ internal class LabelSession(
     private var pliesSeen = 0
     private var rowsSeen = 0
 
-    /**
-     * What the candidate proposes: the phone's own commits when the recording carries them, and
-     * the replay's otherwise. A replay that lost the position proposed NOTHING on four transferred
-     * sessions (2026-08-15, "0 Halbzüge"), while the phone had written every move down.
-     */
+    /** The phone's own commits when the recording carries them: a replay that lost the position proposed
+     *  NOTHING on four transferred sessions while the phone had written every move down. */
     private val plies: List<CommittedPly> get() = if (timeline == null) collector.plies else phonePlies
 
     /** Index, picture and video time in ONE call — the frame writers' correctness rests on that. */
@@ -257,8 +226,7 @@ internal class LabelSession(
             it.close()
         }
         if (scoreCandidate != null) {
-            // `collector.plies`, never [plies]: score measures THIS replay against a stored label,
-            // and on a transferred session the phone's list is what the label already holds —
+            // `collector.plies`, never [plies]: on a transferred session the phone's list IS the label, and
             // scoring it against itself is a perfect score that says nothing.
             printScore(
                 scoreCandidate,
@@ -270,7 +238,6 @@ internal class LabelSession(
     }
 }
 
-/** A phone-logged move as a candidate row: the tracker never decided it, the recorder did. */
 internal fun PlyMark.committed(
     frame: Int,
     timeMs: Double,
@@ -287,7 +254,6 @@ internal fun PlyMark.committed(
         corners = corners,
     )
 
-/** What one finished run measured about itself — the four values travel together into the label. */
 internal class RunTotals(
     val note: String?,
     val observations: Int,
@@ -320,7 +286,7 @@ private fun writeLabel(
     )
 }
 
-/** The `source` block: what produced this candidate, crop included (specs/41 — record it or lose it). */
+/** The `source` block: what produced this candidate, crop included — record it or lose it. */
 private fun sourceJson(
     options: ReplayOptions,
     config: TrackerConfig,
@@ -344,7 +310,7 @@ private fun sourceJson(
     put("crop", cropJson(geometry))
 }
 
-/** How the squares were cut — `realgames/` and the labeling UI read this out of every candidate. */
+/** `realgames/` and the labeling UI read this out of every candidate. */
 internal fun cropJson(geometry: BoardGeometry): JsonObject =
     buildJsonObject {
         put("cell", geometry.boardSize / SQUARES_PER_SIDE)
@@ -358,10 +324,9 @@ internal fun cropJson(geometry: BoardGeometry): JsonObject =
         )
     }
 
-/** Candidates live under `data/` (gitignored), where the Python labeler put them. */
 internal const val RECORDINGS_DIR = "../../data/recordings"
 
-/** `name=`, else the video's stem; null only when neither is known (a live camera). */
+/** Null only when neither `name=` nor a video stem is known (a live camera). */
 internal fun recordingDirOf(
     options: ReplayOptions,
     video: File?,

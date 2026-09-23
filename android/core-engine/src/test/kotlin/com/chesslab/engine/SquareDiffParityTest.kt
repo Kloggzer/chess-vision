@@ -12,7 +12,7 @@ import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** Square geometry and gray-channel parity; configs from `meta.effectiveConfig`, never `TRACK_DEFAULTS` (STATUS D00b-3). */
+/** Configs from `meta.effectiveConfig`, never `TRACK_DEFAULTS`. */
 class SquareDiffParityTest {
     @Serializable
     private data class GeoRegionSet(
@@ -53,7 +53,6 @@ class SquareDiffParityTest {
                 )
                 checked++
             }
-            // squareBoxes must agree with squareRegion square by square.
             val boxes = squareBoxes(set.boardSize, set.whitePov, set.extendUp)
             for (i in 0 until SQUARES) {
                 val expected = set.regions.getValue(Squares.ALL[i])
@@ -115,8 +114,7 @@ class SquareDiffParityTest {
             val boxes = squareBoxes(size, clip.meta.whitePov, cfg.overhang)
             val planes = clip.grayPlanes()
             val out = DoubleArray(SQUARES)
-            // `refFrames` is null where `_maybe_patch_anomaly` mutated `ref_gray` in place —
-            // those frames cannot be reconstructed from the planes.
+            // `refFrames` is null where `_maybe_patch_anomaly` mutated `ref_gray` in place: not reconstructable.
             for (frame in clip.tierAFrames().filter { it.tierA?.refFrames != null }) {
                 val tierA = requireNotNull(frame.tierA)
                 val refFrames = requireNotNull(tierA.refFrames)
@@ -161,8 +159,6 @@ class SquareDiffParityTest {
         }
         assertConsumed(checked, "normalizeDiffs frames")
     }
-
-    // -----------------------------------------------------------------------------------
 
     private fun geometry(): GeoMeta = json.decodeFromString(ParityFixtures.geometryMeta())
 

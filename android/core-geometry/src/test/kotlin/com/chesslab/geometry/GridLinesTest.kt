@@ -11,7 +11,6 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-/** Tier C — `_geometry/grid_coverage.jsonl` with raw gray planes, port of `tracker.py _grid_line_coverage`. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class GridLinesTest {
     @Test
@@ -48,7 +47,6 @@ class GridLinesTest {
         assertEquals(0.0, gridLineCoverage(Mat(320, 320, CvType.CV_8UC1, Scalar(128.0))), 0.0)
     }
 
-    /** White board with black interior grid lines. */
     private fun grid(side: Int): Mat {
         val img = Mat(side, side, CvType.CV_8UC1, Scalar(255.0))
         val cell = side / 8.0

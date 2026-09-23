@@ -2,10 +2,7 @@ package com.chesslab.engine
 
 import kotlin.math.max
 
-/**
- * Removes exposure drift with the upper median (`sorted[n/2]`, index 32 of 64), clamped at zero.
- * [values] stays raw because noise learning consumes it afterward; empty input uses baseline 0.0.
- */
+/** The upper median (`sorted[n/2]`), clamped at zero. [values] stays raw: noise learning consumes it. */
 internal fun normalizeDiffs(
     values: DoubleArray,
     out: DoubleArray,

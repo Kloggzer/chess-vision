@@ -10,10 +10,7 @@ import java.io.File
 
 private const val FRAME_BYTES = 4096
 
-/**
- * The size cap took `totalBytes()` once at service start, so every session finished in THIS process
- * was invisible to it. This is the wiring `GameSessionWiring.buildController` uses.
- */
+/** Taken once at service start, the cap never saw sessions finished in THIS process. */
 class SessionByteBudgetTest {
     @TempDir
     lateinit var root: File
@@ -80,7 +77,7 @@ class SessionByteBudgetTest {
         assertEquals(store.totalBytes(), budget.spent(), "spent() still charges $before bytes that are no longer on disk")
     }
 
-    /** `GamesViewModel` and `RecordingViewModel` each hold their OWN `SessionStore` on the same directory. */
+    /** Two view models each hold their OWN `SessionStore` on the same directory. */
     @Test
     fun `a deletion through the screens own store reaches the budget`() {
         oneSession()
@@ -92,7 +89,7 @@ class SessionByteBudgetTest {
         assertEquals(0L, budget.spent(), "spent() still charges $before bytes the games screen deleted")
     }
 
-    /** Deleting is the user's only remedy for "limit reached"; the latch used to hold until a process restart. */
+    /** Deleting is the user's only remedy; the latch held until a process restart. */
     @Test
     fun `the size-cap latch does not survive the next game`() {
         val capture =

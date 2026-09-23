@@ -17,8 +17,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Der Knopf ist der EINZIGE Weg zu einem Tipp, und er gehoert genau einer Seite. Fuer die andere
- *  darf er nicht erscheinen — sonst waere die Hilfe kein Handicap, sondern beidseitig. */
+/** Der Knopf gehoert genau einer Seite — sonst waere die Hilfe kein Handicap, sondern beidseitig. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [HINT_SDK], qualifiers = HINT_PORTRAIT, application = Application::class)
 class HintSlotTest {
@@ -47,7 +46,6 @@ class HintSlotTest {
         compose.onNodeWithContentDescription(HINT_BUTTON_DESCRIPTION).assertDoesNotExist()
     }
 
-    /** Waehrend der Alarm steht, IST die Alarmkarte der Job des Schirms (Regel 3). */
     @Test
     fun aLatchedAlarmTakesTheButtonAway() {
         compose.slot(HintPlan(HintSide.BLACK), BLACK_TO_MOVE, alarmed = true)

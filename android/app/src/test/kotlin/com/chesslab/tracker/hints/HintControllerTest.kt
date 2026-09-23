@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Die Regeln, die der Nutzer am 2026-09-22 gesetzt hat, als Wachen: Kontingent pro PARTIE, keine
- *  Umkehr der `gateBlock`-Rangordnung, und ein Tipp verfaellt mit seiner Stellung. */
+/** Die Nutzerregeln als Wachen: Kontingent pro PARTIE, keine Umkehr der `gateBlock`-Rangordnung, und ein
+ *  Tipp verfaellt mit seiner Stellung. */
 class HintControllerTest {
     @Test
     fun theQuotaRunsForTheWholeGameAndThenRefuses() =
@@ -19,7 +19,6 @@ class HintControllerTest {
             assertEquals(HintOutcome.Refused(HintRefusal.SPENT), controller.request({ moment() }))
         }
 
-    /** Kein Rueckstellen zwischen Eroeffnung und Endspiel: nur eine NEUE Partie fuellt es auf. */
     @Test
     fun aNewGameRefillsTheQuotaAndNothingElseDoes() =
         runTest {
@@ -53,7 +52,6 @@ class HintControllerTest {
             assertEquals(2, controller.state.value.remaining)
         }
 
-    /** `UNDO_CONFIRM_MS`: so lange kann die Stellung noch ein Rueckzieher sein. */
     @Test
     fun aPositionInsideTheTakeBackWindowIsNotSettled() =
         runTest {
@@ -66,8 +64,7 @@ class HintControllerTest {
             assertEquals(2, controller.state.value.remaining)
         }
 
-    /** Der Record steht noch auf der Stellung, die das Brett verlassen hat: ein Rueckzieher in der
-     *  Bestaetigung, den `GameSessionController` erst nach einer halben Sekunde entscheidet. */
+    /** Ein Rueckzieher in der Bestaetigung: `GameSessionController` entscheidet ihn erst nach einer halben Sekunde. */
     @Test
     fun aRecordThatDisagreesWithTheBoardIsNotSettled() =
         runTest {
@@ -80,7 +77,6 @@ class HintControllerTest {
             assertEquals(2, controller.state.value.remaining)
         }
 
-    /** Dieselbe Disziplin wie `VerifySingle`: `snap.fen != pend.fen` darf nicht abstimmen. */
     @Test
     fun aResultFromAnotherPositionExpires() =
         runTest {
@@ -125,7 +121,6 @@ class HintControllerTest {
             assertEquals(2, controller.state.value.remaining)
         }
 
-    /** Ohne Plan erscheint kein Knopf — auch nicht fuer die Seite, die gerade am Zug ist. */
     @Test
     fun theUnsupportedSideIsOfferedNothing() {
         val controller = HintController()
@@ -145,7 +140,6 @@ class HintControllerTest {
         assertEquals(0, controller.state.value.remaining)
     }
 
-    /** Eine Mattdistanz liegt aus WEISSSICHT vor: Schwarz hat Matt, wenn sie negativ ist. */
     @Test
     fun theMateSignIsReadFromTheSupportedSide() =
         runTest {
@@ -168,7 +162,6 @@ class HintControllerTest {
             assertEquals(2, controller.state.value.remaining)
         }
 
-    /** Ein zweiter Druck, waehrend der erste rechnet, darf nicht ein zweites Mal abbuchen. */
     @Test
     fun aSecondPressWhileTheFirstIsRunningIsIgnored() =
         runTest {

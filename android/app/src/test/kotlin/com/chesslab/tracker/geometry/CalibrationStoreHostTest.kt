@@ -8,7 +8,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
-/** The service, the camera screen and the tracking screen must share one store and so one geometry. */
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class)
 class CalibrationStoreHostTest {

@@ -21,13 +21,9 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `backgroundScope`, never a hand-rolled `TestScope`: the publisher's `sample` and `stateIn`
- * coroutines never complete by design, and `runTest` would wait for them forever.
- */
+/** `backgroundScope`: the publisher's `sample` and `stateIn` never complete, and `runTest` would wait forever. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class StatusPublisherTest {
-    /** Mirrors `advanceTimeBy` so the publisher's build gate and the flow's sampler see one clock. */
     private var clockMs = 0L
 
     private fun publisherOn(scope: CoroutineScope) = StatusPublisher(scope, nowMs = { clockMs })
@@ -38,18 +34,16 @@ class StatusPublisherTest {
             val publisher = publisherOn(backgroundScope)
             val seen = mutableListOf<TrackerStatus?>()
             backgroundScope.launch { publisher.status.toList(seen) }
-            // 100 pushes spread over one second of virtual time — 15-30 fps in reality.
             repeat(100) { i ->
                 publisher.publish({ statusOf(fen = "fen$i") }, "fen$i", emptyList(), null)
                 clockMs += 10
                 advanceTimeBy(10)
             }
             advanceTimeBy(200)
-            // The initial null plus roughly ten samples; never one per push.
             assertTrue(seen.size in 8..14, "expected ~10 emissions in 1 s, got ${seen.size}")
         }
 
-    /** Everything ran from [StatusPublisher.publish], which only a delivered frame calls: a dead feed read `14.8 fps`. */
+    /** Only a delivered frame calls [StatusPublisher.publish]: a dead feed read `14.8 fps`. */
     @Test
     fun aStalledFeedIsPublishedWithoutAnyFrameArriving() =
         runTest {
@@ -58,7 +52,6 @@ class StatusPublisherTest {
             advanceTimeBy(STATUS_SAMPLE_MS * 2)
             assertEquals(null, publisher.status.value?.note, "a healthy frame carries no note")
 
-            // No further publish() — only time passing, which is exactly the failure case.
             clockMs += 5_000
             advanceTimeBy(5_000)
 
@@ -71,7 +64,6 @@ class StatusPublisherTest {
     fun aSlowFeedIsNotAStalledOne() =
         runTest {
             val publisher = publisherOn(backgroundScope)
-            // 2 Hz: far below the camera's real rate and still nowhere near the stall threshold.
             repeat(20) {
                 publisher.publish({ statusOf(fen = "fen") }, "fen", emptyList(), null)
                 clockMs += 500
@@ -80,7 +72,7 @@ class StatusPublisherTest {
             assertEquals(null, publisher.status.value?.note, "2 Hz is slow, not stalled")
         }
 
-    /** The gate is on the BUILD: `TrackerStatus` costs a chesslib FEN and four 64-entry maps. */
+    /** The gate is on the BUILD. */
     @Test
     fun theStatusIsBuiltAtTheSampleRate_notPerFrame() =
         runTest {
@@ -109,7 +101,6 @@ class StatusPublisherTest {
             assertEquals(listOf(TrackerEvent.Note("after")), late)
         }
 
-    /** Events are the alarm and move channel — never gated by the status build's throttle. */
     @Test
     fun everyEventIsEmittedEvenBetweenStatusBuilds() =
         runTest {
@@ -124,8 +115,7 @@ class StatusPublisherTest {
 
     @Test
     fun previewConversionDropsWhenOneIsInFlight() {
-        // The gate the frame bus publishes previews through: an analyzer frame that arrives while
-        // a conversion runs is DROPPED, never queued (commit 4a7609e).
+        // DROPPED, never queued.
         val gate = InFlightGate()
         assertTrue(gate.tryEnter())
         assertFalse(gate.tryEnter())
@@ -137,7 +127,6 @@ class StatusPublisherTest {
     @Test
     fun appStageTimingsAreMergedIntoTheEngineSnapshot() =
         runTest {
-            // A fake clock that ticks exactly 1 ms per reading, so the warp stage measures 1.0.
             var ns = 0L
             val timings =
                 StageTimings(nowNs = {
@@ -157,7 +146,6 @@ class StatusPublisherTest {
             )
         }
 
-    /** D06b-4: the engine owns no geometry, so the overlay's board quad comes from here. */
     @Test
     fun theBoardCornersArePublishedIntoTheStatus() =
         runTest {
@@ -169,22 +157,18 @@ class StatusPublisherTest {
             assertArrayEquals(corners, publisher.status.value?.corners)
         }
 
-    /**
-     * The CNN observer's discard-on-change guard cannot wait 100 ms for a sample — and it must not
-     * wait for a status BUILD either, which is why the FEN is passed separately.
-     */
+    /** The discard-on-change guard must not wait for a status BUILD, which is why the FEN is passed separately. */
     @Test
     fun theUnsampledFenIsAvailableImmediately() =
         runTest {
             val publisher = publisherOn(backgroundScope)
             publisher.publish({ statusOf(fen = "some-fen") }, "some-fen", emptyList(), null)
             assertEquals("some-fen", publisher.lastFen)
-            // Second frame inside the same sample window: no build, but the FEN still moves.
             publisher.publish({ error("must not build") }, "next-fen", emptyList(), null)
             assertEquals("next-fen", publisher.lastFen)
         }
 
-    /** The stall watchdog rewrote `note` past [resolveNote]'s ladder: over the latched alarm and the user's release. */
+    /** The watchdog rewrote `note` over the latched alarm and the user's release. */
     @Test
     fun aStalledFeedMustNotOverwriteTheAlarmNote() =
         runTest {
@@ -217,7 +201,7 @@ class StatusPublisherTest {
             assertTrue(note == "tracking stopped — the camera is released", "a release is not a fault, was: $note")
         }
 
-    /** `0.0 fps` beside a live camera said "dead feed" when the truth was "nothing is being analysed". */
+    /** `0.0 fps` beside a live camera said "dead feed" when nothing was being analysed. */
     @Test
     fun aSkippedFrameCarriesTheCameraRateAndAZeroedDetectionRate() =
         runTest {
@@ -229,7 +213,6 @@ class StatusPublisherTest {
                 publisher.onCameraFrame()
             }
 
-            // The engine's EMA is FROZEN at its last tick, so a stale rate would stand over a discarding pipeline.
             publisher.publish({ statusOf().copy(fps = 14.8) }, "", emptyList(), "waiting for markers…")
             advanceTimeBy(STATUS_SAMPLE_MS * 2)
             val skipped = publisher.status.value!!

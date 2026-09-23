@@ -24,10 +24,7 @@ sealed interface SpeechState {
     ) : SpeechState
 }
 
-/**
- * The platform seam. `TextToSpeech` cannot be constructed on the desktop JVM, so everything this
- * package decides sits above this interface and the Android implementation below it stays dumb.
- */
+/** `TextToSpeech` cannot be constructed on the desktop JVM, so every decision sits above this seam. */
 interface Tts {
     fun setLanguage(tag: String): SpeechState
 
@@ -40,7 +37,6 @@ interface Tts {
     fun shutdown()
 }
 
-/** The device's own opinion on whether it wants to be talked to. */
 interface Silence {
     fun silenced(): Boolean
 
@@ -49,14 +45,12 @@ interface Silence {
     fun abandonFocus()
 }
 
-/** What the announcer talks to. */
 interface Speaker {
     fun say(
         text: String,
         flush: Boolean = false,
     )
 
-    /** Die Ansagesprache. Default no-op: ein Test-Speaker hat keine Stimme, die sie betrifft. */
     fun setLanguage(tag: String) = Unit
 
     /** The alarm latched: whatever is still queued describes a board we no longer believe in. */
@@ -65,13 +59,7 @@ interface Speaker {
     fun close()
 }
 
-/**
- * Speech policy: when to open the engine at all, when to stay quiet, and how much backlog is
- * allowed to survive a burst.
- *
- * [open] is a factory and not a `TextToSpeech`, so the engine exists only once something is
- * actually going to be said — an idle tracker with speech off never binds the TTS service.
- */
+/** [open] is a factory: with speech off an idle tracker never binds the TTS service. */
 class SpeechEngine(
     private val silence: Silence,
     private val open: ((SpeechState) -> Unit) -> Tts?,
@@ -102,8 +90,7 @@ class SpeechEngine(
             }
         if (engine == null) {
             current.value = SpeechState.Failed("no TextToSpeech engine")
-            // The focus was taken two lines up, and nothing is going to speak: holding it would
-            // duck the user's music for the rest of the session.
+            // Nothing will speak: holding the focus would duck the user's music for the rest of the session.
             silence.abandonFocus()
             return
         }

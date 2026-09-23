@@ -35,17 +35,8 @@ import java.util.Locale
 
 private const val DEFAULT_PROFILE = "default"
 
-/**
- * The game session and its optional frame recording, owned by the SERVICE.
- *
- * D08a-4: this used to hang off a composable, so recording paused whenever the UI was destroyed
- * while the foreground service kept tracking — a recorded session had holes exactly when the user
- * put the phone down, which is the situation the foreground service exists for. The UI now only
- * *observes* the controller through [GameSessionHost].
- *
- * The session scope is the service's, not a stack's: a tracker restart rebuilds the pipeline and
- * the engine, but the game the user is playing is not a config knob (see [TrackerStack]).
- */
+/** Owned by the SERVICE: hung off a composable, recording paused whenever the UI was destroyed. A restart
+ *  rebuilds pipeline and engine, never the game. */
 fun wireGameSession(
     paths: AppPaths,
     settings: RecordingSettings,
@@ -54,9 +45,8 @@ fun wireGameSession(
     publisher: StatusPublisher,
     calibration: CalibrationStore,
     recordingHooks: RecordingHooks = RecordingHooks(),
-    /** The ledger `HintController` writes into. Null leaves every stored ply UNRECORDED. */
+    /** Null leaves every stored ply UNRECORDED. */
     hints: HintLedger? = null,
-    /** Was sonst noch an der Partiegrenze faellt — das Tipp-Kontingent ([GameBoundary]). */
     alsoEnds: List<GameBoundary> = emptyList(),
 ): GameSessionController {
     scope.launch { settings.load() }
@@ -79,14 +69,8 @@ fun wireGameSession(
     return controller
 }
 
-/**
- * Drives the controller from the three signals it needs. Split out from [wireGameSession] because
- * this half is the behaviour under test and the other half needs a `Context`.
- *
- * Both collectors run on [scope]'s dispatcher — the service's main scope, never the analyzer
- * thread. The capture path grabs a cloned frame and JPEG-encodes it, and the 15 fps tracking budget
- * outranks recording; `StatusPublisher` already hands both signals over off the analyzer thread.
- */
+/** The behaviour under test, split from the half that needs a `Context`. On the service scope, never the analyzer
+ *  thread: the capture path clones and JPEG-encodes a frame. */
 fun attachGameSession(
     scope: CoroutineScope,
     controller: GameSessionController,
@@ -115,8 +99,7 @@ private fun buildController(
 ): GameSessionController {
     val sessions = SessionStore(paths.sessions)
     val source = LiveCaptureSource(frame, corners) { profile()?.let { it.sourceWidth to it.sourceHeight } }
-    // The tree is walked once, never on the capture path; a finished session is added by its own
-    // directory instead ([SessionByteBudget]).
+    // The tree is walked once, never on the capture path.
     val budget = SessionByteBudget(sessions)
     val capture =
         SessionCaptureController(

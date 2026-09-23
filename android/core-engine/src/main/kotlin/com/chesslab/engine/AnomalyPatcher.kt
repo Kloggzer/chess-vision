@@ -3,18 +3,14 @@ package com.chesslab.engine
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 
-/** The occupied-square reason. */
 private const val WHY_RESIDUE = "piece moved/hand residue"
 
-/** The empty-square reason. */
 private const val WHY_DRIFT = "light drift"
 
-/** The resting-hand protection ceiling. */
 private const val CHANGED_CEILING_SLACK = 2
 
 private const val BGR_CHANNELS = 3
 
-// Indices into the `intArrayOf(x0, y0, x1, y1)` of [squareRegion].
 private const val R_X0 = 0
 
 private const val R_Y0 = 1
@@ -23,28 +19,22 @@ private const val R_X1 = 2
 
 private const val R_Y1 = 3
 
-/** What one pass of the patcher healed, and why (the note names only the LAST reason). */
+/** The note names only the LAST reason. */
 private class PatchResult(
     val patched: Long,
     val why: String,
 )
 
-/**
- * The timer, rebuilt from `changed` on EVERY detection frame: squares that stopped changing lose it,
- * new ones start now. Separate from [maybePatchAnomaly] because only the two refusal arms call that —
- * a square that went quiet over the candidate path kept its old start and came back already due.
- */
+/** Rebuilt on EVERY detection frame: only the refusal arms call [maybePatchAnomaly], and a square that went
+ *  quiet over the candidate path otherwise came back already due. */
 internal fun EngineState.trackAnomalies() {
     val hot = changed
     hot.forEachSquare { if (!anomalySince.has(it)) anomalyStart[it] = nowS }
     anomalySince = hot
 }
 
-/**
- * Nudge/drift self-healing of the reference: a square persistently "changed" although NO viable move
- * explains it (`bestLl < 0`) has its cell pulled forward once its timeout expires, instead of discarding
- * the base truth. Empty squares wait longer — a changing empty square could also be a silent wrong move.
- */
+/** A square persistently "changed" that NO viable move explains is healed after its timeout instead of
+ *  discarding base truth. Empty squares wait longer: a changing empty square could be a silent wrong move. */
 internal fun EngineState.maybePatchAnomaly(
     bestLl: Double,
     cur: GrayImage,
@@ -52,9 +42,8 @@ internal fun EngineState.maybePatchAnomaly(
 ) {
     val hot = anomalySince
     val n = hot.countOneBits()
-    // Never patch while the CNN says the board disagrees with the game state: a square that differs
-    // because the PHYSICAL board moved on looks exactly the same to the patcher, and healing it into
-    // the reference makes the diff channel agree with the wrong position permanently.
+    // Never while the CNN disagrees: a square that differs because the PHYSICAL board moved on looks the same,
+    // and healing it would make the diff channel agree with the wrong position for good.
     val desynced = alarm != null || desyncObs > 0 || cnnStatus == CNN_STATUS_MISMATCH
     val eligible = n > 0 && bestLl < 0.0 && n <= config.maxChanged + CHANGED_CEILING_SLACK && !desynced
     val ref = refGray
@@ -62,8 +51,7 @@ internal fun EngineState.maybePatchAnomaly(
         val result = patchDueSquares(hot, ref, cur, curBgr)
         if (result.patched != 0L) {
             anomalySince = anomalySince.without(result.patched)
-            // `refGray` was mutated IN PLACE, so both identity-keyed census caches must recode —
-            // `curCensusFor` can name the very same plane and would hand back stale codes.
+            // `refGray` was mutated IN PLACE: both identity-keyed census caches must recode.
             refCensusFor = null
             curCensusFor = null
             note =
@@ -77,7 +65,6 @@ internal fun EngineState.maybePatchAnomaly(
     }
 }
 
-/** The per-square timeout loop, in sorted-square order — the note names the LAST why. */
 private fun EngineState.patchDueSquares(
     hot: Long,
     ref: GrayImage,
@@ -98,11 +85,8 @@ private fun EngineState.patchDueSquares(
     return PatchResult(patched, why)
 }
 
-/**
- * Copies one cell from the current frame into the reference over **the same pixels the diff looks at,
- * including the overhang** — patching only the base cell leaves the strip above it hot forever and the
- * healing never converges.
- */
+/** Over the same pixels the diff looks at, **overhang included**: the base cell alone leaves the strip
+ *  above it hot forever. */
 private fun EngineState.patchSquare(
     square: Int,
     ref: GrayImage,
@@ -117,7 +101,6 @@ private fun EngineState.patchSquare(
     }
 }
 
-/** Copies the region, clipped to the plane. */
 private fun copyRegion(
     dst: ByteArray,
     src: ByteArray,

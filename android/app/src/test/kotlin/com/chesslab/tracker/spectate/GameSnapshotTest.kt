@@ -42,7 +42,6 @@ internal fun status(
 
 private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 
-/** The live game as the service publishes it — the ONE score sheet the spectator projects. */
 internal fun played(vararg sanUci: Pair<String, String>): GameView =
     GameView(
         id = "",
@@ -79,7 +78,6 @@ class GameSnapshotTest {
         val alarm = TrackerEvent.Alarm("illegal", listOf("e4", "d5"), "e2e4", "e4")
         val snap = gameSnapshot(status(fen = AFTER_E4, alarm = alarm), played("e4" to "e2e4"), 7L)
         assertEquals(STATUS_ALARM, snap.status)
-        // The conflict list is engine internals; only the one word crosses the wire.
         assertEquals(setOf("e4"), snap.sanHistory.toSet())
         assertNull(snap.result)
     }
@@ -107,10 +105,7 @@ class GameSnapshotTest {
         assertEquals(3L, snap.updatedAtEpochMs)
     }
 
-    /**
-     * The spectator holds no score sheet of its own any more, so a game whose plies the live source
-     * dropped — an undo — is projected without them. It used to keep them for the rest of the game.
-     */
+    /** No score sheet of its own: an undo's dropped plies once stayed on the spectator's sheet. */
     @Test
     fun theSheetIsWhateverTheLiveSourceSaysItIs() {
         assertEquals(emptyList<String>(), gameSnapshot(status(fen = AFTER_E4), played(), 0L).sanHistory)

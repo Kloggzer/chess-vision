@@ -5,7 +5,6 @@ import java.io.OutputStream
 import java.nio.charset.StandardCharsets.UTF_8
 import java.security.MessageDigest
 
-/** One crop as the memmap holds it: resized to [PACK_CROP_SIDE], RGB, row-major. */
 internal fun writePackedCrop(
     crop: Mat,
     out: OutputStream,
@@ -21,7 +20,6 @@ internal fun writePackedCrop(
     }
 }
 
-/** The `paths` and `digest` of a pack's `packed_meta.json`, fed crop by crop in manifest order. */
 internal class PackIndex {
     private val paths = StringBuilder("[")
     private val digest = MessageDigest.getInstance("SHA-256")

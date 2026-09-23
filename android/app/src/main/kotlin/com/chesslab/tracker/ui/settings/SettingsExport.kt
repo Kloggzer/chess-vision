@@ -10,18 +10,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/**
- * The settings as a bug report.
- *
- * `nonDefault` is the section that matters: forty-odd thresholds all reading their Python default
- * say nothing, and the three that do not are the whole message. `config` is kept beside it so the
- * report is self-contained and a reader never has to guess which build's defaults applied.
- *
- * Both sections read the PERSISTENCE table, not the settings screen's catalog. The screen shows
- * only the knobs a person decides; a bug report needs the rest too, and `boardSize` — which the
- * screen deliberately does not offer because the calibration profile owns it — is one of the first
- * things anyone diagnosing a tracker that sees nothing would want to read.
- */
+/** `nonDefault` is the message; `config` beside it keeps the report self-contained. Both read the
+ *  PERSISTENCE table: a bug report needs `boardSize` too, which the screen deliberately does not offer. */
 object SettingsExport {
     private val json = Json { prettyPrint = true }
 
@@ -45,7 +35,6 @@ object SettingsExport {
         config: TrackerConfig,
     ): JsonObject = buildJsonObject { knobs.forEach { put(it.key, format(it, it.get(config))) } }
 
-    /** The screen's formatting where there is a row, the raw value where there is none. */
     private fun format(
         knob: Knob,
         value: Double,

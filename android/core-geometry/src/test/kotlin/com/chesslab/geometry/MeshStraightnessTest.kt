@@ -10,9 +10,8 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 
-/** Lines that fan AND bow like a barrel residual: after [straightenBoard] every crop edge stands
- *  vertical and the STITCHED column is straight, while the linear stage still shows the bow of
- *  real frame 004251. */
+/** After [straightenBoard] every crop edge stands vertical and the STITCHED column is straight, while the linear
+ *  stage still shows the bow of real frame 004251. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class MeshStraightnessTest {
     private val geom = BoardGeometry(boardSize = BS, padSide = 0.05, outW = OUT, outH = OUT)
@@ -28,8 +27,7 @@ class MeshStraightnessTest {
         t: Double,
     ): Double = xs[k] + tx[k] * (t - 0.5) + cx[k] * (t - 0.5) * (t - 0.5)
 
-    // Sub-pixel endpoints via `shift`: plain `line` rounds to whole pixels, and that staircase
-    // alone measures as a 0.7 px slant — the ruler must be finer than what it judges.
+    // Sub-pixel endpoints: plain `line` rounds, and that staircase alone measures as a 0.7 px slant.
     private fun board(): Mat {
         val b = cropBorderPx(geom)
         val n = BS + 2 * b
@@ -65,11 +63,8 @@ class MeshStraightnessTest {
         return moment / weight
     }
 
-    // The b-file, not the a-file: the outermost line's excursion legitimately leaves the crop
-    // border and its black overhang would poison the centroid; its interior neighbour still
-    // carries a real-magnitude bow (c = 0.0375, an 8 px sagitta over this board).
+    // The b-file: the a-file's excursion leaves the crop border and its black overhang would poison the centroid.
     private fun columnEdges(mesh: GridMesh): List<Triple<Double, Double, Double>> {
-        // Once, over the whole raster — then the cut is the same plain rectangle every consumer uses.
         val warped = straightenBoard(board(), mesh, BS, cropBorderPx(geom))
         return (1..8).map { rank ->
             val crop = cropSquare(warped, "b$rank", geom)

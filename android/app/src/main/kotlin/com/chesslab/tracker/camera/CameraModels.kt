@@ -10,15 +10,9 @@ import com.chesslab.tracker.settings.ResolutionMode
 /** The CameraX fact behind [DeliveredSize]: read off the ImageProxy, never off the request. */
 fun deliveredSizeOf(image: ImageProxy): DeliveredSize = DeliveredSize(image.width, image.height, image.imageInfo.rotationDegrees)
 
-/**
- * Analyzer seam.
- *
- * Invoked on the `chesslab-analyzer` thread; [image] is a pooled resource that [TrackerCamera]
- * closes as soon as this call returns, so the sink must neither retain it nor pass it to another
- * thread. A callback and not a Flow on purpose: queueing an `ImageProxy` starves the pool and
- * re-delivers stale frames, and a repeated frame diffs to zero — it reads as "board stable" while
- * a hand is moving (entry.md invariant 14).
- */
+/** [image] is pooled and closed when this returns: never retain it or hand it to another thread. A
+ *  callback, not a Flow: a queued `ImageProxy` starves the pool, and a re-delivered frame diffs to zero —
+ *  "board stable" while a hand moves (entry.md invariant 14). */
 fun interface FrameSink {
     fun onFrame(
         image: ImageProxy,
@@ -26,7 +20,6 @@ fun interface FrameSink {
     )
 }
 
-/** What we ask the device for. A wish — see [DeliveredSize]. */
 data class CameraRequest(
     val width: Int,
     val height: Int,
@@ -34,28 +27,16 @@ data class CameraRequest(
     /** Pinned onto `CONTROL_AE_TARGET_FPS_RANGE` — see `TrackerCamera.pinFrameRate`. */
     val targetFps: Int,
 ) {
-    /** The one lower mode a repeatedly failing high-bandwidth binding retries at. */
     fun downshifted(): CameraRequest = copy(width = DOWNSHIFT_WIDTH, height = DOWNSHIFT_HEIGHT)
 }
 
-/**
- * The aspect ratio the requested size actually is.
- *
- * Stating it is what stops CameraX handing back a 4:3 frame for a 16:9 request; every mode here
- * is 16:9, and [AspectRatioStrategy.RATIO_16_9] is derived rather than hardcoded so a future 4:3
- * mode does not silently inherit the wrong one.
- */
+/** Stated, or CameraX hands a 4:3 frame to a 16:9 request. [AspectRatioStrategy.RATIO_16_9] is derived, so a
+ *  future 4:3 mode does not inherit it. */
 internal fun aspectRatioFor(request: CameraRequest): Int =
     if (request.width * HEIGHT_4_3 == request.height * WIDTH_4_3) AspectRatio.RATIO_4_3 else AspectRatio.RATIO_16_9
 
-/**
- * 07a's [ResolutionMode] as a request.
- *
- * This changes what is ASKED for and nothing else: the delivered [DeliveredSize] read off the
- * `ImageProxy` remains the single source of truth for calibration, live-align and the size guard
- * (commit `a7dab73`). AUTO is 1080p rather than "whatever CameraX picks", because 1080p is the
- * mode the 15 fps analyzer budget was measured at — an unnamed default is not a measured one.
- */
+/** Changes what is ASKED for only; the `ImageProxy`'s [DeliveredSize] stays the truth. AUTO is 1080p, the mode
+ *  the 15 fps analyzer budget was measured at — an unnamed default is not a measured one. */
 fun cameraRequestFor(
     mode: ResolutionMode,
     rate: FrameRateMode,

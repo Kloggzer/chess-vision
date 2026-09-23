@@ -76,12 +76,7 @@ class CalibrationViewModelTest {
             assertEquals(1920, vm.state.value.frameWidth)
         }
 
-    /**
-     * The frame size is stamped even when nothing was found.
-     *
-     * It is the source size everything downstream maps into and it must come from the detected Mat
-     * (a7dab73) — a screen that has seen a frame but no board still knows how big the frame is.
-     */
+    /** Stamped even when nothing was found: the source size must come from the detected Mat (a7dab73). */
     @Test
     fun aFailedDetectionStillStampsTheFrameSize() =
         runTest {
@@ -93,7 +88,6 @@ class CalibrationViewModelTest {
             assertEquals(1080, vm.state.value.frameHeight)
         }
 
-    /** No frame at all is a different state from a frame with no board, and says so. */
     @Test
     fun noFrameSaysSo() =
         runTest {
@@ -106,7 +100,7 @@ class CalibrationViewModelTest {
             assertEquals(0, vm.state.value.frameWidth)
         }
 
-    /** A detection in flight must not be joined by a second one — the detector is not reentrant. */
+    /** The detector is not reentrant. */
     @Test
     fun detectionsDoNotOverlap() =
         runTest {
@@ -121,7 +115,6 @@ class CalibrationViewModelTest {
             advanceUntilIdle()
         }
 
-    /** One throw from the detector must not take the screen down with it for good. */
     @Test
     fun aThrowingDetectionDoesNotWedgeTheScreen() =
         runTest {
@@ -135,7 +128,6 @@ class CalibrationViewModelTest {
             assertTrue(vm.state.value.found, "the screen never recovered and shows no board")
         }
 
-    /** And one throw from the STORE must not stop the screen adopting a board ever again. */
     @Test
     fun aThrowingStoreDoesNotWedgeTheAdoption() =
         runTest {
@@ -152,7 +144,6 @@ class CalibrationViewModelTest {
             coroutineContext.cancelChildren()
         }
 
-    /** Three matching four-code reads are adopted with nobody pressing anything. */
     @Test
     fun aFullReadIsAdoptedOnItsOwn() =
         runTest {
@@ -174,11 +165,8 @@ class CalibrationViewModelTest {
             coroutineContext.cancelChildren()
         }
 
-    /**
-     * Below four codes the quad is RECONSTRUCTED, and at two it is a similarity fit — a square-board
-     * assumption with no perspective. Writing a board size derived from that is the silent geometry
-     * invalidation this screen was rebuilt to stop. The outline still shows; the record does not move.
-     */
+    /** Below four codes the quad is RECONSTRUCTED, at two a similarity fit: a board size from that is the silent
+     *  geometry invalidation this screen was rebuilt to stop. */
     @Test
     fun aPartialReadIsDrawnButNeverWritten() =
         runTest {
@@ -195,7 +183,6 @@ class CalibrationViewModelTest {
             coroutineContext.cancelChildren()
         }
 
-    /** Three projective markers may repair a stale profile, but only after five matching reads. */
     @Test
     fun threeStableMarkersAreAdopted() =
         runTest {
@@ -218,7 +205,6 @@ class CalibrationViewModelTest {
             coroutineContext.cancelChildren()
         }
 
-    /** A steady camera must not rewrite the profile twice a second. */
     @Test
     fun aSteadyBoardIsWrittenOnce() =
         runTest {
@@ -232,7 +218,7 @@ class CalibrationViewModelTest {
             coroutineContext.cancelChildren()
         }
 
-    /** The first detection must already use the stored dictionary, or a board with other codes stays invisible. */
+    /** The stored dictionary from the first detection, or a board with other codes stays invisible. */
     @Test
     fun theFirstDetectionUsesTheSavedMarkerDictionary() =
         runTest {
@@ -247,7 +233,6 @@ class CalibrationViewModelTest {
             coroutineContext.cancelChildren()
         }
 
-    /** Opening a screen over an unchanged board must not rewrite the stored profile. */
     @Test
     fun anUnchangedBoardIsNotRewrittenWhenAScreenOpens() =
         runTest {
@@ -268,13 +253,7 @@ class CalibrationViewModelTest {
         }
 }
 
-/**
- * The sentence is the whole of this screen's copy, so it is the whole of what there is to test.
- *
- * Four branches, and the distinction that matters is the middle one: fewer than four codes is NOT a
- * failure — the missing corners are reconstructed — but the user is told, because an inferred quad
- * and a measured one are not the same thing.
- */
+/** Fewer than four codes is NOT a failure, but the user is told: inferred and measured quads differ. */
 class BoardNoteTest {
     @Test
     fun everyBranchSaysWhatToDo() {
@@ -286,7 +265,6 @@ class BoardNoteTest {
     }
 }
 
-/** Throws on the first detection and behaves on every later one. */
 private class ThrowingOnceDetector : BoardDetector {
     var calls: Int = 0
         private set
@@ -304,7 +282,6 @@ private class ThrowingOnceDetector : BoardDetector {
     ): Bitmap? = null
 }
 
-/** Records the marker dictionary the detection would search with. */
 private class GeometryReadingDetector(
     private val geometry: () -> BoardGeometry,
     private val seen: MutableList<String>,
@@ -321,7 +298,6 @@ private class GeometryReadingDetector(
     ): Bitmap? = null
 }
 
-/** A store that fails its first write — a full disk, or a store the process cannot open. */
 private class ThrowingOnceBacking : ProfileBacking {
     private val flow = MutableStateFlow<String?>(null)
     var writes: Int = 0

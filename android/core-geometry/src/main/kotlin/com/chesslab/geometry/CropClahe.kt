@@ -6,12 +6,8 @@ import org.opencv.core.Size
 import org.opencv.imgproc.CLAHE
 import org.opencv.imgproc.Imgproc
 
-/**
- * Lokaler Kontrast auf dem L-Kanal eines fertigen Crops — die Kotlin-Seite von
- * `training/torch_data.py:_Clahe`, gemessen in `docs/camera.md`.
- *
- * Kein [ImageNode]: der Graph memoisiert je FRAME, diese Stufe entscheidet je ZELLE.
- */
+/** Die Kotlin-Seite von `torch_data.py:_Clahe`. Kein [ImageNode]: der Graph memoisiert je FRAME, diese Stufe
+ *  entscheidet je ZELLE. */
 class CropClahe(
     private val clip: Double,
     private val tile: Int,
@@ -23,7 +19,7 @@ class CropClahe(
     private val gray = Mat()
     private val channels = ArrayList<Mat>(LAB_CHANNELS)
 
-    /** `true`, wenn dieser Crop im Band liegt und behandelt wurde. Der Mat wird IN PLACE geaendert. */
+    /** Der Mat wird IN PLACE geaendert. */
     fun applyTo(bgr: Mat): Boolean {
         if (!inside(bgr)) return false
         Imgproc.cvtColor(bgr, lab, Imgproc.COLOR_BGR2Lab)
@@ -39,12 +35,7 @@ class CropClahe(
         return true
     }
 
-    /**
-     * Das Fenster ist ein BAND, keine Schwelle — und es misst den INNEREN Teil der Zelle.
-     *
-     * Der Rand traegt das Nachbarfeld (`pad_side`), also wuerde ein heller Nachbar eine dunkle
-     * Zelle aus dem Band schieben. Python schneidet dafuer `arr.shape[0] // 10` ab; dieselbe Zahl.
-     */
+    /** Ein BAND, keine Schwelle, gemessen auf dem INNEREN Teil: der Rand traegt das Nachbarfeld (`pad_side`). */
     private fun inside(bgr: Mat): Boolean {
         if (minMean <= 0.0 && maxMean >= MAX_LEVEL) return true
         val edge = maxOf(1, bgr.rows() / EDGE_DIVISOR)
@@ -69,7 +60,6 @@ class CropClahe(
     companion object {
         const val MAX_LEVEL = 255.0
 
-        /** `edge = max(1, h // 10)` — dieselbe Zahl wie in `_Clahe._inside`. */
         const val EDGE_DIVISOR = 10
         private const val LAB_CHANNELS = 3
     }

@@ -4,10 +4,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `asAsked` compared only the LONG side, so a device that cropped the short one reported "exactly
- * as asked" and `capture.json` claimed a picture it never delivered.
- */
+/** `asAsked` compared only the LONG side, so a cropped short side read "exactly as asked". */
 class CaptureProfileTest {
     private val requested = CaptureProfile(3840, 2160, 30)
 
@@ -37,7 +34,6 @@ class CaptureProfileTest {
 
     @Test
     fun `a rate that ran free is not as asked`() {
-        // Ohne gepinnten AE-Bereich durfte die Automatik die Periode strecken.
         assertFalse(observed(DeliveredSize(3840, 2160, 0)).copy(aeFpsRange = null).asAsked)
     }
 

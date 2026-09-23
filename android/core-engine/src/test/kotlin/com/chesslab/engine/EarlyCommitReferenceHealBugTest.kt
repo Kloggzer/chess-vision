@@ -6,9 +6,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
-/** Bug-Audit E2: die Heilung verlangt `!motionSinceRef`, also feuert sie nie, wenn der Gegner
- *  INNERHALB des Halts antwortet — die handkontaminierte Referenz bleibt. Lasttragend:
- *  die gemessene Commit-Latenz entstand auf diesem Weg (`docs/bug-audit-2026-09-13.md`). */
+/** Die Heilung verlangt `!motionSinceRef`, feuert also nie, wenn der Gegner INNERHALB des Halts antwortet.
+ *  Lasttragend: die gemessene Commit-Latenz entstand auf diesem Weg (`docs/bug-audit-2026-09-13.md` E2). */
 @Disabled("BUG: E2 — a provisional reference is never healed once the opponent moves inside the hold")
 class EarlyCommitReferenceHealBugTest {
     @Test

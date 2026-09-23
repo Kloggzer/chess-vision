@@ -8,19 +8,11 @@ import org.opencv.imgcodecs.Imgcodecs
 /** `slice` cuts crops from these frames; a downscale would throw away the resolution it needs. */
 private const val JPEG_QUALITY = 90
 
-/**
- * The live frame source: the service's raw camera frame plus the corners the tracker warped with.
- *
- * The frame is encoded to JPEG **at grab time** and the `Mat` released immediately. Holding a
- * cloned full-resolution `Mat` until some later write would tie native memory to a decision the
- * controller has not made yet — and a dropped capture would leak it.
- */
+/** Encoded to JPEG **at grab time** and released: a held full-resolution `Mat` would leak on a dropped capture. */
 class LiveCaptureSource(
-    // `TrackerBinder.latestCalibrationFrame` — a CLONE, released here.
+    // A CLONE, released here.
     private val frame: () -> Mat?,
-    // `TrackerStatus.corners`, `[a8, h8, h1, a1]` in source px.
     private val corners: () -> FloatArray?,
-    // The calibration profile's own source size.
     private val profileSize: () -> Pair<Int, Int>?,
 ) : CaptureSource {
     override fun sessionFrame(): CaptureFrame? {

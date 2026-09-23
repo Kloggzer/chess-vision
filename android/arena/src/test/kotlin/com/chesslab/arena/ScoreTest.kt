@@ -3,10 +3,7 @@ package com.chesslab.arena
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * Every `run(...)` here is a LEGAL sequence, because the arena keeps the board and refuses
- * anything else — a test built on an impossible run measures a case that cannot occur.
- */
+/** Every run here is LEGAL: the arena refuses anything else, so an impossible run tests nothing real. */
 class ScoreTest {
     private fun truth(vararg sans: String) = sans.mapIndexed { i, san -> TruthPly(san, i * 100) }
 
@@ -20,7 +17,6 @@ class ScoreTest {
         assertEquals(listOf(1L, 1L, 1L), scored.lag)
     }
 
-    /** A run that stops early has missed the rest; it has not invented anything. */
     @Test
     fun `plies the run never reached are missed`() {
         val scored = score(truth("e4", "e5", "Nf3", "Nc6"), run("e4" to 1, "e5" to 101))
@@ -29,7 +25,6 @@ class ScoreTest {
         assertEquals(0, scored.invented.size)
     }
 
-    /** A board the reference never stands on is a phantom, and the veto stays hard. */
     @Test
     fun `a wrong move is a phantom`() {
         val scored = score(truth("e4", "e5", "Nf3", "Nc6"), run("e4" to 1, "e5" to 101, "Qh5" to 201))
@@ -38,11 +33,7 @@ class ScoreTest {
         assertEquals(0, scored.reordered)
     }
 
-    /**
-     * A still frame cannot prove an order. Our own references guessed one on 8 % of their plies and
-     * on `VID_20260726_233432` guessed it wrong — so the same board in the same number of
-     * half-moves counts, whatever the names say.
-     */
+    /** A still frame cannot prove an order: the same board in the same number of half-moves counts. */
     @Test
     fun `a reordering that reaches the same board counts as found`() {
         val scored = score(truth("Nf3", "e5", "e4"), run("e4" to 10, "e5" to 20, "Nf3" to 30))
@@ -61,7 +52,6 @@ class ScoreTest {
         assertEquals(2, scored.missed.size)
     }
 
-    /** The reference ends where a tracker run gave up; a run that goes further is not inventing. */
     @Test
     fun `commits after a fully matched reference count as beyond`() {
         val scored = score(truth("e4", "e5"), run("e4" to 1, "e5" to 101, "Nf3" to 201, "Nc6" to 301))
@@ -70,7 +60,6 @@ class ScoreTest {
         assertEquals(listOf("Nf3", "Nc6"), scored.beyond.map { it.san })
     }
 
-    /** But only then: leaving the reference's line and carrying on is the phantom case. */
     @Test
     fun `a tail after a missed ply stays a phantom`() {
         val scored = score(truth("e4", "e5", "Nf3", "Nc6"), run("e4" to 1, "e5" to 101, "Qh5" to 201, "Nc6" to 301))

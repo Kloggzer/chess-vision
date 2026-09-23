@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import kotlin.math.abs
 
-/** Derselbe Fall wie `tests/test_axis_fit_parity.py`: `fitAxis` und `alignment._fit_axis` hielt
- *  bis 2026-09-15 nur ein Kommentar zusammen, jede Seite gegen ihre eigene synthetische Wahrheit. */
+/** `fitAxis` und `alignment._fit_axis` hielt vorher nur ein Kommentar zusammen, jede Seite gegen ihre eigene Wahrheit. */
 class AxisFitParityTest {
     @Test
     fun `every shared case fits the same lines as Python`() {

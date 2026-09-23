@@ -22,7 +22,6 @@ import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.nio.ByteBuffer
 
-/** Every memmap pack keeps its three files in step: bytes, manifest rows, and the meta's paths and digest. */
 class PackWritersTest {
     @TempDir
     lateinit var dir: File
@@ -85,7 +84,6 @@ class PackWritersTest {
         val corrections: String,
     )
 
-    /** Three frames of one board in `rec/`; a human marked e2 and e4 of frame 1 as occluded. */
     private fun recording(): Recording {
         NativeCv.require()
         val rec = File(dir, "rec").apply { mkdirs() }

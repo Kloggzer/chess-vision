@@ -15,11 +15,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * The 969 parity frames exercise the DIFF path only; this runs the CNN chain on real pixels. An
- * EXPERIMENT: harness contract and diff-only baseline are asserted, CNN-on lists REPORTED. Opt-in:
- * `-Pchesslab.sim=true` (plus `.models=<dir>,…` / `.defaults=true`, see `SimClips.kt`).
- */
+/** The parity frames exercise the DIFF path only; this runs the CNN on real pixels. Baseline asserted,
+ *  CNN-on REPORTED. Opt-in: `-Pchesslab.sim=true` (see `SimClips.kt`). */
 @EnabledIfSystemProperty(named = "chesslab.sim", matches = "true")
 class CnnClipSimulationTest {
     @Test
@@ -57,7 +54,6 @@ class CnnClipSimulationTest {
     }
 }
 
-/** `TrackerConfig`'s CNN knobs (from the clip's fixture `effectiveConfig`) as a [CnnConfig]. */
 private fun cnnConfigOf(clip: SimClip): CnnConfig =
     CnnConfig(
         confThr = clip.config.cnnConfThr,
@@ -104,7 +100,6 @@ private fun report(results: List<Pair<SimResult, SimResult>>) {
     println("================================================================================\n")
 }
 
-/** How many diverging clips there are, split by whether the diff path already failed. */
 private fun totals(results: List<Pair<SimResult, SimResult>>): String {
     val n = results.size
     val baseOk = results.count { it.first.ok }
@@ -147,10 +142,7 @@ private fun assertHarnessRan(results: List<Pair<SimResult, SimResult>>) {
     }
 }
 
-/**
- * The one MOVE assertion: Python reproduces every committed clip at full rate
- * (`meta.sanMatchesManifestAtFullRate`). Alternate clips or shipped defaults have no reference: reported.
- */
+/** The one MOVE assertion: Python reproduces every committed clip at full rate. The rest is reported. */
 private fun assertBaselineReproducesGroundTruth(baselines: List<SimResult>) {
     val failed = baselines.filterNot { it.ok }
     if (!usingDefaultClips() || usingShippedDefaults()) {

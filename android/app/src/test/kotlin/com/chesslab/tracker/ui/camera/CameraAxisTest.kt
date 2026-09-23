@@ -10,14 +10,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The pure half of the camera deck: which tiles a device gets, what each one reads, and whether the
- * saved board quad may be drawn over the picture at all.
- *
- * Only the parts a JVM can decide. The layout itself is judged on the phone — this file guards the
- * two things that are silently wrong rather than visibly wrong: a tile offered for an axis the
- * device does not have, and a quad drawn through the wrong aspect ratio.
- */
+/** Only what a JVM can decide — the silently wrong: a tile for an axis the device lacks, a quad through
+ *  the wrong aspect ratio. */
 class CameraAxisTest {
     private val phone =
         CameraAbilities(
@@ -35,7 +29,6 @@ class CameraAxisTest {
         assertEquals(CameraAxis.entries, CameraAxis.entries.filter { it.availableOn(phone) })
     }
 
-    /** A control shown dead invites the user to conclude the app is broken. It is not shown. */
     @Test
     fun noAxisIsOfferedOnACameraThatAdvertisesNothing() {
         assertTrue(CameraAxis.entries.none { it.availableOn(bare) })
@@ -50,7 +43,6 @@ class CameraAxisTest {
         assertTrue(CameraAxis.EXPOSURE.availableOn(simple))
     }
 
-    /** The highlight means "this axis is no longer the device's automatic", nothing else. */
     @Test
     fun untouchedAxesAreNotMarkedAsSet() {
         assertTrue(CameraAxis.entries.none { it.isSet(CameraLook()) })
@@ -68,7 +60,6 @@ class CameraAxisTest {
         assertEquals("Auto", CameraAxis.WHITE_BALANCE.reading(look, phone))
     }
 
-    /** The tile carries EV, not the device's index — ±24 sixths is the ±4 EV the phone advertises. */
     @Test
     fun exposureReadsInEvAndCarriesItsSign() {
         assertTrue(CameraAxis.EXPOSURE.reading(CameraLook(evIndex = 24), phone).startsWith("+4"))
@@ -97,11 +88,8 @@ class CameraAxisTest {
         assertTrue(canDrawQuad(profileAt(1281, 720), 1280, 720), "a pixel of rounding is not a different shape")
     }
 
-    /**
-     * The failure this guard exists for: `QuadOutline` scales per axis, so a 4:3 profile over a
-     * 16:9 picture draws a green outline near the board that the user would then aim by. There is
-     * no rescale to reach for — `forResolution()` was deleted for producing exactly that.
-     */
+    /** `QuadOutline` scales per axis, so a 4:3 profile over 16:9 draws a misleading outline; `forResolution()`
+     *  was deleted for producing exactly that. */
     @Test
     fun aProfileFromADifferentlyShapedFrameDrawsNothing() {
         assertFalse(canDrawQuad(profileAt(1440, 1080), 1280, 720))

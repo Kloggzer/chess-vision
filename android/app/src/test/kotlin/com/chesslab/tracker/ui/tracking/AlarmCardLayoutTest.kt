@@ -27,11 +27,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
-/**
- * Twice a `Column` measured this card's prose before its buttons and left them 1-2 mm tall, and
- * twice a human found it by launching the app — the incidents are recorded in `AlarmCard.kt`.
- * Capping the prose is not preferring the buttons, and only a measured height tells the two apart.
- */
+/** Twice a `Column` measured the prose before the buttons and left them 1-2 mm tall; only a measured height
+ *  tells "capping the prose" from "preferring the buttons". */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [ROBOLECTRIC_SDK], qualifiers = PHONE_PORTRAIT, application = Application::class)
 class AlarmCardLayoutTest {
@@ -70,11 +67,8 @@ class AlarmCardLayoutTest {
     }
 }
 
-/**
- * `createComposeRule()` launches a bare `ComponentActivity`, which only `ui-test-manifest`
- * declares — and that artifact is debug-only, so the emulator and release unit tests could not
- * resolve it. Registering the activity here keeps the gate running in all three variants.
- */
+/** `createComposeRule()` needs `ComponentActivity`, which only the debug-only `ui-test-manifest` declares:
+ *  registering it here keeps the gate running in all three variants. */
 class ComponentActivityRule : ExternalResource() {
     override fun before() {
         val context = RuntimeEnvironment.getApplication()
@@ -83,7 +77,6 @@ class ComponentActivityRule : ExternalResource() {
     }
 }
 
-/** Enough conflicts that the prose alone wants more room than the whole card gets. */
 private val ALARM_ILLEGAL =
     AlarmUi(
         kind = "illegal_move",
@@ -93,15 +86,14 @@ private val ALARM_ILLEGAL =
 
 private val ALARM_REFUSED = ALARM_ILLEGAL.copy(kind = "illegal_move_refused")
 
-/** A four-ply CNN recovery: the longest label the take-back button ever carries. */
+/** A four-ply recovery: the longest label the take-back button ever carries. */
 private val BRIDGE = listOf("Bxb5", "Kb8", "Bd4", "Nf3")
 
 private val ACTIONS = listOf("Accept CNN position", "Take back ${BRIDGE.size} moves", "New baseline")
 
-/** Roughly what is left under the board on a phone in portrait — the squeeze both incidents were. */
+/** Roughly what is left under the board on a phone in portrait. */
 private val SQUEEZE = 220.dp
 
-/** Down to where two stacked touch targets plus the card's own padding still fit at all. */
 private val LADDER = listOf(220.dp, 200.dp, 180.dp, 160.dp)
 
 private const val ROBOLECTRIC_SDK = 35
@@ -128,7 +120,7 @@ private fun ComposeContentTestRule.showSqueezed(initial: Dp): MutableState<Dp> {
     return cap
 }
 
-/** The raw latch name reads as an accusation; the card owes the user a sentence for every kind. */
+/** The raw latch name reads as an accusation; every kind needs a sentence. */
 private fun ComposeContentTestRule.assertPhrased(
     kind: String,
     tail: String,

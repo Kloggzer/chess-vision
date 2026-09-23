@@ -5,14 +5,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Whether the CNN safeguard is actually running. MEMORY `android-live-bringup-2607`: the
- * attach failed silently once and the tracker ran diff-only for a whole session with nobody
- * noticing. Every state is surfaced (06c mirrors [Failed] into `TrackerStatus.note`, 07b
- * renders it verbatim), so a CNN that is supposed to be on and is not cannot be missed.
- */
+/** The attach once failed silently and the tracker ran diff-only for a whole session: every state is surfaced. */
 sealed interface CnnState {
-    /** The user disabled the CNN — not a failure. */
+    /** Not a failure. */
     data object Off : CnnState
 
     data object Attaching : CnnState
@@ -27,24 +22,16 @@ sealed interface CnnState {
     ) : CnnState
 }
 
-/**
- * Kept as a name because the CNN's call sites read better for it; it IS the general seam.
- * The Android implementation lives in `log/AndroidTrackerLog.kt` so this file names no platform.
- */
+/** The Android implementation lives in `log/AndroidTrackerLog.kt` so this file names no platform. */
 typealias CnnLog = TrackerLog
 
-/**
- * The single owner of [CnnState]. Every transition logs at its level; [Failed] is **sticky**
- * for the session so a broken model does not retry-and-log at loop rate — only [retry], which
- * the debug screen calls explicitly, clears it.
- */
+/** [Failed] is **sticky** for the session so a broken model does not retry-and-log at loop rate. */
 class CnnStateHolder(
     private val log: CnnLog,
 ) {
     private val mutable = MutableStateFlow<CnnState>(CnnState.Off)
     val state: StateFlow<CnnState> = mutable.asStateFlow()
 
-    /** @return false when a sticky [CnnState.Failed] blocks the attach. */
     fun beginAttach(): Boolean {
         if (mutable.value is CnnState.Failed) return false
         mutable.value = CnnState.Attaching
@@ -57,7 +44,7 @@ class CnnStateHolder(
         return beginAttach()
     }
 
-    /** The one backend line per session (`ee7c83c` / the manual logcat check). */
+    /** The one backend line per session. */
     fun ready(
         backend: String,
         model: String,

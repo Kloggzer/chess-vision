@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.random.Random
 
-/** Census invariants no fixture pins: replicate padding, `eps == 0`, the 255/8 scaling. */
+/** What no fixture pins: replicate padding, `eps == 0`, the 255/8 scaling. */
 class CensusUnitTest {
     @Test
     fun popcountTable() {
@@ -53,7 +53,7 @@ class CensusUnitTest {
 
     @Test
     fun paddingIsReplicateNotRoll() {
-        // With wrap/roll padding row 0 would be compared against the last row and rank 8 would light up.
+        // With wrap/roll padding row 0 would compare against the last row and rank 8 would light up.
         val data = ByteArray(SIZE * SIZE)
         for (y in 0 until SIZE) {
             val v = if (y < SIZE / 2) BRIGHT else DARK
@@ -66,7 +66,6 @@ class CensusUnitTest {
         for (x in 0 until SIZE) {
             assertEquals(0, codes[x].toInt() and MASK, "row 0 col $x must see its replicated self")
         }
-        // Only the last bright row (the step edge) is hot; the rank-8 squares stay cold.
         val out = DoubleArray(Squares.COUNT)
         perSquareCensusChange(ByteArray(SIZE * SIZE), split, squareBoxes(SIZE, true), out)
         for (file in Squares.FILES) {
@@ -107,7 +106,6 @@ class CensusUnitTest {
         assertTrue(out.all { it == 0.0 }, "an inverted band must read 0.0")
     }
 
-    /** The load-bearing claim of the box-scoped transform. */
     @Test
     fun boxCodesEqualTheFullTransformInsideTheBoxes() {
         val gray = texture()
@@ -129,7 +127,6 @@ class CensusUnitTest {
         val bandRows = HALF
         val band = censusTransform(gray, yLo = HALF, yHi = HALF + bandRows, out = ByteArray(SIZE * bandRows))
         val full = censusTransform(gray, out = ByteArray(SIZE * SIZE))
-        // Interior rows are identical to the full transform...
         for (j in 1 until bandRows - 1) {
             for (x in 0 until SIZE) {
                 assertEquals(
@@ -139,7 +136,7 @@ class CensusUnitTest {
                 )
             }
         }
-        // ...and its first row replicates itself upwards, which is why the halo guard exists.
+        // Its first row replicates itself upwards, which is why the halo guard exists.
         val standalone =
             censusTransform(
                 GrayImage(SIZE, bandRows, gray.data.copyOfRange(HALF * SIZE, (HALF + bandRows) * SIZE)),

@@ -2,10 +2,6 @@ package com.chesslab.tracker.log
 
 import android.util.Log
 
-/**
- * The Android half of [TrackerLog]. This file stays with the app when the runtime moves to its own
- * module — it is the one place allowed to name `android.util.Log` on behalf of the shared code.
- */
 class AndroidTrackerLog(
     private val tag: String,
 ) : TrackerLog {
@@ -32,5 +28,4 @@ class AndroidTrackerLog(
     }
 }
 
-/** What the app hands the shared runtime: every channel it names becomes a logcat tag. */
 val androidTrackerLogs: TrackerLogs = { tag -> AndroidTrackerLog(tag) }

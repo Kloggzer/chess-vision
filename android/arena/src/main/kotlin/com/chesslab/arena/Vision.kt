@@ -19,13 +19,8 @@ import com.chesslab.tracker.settings.AppSettings
 import org.opencv.core.Mat
 import java.io.File
 
-/**
- * The classifier, loaded and fed exactly the way the phone feeds it.
- *
- * Cutting the crops differently is the project's oldest silent failure — a 128 px box served to
- * an 80 px graph threw on every observation and the run still printed `cnn=run`. So the crop
- * geometry comes from the model's own `config.json` ([ModelSpec]) and from nowhere else.
- */
+/** Fed exactly as the phone feeds it: a 128 px box served to an 80 px graph threw on every observation
+ *  while the run printed `cnn=run`. The crop comes from the model's own `config.json` only. */
 class Vision(
     val model: String,
     assetRoot: File = File(ASSET_SOURCE),
@@ -43,24 +38,18 @@ class Vision(
     private val attached = openClassifier(assets, AppSettings(), CnnRuntimeProbe(), NoopTrackerLog, INTRA_OP_THREADS)
     private val classifier: SquareClassifier = attached.classifier
 
-    /** The class column names, in the order [readSquares] returns them. */
     val classes: List<String> = classifier.classes
 
-    /** True when column 13 is an INDEPENDENT coverage sigmoid rather than a class probability. */
+    /** Column 13 is an INDEPENDENT coverage sigmoid, not a class probability. */
     val coverageOutput: Boolean = spec.coverageOutput
 
-    /** Above this coverage the model's own class read is not worth having. Follows from its accuracy. */
     val coverageGate: Double? = spec.coverageGate
 
     val backend: String = attached.backend
 
-    /** The board geometry this model wants for a detected quad: its crop size, its pads. */
     fun geometryFor(quad: FloatArray): BoardGeometry = boardGeometryFor(quad).withCropOf(spec)
 
-    /**
-     * 64 rows in `a1..h8` order, each `classes.size` probabilities plus the coverage column when
-     * the model declares one.
-     */
+    /** 64 rows `a1..h8`, the class probabilities plus the coverage column where declared. */
     fun readSquares(
         frame: Mat,
         quad: FloatArray,
@@ -95,17 +84,13 @@ class Vision(
     }
 }
 
-/**
- * Die 13+1-Modelle — EINE Liste, die des APK (`cnn.BUNDLED_MODELS`). Die eigene Kopie hier nannte
- * vier Namen, die seit Wochen nicht mehr unter `assets/cnn_model/` liegen; `Models.served` liess
- * nur sie durch, also starb jedes Arena-Verb vor dem ersten Frame (`ServedModelsExistTest`).
- */
+/** EINE Liste, die des APK: die eigene Kopie hier nannte vier nicht mehr gebuendelte Namen, und jedes Verb
+ *  starb vor dem ersten Frame (`ServedModelsExistTest`). */
 val COVERAGE_MODELS = com.chesslab.tracker.cnn.BUNDLED_MODELS
 
-/** What a run reads unless it names another one. */
 val DEFAULT_MODEL = com.chesslab.tracker.cnn.DEFAULT_MODEL
 
 private const val STAGING = "../../tmp/arena-staging"
 
-/** Four threads are bit-exact for this graph and roughly halve a cold run (measured on `:desktop`). */
+/** Four threads are bit-exact for this graph and roughly halve a cold run. */
 private const val INTRA_OP_THREADS = 4

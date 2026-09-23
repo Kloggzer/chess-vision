@@ -16,8 +16,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Ein Regler ohne Drossel schreibt je Compose-Bild, und jeder Wert ist ein DataStore-Schreiben
- *  UND ein `UpdateConfig` in der Aktions-Queue der Engine. */
+/** Ohne Drossel ist jeder Wert ein DataStore-Schreiben UND ein `UpdateConfig` in der Engine-Queue. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [ROBOLECTRIC_SDK], qualifiers = PHONE_PORTRAIT, application = Application::class)
 class KnobSliderThrottleTest {

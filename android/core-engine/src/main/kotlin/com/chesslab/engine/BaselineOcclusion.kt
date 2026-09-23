@@ -7,7 +7,6 @@ private const val WEAK_DARKENING_DIVISOR = 2.0
 
 private const val BGR_CHANNELS = 3
 
-/** Orthogonal rank/file neighbours only; never diagonals. */
 internal val SQ_NEIGHBOURS: LongArray =
     LongArray(Squares.COUNT) { i ->
         val file = i % Squares.N
@@ -20,7 +19,6 @@ internal val SQ_NEIGHBOURS: LongArray =
         mask
     }
 
-/** Without structural inputs, every strong square is conservatively treated as occluded. */
 internal class BaselineEvidence(
     val refCodes: ByteArray? = null,
     val occlCensusThr: Double = 0.0,
@@ -29,18 +27,13 @@ internal class BaselineEvidence(
     val colorThr: Double = 0.0,
 )
 
-/**
- * @property occluded dilated squares used for z-taint.
- * @property shadow dilated shadows minus dilated occlusion.
- * @property core raw undilated occlusion (entry.md invariant 3).
- */
+/** [core] is the raw undilated occlusion (entry.md invariant 3). */
 internal class BaselineResult(
     val occluded: Long,
     val shadow: Long,
     val core: Long,
 )
 
-/** Scratch belongs to the [EngineState] whose reference is being compared. */
 internal class BaselineScratch {
     var lab = ByteArray(0)
     var hsv = ByteArray(0)
@@ -50,11 +43,8 @@ internal class BaselineScratch {
     val censValues = DoubleArray(Squares.COUNT)
 }
 
-/**
- * Base boxes use `extendUp=0.0`; strong structure, chroma outliers, or brightening mean occlusion.
- * Flat chroma-consistent darkening is shadow; weak darkening starts above [absThr]/2.
- * Both results dilate orthogonally, while core stays raw (entry.md invariant 3).
- */
+/** Strong structure, chroma outliers or brightening mean occlusion; flat chroma-consistent darkening is
+ *  shadow. Both dilate orthogonally; core stays raw (entry.md invariant 3). */
 internal fun BaselineScratch.baselineOcclusionAndShadow(
     curGray: GrayImage,
     refGray: GrayImage,
@@ -85,8 +75,7 @@ internal fun BaselineScratch.baselineOcclusionAndShadow(
         }
     }
     val dilatedOcc = dilate(occluded)
-    // Count raw core for the occluded-state gate; dilation can turn one square into five.
-    // Dilation still protects z-taint (entry.md invariant 3).
+    // Raw core for the occluded-state gate: dilation can turn one square into five.
     return BaselineResult(dilatedOcc, dilate(shadow).without(dilatedOcc), occluded)
 }
 
@@ -119,7 +108,7 @@ private fun BaselineScratch.censusChannel(
     return perSquareCensusChange(refCodes, curGray, boxes, censValues, intArrayOf(bandLo - 1, bandHi + 1))
 }
 
-/** Converts only strong squares; a full-plane conversion cost 50 ms per moving frame on-phone. */
+/** Strong squares only: a full-plane conversion cost 50 ms per moving frame on the phone. */
 private fun BaselineScratch.chromaOutliers(
     curGray: GrayImage,
     boardSize: Int,
@@ -130,7 +119,6 @@ private fun BaselineScratch.chromaOutliers(
     val gamut = evidence.gamut
     val bgr = evidence.curBgr ?: return 0L
     if (gamut == null) return 0L
-    // Chroma occlusion uses the base box only, never overhang.
     val geom = PlaneGeometry(curGray.width, curGray.height, boardSize, whitePov, extendUp = 0.0)
     val need = bgr.width * bgr.height * BGR_CHANNELS
     if (lab.size != need) lab = ByteArray(need)
@@ -152,7 +140,7 @@ private fun BaselineScratch.isOccluder(
 ): Boolean {
     if (cens == null) return true // legacy: brightness only
     val structured = cens[i] > occlCensusThr || chroma.has(i)
-    // A flat brightener remains occlusion conservatively.
+    // A flat brightener remains occlusion, conservatively.
     return structured || curMeans[i] >= refMeans[i]
 }
 

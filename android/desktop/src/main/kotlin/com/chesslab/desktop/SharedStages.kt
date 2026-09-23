@@ -11,12 +11,10 @@ import com.chesslab.tracker.pipeline.RoiMotion
 import com.chesslab.tracker.pipeline.ringDepth
 import org.opencv.core.Mat
 
-/** Die Pixelarbeit EINMAL fuer N Engines. Nur `roiMotion` haengt an der Konfiguration und wird
- *  je WERTEPAAR gehalten (`docs/desktop-replay.md`). */
+/** Die Pixelarbeit EINMAL fuer N Engines. Nur `roiMotion` haengt an der Konfiguration und wird je WERTEPAAR gehalten. */
 internal class SharedFrameWork(
     build: (CropFrameStore) -> FrameStages<Mat>,
 ) : AutoCloseable {
-    /** Nur hierhin schneidet [inner]; zugestellt wird eine Kopie in den Store JEDER fragenden Engine. */
     private val cut = CropFrameStore()
     private val inner = build(cut)
     private var current: Mat? = null
@@ -43,7 +41,7 @@ internal class SharedFrameWork(
         releaseCut()
     }
 
-    /** Einmal je Frame aus dem Ring von [inner]; jede Engine kopiert in ihren EIGENEN Ring. */
+    /** Jede Engine kopiert in ihren EIGENEN Ring. */
     fun grayDet(): GrayImage = gray ?: inner.grayDet().also { gray = it }
 
     fun bgrDet(): BgrImage = bgr ?: inner.bgrDet().also { bgr = it }
@@ -61,10 +59,8 @@ internal class SharedFrameWork(
         converted = true
     }
 
-    /**
-     * Einmal gerechnet — aber nur, wenn alle Engines dieselben Ecken wollen. Zwei verschieden
-     * ausgerichtete Bretter still zu teilen waere ein Fehler, den keine Zahl der Auswertung zeigt.
-     */
+    /** Nur, wenn alle Engines dieselben Ecken wollen: zwei verschieden ausgerichtete Bretter still zu teilen
+     *  zeigt keine Zahl der Auswertung. */
     fun warpDetection(corners: FloatArray): Boolean {
         val seen = warpedFor
         if (seen != null) {
@@ -90,16 +86,14 @@ internal class SharedFrameWork(
         }
     }
 
-    /** Nur bei ECHTER Aenderung: `onGeometryChanged` ruft `dropChain()`, und zehn Engines warfen
-     *  die Kette zehnmal weg — die zweite riss mitten im Frame der ersten ab. */
+    /** Nur bei ECHTER Aenderung: zehn Engines warfen die Kette zehnmal weg, mitten im Frame der ersten. */
     fun onGeometryChanged(geometry: BoardGeometry) {
         if (geometry == lastGeometry) return
         lastGeometry = geometry
         inner.onGeometryChanged(geometry)
     }
 
-    /** Der Warp haengt am FRAME, nicht an Engine oder `seq`: einmal gewarpt, jeder fragende Store
-     *  bekommt eine Kopie. Frueher bediente er nur den ersten Store (`docs/desktop-replay.md`). */
+    /** Der Warp haengt am FRAME, nicht an Engine oder `seq`: frueher bediente er nur den ersten Store. */
     fun updateCropFrame(
         target: CropFrameStore,
         corners: FloatArray,
@@ -139,14 +133,13 @@ internal class SharedFrameWork(
     }
 }
 
-/** Die Sicht EINER Engine auf die geteilte Arbeit. Alles Teure geht nach [shared]. */
 internal class SharedStages(
     private val shared: SharedFrameWork,
     private var config: TrackerConfig,
     private val store: CropFrameStore,
 ) : FrameStages<Mat> {
-    // Die Engine haelt ihre Planes per Referenz (invariant 14). Aus EINEM Ring fuer N Engines
-    // ueberschrieb ab sechs Armen jeder Frame die Planes, die die anderen noch mittelten.
+    // Die Engine haelt ihre Planes per Referenz: aus EINEM Ring fuer N Engines ueberschrieb ab sechs Armen
+    // jeder Frame die Planes, die die anderen noch mittelten.
     private val grayRing = PlaneRing(ringDepth(config))
     private val bgrRing = PlaneRing(ringDepth(config))
 

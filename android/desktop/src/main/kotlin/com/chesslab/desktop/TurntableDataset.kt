@@ -11,10 +11,7 @@ import java.security.MessageDigest
 private val CANONICAL_CLASSES =
     listOf("empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK", "occluded")
 
-/**
- * Join Kotlin-ingested video packs into one training dataset without decoding or rewriting them in
- * Python. The split roles are explicit so the reserved test video can never drift into training.
- */
+/** The split roles are explicit so the reserved test video can never drift into training. */
 @Suppress("MagicNumber")
 fun assembleTurntableDataset(args: List<String>) {
     require(args.size >= 4) {

@@ -10,8 +10,7 @@ import org.junit.jupiter.api.condition.EnabledIf
 import org.opencv.core.Core
 import org.opencv.core.Mat
 
-/** Gleicher Praefix heisst eine Rechnung, und der Pool waechst nicht — sonst ist ein Cache falsch
- *  oder teurer als das, was er spart. */
+/** Gleicher Praefix heisst eine Rechnung, und der Pool waechst nicht — sonst ist ein Cache falsch oder teurer als seine Ersparnis. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class ImageGraphTest {
     private val geom = BoardGeometry(boardSize = 640, padSide = 0.10)
@@ -32,8 +31,7 @@ class ImageGraphTest {
         val blurred = BlurNode(ClaheNode(gray, clip = 2.0))
         MatPool().use { pool ->
             scope(pool) { s ->
-                // Genau der Doppelgaenger aus dem Ist-Zustand: `lumaPreClahe` und die Graustufe
-                // vor CLAHE sind derselbe Knoten.
+                // `lumaPreClahe` und die Graustufe vor CLAHE sind derselbe Knoten.
                 assertSame(s.get(gray), s.get(gray))
                 s.get(blurred)
                 // warp + gray + clahe + blur, und der Warp NICHT zweimal.
@@ -81,7 +79,6 @@ class ImageGraphTest {
         MatPool().use { pool ->
             val borrowed = mutableListOf<Mat>()
             scope(pool) { s -> borrowed += s.get(chain) }
-            // Zurueckgegebene Puffer sind wieder ausleihbar, also nicht verloren.
             val reused = pool.borrow(MatShape(borrowed[0].rows(), borrowed[0].cols(), borrowed[0].type()))
             assertSame(borrowed[0], reused)
         }

@@ -18,14 +18,12 @@ internal class StubCaptureSource(
     override fun geometryNote(): String? = null
 }
 
-/** The camera has not delivered a frame yet: no recorder can open. */
 internal object NoFrameCaptureSource : CaptureSource {
     override fun grab(): CaptureFrame? = null
 
     override fun geometryNote(): String? = null
 }
 
-/** One session `s` under [dir], every gate at its default. */
 internal fun captureUnder(
     dir: File,
     enabled: Boolean = true,

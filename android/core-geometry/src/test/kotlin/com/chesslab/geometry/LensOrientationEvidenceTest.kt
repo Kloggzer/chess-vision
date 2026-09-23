@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Test
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** `LensEvidence.axes` gates the whole lens fit (`BUDGET_NONE` below two). Both cases keep the
- *  budget at `BUDGET_NONE`, so `fitLens` returns before it undistorts and needs no OpenCV. */
+/** Both cases keep the budget at `BUDGET_NONE`, so `fitLens` returns before undistorting and needs no OpenCV. */
 class LensOrientationEvidenceTest {
     private val angle = Math.toRadians(-60.0)
 
@@ -30,15 +29,14 @@ class LensOrientationEvidenceTest {
         return out
     }
 
-    /** `gridSamples` reports raw frame pixels, so the board may lie at any angle; `orientationsIn`
-     *  compared SIGNED differences where the question is about magnitudes. */
+    /** The board may lie at any angle; `orientationsIn` compared SIGNED differences where magnitudes matter. */
     @Test
     fun `a board lying sideways in the frame still shows two line families`() {
         val evidence = fitLens(rotatedBoardSamples(), WIDTH, HEIGHT).evidence
         assertEquals(2, evidence.axes, "a board rotated past 45 degrees must not lose its calibration")
     }
 
-    /** `axes` counts USABLE lines; the empty case fell back to `all.isEmpty()` and reported one family. */
+    /** The empty case fell back to `all.isEmpty()` and reported one family. */
     @Test
     fun `no usable line means no measurable axis`() {
         // Drei Punkte je Linie liegen unter `MIN_BOW_POINTS`, also ist `bow` fuer jede null.

@@ -8,14 +8,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `_pair_candidate`.
- *
- * Mirrors `tests/test_move_tracker.py::TestPairScores` plus the named invariant tests of
- * `specs/17-android-rewrite/03c-hypothesis.md`.
- */
+/** Mirrors `tests/test_move_tracker.py::TestPairScores`. */
 class PairCandidateTest {
-    /** `test_pair_explains_two_moves` — both half-moves fully evidenced. */
     @Test
     fun pairExplainsTwoMoves() {
         val state = hypothesisState()
@@ -30,11 +24,8 @@ class PairCandidateTest {
         assertEquals(false, pair.priorUsed)
     }
 
-    /**
-     * Drei Schlaege auf DASSELBE Feld in einem Blick: `f3xe5 c6xe5 d4xe5` leert f3, c6 und d4 und
-     * stellt einen weissen Bauern auf e5. Als Paar gelesen gewann `f3e5 c6d4`, weil es alle vier
-     * beruehrten Felder erklaert — und dabei einen Springer auf d4 erfindet (2026-08-30 live).
-     */
+    /** Drei Schlaege auf DASSELBE Feld: als Paar gewann `f3e5 c6d4`, das alle vier Felder erklaert und einen
+     *  Springer auf d4 erfindet. */
     @Test
     fun threeCapturesOntoOneSquareAreASequence() {
         val state = hypothesisState("r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4")
@@ -47,11 +38,7 @@ class PairCandidateTest {
         assertTrue(listOf("f3e5", "c6e5", "d4e5") in found, "der Dreifachschlag muss gebildet werden")
     }
 
-    /**
-     * Und warum er den Blick allein nicht gewinnt: `f3e5 c6d4` beruehrt DIESELBEN vier Felder und
-     * scort damit gleich. Der Diff kann die beiden nicht trennen — das kann nur das Modell, und
-     * das tut es eine Stufe spaeter (`VerifyPair.pairColourConflicts`).
-     */
+    /** `f3e5 c6d4` beruehrt DIESELBEN vier Felder: der Diff trennt sie nicht, erst `VerifyPair.pairColourConflicts`. */
     @Test
     fun theWrongPairScoresTheSameAsTheRightTriple() {
         val state = hypothesisState("r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4")
@@ -74,7 +61,6 @@ class PairCandidateTest {
         assertTrue(candidate == null || candidate.moves.size <= 2, "drei Ziele, drei Felder: kein Tripel")
     }
 
-    /** `test_pair_requires_endpoint_evidence` — only one half has evidence -> no pair at all. */
     @Test
     fun pairRequiresEndpointEvidence() {
         val state = hypothesisState()
@@ -83,14 +69,8 @@ class PairCandidateTest {
         assertNull(state.pairCandidate(z, NO_SCORE))
     }
 
-    /**
-     * The second half is evaluated on the INTERMEDIATE board.
-     *
-     * White pushes `e5e6`; Black recaptures `f7xe6`. On the PRE-push board `e6` is still empty, so
-     * `f7e6` would be classified as an en-passant capture and would drag the cold square `e7` into
-     * the touched set — which fails the `z >= soft` gate and would kill a real pair. On the
-     * intermediate board `e6` is occupied, the move is an ordinary capture, and the pair survives.
-     */
+    /** On the PRE-push board `f7e6` after `e5e6` would classify as en passant and drag the cold `e7` in, killing a
+     *  real pair; on the INTERMEDIATE board it is an ordinary capture. */
     @Test
     fun secondHalfEvaluatedOnIntermediateBoard() {
         val state = hypothesisState("4k3/5p2/8/4P3/8/8/8/4K3 w - - 0 1")
@@ -104,7 +84,6 @@ class PairCandidateTest {
         assertEquals(listOf("e5e6", "f7e6"), pair!!.moves.map { uciOf(it) })
     }
 
-    /** `best - max(second, bestSingle) >= ambiguityMarginLl` — reject below, accept at the margin. */
     @Test
     fun pairMarginBeatsBestSingleAndSecondPair() {
         val state = hypothesisState()
@@ -122,7 +101,6 @@ class PairCandidateTest {
         )
     }
 
-    /** The pair's scores replace the single's; the absolute LL floor reads them. */
     @Test
     fun pairWritesBackBestAndSecondScore() {
         val state = hypothesisState()
@@ -137,7 +115,6 @@ class PairCandidateTest {
         assertEquals(singleBest, state.secondScore, 1e-9, "secondScore = max(secondPair, bestSingle)")
     }
 
-    /** `specs/09`: a DESTINATION in the shadow veto kills the pair; a shadowed origin does not. */
     @Test
     fun shadowVetoedDestinationBlocksThePairButAShadowedOriginDoesNot() {
         val state = hypothesisState()
@@ -153,11 +130,9 @@ class PairCandidateTest {
         )
     }
 
-    /** A pair is only a candidate when its best score is net positive (`best < 0.0` -> null). */
     @Test
     fun negativePairIsRejected() {
         val state = hypothesisState()
-        // Both endpoints just above the soft gate, but every logit is negative.
         val weak = state.config.zThr * PAIR_SOFT_FACTOR
         val z = zOf("e2" to weak, "e4" to weak, "e7" to weak, "e5" to weak)
 
@@ -169,19 +144,14 @@ class PairCandidateTest {
     }
 }
 
-// -- shared helpers for the phase-03c test classes -------------------------------------------
-
-/** A clearly-changed square (`z = 8`, well above `zThr = 3`). */
 internal const val HOT = 8.0
 
-/** All 64 squares at 0.0, with the named ones overridden — Python's `_z(...)` test helper. */
 internal fun zOf(vararg hot: Pair<String, Double>): DoubleArray {
     val out = DoubleArray(Squares.COUNT)
     for ((square, value) in hot) out[Squares.index(square)] = value
     return out
 }
 
-/** A fresh engine state on [fen] with the CNN off, exactly like the fixture replays. */
 internal fun hypothesisState(
     fen: String = STARTPOS,
     config: TrackerConfig = TrackerConfig(),
@@ -190,11 +160,8 @@ internal fun hypothesisState(
 /** `generateHypothesis` never reads these pixels; only the anomaly patcher would. */
 internal val DUMMY_GRAY = GrayImage(1, 1, ByteArray(1))
 
-/**
- * Arms the per-frame state steps 5 and 6 read off [EngineState]: the post-veto `changed` set, the
- * shadow veto, and [blockedN] occlusion latches (invariant 4 counts them, never names them — the
- * highest squares are used so they cannot collide with a named candidate).
- */
+/** The post-veto `changed` set, the shadow veto and [blockedN] latches (invariant 4 counts them, never names
+ *  them — the highest squares are used so they cannot collide with a named candidate). */
 internal fun EngineState.armDetection(
     changed: Set<String> = emptySet(),
     shadowVeto: Set<String> = emptySet(),

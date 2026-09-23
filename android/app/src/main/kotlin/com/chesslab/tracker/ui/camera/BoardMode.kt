@@ -22,20 +22,8 @@ import com.chesslab.tracker.ui.calibration.QuadOutline
 import com.chesslab.tracker.ui.theme.Space
 import kotlinx.coroutines.CoroutineScope
 
-/**
- * The board on the camera screen: an outline and a sentence. Nothing to press.
- *
- * There is no calibration MODE any more, no wizard behind it, and no confirmation. The screen marks
- * the board it can see so the phone can be aimed and says in one line what is stopping it if
- * anything is; the board is adopted on its own once all four codes are read. The rectified preview,
- * the orientation switch, the four outset steppers, the eight corner sliders, the four-tap fallback
- * and finally the save button are all gone.
- *
- * The reason they could all go is that **the saved quad is only a seed**: `LiveAlign` re-detects the
- * markers every third frame for the whole session, so nothing tuned here survives contact with a
- * game. Judging alignment was never the user's job — the app measures it continuously and better.
- * See `CalibrationViewModel` and `specs/36-alignment-that-just-works`.
- */
+/** An outline and a sentence, nothing to press: the saved quad is only a seed `LiveAlign` replaces, so
+ *  judging alignment was never the user's job (`CalibrationViewModel`). */
 @Composable
 fun rememberBoardModel(
     host: CalibrationHost,
@@ -56,30 +44,15 @@ fun rememberBoardModel(
     return model
 }
 
-/**
- * Where the app believes the board is, drawn on the live picture.
- *
- * The only alignment feedback that survives, and the only kind that was ever actionable: you cannot
- * nudge a quad the tracker re-derives twice a second, but you CAN see that the outline is not on
- * the board, and move the phone.
- */
+/** You cannot nudge a quad re-derived twice a second, but you CAN see it is not on the board and move the phone. */
 @Composable
 fun BoardOutline(state: CalibrationState) {
     QuadOutline(state.corners, IntSize(state.frameWidth, state.frameHeight), Modifier.fillMaxSize())
 }
 
-/**
- * The one line that says what the camera can see.
- *
- * No button. The board is adopted automatically on a full four-code read (`CalibrationViewModel`),
- * because there was never a decision here for a person to make: the quad is a seed the live path
- * replaces, and the config it carries is measured, not chosen. What is left is the sentence, and
- * every branch of it ends in something the user can change by moving the phone.
- */
 @Composable
 fun BoardDeck(state: CalibrationState) {
-    // The same scrim the look tiles wear. Over wood grain in room light, bare text on a live
-    // viewfinder is the first thing to disappear.
+    // Over wood grain in room light, bare text on a live viewfinder disappears first.
     Column(
         Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = Space.sm, vertical = Space.md),
         verticalArrangement = Arrangement.spacedBy(DECK_GAP.dp),

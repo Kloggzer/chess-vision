@@ -5,13 +5,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Der synthetische Treiber taugt nur, wenn die Engine seine Bilder LIEST. Ein Fuzzer, dessen
- * Frames nie einen Zug ergeben, meldet jeden Zustand als unerreichbar und sieht dabei gruen aus.
- */
+/** Ein Fuzzer, dessen Frames nie einen Zug ergeben, meldet jeden Zustand als unerreichbar und sieht gruen aus. */
 class EngineFuzzTest {
     init {
-        // `RoiMotion` warpt mit OpenCV — der Treiber misst die Bewegung seit 2026-09-20 echt.
         NativeCv.require()
     }
 
@@ -38,8 +34,7 @@ class EngineFuzzTest {
         assertEquals(0, out.hits("gate:moving"), "ein stehendes Brett darf kein `moving` erzeugen")
     }
 
-    /** Zweimal still verloren: graues Brett, dann Textur am Helligkeitswert statt am Inhalt.
-     *  Beide Male stand `verify:shadow` auf null und sah aus wie ein toter Sensor. */
+    /** Zweimal still verloren (graues Brett, Textur am Helligkeitswert): `verify:shadow` sah aus wie ein toter Sensor. */
     @Test
     fun `eine Hand mit Schatten schaerft das Schatten-Veto`() {
         val out = fuzzRun(TrackerConfig(), Scene(plies = 4, handFrames = 24, handSquares = 10, handCoverage = 0.6))
@@ -47,8 +42,7 @@ class EngineFuzzTest {
         assertTrue(out.hits("veto:shadow") > 0, "das Schatten-Veto muss feuern: ${out.reached}")
     }
 
-    /** Ein verdeckter Abtausch muss die Engine auf einen anderen WEG zwingen. Nicht auf weniger
-     *  Commits: sie leitet die Folge her und committet beide (gemessen 8 von 8). */
+    /** Nicht auf weniger Commits: die Engine leitet die Folge her und committet beide (8 von 8). */
     @Test
     fun `ein verdeckter Abtausch oeffnet Zustaende, die der klare Lauf nie sieht`() {
         val ohne = fuzzRun(TrackerConfig(), Scene(plies = 8))

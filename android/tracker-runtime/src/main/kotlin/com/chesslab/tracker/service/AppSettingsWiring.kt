@@ -13,27 +13,16 @@ import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.BoardOrientation
 import com.chesslab.tracker.settings.SettingsRepository
 
-// 07a's app-level settings, applied. All four were persisted, exported and read by nobody
-// (STATUS D07a-11). Each is consumed at tracker CONSTRUCTION, which is exactly why all four are
-// restart-required — `resolutionMode` in `TrackerService.wireSession`/`restartTracker` via
-// `cameraRequestFor`, and the other three here.
+// Each is consumed at tracker CONSTRUCTION, which is why all four settings are restart-required.
 
-/**
- * `modelDir`, `modelAsset` and `epRequest`, plus the requested-vs-actual record 07b renders.
- *
- * [Attached] carries the classifier's MEASURED answer, never the request: a quiet fall-through from
- * the NPU to the CPU is the same failure as a silent attach failure, one rung softer — same fps, ten
- * times the latency (MEMORY `android-live-bringup-2607`). `classifier.backend` is what ORT's own
- * profile saw execute, so this line cannot repeat a wish back as a result. `staged.dir.name` is the
- * model that was really staged for the same reason — with three bundled models an A/B is worthless
- * if the panel echoes the request back instead of naming what ran.
- */
+/** [Attached] carries the MEASURED backend, never the request: an NPU-to-CPU fall-through is same fps, ten times
+ *  the latency. `staged.dir.name` names the model really staged — an A/B is worthless if the panel echoes. */
 fun openClassifier(
     assets: CnnModelAssets,
     app: AppSettings,
     probe: CnnRuntimeProbe,
     log: TrackerLog = NoopTrackerLog,
-    /** [SessionTuning.THREADS] on the phone; a replay passes 1 for bit-exact runs (see OrtSessionRunner). */
+    /** A replay passes 1 for bit-exact runs. */
     intraOpThreads: Int = SessionTuning.THREADS,
 ): Attached {
     val staged = assets.stage()
@@ -47,14 +36,7 @@ fun openClassifier(
     return Attached(classifier, classifier.backend, classifier.model, classifier.spec)
 }
 
-/**
- * `orientation`, START direction: the stored profile wins and the setting is synced to it.
- *
- * 06a's calibration screen has its own a8 switch and writes the profile, so at startup the profile
- * is the truth — a stale setting must not transpose the board behind the user's back. The other
- * direction (setting wins, written into the profile) belongs to an explicit restart; see
- * `CalibrationStore.applyOrientation`.
- */
+/** At startup the stored profile wins: a stale setting must not transpose the board behind the user's back. */
 suspend fun adoptStoredOrientation(
     calibration: CalibrationStore,
     settings: SettingsRepository,

@@ -3,14 +3,12 @@ package com.chesslab.arena
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.MoveList
 
-/** One ply of a reference game: what was played, and on which frame it was seen. */
 data class TruthPly(
     val san: String,
-    /** -1 when the reference is a PGN, which carries moves but no frames. */
+    /** -1 when the reference is a PGN: moves, no frames. */
     val frame: Int,
 )
 
-/** What one run produced, beside what it cost. */
 class RunResult(
     val plies: List<RunPly>,
     val frames: Long,
@@ -19,34 +17,21 @@ class RunResult(
     val seconds: Double,
 )
 
-/** One ply as a run produced it. */
 data class RunPly(
     val san: String,
     val frame: Long,
     val tsMs: Double,
 )
 
-/**
- * Three numbers, never averaged into one.
- *
- * The project rule since 2026-07-30: a phantom disqualifies, a miss is negotiable. A single
- * accuracy hides exactly the distinction every decision downstream is made on.
- */
+/** Three numbers, never averaged: a phantom disqualifies, a miss is negotiable. */
 class Score(
     val found: List<Pair<TruthPly, RunPly>>,
     val missed: List<TruthPly>,
     val invented: List<RunPly>,
-    /**
-     * Commits AFTER the reference runs out — neither right nor wrong here.
-     *
-     * Most references end where a tracker run gave up, not where the game did. Counting what comes
-     * after as a phantom would punish exactly the tracker this arena is looking for, so it is
-     * reported apart and checked by hand.
-     */
+    /** After the reference runs out: most references end where a run gave up, so this is reported apart,
+     *  not counted as phantoms. */
     val beyond: List<RunPly>,
-    /** Reference plies a run reached in the same number of half-moves, but in another order. */
     val reordered: Int,
-    /** Frames between the reference frame and the commit, per found ply. Empty for a PGN label. */
     val lag: List<Long>,
 ) {
     val medianLag: Long?
@@ -59,20 +44,9 @@ class Score(
             (medianLag?.let { " · median lag $it frames" } ?: "")
 }
 
-/**
- * Alignment over the POSITIONS both sequences walk through, not over their move names.
- *
- * A still frame cannot prove an order: where two half-moves land on the same board, `Nf3 e5` and
- * `e5 Nf3` are the same evidence. Our own references contain that ambiguity as fact — 8 % of their
- * plies were committed in bundles on one frame, and on `VID_20260726_233432` the bundled order is
- * demonstrably wrong. Scoring on names alone therefore punishes a tracker for a reference's guess
- * and, worse, turns every commit after the disagreement into a phantom.
- *
- * So the two sequences are matched on the placements they share. Between two shared placements a
- * run that needed the same number of half-moves has explained the same thing: those plies count as
- * found and are also counted in [Score.reordered]. A run that needed a different number, or that
- * left the reference's line entirely, has missed and invented in the plain sense.
- */
+/** Aligned over POSITIONS, not move names: a still frame cannot prove an order, and our references guessed
+ *  it on 8 % of plies. Between shared placements, the same number of half-moves counts as found (and as
+ *  [Score.reordered]); a different number or leaving the line is a plain miss/phantom. */
 fun score(
     truth: List<TruthPly>,
     run: List<RunPly>,
@@ -90,8 +64,7 @@ fun score(
     for ((truthEnd, runEnd) in anchors) {
         val truthRun = i until truthEnd
         val runRun = j until runEnd
-        // Same board reached in the same number of half-moves: the order is unprovable, so it is
-        // not held against either side. Only the names may differ, and only there.
+        // Same board in the same number of half-moves: the order is unprovable, so held against neither side.
         val sameLength = truthRun.count() == runRun.count()
         if (sameLength) reordered += matched(truth, run, truthRun.zip(runRun), found)
         if (!sameLength) truthRun.forEach { missed += truth[it] }
@@ -102,18 +75,14 @@ fun score(
     while (i < truth.size) missed += truth[i++]
     val tail = mutableListOf<RunPly>()
     while (j < run.size) tail += run[j++]
-    // What is left once the reference is exhausted lies BEYOND it, not against it — but only when
-    // the reference was actually walked to its end. A run that skipped plies and then kept going
-    // has phantoms, and those stay phantoms.
+    // BEYOND only when the reference was walked to its end: a run that skipped plies and kept going has phantoms.
     val beyond = if (missed.isEmpty()) tail else emptyList()
     if (beyond.isEmpty()) invented += tail
-    // BEIDE Seiten muessen gemessen sein: -1 heisst "kein Frame", nicht "Frame -1", und ein Lag
-    // daraus waere eine erfundene Zahl im Median.
+    // BEIDE Seiten muessen gemessen sein: -1 heisst "kein Frame", und ein Lag daraus waere erfunden.
     val lag = found.filter { it.first.frame >= 0 && it.second.frame >= 0 }.map { it.second.frame - it.first.frame }
     return Score(found, missed, invented, beyond, reordered, lag)
 }
 
-/** Pairs one segment's plies onto each other and reports how many of them changed name. */
 private fun matched(
     truth: List<TruthPly>,
     run: List<RunPly>,
@@ -124,12 +93,7 @@ private fun matched(
     return pairs.count { (a, b) -> truth[a].san != run[b].san }
 }
 
-/**
- * The placement after each half-move, plus the start position at index 0.
- *
- * Placement only — the camera cannot see whose turn it is or what is still castleable, and a
- * transposition to the same picture is the same evidence.
- */
+/** Placement only: the camera cannot see whose turn it is or castling rights. */
 private fun placements(sans: List<String>): List<String> {
     val board = Board()
     val out = mutableListOf(placementOf(board))
@@ -145,10 +109,7 @@ private fun placements(sans: List<String>): List<String> {
 
 private fun placementOf(board: Board): String = board.fen.substringBefore(' ')
 
-/**
- * Indices into both placement lists where the two sequences stand on the same board, longest
- * common subsequence, in order. The final pair is always the end of whichever run out first.
- */
+/** Longest common subsequence of shared boards; the final pair is the end of whichever ran out first. */
 private fun commonAnchors(
     truthAt: List<String>,
     runAt: List<String>,

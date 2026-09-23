@@ -29,11 +29,6 @@ import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
 import java.util.Locale
 
-/**
- * Where the frame time goes. Python dumps the same numbers to `data/_perf/perf_loop.log`; on
- * Android the `chesslabPerf` logcat line stays as well — this panel is the version you can read
- * while standing at the board, which is where the 4 fps -> 15-20 fps work actually happened.
- */
 @Composable
 fun TimingsPanel(state: DebugState) {
     val stages = state.stages.filterNot { it.stage == TOTAL }
@@ -42,10 +37,7 @@ fun TimingsPanel(state: DebugState) {
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        // Two rates, never one: `camera` is what CameraX delivered, `detection` is what reached the
-        // engine. A camera at 30 with detection at 0 is an uncalibrated board, not a broken feed.
-        // Labels stay short: `StatRow` is a SpaceBetween row, and the spelled-out "5 s median" left
-        // the second line touching its own numbers on a 1080p phone.
+        // Two rates, never one: `camera` is what CameraX delivered, `detection` what reached the engine.
         StatRow(
             "camera fps (now / 5 s)",
             fmt(state.cameraFps, 1) + "  /  " + fmt(state.cameraFpsMedian, 1),
@@ -70,12 +62,10 @@ fun TimingsPanel(state: DebugState) {
     }
 }
 
-/** The stacked bar's height. A component size: it is the chart, not a gap. */
 private val CHART_HEIGHT = 18.dp
 
 private const val TOTAL = "total"
 
-/** One horizontal bar, each stage a slice of the frame budget. Empty when nothing was measured. */
 @Composable
 private fun StackedBar(
     stages: List<StageStat>,
@@ -99,7 +89,6 @@ private fun StageRow(stat: StageStat) {
     }
 }
 
-/** Phase 09's acceptance line is >= 15 fps; anything slower is red, not "a bit high". */
 @androidx.compose.runtime.Composable
 private fun budgetTone(ms: Double): Color = if (ms > FRAME_BUDGET_MS) Danger else Accent
 

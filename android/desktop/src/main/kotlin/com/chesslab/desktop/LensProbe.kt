@@ -20,15 +20,8 @@ import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import java.io.File
 
-/**
- * A picture of what the fit did, because a number can agree with a broken model.
- *
- * Left is the raw frame, right the same frame undistorted, and on each the grooves the detector
- * found are drawn as dots with the straight chord through each line's ends. Where the dots bow away
- * from their chord, the lens is bending a line the board says is straight. That is the quantity
- * being minimised, made visible — and it is the one thing a reader can check without trusting any
- * of the arithmetic above it.
- */
+/** A picture of what the fit did, because a number can agree with a broken model: raw left, undistorted right,
+ *  grooves as dots beside each line's chord. The bow is the gap between them. */
 fun writeLensProbe(
     source: FrameSource,
     fit: LensFit,
@@ -50,7 +43,6 @@ fun writeLensProbe(
     return out
 }
 
-/** The grooves this frame shows, with each line's chord drawn through them. */
 private fun annotate(
     frame: Mat,
     label: String,
@@ -72,7 +64,7 @@ private fun draw(
     val sorted = line.sortedBy { if (line.first().axis == 0) it.y else it.x }
     val first = Point(sorted.first().x, sorted.first().y)
     val last = Point(sorted.last().x, sorted.last().y)
-    // The chord first, so the dots sit on top of it: the gap between them IS the bow.
+    // The chord first, so the dots sit on top of it.
     Imgproc.line(canvas, first, last, CHORD, CHORD_THICK)
     sorted.forEach { Imgproc.circle(canvas, Point(it.x, it.y), DOT_RADIUS, DOT, -1) }
     return
@@ -89,24 +81,16 @@ private const val LABEL_SCALE = 2.0
 private const val LABEL_THICK = 4
 private const val PROBE_SCALE = 0.4
 
-/**
- * The board as the tracker sees it, with the nominal grid drawn on top.
- *
- * This is the picture that answers the only question that matters for cutting crops: does the line
- * the engine believes is the edge of a square lie on the groove that actually is? Left is the raw
- * ArUco quad, right the same frame after `improveQuad` has moved the quad onto the board's own grid.
- * Where the green lines run beside the grooves rather than along them, every crop cut there is
- * offset by that much.
- */
+/** Raw ArUco quad left, `improveQuad`'s right, nominal grid on top: where the lines run beside the grooves,
+ *  every crop cut there is offset by that much. */
 fun writeQuadProbe(
     frame: Mat,
     rawQuad: FloatArray,
     out: File,
 ): File? {
     val refined = refinedQuad(frame, rawQuad)
-    // ONE board size for both panels. Each quad measures its own (1248 against 1264 on the rig), and
-    // rectifying them at different scales would put the two grids at different pixel pitches — the
-    // comparison would then partly be of the scale rather than of the fit.
+    // ONE board size for both panels: each quad measures its own (1248 against 1264), and different scales
+    // would compare pixel pitch rather than the fit.
     val size = boardGeometryFor(rawQuad).boardSize
     val left = rectifiedWithGrid(frame, rawQuad, size, "raw quad — worst ${"%.2f".format(squareOffsetOf(frame, rawQuad))} px")
     val right = rectifiedWithGrid(frame, refined, size, "improveQuad — worst ${"%.2f".format(squareOffsetOf(frame, refined))} px")
@@ -118,7 +102,6 @@ fun writeQuadProbe(
     return out
 }
 
-/** The rectified board at its measured size, with the nominal eighths drawn where the engine puts them. */
 private fun rectifiedWithGrid(
     frame: Mat,
     quad: FloatArray,

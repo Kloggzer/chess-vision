@@ -8,10 +8,7 @@ import org.junit.jupiter.api.Test
 private const val DEFAULT_FPS = 15
 private const val SECOND_US = 1_000_000L
 
-/**
- * The ring's rules, on the JVM: a buffer that ever starts on a P-frame is undecodable, so every
- * trim lands on a key-frame boundary — the same lesson the muxer segmentation learned first.
- */
+/** A buffer starting on a P-frame is undecodable, so every trim lands on a key-frame boundary. */
 class PreRollRingTest {
     private fun sample(
         ptsUs: Long,
@@ -19,7 +16,6 @@ class PreRollRingTest {
         bytes: Int = 100,
     ) = PreRollSample(ByteArray(bytes), ptsUs, if (sync) 1 else 0, sync)
 
-    /** GOP starting at [startUs]: one sync sample and two P-frames, 300 ms apart. */
     private fun PreRollRing.addGop(startUs: Long) {
         add(sample(startUs, sync = true))
         add(sample(startUs + 300_000, sync = false))
@@ -32,7 +28,6 @@ class PreRollRingTest {
         ring.addGop(0)
         ring.addGop(SECOND_US)
         ring.add(sample(2 * SECOND_US, sync = true))
-        // Span 0..2 s exceeded 1.5 s: GOP 0 goes entirely; the buffer starts at the 1 s key frame.
         assertEquals(SECOND_US, ring.firstPtsUs)
         assertEquals(SECOND_US, ring.durationUs)
         assertEquals(400L, ring.bytes)
@@ -50,8 +45,6 @@ class PreRollRingTest {
 
     @Test
     fun `the one GOP being written is never dropped by a cap`() {
-        // A single GOP over the cap: dropping it would leave the flush with nothing decodable,
-        // and at 1 s GOPs / 20 Mbit a real GOP cannot approach either cap anyway.
         val ring = PreRollRing(maxDurationUs = SECOND_US, maxBytes = 150)
         ring.add(sample(0, sync = true))
         ring.add(sample(2 * SECOND_US, sync = false))
@@ -80,8 +73,7 @@ class PreRollRingTest {
 
     @Test
     fun `a real feed keeps the full window, not the newest GOP`() {
-        // The shipped caps, 1 s GOPs at 30 fps, ~83 kB a sample (20 Mbit/s) for a minute: the BYTE
-        // cap binds before the 45 s window (80 MB ≈ 32 s), and half a minute of board must survive.
+        // Shipped caps, 1 s GOPs at 30 fps, 20 Mbit/s: the BYTE cap binds first, and half a minute must survive.
         val ring = PreRollRing(PRE_ROLL_SECONDS * SECOND_US, preRollMaxBytes(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, DEFAULT_FPS))
         val frameUs = SECOND_US / 30
         for (frame in 0 until 30 * 60) {

@@ -7,10 +7,7 @@ import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * `arena score` liest fremde Dateien, also gilt die Politik von `chesslab.ioutil`/`lib/jsonl.ts`:
- * halbe LETZTE Zeile weg, kaputte MITTENDRIN wirft — nie ein Ply mit `frame = -1` daraus.
- */
+/** Fremde Dateien: halbe LETZTE Zeile weg, kaputte MITTENDRIN wirft — nie ein Ply mit `frame = -1`. */
 class ReadPliesTest {
     private fun file(
         dir: File,
@@ -47,7 +44,6 @@ class ReadPliesTest {
         assertEquals(listOf(240L, 280L), readPlies(f).map { it.frame })
     }
 
-    /** Ein Lauf-Ply ohne Frame ist keine Lag-Messung von -1 Frames. */
     @Test
     fun `an unframed run ply is left out of the lag`() {
         val scored = score(listOf(TruthPly("e4", 100), TruthPly("e5", 200)), listOf(RunPly("e4", -1, 0.0), RunPly("e5", 210, 0.0)))

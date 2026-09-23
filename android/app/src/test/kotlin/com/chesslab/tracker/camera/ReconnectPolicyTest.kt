@@ -47,7 +47,6 @@ class ReconnectPolicyTest {
         }
         assertEquals(1, fired)
 
-        // A sustained recovery re-arms it, so a later outage is diagnosed again.
         policy.onFrameDelivered(60_000L)
         policy.onFailure(61_000L)
         policy.onFailure(62_000L)

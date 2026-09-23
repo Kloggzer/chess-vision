@@ -20,7 +20,6 @@ class AccuracyTest {
         assertEquals(MoveQuality.GOOD, classify(4.999, playedEngineMove = false))
     }
 
-    /** BEST is a FACT (the engine's first choice), but a bad enough drop still outranks it. */
     @Test
     fun bestMeansTheEngineMoveAndNothingElse() {
         assertEquals(MoveQuality.BEST, classify(0.0, playedEngineMove = true))

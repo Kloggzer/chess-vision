@@ -9,7 +9,7 @@ import org.opencv.core.Mat
 import kotlin.random.Random
 import kotlin.system.measureNanoTime
 
-/** Opt-in sequential kernel benchmark; no timing threshold is a correctness assertion. */
+/** Opt-in; no timing threshold is a correctness assertion. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 @EnabledIfEnvironmentVariable(named = "CHESSLAB_GRID_BENCH", matches = "1")
 class GridMedianBenchmarkTest {

@@ -38,8 +38,7 @@ private const val SEARCH_START_MS = 5_000L
 private const val STOP_MS = 3_000L
 private const val LIVE_WARMUP_MS = 500L
 
-/** Der Tipp geht ueber denselben Weg wie `rememberHintRequest`: Controller, `liveLineResolver`,
- *  EIN `EngineService` — nur der Prozess ist gespielt. */
+/** Derselbe Weg wie `rememberHintRequest` — nur der Engine-Prozess ist gespielt. */
 class HintLineGateTest {
     @Test
     fun theMateLineSearchesOnTheLiveEngineNotOnASecondProcess() =

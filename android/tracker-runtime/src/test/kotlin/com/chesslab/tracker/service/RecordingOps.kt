@@ -7,7 +7,6 @@ import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 
-/** Records the ORDER of the calls; [events] is what every frame answers. */
 internal class RecordingOps : EngineOps {
     val calls = mutableListOf<String>()
     var configs = 0

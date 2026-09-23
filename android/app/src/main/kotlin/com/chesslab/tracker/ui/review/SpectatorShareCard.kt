@@ -35,23 +35,13 @@ import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 
-/** The "it is running" dot, and the QR's drawn side. Component sizes, not spacing. */
 private val STATUS_DOT = 10.dp
 private val QR_SIDE = 200.dp
 
 private const val QR_PX = 512
 
-/**
- * Putting the board on the Wi-Fi, on the screen that IS the board.
- *
- * This used to be a nav destination of its own — a switch and a QR code with no board anywhere near
- * it, while the thing it shared lived two screens away. What the LAN page renders is exactly the
- * game above this card, from the same `GameView`, so this is where the switch belongs.
- *
- * The QR is collapsed by default: it is 240dp of the one screen whose job is to show a board, and
- * the URL beside it is readable and copyable without it. QR scanning fails often enough that the
- * plain text is the fallback, not the nicety.
- */
+/** Here, on the screen that IS the board: the LAN page renders this very `GameView`. The QR is collapsed —
+ *  240dp of the board's screen — and the plain URL is the fallback when scanning fails. */
 @Composable
 fun SpectatorShareCard() {
     val context = LocalContext.current
@@ -62,8 +52,7 @@ fun SpectatorShareCard() {
 
     Card {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // The switch is laid out FIRST so the text takes what is left: with the text measured
-            // first its second line ran straight under the switch.
+            // The switch is laid out FIRST: measured after the text, the text's second line ran under it.
             Text(
                 "Share this board on Wi-Fi",
                 style = MaterialTheme.typography.bodyLarge,
@@ -104,8 +93,7 @@ private fun RunningBlock(
 ) {
     val clipboard = LocalClipboardManager.current
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        // The theme's "it is running" colour, not a hard-coded green: this dot sits on paper in the
-        // light scheme, where a saturated web green is the one thing on the card that is not legible.
+        // The theme's colour, not a web green: that is illegible on paper in the light scheme.
         Spacer(Modifier.size(STATUS_DOT).clip(CircleShape).background(Accent))
         Text(url, style = MaterialTheme.typography.bodyMedium)
     }

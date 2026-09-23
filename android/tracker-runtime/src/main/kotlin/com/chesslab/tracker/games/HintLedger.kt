@@ -1,9 +1,6 @@
 package com.chesslab.tracker.games
 
-/** What was told to the player, so the record can say so afterwards. It keys on the POSITION and
- *  on nothing else — a tip is a statement about the position it was computed from, the same
- *  discipline `HintController` applies before delivering one. A tip overtaken by a take-back
- *  binds to no ply at all. */
+/** Keys on the POSITION and nothing else. A tip overtaken by a take-back binds to no ply at all. */
 class HintLedger : GameBoundary {
     private val lock = Any()
     private val open = mutableMapOf<String, MoveHint>()
@@ -11,7 +8,6 @@ class HintLedger : GameBoundary {
     private var quota = 0
     private var count = 0
 
-    /** A new game under this plan. Everything the previous one held is gone, marks included. */
     fun startGame(
         side: String?,
         quota: Int,
@@ -22,7 +18,6 @@ class HintLedger : GameBoundary {
         count = 0
     }
 
-    /** One tip, actually delivered, for [fen]. Only `HintController.commit` reaches this. */
     fun delivered(
         fen: String,
         san: String,
@@ -32,9 +27,7 @@ class HintLedger : GameBoundary {
         count += 1
     }
 
-    /** The mark for a ply played out of [fenBefore] with [uci], null when nothing was told there.
-     *  It CONSUMES the entry — a tip is spent by the move that leaves its position, named or not,
-     *  or a later repetition of that position would claim a tip already answered. */
+    /** CONSUMES the entry: a tip is spent by the move that leaves its position, or a repetition would claim it. */
     fun markFor(
         fenBefore: String,
         uci: String,
@@ -43,9 +36,8 @@ class HintLedger : GameBoundary {
             open.remove(fenBefore)?.let { it.copy(followed = it.uci == uci) }
         }
 
-    /** What the finished game stores. Non-null means the game was WATCHED, not that it was aided. */
+    /** Non-null means the game was WATCHED, not that it was aided. */
     fun log(): HintRecord = synchronized(lock) { HintRecord(side = side, quota = quota, delivered = count) }
 
-    /** The record boundary: `GameSessionController` clears it once the game is saved or dropped. */
     override fun endGame() = startGame(side = null, quota = 0)
 }

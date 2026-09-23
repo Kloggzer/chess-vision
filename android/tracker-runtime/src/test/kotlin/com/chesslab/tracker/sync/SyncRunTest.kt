@@ -11,10 +11,6 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.util.Collections
 
-/**
- * The transfer's decisions, without a network. What is pending, which host, and what a resume does
- * — the three things a phone in a lift gets wrong.
- */
 class SyncRunTest {
     @TempDir
     lateinit var root: File
@@ -56,7 +52,6 @@ class SyncRunTest {
     @Test
     fun `a recording with nothing to label is never sent, and is named rather than hidden`() =
         runTest {
-            // `20260813-011731` off the phone: a diagnostics timeline, an empty log, no frames, no video.
             val dir = File(sessionsDir(), "20260813-011731").apply { mkdirs() }
             File(dir, "log.jsonl").writeText("")
             File(dir, "timeline.jsonl").writeText("{}")
@@ -111,9 +106,7 @@ class SyncRunTest {
 
     @Test
     fun `the session's settings file travels with the bundle`() {
-        // `planFor` walks the directory, so this holds without a dedicated rule — but the whole
-        // point of `settings.json` is that the PC can answer "which config recorded this?", and
-        // a provenance file that silently stayed on the phone would be the old blindness back.
+        // A provenance file that silently stayed on the phone would be the old blindness back.
         val dir = session("20260813-193423")
         File(dir, "settings.json").writeText("""{"recorded_at":"2026-08-14T10:00:00Z"}""")
         val plan = planFor(dir, gamesDir())
@@ -122,17 +115,14 @@ class SyncRunTest {
 
     @Test
     fun `the janitor removes a moveless leftover and touches nothing else`() {
-        // The leftover of a killed process or a pre-2026-08-14 build: timeline, empty log, no game.
         val leftover = File(sessionsDir(), "20260813-011731").apply { mkdirs() }
         File(leftover, "log.jsonl").writeText("")
         File(leftover, "timeline.jsonl").writeText("{}")
         leftover.walkBottomUp().forEach { it.setLastModified(nowMs - QUIET_MS * 2) }
-        // Same emptiness, but the PC acknowledged it — the mark makes it untouchable.
         val marked = File(sessionsDir(), "20260813-020000").apply { mkdirs() }
         File(marked, "timeline.jsonl").writeText("{}")
         writeMark(marked, TransferMark("http://host:3000", nowMs, 9, 3, "landed"))
         marked.walkBottomUp().forEach { it.setLastModified(nowMs - QUIET_MS * 2) }
-        // A real recording: reference frames make it a session with something to label.
         val real = session("20260813-193423")
 
         assertEquals(listOf("20260813-011731"), sweepEmptyRecordings(sessionsDir(), nowMs))
@@ -147,7 +137,7 @@ class SyncRunTest {
         writeMark(old, TransferMark("http://host:3000", nowMs - 8 * DAY_MS, 9, 3, "landed"))
         val fresh = session("20260901-100000")
         writeMark(fresh, TransferMark("http://host:3000", nowMs - 2 * DAY_MS, 9, 3, "landed"))
-        // `held` means the PC already had a copy and parked this one: not this janitor's call.
+        // `held`: the PC parked a duplicate — not this janitor's call.
         val held = session("20260802-100000")
         writeMark(held, TransferMark("http://host:3000", nowMs - 8 * DAY_MS, 9, 3, "held"))
         val unsent = session("20260803-100000")
@@ -203,7 +193,6 @@ class SyncRunTest {
     @Test
     fun `an empty file is still sent, or the server can never seal the transfer`() =
         runTest {
-            // `20260813-011731` off the phone: a 0-byte `log.jsonl` beside 4.8 MB of timeline.
             val dir = session("20260813-193423")
             File(dir, "log.jsonl").writeText("")
             dir.walkBottomUp().forEach { it.setLastModified(nowMs - QUIET_MS * 2) }
@@ -264,7 +253,7 @@ class SyncRunTest {
             val report = run(client)
 
             assertEquals("http://192.168.178.22:3000", report.base)
-            // One batch, not a whole /24: the neighbour is found in the first 32 probes.
+            // One batch, not a whole /24.
             assertTrue(client.hellos.size <= 32, "swept ${client.hellos.size} addresses for a neighbour")
         }
 
@@ -272,7 +261,6 @@ class SyncRunTest {
     fun `a sweep that finds nothing reports WHY the probe failed`() =
         runTest {
             session("20260813-193423")
-            // Nothing on this /24 answers — the address is not one the sweep can produce.
             val client = FakeIngest(only = "http://10.0.0.1:3000", probeFailure = "Cleartext HTTP traffic not permitted")
             val report = run(client)
 
@@ -305,10 +293,8 @@ class SyncRunTest {
     ).run(prefs)
 }
 
-/**
- * A server on a table. It keeps the bytes it was sent so a test can assert the FILE, not the calls:
- * a resume that reports success while writing the wrong range is the failure worth catching.
- */
+/** Keeps the bytes it was sent, so a test asserts the FILE: a resume reporting success over the wrong range is
+ *  the failure worth catching. */
 @Suppress("LongParameterList")
 private class FakeIngest(
     private val chunk: Int = DEFAULT_CHUNK,
@@ -317,13 +303,12 @@ private class FakeIngest(
     private val only: String? = null,
     private val failWith: String? = null,
     private val rejectFirstPutOf: String? = null,
-    /** What the server really holds when it rejects the first PUT of [rejectFirstPutOf]. */
     private val trueHave: Long = 0L,
     private val probeFailure: String? = null,
 ) : IngestClient {
     override fun lastFailure(): String? = probeFailure
 
-    // LAN discovery probes 32 addresses at once, so these are written from many threads.
+    // LAN discovery probes 32 addresses at once.
     val hellos: MutableList<String> = Collections.synchronizedList(mutableListOf())
     private val declaredPaths: MutableList<String> = Collections.synchronizedList(mutableListOf())
     val puts: MutableList<Pair<Long, Int>> = Collections.synchronizedList(mutableListOf())
@@ -359,7 +344,6 @@ private class FakeIngest(
     ): Long {
         if (file.path == rejectFirstPutOf && !rejected) {
             rejected = true
-            // What this server really holds — the bytes the phone's declare answer did not mention.
             written[file.path] = file.source.readText().take(trueHave.toInt())
             throw IngestException("offset $offset != $trueHave", status = 409, have = trueHave)
         }
@@ -373,7 +357,6 @@ private class FakeIngest(
         base: String,
         name: String,
     ): String {
-        // The server's rule, in the fake: every declared file exists, or nothing seals.
         declaredPaths.filterNot { written.containsKey(it) }.forEach { throw IngestException("incomplete transfer: $it") }
         return "landed"
     }

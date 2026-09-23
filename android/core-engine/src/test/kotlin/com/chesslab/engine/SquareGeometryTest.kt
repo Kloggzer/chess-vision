@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
-/** Hand-written edge cases for the canonical square order, region boxes and normalization. */
 class SquareGeometryTest {
     @Test
     fun canonicalOrder() {
@@ -29,7 +28,6 @@ class SquareGeometryTest {
         val h1 = Squares.colRow("h1", whitePov = true)
         assertEquals(7, Squares.colOf(h1))
         assertEquals(7, Squares.rowOf(h1))
-        // Black POV is the 180 degree rotation.
         val a1Black = Squares.colRow("a1", whitePov = false)
         val h8White = Squares.colRow("h8", whitePov = true)
         assertEquals(h8White, a1Black)
@@ -68,7 +66,7 @@ class SquareGeometryTest {
         assertEquals(plain[0], extended[0], "x0 unchanged")
         assertEquals(plain[2], extended[2], "x1 unchanged")
         assertEquals(plain[3], extended[3], "y1 unchanged")
-        // A rank further down: y0 moves up by exactly extendUp * cell (truncated), never clamped.
+        // y0 moves up by exactly extendUp * cell (truncated), never clamped.
         val cell = boardSize / 8.0
         val e4Plain = squareRegion(Squares.index("e4"), boardSize, whitePov = true)
         val e4Ext = squareRegion(Squares.index("e4"), boardSize, whitePov = true, extendUp = 0.25)
@@ -82,7 +80,6 @@ class SquareGeometryTest {
         // extendUp must exceed 2 * inset (0.32) before the boxes actually touch.
         val e4 = squareRegion(Squares.index("e4"), boardSize, whitePov = true, extendUp = 0.5)
         val e5 = squareRegion(Squares.index("e5"), boardSize, whitePov = true, extendUp = 0.5)
-        // e5 sits directly above e4 in white POV: e4's top edge is above e5's bottom edge.
         assertTrue(e4[1] < e5[3], "extended boxes overlap by design")
     }
 
@@ -122,7 +119,7 @@ class SquareGeometryTest {
         }
     }
 
-    /** The box sums read the planes as UNSIGNED bytes — a signed read halves every mean. */
+    /** UNSIGNED bytes — a signed read halves every mean. */
     @Test
     fun boxSumsAreUnsignedAndMatchTheBruteForceSum() {
         val w = 8

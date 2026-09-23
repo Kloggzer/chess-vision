@@ -45,7 +45,6 @@ internal fun openingLineRequest(
     opening: OpeningSummary,
 ) = OpeningLineRequest(opening, game.fenAt(opening.theoryPlies))
 
-/** The opening book uses the same board-first interaction as a mate sequence, without an engine job. */
 @Composable
 internal fun OpeningLineExplorer(
     request: OpeningLineRequest,
@@ -104,7 +103,6 @@ internal fun TheoryContinuationAction(
     }
 }
 
-/** Adds move numbers at the colour boundary so the short line is readable without opening a board. */
 internal fun openingContinuationLabel(opening: OpeningSummary): String? {
     if (opening.continuation.isEmpty()) return null
     return opening.continuation
@@ -114,7 +112,6 @@ internal fun openingContinuationLabel(opening: OpeningSummary): String? {
         }.joinToString(" ")
 }
 
-/** A single explorer step always names its colour, unlike the compact line printed on the card. */
 internal fun openingMoveLabel(
     opening: OpeningSummary,
     continuationIndex: Int,

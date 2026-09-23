@@ -53,7 +53,6 @@ import com.chesslab.engine.with
 
 const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-/** The occlusion latch blocks the quiet re-anchor. */
 private const val STUCK_OCCLUDED = "occluded"
 
 /** The Bxc3 guard. */
@@ -63,12 +62,11 @@ private const val NOTE_WAITING_OCCLUDED = "waiting for occluded squares to clear
 
 private const val NOTE_CANNOT_ANCHOR = "ILLEGAL MOVE? board cannot be anchored to game state"
 
-/** Alarm-release provenance reasons. */
 private const val ALARM_ACCEPTED = "illegal_move_accepted"
 
 private const val ALARM_UNDONE = "illegal_move_undone"
 
-/** "last move undone" after a four-ply recovery would be an understatement on the easiest screen to miss. */
+/** "last move undone" after a four-ply recovery would be an understatement. */
 private fun undoneNote(plies: Int): String =
     if (plies == 1) {
         "last move undone (logged as bad example)"
@@ -77,23 +75,16 @@ private fun undoneNote(plies: Int): String =
     }
 
 /**
- * `:core-engine`'s entry point: a pure state machine on exactly ONE thread — no `synchronized`,
- * `Atomic*`, `Mutex` or `@Volatile` (`ClasspathPurityTest`), and time is [FrameInput.timestampMs].
- */
+ *  A pure state machine on exactly ONE thread — no `synchronized`, `Atomic*`, `Mutex` or `@Volatile`
+ *  (`ClasspathPurityTest`) — and time is [FrameInput.timestampMs]. */
 class TrackerEngine(
     config: TrackerConfig,
     startFen: String = STARTPOS,
-    /**
-     * Every decision — committed OR rejected — the moment it is made, and the only way one leaves
-     * the module; called on the engine's own thread, must not block. It carries the [DebugDecision],
-     * not prose, so a consumer can count by reason (2026-08-01: a `Qxd4` cycle was unanswerable).
-     */
+    /** Every decision, committed OR rejected, as a [DebugDecision], not prose, so a consumer can count by reason.
+     *  On the engine's thread: must not block. */
     private val decisionSink: (DebugDecision) -> Unit = {},
-    /**
-     * Frame-loop STATE transitions on the engine's own clock. The decision rows cannot carry them:
-     * on rec-20260808-003957 the typical move is committed on the FIRST row it appears in, so all
-     * the waiting happened before, in states that write nothing. One call per TRANSITION.
-     */
+    /** Decision rows cannot carry them: the typical move commits on the FIRST row it appears in, so the wait
+     *  happened in states that write nothing. One call per TRANSITION. */
     private val stateSink: (String, String, Double) -> Unit = { _, _, _ -> },
 ) {
     internal val state = EngineState(config, startFen, decisionSink = decisionSink)
@@ -102,13 +93,9 @@ class TrackerEngine(
 
     fun verifyWaiting(): Boolean = state.pending != null
 
-    /**
-     * The whole per-frame loop plus detection. `Stuck` and `Note` are emitted only on a CHANGE; one
-     * event per frame would be pure spam on a bus the UI reads.
-     */
+    /** `Stuck` and `Note` only on a CHANGE: one per frame would spam the bus the UI reads. */
     fun onFrame(input: FrameInput): List<TrackerEvent> =
-        // The catch is where a refused fabrication leaves the engine (2026-08-09); the alarm stops
-        // commits and names uci and position.
+        // Where a refused fabrication leaves the engine: the alarm stops commits and names uci and position.
         try {
             val noteBefore = state.note
             val stuckBefore = state.stuckReason
@@ -131,10 +118,7 @@ class TrackerEngine(
 
     private var cnn: CnnEvaluator? = null
 
-    /**
-     * Inject the evaluator — `:core-engine` may not depend on `:core-cnn`. `null` makes verify
-     * commit the pending candidate rather than stall; attaching also arms `cnn_run`.
-     */
+    /** `:core-engine` may not depend on `:core-cnn`. `null` makes verify commit rather than stall. */
     fun attachCnn(evaluator: CnnEvaluator?) {
         cnn = evaluator
         state.cnnRun = evaluator != null
@@ -143,18 +127,11 @@ class TrackerEngine(
         state.syncConfirmWindow()
     }
 
-    /**
-     * Observer results. Pending work has **priority** over the periodic check: a promotion prompt
-     * consumes identity observations first, an ordinary candidate goes through the ghost filter.
-     */
+    /** Pending work has **priority**: a promotion prompt consumes identity first, a candidate goes through the ghost filter. */
     fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> =
-        // The other entry a refusal can come back out of (see [onFrame]).
         try {
-            // Background gates and recovery must see pixels alone — their job is precisely to repair
-            // a stale/wrong FEN. Only a pending diff candidate and the promotion prompt may use the
-            // position-conditioned view.
-            // Die gemessene Schwelle des Modells EINMAL, hier am Eingang — auf BEIDE Sichten, sonst
-            // gatet die Verifikations-Leiter weiter mit `1.0 - cnnConfThr` (`docs/occlusion-gate.md`).
+            // Background gates and recovery see pixels alone — they repair a stale FEN; only a pending candidate and the
+            // promotion prompt use the conditioned view. The model's own coverage threshold applies ONCE, here, to both.
             val gated = snap.copy(obs = snap.obs.withCoverageThr(state.config.pOccludedThr))
             val rawSnap = gated.copy(obs = gated.obs.rawObservation())
             state.cnnSnap = rawSnap
@@ -166,9 +143,7 @@ class TrackerEngine(
                     state.cnnSnapsToVerify += 1
                     val pendingFen = state.pending?.fen
                     val events = VerifySingle.tick(state, cnn, gated)
-                    // The next frame can immediately re-propose the rejected candidate. Give
-                    // independent, unconditioned recovery this reading before that happens;
-                    // its legality, hand guards and distinct-observation vote still apply.
+                    // The next frame can re-propose the rejected candidate: unconditioned recovery gets this reading first.
                     val terminal = state.verifyState == VERIFY_STATE_GHOST || state.verifyState == VERIFY_STATE_SHADOW
                     if (state.pending == null && state.board.fen() == pendingFen && terminal) {
                         events + state.cnnTick(cnn, rawSnap, afterRejectedVerify = true)
@@ -184,30 +159,20 @@ class TrackerEngine(
 
     private var debugEnabled = false
 
-    /**
-     * Arm the extra [TrackerStatus.debug] payload. Off by default: it walks 64 squares twice and
-     * copies the decision ring per frame. The decision log is recorded either way.
-     */
+    /** Off by default: it walks 64 squares twice and copies the decision ring per frame. */
     fun setDebugEnabled(on: Boolean) {
         debugEnabled = on
     }
 
-    /** Immutable UI snapshot; the debug screen is a pure function of it. */
     fun status(): TrackerStatus = state.toStatus(debugEnabled)
 
-    /**
-     * The game FEN alone — the CNN observer reads this per frame as its discard-on-change guard,
-     * while the rest of the snapshot must not be built at the analyzer's rate.
-     */
+    /** The observer reads this per frame; the full snapshot must not be built at the analyzer's rate. */
     fun fen(): String = state.board.fen()
 
-    /**
-     * A user correction: alarm released, decision rows dropped, and the LAST COMMIT taken back
-     * whatever its size (a CNN recovery is one unit). Recorded in [EngineState.takenBack].
-     */
+    /** The LAST COMMIT whatever its size (a CNN recovery is one unit); remembered in [EngineState.takenBack]. */
     fun undo(): List<TrackerEvent> {
         if (state.history.isNotEmpty()) {
-            // Bounded by the history: a count left over from before a `setFen` must not overshoot.
+            // Bounded by the history: a count from before a `setFen` must not overshoot.
             val plies = state.lastCommitSize.coerceIn(1, state.history.size)
             state.takeBack(plies)
             state.lastCommitSize = 0
@@ -221,18 +186,13 @@ class TrackerEngine(
             state.pendingCapture = null
             state.note = undoneNote(plies)
         }
-        // Unconditional, not via `clearAlarm`: that one returns early without a latch, so an undo
-        // on a healthy board left the streak standing against a position that no longer exists.
+        // Not via `clearAlarm`, which returns early without a latch: the streak would outlive its position.
         state.clearDesyncStreak()
-        // AFTER the trim: the `decider = "user"` row is stamped with the current `history.size`, and
-        // the trim drops every row above the restored size — written first, it deleted itself.
+        // AFTER the trim: the `decider = "user"` row is stamped with `history.size`, and written first it deleted itself.
         return state.clearAlarm(ALARM_UNDONE)
     }
 
-    /**
-     * The position chokepoint. Unchecked, an unparseable FEN threw four layers out and an en-prise
-     * king was adopted silently (2026-08-09). Refused positions REPORT.
-     */
+    /** The position chokepoint: unchecked, a bad FEN threw four layers out and an en-prise king was adopted. */
     fun setFen(fen: String): List<TrackerEvent> {
         if (!reachable(fen)) {
             val why = "position refused: '$fen' is unreadable or leaves the side not to move in check"
@@ -243,36 +203,28 @@ class TrackerEngine(
         state.history.clear()
         state.decisionLog.clear()
         state.note = "Reference set"
-        // The user accepted reality by resyncing — release the illegal-move latch (invariant 9).
+        // The user accepted reality by resyncing — release the latch (invariant 9).
         return state.clearAlarm(ALARM_ACCEPTED)
     }
 
-    /**
-     * "The physical board matches the shown FEN, refresh the visual reference". The FEN is trusted;
-     * `holdUntil` is zeroed because this is a deliberate user action, not a post-motion settle.
-     */
+    /** The FEN is trusted; `holdUntil` is zeroed because this is a deliberate user action. */
     fun captureBaseline(): List<TrackerEvent> {
         state.clearReferenceState()
         state.holdUntil = 0.0
-        // "The board matches the shown FEN" contradicts the take-back veto's premise, and this is
-        // the button the veto's own note points at.
+        // This button contradicts the take-back veto's premise, and the veto's own note points at it.
         state.takenBack = null
         val events = state.clearAlarm(ALARM_ACCEPTED)
         state.note = "Baseline: re-capturing reference from the next clear frame…"
         return events
     }
 
-    /**
-     * Die Rektifizierung hat sich geaendert — wie eine neue Ebenengroesse, aber NICHT
-     * [captureBaseline]: der Latch bleibt, denn Invariante 9 haengt genau daran.
-     */
+    /** NICHT [captureBaseline]: der Latch bleibt, denn Invariante 9 haengt daran. */
     fun rectificationChanged(): List<TrackerEvent> {
         state.discardVisualReference()
         state.note = NOTE_GEOMETRY_SHIFTED
         return emptyList()
     }
 
-    /** The Q/R/B/N answer for a pending promotion. */
     fun choosePromotion(piece: Char): List<TrackerEvent> {
         val symbol = piece.lowercaseChar()
         val pending = state.promoPending
@@ -285,8 +237,7 @@ class TrackerEngine(
         return when {
             symbol !in PROMO_PIECES -> listOf(TrackerEvent.Note("invalid piece: '$piece' (q/r/b/n)"))
             pending == null -> listOf(TrackerEvent.Note("no promotion pending"))
-            // Invariante 9: der Latch sperrt ALLES. Diese Tuer ging an `dispatch` vorbei direkt in
-            // `commitMove`; die Frage wird verworfen wie `VerifySingle.discardOnAlarm` es tut.
+            // Invariante 9: diese Tuer ging an `dispatch` vorbei direkt in `commitMove`.
             state.alarm != null -> {
                 state.promoPending = null
                 state.note = NOTE_ALARM_BLOCKED
@@ -304,62 +255,44 @@ class TrackerEngine(
         }
     }
 
-    /**
-     * The illegal-move alarm's "adopt what the CNN sees": a **minimal edit**, not a blind rebuild —
-     * only label-confident squares take the observed piece, identity being the model's weak axis.
-     * The history is dropped, and an observation without both kings is REJECTED, not adopted.
-     */
+    /** A **minimal edit**: only label-confident squares take the observed piece. History dropped; an
+     *  observation without both kings is REJECTED. */
     fun acceptCnnPosition(): List<TrackerEvent> {
         val fen = state.adoptableCnnFen(cnn?.confThr ?: state.config.cnnConfThr) ?: return listOf(TrackerEvent.Note(state.note.orEmpty()))
-        // setFen clears the history and the latch; captureBaseline re-captures the reference.
         val events = setFen(fen) + captureBaseline()
         state.note = "CNN position adopted — alarm cleared, re-capturing reference…"
         return events
     }
 
-    /**
-     * The honest door: adopt the observed position, KEEP the history, append nothing. It records
-     * the discontinuity (one `cnn_resync` row) instead of clearing the record.
-     */
+    /** Adopts the observed position, KEEPS the history, appends nothing — one `cnn_resync` row records the gap. */
     fun resyncToBoard(): List<TrackerEvent> {
         val fen = state.adoptableCnnFen(cnn?.confThr ?: state.config.cnnConfThr) ?: return listOf(TrackerEvent.Note(state.note.orEmpty()))
         return state.performResync(fen, how = "user")
     }
 
-    /**
-     * Live tuning: buffers and confirmers are rebuilt on a length change, square boxes follow
-     * `detSize`/`overhang`, and a new detection plane invalidates the reference.
-     */
     fun updateConfig(config: TrackerConfig) {
         val previous = state.config
         state.config = config
-        // Against the window the buffers are ACTUALLY sized for: comparing new against previous with
-        // the new `cnnOn` on both sides cancelled out exactly when the change was the one flipping it.
+        // Against the window ACTUALLY allocated: with the new `cnnOn` on both sides, the flipping change cancelled out.
         state.syncAvgWindow()
-        // Same correction, same reason, for the confirm window.
         state.syncConfirmWindow()
         if (config.detSize != previous.detSize || config.overhang != previous.overhang) {
             state.rebuildBoxes()
-            // Die Census-Codes schluesseln auf die IDENTITAET von `refGray`, und die aendert sich
-            // hier nicht -- der naechste Frame verglich sonst Codes ueber die neuen Boxen gegen
-            // zwischengespeicherte ueber die alten. `maybePatchAnomaly` macht dasselbe.
+            // Census codes key on the IDENTITY of `refGray`, which does not change here: new boxes would compare against
+            // codes cached over the old ones.
             state.refCensusFor = null
             state.curCensusFor = null
         }
-        // Jeder Knopf, der die MESSEBENE verschiebt, macht die Referenz unvergleichbar -- nicht nur
-        // die Groesse. `diffClaheClip` baut in der Runtime den CLAHE-Operator neu, und der naechste
-        // Frame traefe sonst unter neuer Grauwert-Transformation auf eine Referenz von vorher.
+        // Any knob that moves the MEASUREMENT plane invalidates the reference: `diffClaheClip` rebuilds the CLAHE
+        // operator in the runtime.
         if (config.detSize != previous.detSize || config.diffClaheClip != previous.diffClaheClip) {
             state.discardVisualReference()
         }
     }
 }
 
-/**
- * The ordered detection pipeline. The order IS the contract; every candidate kind passes 6b -> 9.
- * 1. guards, 2. evidence + taints, 3. vetoes, 4. noise learning, 5. scoring + quiet/re-anchor,
- * 6. hypothesis, 6b. absolute LL floor, 7. motion gate, 8. confirmer, 9. dispatch.
- */
+/** The order IS the contract: 1 guards, 2 evidence + taints, 3 vetoes, 4 noise, 5 scoring + quiet/re-anchor,
+ *  6 hypothesis, 6b LL floor, 7 motion gate, 8 confirmer, 9 dispatch. */
 internal fun EngineState.tryDetect(
     cur: GrayImage,
     curBgr: BgrImage?,
@@ -367,7 +300,7 @@ internal fun EngineState.tryDetect(
     cnn: CnnEvaluator? = null,
 ): List<TrackerEvent> {
     if (!detectGuards()) return emptyList()
-    // 2. Evidence — every gate and the LL scoring operate on the SAME fused z (`lastZ`).
+    // 2. Every gate and the LL scoring operate on the SAME fused z (`lastZ`).
     computeEvidence(cur)
     applyTaints()
     var hot = 0L
@@ -375,22 +308,19 @@ internal fun EngineState.tryDetect(
         if (lastZ[i] >= config.zThr) hot = hot.with(i)
     }
     changedVals = topChangedVals(lastZ, config.zThr)
-    // 3. Vetoes (shadow keeps z as vacate evidence; occlusion zeroed it in step 2).
+    // 3. Shadow keeps z as vacate evidence; occlusion zeroed it in step 2.
     applyVetoes(cur, curBgr, hot)
     trackAnomalies()
-    // 4. Noise learning on the post-veto sets, on EVERY stable frame — even while stuck.
+    // 4. On EVERY stable frame — even while stuck.
     learnNoise()
-    // 5. LL scoring + viability filter, then the quiet/re-anchor branch.
     val moves = scoreViableMoves(lastZ)
     val events = mutableListOf<TrackerEvent>()
     val promoBefore = promoPending
     if (!(changed == 0L && quietOutcome(moves, cur, curBgr, events, cnn))) {
-        // 6. Hypothesis — the ONE place that turns evidence into a candidate.
         val cand = generateHypothesis(lastZ, moves, cur, curBgr)
         if (cand != null && commitGates(cand)) {
-            // Under the hand a hypothesis from half-seen squares must not even become pending:
-            // an early wrong `Nb6` poisoned confirmer and ambiguity until the alarm (11-59-12,
-            // 2026-09-13). Inside the commit hold the squares have to be SEEN settled first.
+            // A hypothesis from half-seen squares must not even become pending: an early wrong `Nb6` poisoned confirmer
+            // and ambiguity until the alarm.
             if (earlyCommit && !sightSettled(board, cand.moves)) {
                 note = "early: ${cand.moves.joinToString(" ") { uciOf(it) }} not seen settled yet (${sights.size} sights)"
             } else {
@@ -404,11 +334,8 @@ internal fun EngineState.tryDetect(
     return events
 }
 
-/**
- * Step 5's quiet branch: pull the reference forward or refuse to; `true` means the frame is HANDLED.
- * The bail-outs are ordered — a latched hand would be baked in, an illegal position must never become
- * base truth (invariant 9), and the desync veto (Bxc3, 2026-07-21) bounds a rejected real move.
- */
+/** `true` means HANDLED. Ordered bail-outs: a latched hand would be baked in, an illegal position never
+ *  becomes base truth (invariant 9), and the desync veto (Bxc3) bounds a rejected real move. */
 internal fun EngineState.quietOutcome(
     moves: ViableMoves,
     cur: GrayImage,
@@ -434,8 +361,7 @@ internal fun EngineState.quietOutcome(
                 events += desyncEvidence(cnn, desync.snap, desync.conflicts)
             }
             else -> {
-                // The only verifiably CLEAN moment: re-anchor AND run the deferred jobs.
-                // `fromCommit = false` — invariant 6.
+                // The only verifiably CLEAN moment: re-anchor AND run the deferred jobs (`fromCommit = false`, invariant 6).
                 confirmer.reset()
                 clearStuck()
                 anomalySince = 0L
@@ -446,8 +372,7 @@ internal fun EngineState.quietOutcome(
             }
         }
     } else if (moves.best < 0.0) {
-        // Weak but move-consistent evidence (white-on-white?) → KEEP the reference: neither
-        // re-anchor nor stuck, and the confirmer keeps collecting.
+        // Weak but consistent evidence (white-on-white?): KEEP the reference; the confirmer keeps collecting.
         note = "weak move evidence (${board.san(obsMove)}?) — waiting"
     } else {
         handled = false
@@ -455,10 +380,7 @@ internal fun EngineState.quietOutcome(
     return handled
 }
 
-/**
- * The confident OCCUPANCY conflicts between a fresh observation and the believed position — a
- * misread TYPE is not a desync, and one confident square vetoed for 25 minutes (2026-08-29).
- */
+/** OCCUPANCY only: a misread TYPE is no desync, and one confident square once vetoed for 25 minutes. */
 private fun EngineState.cnnDesync(): Desync? {
     val snap = freshSnapshot() ?: return null
     val thr = config.cnnConfThr
@@ -476,16 +398,12 @@ private fun EngineState.cnnDesync(): Desync? {
     return if (conflicts == 0L) null else Desync(snap, conflicts.squareNames())
 }
 
-/** The observation that vetoed the re-anchor, and the squares it vetoed on. */
 private class Desync(
     val snap: CnnSnapshot,
     val conflicts: List<String>,
 )
 
-/**
- * The immutable UI snapshot, a pure function of the state — the ONE place that turns the engine's
- * bitboards and 64-element arrays into the square-name maps the UI wants.
- */
+/** The ONE place bitboards and 64-arrays become the square-name maps the UI wants. */
 internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus =
     TrackerStatus(
         state = state,
@@ -496,7 +414,6 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
         changed = changed.sortedSquareNames().toSet(),
         shadowVetoed = shadowVetoed.sortedSquareNames().toSet(),
         occlusionVetoed = occludedVetoed.sortedSquareNames().toSet(),
-        // The same computation the re-anchor veto uses, surfaced instead of only counted.
         cnnConflicts = cnnDesync()?.conflicts?.toSet() ?: emptySet(),
         cnnOccluded = freshCnnOccludedSquares(),
         bestLl = bestScore,
@@ -516,10 +433,7 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
         debug = if (debugEnabled) debugPayload() else null,
     )
 
-/**
- * The visual state every user-correction path drops — deliberately the INTERSECTION of the three
- * callers, each of which adds its own remainder, so no path clears more than it must.
- */
+/** The INTERSECTION of the three callers' needs; each adds its own remainder, so none clears more than it must. */
 internal fun EngineState.clearReferenceState() {
     refGray = null
     refBgr = null
@@ -532,8 +446,7 @@ internal fun EngineState.clearReferenceState() {
     tainted = 0L
     // The keep-alive subset outlived its parent and restored pair evidence for a taint nobody holds.
     keepaliveTainted = 0L
-    // Keyed to the reference we are discarding — an unchanged FEN TEXT is not the same epoch, and the
-    // latch went on suppressing a legitimate fast pair after the user reset the position.
+    // An unchanged FEN TEXT is not the same epoch: the latch suppressed a legitimate pair after a reset.
     rejectedPair = null
     rejectedPairFen = null
     shadowVetoed = 0L
@@ -550,7 +463,6 @@ internal fun EngineState.clearReferenceState() {
     state = STATE_WAITING
 }
 
-/** A `Squares.ALL`-keyed view of a 64-value channel — built for the UI, never for the engine. */
 private fun squareValueMap(values: DoubleArray): Map<String, Double> {
     val out = LinkedHashMap<String, Double>(Squares.COUNT)
     for (i in 0 until Squares.COUNT) {
@@ -559,10 +471,8 @@ private fun squareValueMap(values: DoubleArray): Map<String, Double> {
     return out
 }
 
-/**
- * The ONLY release of the illegal-move latch. **entry.md invariant 9:** no detection-pipeline
- * caller — the alarm never heals by drift or timeout. A [logReason] marks a user correction.
- */
+/** The ONLY release of the latch, never from the detection pipeline (invariant 9): no drift, no timeout.
+ *  A [logReason] marks a user correction. */
 internal fun EngineState.clearAlarm(logReason: String?): List<TrackerEvent> {
     if (alarm == null) return emptyList()
     alarm = null

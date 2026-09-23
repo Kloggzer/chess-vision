@@ -3,10 +3,7 @@ package com.chesslab.engine
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * Eine Hand ist keine Stellungsfrage: der Blick von vor dem Commit zaehlt weiter, sonst exportiert
- * `TrainingVideoPack` den Frame als sauber (`docs/bug-audit-2026-09-13.md`, E13).
- */
+/** Eine Hand ist keine Stellungsfrage: sonst exportiert `TrainingVideoPack` den Frame als sauber (E13). */
 class FreshHandSquaresScopeBugTest {
     @Test
     fun aHandSeenJustBeforeTheCommitStillCounts() {

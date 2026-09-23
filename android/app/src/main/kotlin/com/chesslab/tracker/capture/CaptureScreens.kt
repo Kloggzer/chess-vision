@@ -69,12 +69,7 @@ import com.chesslab.tracker.ui.tracking.fittedRect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/**
- * Targeted capture, in three screens: pick a shot, build it, turn the piece.
- *
- * The whole flow is one [CaptureHost] across three back-stack entries — a shot survives the walk
- * from the list to the turning screen, and the run belongs to the service either way.
- */
+/** Pick a shot, build it, turn the piece: one [CaptureHost] across three back-stack entries. */
 @Composable
 fun CapturePlanRoute(
     onBack: () -> Unit,
@@ -88,9 +83,8 @@ fun CapturePlanRoute(
         settings.load()
         CaptureHost.load(scope) { settings.prefs.value }
     }
-    // Ohne laufenden Dienst gibt es keine Kamera und kein `boardPreview` — der Schirm misst dann
-    // nichts und der Mensch muss erst von Hand eine Partie starten. Hier, nicht im Aufbau-Schirm:
-    // Dienststart und Bindung kosten Frames, die der Weg ueber die Liste ohnehin hergibt.
+    // Ohne laufenden Dienst keine Kamera und kein `boardPreview`. Hier, nicht im Aufbau-Schirm: Dienststart
+    // und Bindung kosten Frames, die der Weg ueber die Liste ohnehin hergibt.
     LaunchedEffect(Unit) { TrackerRun.start() }
 
     ChesslabScaffold("Targeted capture", onBack) { bars ->
@@ -133,7 +127,6 @@ private fun CoverageCard(ui: CaptureUi) {
             style = MaterialTheme.typography.bodyMedium,
             color = OnSurfaceMuted,
         )
-        // The report comes from a BUILT dataset: an upload does not move it, so it dates itself.
         Text(dateLine(coverage, ui.plan), style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
         ui.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
     }
@@ -162,7 +155,6 @@ private fun NoShots(ui: CaptureUi) {
     }
 }
 
-/** Where every piece goes, drawn ON the live board — the one screen where both are needed. */
 @Composable
 fun CaptureSetupRoute(
     index: Int,
@@ -175,8 +167,6 @@ fun CaptureSetupRoute(
     val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
     val whitePov = boardIsWhitePov()
     var measured by remember { mutableStateOf(emptyMap<String, Int>()) }
-    // Der Plan schlaegt Felder nach dem Korpus-Median vor, das Band macht aber die Lampe. Also
-    // wird das rektifizierte Brett laufend gemessen und die Belegung daraus neu gelegt.
     LaunchedEffect(session, whitePov) {
         val frames = session?.boardPreview ?: return@LaunchedEffect
         while (true) {
@@ -184,8 +174,6 @@ fun CaptureSetupRoute(
             delay(MEASURE_MS)
         }
     }
-    // Festgehalten wird nur neu BEURTEILT, nie neu verteilt: eine hingestellte Figur verschiebt
-    // ihr Feld um bis zu 61 Grauwerte und wuerfelte die Belegung sonst neu.
     val frozen = ui.frozen
     val targets =
         remember(shot, measured, frozen) {
@@ -193,22 +181,19 @@ fun CaptureSetupRoute(
         }
     // Der Lauf labelt gegen DIESE Belegung, nicht gegen den Vorschlag des Plans.
     LaunchedEffect(targets) { CaptureHost.place(targets) }
-    // Der Debug-Payload traegt die Reads (`entry.md` verbietet einen UI-Seitenkanal). Er kostet
-    // 64 Felder je Bild, also nur solange hier aufgebaut wird — die Aufnahme laeuft ohne ihn.
+    // Der Debug-Payload traegt die Reads (`entry.md` verbietet einen UI-Seitenkanal); er kostet 64 Felder
+    // je Bild, also nur solange hier aufgebaut wird.
     val debug by DebugSessionHost.session.collectAsStateWithLifecycle()
     val status by (debug?.status ?: NO_STATUS).collectAsStateWithLifecycle()
     DisposableEffect(debug, ui.recording) {
         debug?.setDebugEnabled(!ui.recording)
         onDispose { debug?.setDebugEnabled(false) }
     }
-    // Erst ab dem Festhalten: vor dem Aufbau ist JEDES Zielfeld leer, und „leer" auf allen vier
-    // ist keine Meldung, sondern Laerm, der die eigentliche Anweisung uebermalt.
+    // Erst ab dem Festhalten: vor dem Aufbau ist JEDES Zielfeld leer, und "leer" auf allen ist Laerm.
     val reads =
         if (ui.recording || ui.frozen == null) emptyList() else status?.debug?.cnnReads.orEmpty()
     val checks = remember(targets, reads) { checkPlacement(targets, reads) }
     val stray = remember(targets, reads) { strayPieces(targets, reads) }
-    // The profile goes on here and the device is asked again while the human builds: a rebind to
-    // 4K and the encoder's re-arm both take frames, not instants.
     LaunchedEffect(recorder) { CaptureHost.prepare(recorder) }
     DisposableEffect(recorder) { onDispose { CaptureHost.releaseIfIdle(recorder) } }
     LaunchedEffect(recorder, ui.observed) {
@@ -226,19 +211,14 @@ fun CaptureSetupRoute(
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             Card {
-                // Die Aufgabe zuerst und in Befehlsform: der Schirm sah aus wie ein Befund des
-                // Modells, nicht wie eine Anleitung („keine Ahnung was ich tun soll", 2026-09-14).
+                // Die Aufgabe zuerst und in Befehlsform: der Schirm las sich wie ein Befund des Modells.
                 Text(
                     progressLine(checks).ifBlank { "${shot.place.size} Figuren aufstellen" },
                     style = MaterialTheme.typography.titleMedium,
                     color = OnSurface,
                 )
-                // Die Felder IM KLARTEXT, nicht nur im Overlay: ohne Kamerabild waere sonst
-                // nirgends zu lesen, was aufzubauen ist.
                 Text(orderLine(targets), style = MaterialTheme.typography.bodyMedium, color = Accent)
                 Text("${shot.id} · ${orderText(shot)}", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
-                // Vor dem Festhalten ist nichts falsch, nur noch nichts entschieden — deshalb
-                // weder rot noch eine Aufforderung, am Licht zu drehen.
                 Text(
                     if (frozen == null) {
                         "Noch nicht festgehalten — die Vorschlaege wandern mit der Messung"
@@ -253,7 +233,6 @@ fun CaptureSetupRoute(
                             else -> Danger
                         },
                 )
-                // Kontrolle, kein Veto: das Modell ist auf genau diesen Feldern am schwaechsten.
                 if (frozen != null) {
                     Text(
                         checkSummary(checks, stray),
@@ -291,13 +270,8 @@ fun CaptureSetupRoute(
     }
 }
 
-/**
- * Das rektifizierte Brett mit den Zielfeldern darauf — die Antwort auf „wo soll was hin".
- *
- * Auf dem gewarpten Brett und nicht auf dem Rohbild: dort liegt a8 per Konstruktion oben links,
- * Overlay und Messung koennen also nicht auseinanderlaufen (`BoardPreview`). Gefaerbt wird erst
- * nach dem Festhalten — vorher waere es ein Urteil ueber einen Vorschlag, der noch wandert.
- */
+/** Auf dem gewarpten Brett, nicht dem Rohbild: dort liegt a8 per Konstruktion oben links, Overlay und
+ *  Messung koennen nicht auseinanderlaufen. Gefaerbt erst nach dem Festhalten. */
 @Composable
 private fun TargetBoard(
     targets: List<Target>,
@@ -319,14 +293,13 @@ private fun TargetBoard(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // Vor dem Draw-Lambda gelesen: das ist kein Composable-Scope (`BoardPreview`).
+        // Vor dem Draw-Lambda gelesen: das ist kein Composable-Scope.
         val hit = Accent
         val miss = Danger
         val pending = OnSurface
         val label = TextStyle(color = OnSurface, fontSize = TARGET_TEXT)
         Canvas(Modifier.fillMaxSize()) {
-            // Ohne Kamerabild ein eigenes Raster: die Anweisung, was wohin gehoert, darf nicht am
-            // Bild haengen — sonst steht der Mensch vor einem leeren Schirm und baut gar nichts.
+            // Ohne Kamerabild ein eigenes Raster: die Anweisung darf nicht am Bild haengen.
             val rect =
                 if (bitmap != null) {
                     fittedRect(size, bitmap.width, bitmap.height)
@@ -347,8 +320,6 @@ private fun TargetBoard(
                     }
                 drawRect(colour.copy(alpha = TARGET_FILL), cell.topLeft, cell.size)
                 drawRect(colour, cell.topLeft, cell.size, style = Stroke(width = TARGET_STROKE))
-                // Die FIGUR ins Feld, gross und mittig. Ein Kuerzel in der Ecke sah aus wie ein
-                // Befund des Tracking-Overlays; eine Figur im Feld liest jeder als „hierhin damit".
                 val glyph = measurer.measure(pieceSymbol(target.piece), pieceStyle(cell.width))
                 drawText(
                     glyph,
@@ -359,7 +330,6 @@ private fun TargetBoard(
                 drawRect(LABEL_BACKDROP, at, note.size.toSize())
                 drawText(note, topLeft = at)
             }
-            // Eine Figur auf einem Feld, das die FEN als `empty` fuehrt, verdirbt jeden Frame.
             stray.forEach { square ->
                 val cell = cellRect(rect, square) ?: return@forEach
                 drawRect(miss, cell.topLeft, cell.size, style = Stroke(width = TARGET_STROKE))
@@ -386,11 +356,8 @@ private fun Viewfinder(modifier: Modifier) {
     }
 }
 
-/**
- * What the camera is REALLY doing, in the accent colour only when it is all as asked. A capture that
- * quietly fell back to 1440p or to the game path's bit rate is the failure this line exists to
- * catch, and the same words go into `capture.json`.
- */
+/** Accent only when it is all as asked: a capture that quietly fell back to 1440p or to the game path's
+ *  bit rate is what this line exists to catch. The same words go into `capture.json`. */
 @Composable
 private fun ProfileLine(observed: CaptureObserved?) {
     if (observed == null) {
@@ -423,8 +390,7 @@ fun CaptureTurnRoute(
     val ui by CaptureHost.state.collectAsStateWithLifecycle()
     val recorder by CaptureRecorderHost.recorder.collectAsStateWithLifecycle()
     val shot = CaptureHost.shotAt(index)
-    // Auch waehrend der Drehungen weiter messen: das Licht kann ueber acht Schritte wandern, und
-    // eine Aufnahme, die dabei aus dem Band laeuft, faellt sonst erst im Datensatz auf.
+    // Auch waehrend der Drehungen messen: das Licht kann ueber acht Schritte wandern.
     val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
     val whitePov = boardIsWhitePov()
     var measured by remember { mutableStateOf(emptyMap<String, Int>()) }
@@ -436,8 +402,7 @@ fun CaptureTurnRoute(
         }
     }
     val live = remember(ui.frozen, measured) { refit(ui.frozen.orEmpty(), measured) }
-    // Both ways out close the bundle: a run left open writes no `capture.json` at all, and system
-    // back does not travel through [onBack].
+    // Both ways out close the bundle: an open run writes no `capture.json`, and system back skips [onBack].
     val leave: () -> Unit = {
         CaptureHost.finish(recorder)
         onBack()
@@ -466,8 +431,6 @@ fun CaptureTurnRoute(
                     style = MaterialTheme.typography.bodySmall,
                     color = if (ui.recording) Accent else Danger,
                 )
-                // Die Helligkeit DIESER Aufnahme, Schritt fuer Schritt — sie ist die Groesse, die
-                // ueber jede Zelle im Datensatz entscheidet, und sie wandert ueber acht Drehungen.
                 Text(
                     lightAdvice(live),
                     style = MaterialTheme.typography.bodyMedium,
@@ -502,7 +465,6 @@ fun CaptureTurnRoute(
     }
 }
 
-/** Ein Schachbrett aus Rechtecken — der Ersatz fuer das Kamerabild, nicht seine Nachahmung. */
 private fun DrawScope.drawEmptyBoard(board: Rect) {
     val cell = board.width / BOARD_SIDE
     for (col in 0 until BOARD_SIDE) {
@@ -517,11 +479,8 @@ private fun DrawScope.drawEmptyBoard(board: Rect) {
     }
 }
 
-/**
- * Die eingestellte Brettorientierung. Sie entscheidet, welches PIXEL zu welchem Feld gehoert:
- * der Warp kennt kein `whitePov`, die Feldzuordnung schon, und bei BLACK_BOTTOM liegt `a8` unten
- * rechts. Ohne sie misst und labelt die Erfassung jede Figur aufs gespiegelte Feld.
- */
+/** Der Warp kennt kein `whitePov`, die Feldzuordnung schon: bei BLACK_BOTTOM liegt `a8` unten rechts.
+ *  Ohne sie misst und labelt die Erfassung jede Figur aufs gespiegelte Feld. */
 @Composable
 private fun boardIsWhitePov(): Boolean {
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
@@ -529,7 +488,6 @@ private fun boardIsWhitePov(): Boolean {
     return settings.orientation.whitePov
 }
 
-/** Ein Zeichen hinter der Figur. Leer, wo das Modell nichts zu sagen hat — nicht „ungeprueft". */
 private fun checkMark(check: Check?): String =
     when (check) {
         Check.AGREES -> " ✓"
@@ -542,18 +500,13 @@ private fun orderText(shot: Shot): String = "${shot.place.size} Figuren, Kamera 
 
 private const val BOARD_SIDE = 8
 
-/** Hinter der Feldbeschriftung, damit sie auf hellem Holz lesbar bleibt. */
 private val LABEL_BACKDROP = Color(0xCC101214)
 
-/**
- * Die Geist-Figur im Zielfeld: weiss mit dunkler Kontur, damit sie auf beiden Feldfarben steht.
- * Die Groesse folgt der Zelle — ein fester Wert waere auf dem Telefon entweder winzig oder zu gross.
- */
+/** Weiss mit dunkler Kontur, damit sie auf beiden Feldfarben steht; die Groesse folgt der Zelle. */
 private fun DrawScope.pieceStyle(cellWidth: Float) =
     TextStyle(
         color = Color.White,
-        // `toSp` und nicht `.sp`: `cellWidth` ist ein Pixelmass des Canvas, und auf diesem
-        // Telefon (560 dpi) waere die Figur sonst dreieinhalbmal zu gross.
+        // `toSp`, nicht `.sp`: `cellWidth` ist ein Pixelmass, und bei 560 dpi waere die Figur 3,5x zu gross.
         fontSize = (cellWidth * GLYPH_OF_CELL).toSp(),
         shadow = Shadow(Color.Black, blurRadius = GLYPH_SHADOW),
     )
@@ -561,7 +514,6 @@ private fun DrawScope.pieceStyle(cellWidth: Float) =
 private const val GLYPH_OF_CELL = 0.62f
 private const val GLYPH_SHADOW = 6f
 
-/** Nur fuer das Ersatzbrett: ein Raster, das nicht vorgibt, ein Kamerabild zu sein. */
 private val EMPTY_LIGHT = Color(0xFFEED8B8)
 private val EMPTY_DARK = Color(0xFFA67C5A)
 
@@ -577,7 +529,6 @@ private const val NO_FRAME = "no frame yet"
 private const val NOT_PINNED = "fps NOT pinned"
 private const val PROFILE_POLL_MS = 1500L
 
-/** The screens render before the service is bound; an unbound camera is simply no frame. */
 private val NO_PREVIEW = MutableStateFlow<Bitmap?>(null)
 private val NO_STATUS = MutableStateFlow<TrackerStatus?>(null)
 private val NO_APP_SETTINGS = MutableStateFlow(AppSettings())

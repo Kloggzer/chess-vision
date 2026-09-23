@@ -11,10 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/**
- * Was eine LAUFENDE Engine annehmen darf: `cnnVerify=false` stellt sie sofort auf diff-only
- * (`EngineState.cnnOn`), waehrend `CnnObserver.setEnabled` erst beim naechsten Stackbau faellt.
- */
+/** `cnnVerify=false` stellt die Engine sofort auf diff-only, `CnnObserver.setEnabled` faellt erst beim Stackbau. */
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class)
 class LiveConfigClampTest {
@@ -44,7 +41,6 @@ class LiveConfigClampTest {
 
     @Test
     fun `the measured board still wins, calibration runs under the tracker`() {
-        // `applyCalibration` schiebt die gemessene Brettgroesse bewusst in einen laufenden Stack.
         val run = TrackerConfig(boardSize = 800)
 
         val out = liveConfig(RunSeed(run, FrameRateMode.FPS30), run, FrameRateMode.FPS30, BoardGeometry(boardSize = 928), null)
@@ -61,8 +57,7 @@ class LiveConfigClampTest {
         assertEquals("halbe Rate heisst doppelt, nicht vierfach", 0.5, out.motionThr, 1e-9)
     }
 
-    /** Die BILDRATE ist restart-pflichtig und skaliert `motionThr`; gelesen aus den AKTUELLEN
-     *  Einstellungen verschob ein Live-Knopf die Schwelle auf eine Rate, die die Kamera nicht liefert. */
+    /** Aus den AKTUELLEN Einstellungen gelesen verschob ein Live-Knopf die Schwelle auf eine nicht gelieferte Rate. */
     @Test
     fun `a frame rate changed but not restarted does not move the running threshold`() {
         val run = RunSeed(TrackerConfig(boardSize = 928, motionThr = 0.25), FrameRateMode.FPS30)

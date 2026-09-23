@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.Closeable
 import java.util.Locale
 
-/** Owns one explicitly armed, process-wide source-work profile on a debug Android session. */
 internal class SourceWorkProfileController(
     val available: Boolean,
     private val header: () -> String,
@@ -31,7 +30,6 @@ internal class SourceWorkProfileController(
         if (on) startFresh() else stop()
     }
 
-    /** A stable text snapshot suitable for adb capture, a bug report, or Android's share sheet. */
     @Synchronized
     fun report(): String? {
         val recording = probe ?: return null
@@ -72,10 +70,7 @@ internal class SourceWorkProfileController(
     }
 }
 
-/**
- * Installed before the tracker threads start, then switched with Android/JVM visibility rules.
- * Each entered span retains its exact delegate, so stopping during an in-flight frame is safe.
- */
+/** Installed before the tracker threads start. Each span keeps its exact delegate, so stopping mid-frame is safe. */
 private class SwitchableWorkProbe : WorkProbe {
     private data class Entered(
         val probe: WorkProbe,

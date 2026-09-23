@@ -11,7 +11,7 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import java.lang.reflect.Modifier
 
-/** The depth-1 hand-off drops by OVERWRITE — since 2026-08-08 it also counts what it dropped. */
+/** Drops by OVERWRITE, and counts what it dropped. */
 class CropFrameStoreTest {
     @Test
     fun anOverwrittenPendingWarpIsCounted() {
@@ -26,7 +26,7 @@ class CropFrameStoreTest {
         store.close()
     }
 
-    /** Analyzer (`update`) und Observer (`take`) schreiben unter der Sperre; `wantsFrame()`/`idle` lesen OHNE sie. */
+    /** `wantsFrame()`/`idle` lesen OHNE die Sperre. */
     @Test
     fun pendingIsPublishedToTheThreadThatOnlyReadsIt() {
         val field = CropFrameStore::class.java.getDeclaredField("pending")

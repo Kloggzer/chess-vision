@@ -5,16 +5,12 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Der Record haelt nur Stellungen, auf denen die Partie stand. chesslib wendet `e2e5` auch unter
- * `fullValidation` an (gemessen 2026-08-03) — `GameView.replay` haelt das fest, `LiveGame.positionsAfter` nicht.
- */
+/** chesslib wendet `e2e5` auch unter `fullValidation` an. */
 class FabricatedPositionTest {
     @Test
     fun `an unplayable ply inside a sequence produces no position the game never stood on`() {
         val game = LiveGame(STARTPOS, 0L, "p")
 
-        // Halbzug eins ist echt, Halbzug zwei ist der gemessene Teleport-Fall.
         game.onCommitted(listOf("e2e5", "e7e6"), listOf("??", "e6"), AFTER_SEQUENCE, 0L, null)
 
         val fens =
@@ -57,7 +53,7 @@ class FabricatedPositionTest {
         )
     }
 
-    /** `TrackerEngine.undo` pops `lastCommitSize` plies; the record once checked only one ply back. */
+    /** The record once checked only one ply back. */
     @Test
     fun `an undo of a pair is seen by the record`() {
         val game = LiveGame(STARTPOS, 0L, "p")

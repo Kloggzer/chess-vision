@@ -12,17 +12,15 @@ import java.util.concurrent.atomic.AtomicLong
 
 private val NEWLINE = Regex("\r?\n")
 
-/** Eine kaputte Zeile, die ein laufender Schreiber NICHT erklaert — die letzte war sie nicht. */
+/** Eine kaputte Zeile, die ein laufender Schreiber NICHT erklaert. */
 class JsonlCorrupt(
     file: File,
     line: Int,
     cause: Throwable,
 ) : RuntimeException("$file: Zeile $line ist kaputt und nicht die letzte", cause)
 
-/**
- * Der eine Leser fuer `.jsonl` — dieselbe Politik wie `chesslab.ioutil` und `lib/jsonl.ts`:
- * der ZEILENUMBRUCH entscheidet, ob eine kaputte Zeile ein Schreiber oder Beschaedigung ist.
- */
+/** Dieselbe Politik wie `chesslab.ioutil` und `lib/jsonl.ts`: der ZEILENUMBRUCH entscheidet, ob eine kaputte
+ *  Zeile ein Schreiber oder Beschaedigung ist. */
 object Jsonl {
     fun rows(file: File): List<JsonObject> = if (file.isFile) parse(file, file.readText()) else emptyList()
 
@@ -43,12 +41,9 @@ object Jsonl {
         text: String,
         liveWriter: Boolean = true,
     ): List<JsonObject> {
-        // Fuehrendes BOM weg, wie `utf-8-sig` in `chesslab.ioutil` und `stripBom` in `lib/jsonl.ts`:
-        // PowerShells `Out-File` stempelt eines, und der Desktop liest dieselben Dateien wie Python.
+        // Fuehrendes BOM weg: PowerShells `Out-File` stempelt eines, und der Desktop liest dieselben Dateien wie Python.
         val lines = text.removePrefix("\uFEFF").split(NEWLINE)
-        // Wer mitten in einer Zeile erschlagen wurde, hat den Umbruch dahinter nicht mehr
-        // geschrieben — die kaputte Zeile ist dann die LETZTE. Steht dort einer, war der
-        // Schreiber fertig, und eine kaputte Zeile davor ist Beschaedigung.
+        // Ein erschlagener Schreiber hat den Umbruch nicht mehr geschrieben: die kaputte Zeile ist dann die LETZTE.
         val rows = ArrayList<JsonObject>(lines.size)
         lines.forEachIndexed { index, line ->
             if (line.isBlank()) return@forEachIndexed
@@ -65,25 +60,18 @@ object Jsonl {
     }
 }
 
-/**
- * Eigene Nebendatei je Schreibvorgang, wie `chesslab.ioutil._side_file` und `lib/atomic.ts`: unter
- * EINEM `<name>.tmp` schreiben zwei Vorgaenge in dieselbe Datei und das Ziel bekommt den Mischmasch.
- */
+/** Eigene Nebendatei je Schreibvorgang: unter EINEM `<name>.tmp` bekaeme das Ziel den Mischmasch zweier Vorgaenge. */
 internal fun sideFile(file: File): File = sideFiles(file)
 
 val defaultSideFiles: (File) -> File = { File(it.parentFile, "${it.name}.$SIDE_TAG-${SIDE_SEQ.incrementAndGet()}.tmp") }
 
-/** Nur Tests hebeln das aus — sie koennen den Namen sonst nicht vorhersagen und nicht blockieren.
- *  Oeffentlich, weil `:app` seine eigenen Schreiber prueft und `internal` nicht ueber Module traegt. */
+/** Nur Tests hebeln das aus. Oeffentlich, weil `:app` seine eigenen Schreiber prueft. */
 var sideFiles: (File) -> File = defaultSideFiles
 
 private val SIDE_TAG = UUID.randomUUID().toString().take(8)
 private val SIDE_SEQ = AtomicLong()
 
-/**
- * Temp file + move. If the move cannot be atomic on this filesystem we still never truncate the
- * destination first — a copy over a complete temp file is the next best guarantee.
- */
+/** Never truncates the destination first: if the move cannot be atomic, a copy over a complete temp file. */
 fun writeAtomic(
     file: File,
     text: String,

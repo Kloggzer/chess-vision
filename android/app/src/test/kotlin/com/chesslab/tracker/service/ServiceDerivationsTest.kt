@@ -18,11 +18,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
-/**
- * Vier Ableitungen entscheiden, welchen Tracker das Handy wirklich faehrt, und keine war
- * abgedeckt: `gridArm` schaltet den Phantom-Veto, `cropClahe` das Rezept des Standardmodells,
- * `engineConfig` Brettgroesse/Gate/Bildrate, und `BUNDLED_MODELS` entscheidet, was im Picker steht.
- */
+/** Vier Ableitungen entscheiden, welchen Tracker das Handy faehrt: `gridArm` (Phantom-Veto), `cropClahe`,
+ *  `engineConfig` und `BUNDLED_MODELS` (der Picker). */
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class)
 class ServiceDerivationsTest {
@@ -39,8 +36,7 @@ class ServiceDerivationsTest {
 
     @Test
     fun `a CLAHE-trained model is served with CLAHE, a plain one without`() {
-        // Geprueft wird die ENTSCHEIDUNG, nicht das Objekt: `CropClahe` ruft `Imgproc.createCLAHE`,
-        // und die `:app`-Unit-Tests tragen keine OpenCV-Natives.
+        // Die ENTSCHEIDUNG, nicht das Objekt: `CropClahe` braucht OpenCV-Natives, die `:app` nicht traegt.
         assertNotNull("sonst sieht das Standardmodell rohe Pixel", claheSpecFor(spec(claheClip = 2.0)))
         assertNull(claheSpecFor(spec(claheClip = 0.0)))
         assertNull(claheSpecFor(null))
@@ -50,8 +46,6 @@ class ServiceDerivationsTest {
     fun `engineConfig applies the measured board, the model gate and the frame rate together`() {
         val stored = TrackerConfig(boardSize = 800, motionThr = 0.25)
 
-        // MIT der Spalte, wie alle sieben ausgelieferten Modelle: ohne sie ist `pOccluded` 0,0 und
-        // die Schwelle gattert gegen nichts (`withCoverageGateOf`, 2026-09-15).
         val spec = spec(coverageOutput = true, coverageGate = 0.25)
 
         val out = engineConfig(stored, BoardGeometry(boardSize = 928), spec, FrameRateMode.FPS15)
@@ -63,8 +57,7 @@ class ServiceDerivationsTest {
 
     @Test
     fun `engineConfig changes ONE thing at the reference rate without a spec`() {
-        // `taintIdentityThr` setzt die App selbst — sonst gilt ein Schlagzug auf ein besetztes Feld
-        // als Hand (gemessen 19,5 s Stillstand, `docs/tracker-flow.md`).
+        // `taintIdentityThr` setzt die App selbst — sonst galt ein Schlagzug als Hand (19,5 s Stillstand).
         val stored = TrackerConfig(boardSize = 928, motionThr = 0.25)
 
         val out = engineConfig(stored, BoardGeometry(boardSize = 928), null, FrameRateMode.FPS30)
@@ -75,8 +68,7 @@ class ServiceDerivationsTest {
 
     @Test
     fun `every bundled model is really in the APK, and every model in the APK is offered`() {
-        // Die dokumentierte Falle: ein Modell, das nur in `assets/cnn_model/` liegt, erscheint nie
-        // im Picker — `BUNDLED_MODELS` ist handgepflegt und von nichts gehuetet.
+        // Die dokumentierte Falle: `BUNDLED_MODELS` ist handgepflegt, ein nur abgelegtes Modell erscheint nie.
         val onDisk = File("src/main/assets/cnn_model").listFiles()?.filter { it.isDirectory }?.map { it.name }
 
         assertEquals(onDisk?.sorted(), BUNDLED_MODELS.sorted())

@@ -6,12 +6,7 @@ import com.chesslab.tracker.settings.Knob
 import com.chesslab.tracker.settings.KnobKind
 import java.util.Locale
 
-/**
- * The six concerns a tunable knob can belong to. Order is the order of the screen.
- *
- * There was a seventh, `GEOMETRY`, holding one row: the board size. That is a measurement the
- * calibration profile makes, not a decision — see [NOT_A_SETTING].
- */
+/** Order is the order of the screen. The board size is a measurement, not a group ([NOT_A_SETTING]). */
 enum class KnobGroup(
     val title: String,
 ) {
@@ -23,14 +18,7 @@ enum class KnobGroup(
     CAMERA("Camera"),
 }
 
-/**
- * One row of the settings screen: a [Knob] (which owns the get/set and the live-vs-restart
- * classification) plus what a person needs to tune it — where it sits, how far it may travel, and
- * one line of why.
- *
- * The default is never re-declared here. It is read back off `TrackerConfig()`, so the number
- * beside the value cannot drift from the number the engine falls back to.
- */
+/** The default is read back off `TrackerConfig()`, never re-declared, so it cannot drift from the engine's. */
 class KnobUi(
     val knob: Knob,
     val group: KnobGroup,
@@ -43,7 +31,7 @@ class KnobUi(
     val live: Boolean get() = knob.live
     val isFlag: Boolean get() = knob.kind == KnobKind.BOOL
 
-    /** `NaN` is the "no override" marker, so this knob's range has an off position below [min]. */
+    /** `NaN` is "no override", so the range has an off position below [min]. */
     val isOptional: Boolean get() = knob.kind == KnobKind.OPTIONAL_INT
 
     val pythonDefault: Double get() = knob.get(ConfigCodec.defaults)
@@ -59,7 +47,6 @@ class KnobUi(
 
     fun isDefault(config: TrackerConfig): Boolean = same(valueOf(config), pythonDefault)
 
-    /** A slider hands back arbitrary doubles; the config may only ever see a legal one. */
     fun clamp(value: Double): Double =
         when {
             isFlag -> if (value != 0.0) 1.0 else 0.0
@@ -76,7 +63,7 @@ class KnobUi(
             else -> trimZeros(String.format(Locale.ROOT, "%.3f", value))
         }
 
-    /** Sliders drift by float epsilon; a knob that reads 0.2500001 hides whether it is default. */
+    /** A knob reading 0.2500001 hides whether it is default. */
     private fun snap(value: Double): Double = Math.rint(value / step) * step
 }
 

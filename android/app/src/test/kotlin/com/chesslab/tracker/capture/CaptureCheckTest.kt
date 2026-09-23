@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Die CNN-Kontrolle. Sie darf nichts sperren: der Mensch baut auf und entscheidet, das Modell
- * sagt nur, was es sieht — und es ist auf genau diesen Feldern am schwaechsten.
- */
+/** Sie darf nichts sperren: das Modell ist auf genau diesen Feldern am schwaechsten. */
 class CaptureCheckTest {
     @Test
     fun theModelAgreeingIsTheOnlyGreenState() {
@@ -32,10 +29,7 @@ class CaptureCheckTest {
         assertEquals(Check.OTHER_PIECE, got.getValue("c8"))
     }
 
-    /**
-     * 16 der 46 Luecken haben NULL Belege — auf ihnen ist das Modell nicht geprueft, und ein
-     * unsicherer Read ist deshalb keine Aussage ueber den Aufbau.
-     */
+    /** 16 der 46 Luecken haben NULL Belege: ein unsicherer Read sagt dort nichts ueber den Aufbau. */
     @Test
     fun anUnconfidentReadClaimsNothing() {
         val got = checkPlacement(listOf(target("c8", "wQ")), listOf(read("c8", "wK", conf = 0.3, confident = false)))
@@ -43,8 +37,7 @@ class CaptureCheckTest {
         assertEquals(Check.UNSURE, got.getValue("c8"))
     }
 
-    /** Ein unsicherer Read, dessen Klasse zufaellig stimmt, ist trotzdem keine Bestaetigung:
-     *  die Reihenfolge der beiden Zweige entscheidet das, und nichts hielt sie fest. */
+    /** Die Reihenfolge der beiden Zweige entscheidet das, und nichts hielt sie fest. */
     @Test
     fun anUnconfidentReadThatHappensToMatchIsStillNoConfirmation() {
         val got = checkPlacement(listOf(target("c8", "wQ")), listOf(read("c8", "wQ", conf = 0.3, confident = false)))
@@ -92,10 +85,7 @@ class CaptureCheckTest {
         assertTrue(line.contains("h4"), line)
     }
 
-    /**
-     * Ein Auftrag ohne Zielfelder labelt jeden Frame `8/8/8/8/8/8/8/8` — genau dort ist eine
-     * stehengelassene Figur der teuerste Fehler, und genau dort schwieg die Zeile.
-     */
+    /** Ein Auftrag ohne Zielfelder labelt `8/8/8/8/8/8/8/8`: dort ist eine stehengelassene Figur am teuersten. */
     @Test
     fun aStrayIsReportedEvenWhenTheShotPlacesNothing() {
         val line = checkSummary(emptyMap(), listOf("e5"))
@@ -108,10 +98,7 @@ class CaptureCheckTest {
         assertEquals("", checkSummary(emptyMap(), emptyList()))
     }
 
-    /**
-     * Ohne Kamerabild zeichnet der Schirm kein Brett — dann ist diese Zeile das EINZIGE, was sagt,
-     * was aufzubauen ist. Sie stand auf „10 Figuren, Kamera tief" und nannte kein einziges Feld.
-     */
+    /** Ohne Kamerabild ist die Zeile das EINZIGE, was sagt, was aufzubauen ist. */
     @Test
     fun theOrderNamesEverySquareBecauseThePictureMayBeMissing() {
         val targets = listOf(target("c8", "wQ"), target("a1", "bK"))
@@ -127,10 +114,6 @@ class CaptureCheckTest {
         assertTrue(orderLine(emptyList()).isNotEmpty())
     }
 
-    /**
-     * Ein Kuerzel in der Ecke las sich wie ein Befund des Modells, nicht wie eine Anweisung. Das
-     * Feld zeigt deshalb die FIGUR, die dorthin soll — ein Symbol, das ohne Erklaerung liest.
-     */
     @Test
     fun everyPieceHasItsOwnSymbol() {
         val all = listOf("wK", "wQ", "wR", "wB", "wN", "wP", "bK", "bQ", "bR", "bB", "bN", "bP")

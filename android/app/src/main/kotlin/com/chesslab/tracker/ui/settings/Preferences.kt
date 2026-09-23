@@ -31,7 +31,6 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 
-/** The single visual grammar for an Android-style settings row. */
 @Composable
 fun PreferenceRow(
     title: String,
@@ -67,7 +66,6 @@ fun PreferenceRow(
     }
 }
 
-/** The whole row toggles, while the trailing switch remains the familiar Android affordance. */
 @Composable
 fun SwitchPreference(
     title: String,
@@ -94,7 +92,6 @@ fun SwitchPreference(
     }
 }
 
-/** A preference whose choices belong in a radio dialog rather than a permanent wall of chips. */
 @Composable
 fun <T> ValuePreference(
     title: String,
@@ -133,7 +130,6 @@ fun <T> ValuePreference(
     }
 }
 
-/** Continuous values stay inline, but use a compact preference row instead of a containing card. */
 @Composable
 fun SliderPreference(
     title: String,

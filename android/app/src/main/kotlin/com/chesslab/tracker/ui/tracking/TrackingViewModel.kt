@@ -17,14 +17,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
-/**
- * Collects the tracker's sampled status and its event stream, and dispatches user actions back
- * through the session seam. It holds no engine reference and no second copy of the position.
- *
- * The status flow is collected **once**, in [attach]. It is already sampled at ~10 Hz by the
- * service; a second `sample()` here would only add latency to a screen whose whole job is to be
- * current.
- */
+/** No engine reference and no second copy of the position. The status is collected **once**, in [attach];
+ *  it is already sampled — a second `sample()` only adds latency. */
 class TrackingViewModel : ViewModel() {
     private val drawLatency = DrawLatency(androidTrackerLogs("chesslabUi"))
 
@@ -38,13 +32,7 @@ class TrackingViewModel : ViewModel() {
 
     private val lastCommitState = MutableStateFlow<List<String>>(emptyList())
 
-    /**
-     * The SANs of the last COMMIT — what one press of Undo takes back, which is not always one ply:
-     * a CNN recovery bridges several at once and the engine unwinds the bridge whole.
-     *
-     * Cleared on undo and on reset, mirroring the engine's own record: it is of the last commit
-     * only, so a second press is an ordinary single-move undo.
-     */
+    /** Not always one ply: a CNN recovery bridges several and the engine unwinds the bridge whole. */
     val lastCommit: StateFlow<List<String>> = lastCommitState.asStateFlow()
 
     private val promotionState = MutableStateFlow<PromotionPrompt?>(null)
@@ -58,31 +46,20 @@ class TrackingViewModel : ViewModel() {
 
     private val rawPreviewState = MutableStateFlow<Bitmap?>(null)
 
-    /**
-     * The RAW camera frame, for the not-ready layout (specs/49).
-     *
-     * [preview] is the rectified board, which by construction does not exist before there is a
-     * calibration — so the one state where the user most needs to see what the phone sees is exactly
-     * the state that flow is empty in. Collected through a job like the others rather than delegated
-     * to `session.rawPreview`, or a re-attach would leave the screen reading the old session's flow.
-     */
+    /** [preview] is the rectified board, empty before calibration — exactly when the user needs to see.
+     *  Collected through a job: delegating to `session.rawPreview` would keep the old session's flow. */
     val rawPreview: StateFlow<Bitmap?> = rawPreviewState.asStateFlow()
 
     private val rotationState = MutableStateFlow(0)
 
-    /** Display-only turn for [rawPreview]; the warp and every stored quad live in sensor space. */
     val previewRotation: StateFlow<Int> = rotationState.asStateFlow()
 
     private val cameraOnState = MutableStateFlow(true)
 
-    /** The service's answer, never a local guess: the UI asks for a change and waits for the flow. */
+    /** The service's answer, never a local guess. */
     val cameraOn: StateFlow<Boolean> = cameraOnState.asStateFlow()
 
-    /**
-     * The run switch (`TrackerRun`), which is NOT the same as holding a session: between the tap and
-     * the service's first callback tracking is on and nothing is bound, and a header that read "not
-     * tracking" through that window would be describing the wrong thing.
-     */
+    /** NOT the same as holding a session: between the tap and the first callback tracking is on, unbound. */
     var tracking: Boolean = true
         set(value) {
             field = value
@@ -91,13 +68,10 @@ class TrackingViewModel : ViewModel() {
 
     private val recalibrate = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
-    /** Recalibration is NAVIGATION, not a tracker action — it must never share a handler with Reset game. */
+    /** NAVIGATION, not a tracker action — never sharing a handler with Reset game. */
     val recalibrateRequests: SharedFlow<Unit> = recalibrate.asSharedFlow()
 
-    /**
-     * Bind to the service's session. Re-attaching to the SAME session is a no-op, so a
-     * recomposition or a second bind callback cannot start a second status collector.
-     */
+    /** Re-attaching to the SAME session is a no-op, so a recomposition cannot start a second collector. */
     fun attach(session: TrackerSession) {
         if (this.session === session) return
         jobs.forEach { it.cancel() }
@@ -106,10 +80,7 @@ class TrackingViewModel : ViewModel() {
         jobs +=
             viewModelScope.launch {
                 session.status.collect { published ->
-                    // Before the service's first sample there is no truth to render, and after a
-                    // stop there is none left: the position the board LAST had stands in, so a
-                    // stopped tracker shows the game that was there rather than snapping to the
-                    // start position. It is still the ONE source the board draws from.
+                    // No sample yet or none left: the board's LAST position stands in, not the start position.
                     statusState.value = published ?: idleTrackerStatus(statusState.value.fen)
                     render()
                     published?.fen?.let(drawLatency::drew)
@@ -127,15 +98,11 @@ class TrackingViewModel : ViewModel() {
                 }.launchIn(viewModelScope)
     }
 
-    /** Three inputs, one header: the engine's status, whether a camera feeds it, whether it exists. */
     private fun render() {
         uiState.value = trackingUiState(statusState.value, cameraOnState.value, tracking)
     }
 
-    /**
-     * The score sheet is NOT built here. It is the service's live game (`GameSessionState.game`),
-     * which is also what the review screen and the LAN spectator read; a private list here missed undos.
-     */
+    /** Not built here: the service's live game is the one the review and spectator read; a private list missed undos. */
     private fun onEvent(event: TrackerEvent) {
         commitSans(event).takeIf { it.isNotEmpty() }?.let { lastCommitState.value = it }
         promotionState.value = promotionAfter(promotionState.value, event)
@@ -149,32 +116,21 @@ class TrackingViewModel : ViewModel() {
 
     fun onNewBaseline() = session.captureBaseline()
 
-    /**
-     * Release the camera, or take it back. Nothing is assumed optimistically — the flag flips when
-     * the service says the device is actually gone.
-     */
+    /** Nothing optimistic: the flag flips when the service says the device is gone. */
     fun onToggleCamera() = session.setCameraOn(!cameraOnState.value)
 
-    /** The service's answer, like [cameraOn] — the lamp may fail to engage and must not be faked. */
+    /** The lamp may fail to engage and must not be faked. */
     val torchOn: StateFlow<Boolean> get() = session.torchOn
 
     val hasTorch: Boolean get() = session.hasTorch
 
-    /** Switches the lamp AND re-baselines; see `TorchControl` for why those are one act. */
     fun onToggleTorch() = session.setTorchOn(!session.torchOn.value)
 
     fun onRecalibrate() {
         recalibrate.tryEmit(Unit)
     }
 
-    /**
-     * Opening the preview mutates nothing — it is derived from the status snapshot alone.
-     *
-     * D06b-3 is closed as far as the status can close it: 07b's `DebugPayload` carries the CNN's
-     * per-square reads, so whenever the debug payload is armed the dialog shows the real
-     * `from → to (conf %)` instead of `→ ?`. Without it the payload is null and the preview falls
-     * back to naming only the believed side, which is what it always did.
-     */
+    /** Mutates nothing. With the debug payload armed the dialog shows real reads; without, only the believed side. */
     fun onAcceptCnnRequested() {
         val status = statusState.value
         val reads =
@@ -196,10 +152,7 @@ class TrackingViewModel : ViewModel() {
         session.acceptCnnPosition()
     }
 
-    /**
-     * The engine is blocked on this answer, so the dialog closes only when the commit comes back as
-     * an event — not optimistically here.
-     */
+    /** Closes only when the commit comes back as an event, not optimistically. */
     fun onPromotionChosen(piece: Char) = session.choosePromotion(piece)
 
     override fun onCleared() {
@@ -208,16 +161,8 @@ class TrackingViewModel : ViewModel() {
     }
 }
 
-/**
- * How long after a commit the board actually shows it.
- *
- * The screen renders from `status`, which the service SAMPLES (`STATUS_SAMPLE_MS`), while the commit
- * arrives on the event flow — two clocks, and the gap between them is the last leg of "move played
- * -> move seen" that nothing measured. The replay can see the board up to the commit and no
- * further; this is the rest, and it only exists on a device.
- *
- * One line per commit on `chesslabUi`, cleared as soon as the position is drawn.
- */
+/** The status is SAMPLED while the commit arrives as an event: two clocks, and this gap is the last leg of
+ *  "move played -> move seen", measurable only on a device. One `chesslabUi` line per commit. */
 private class DrawLatency(
     private val log: TrackerLog,
 ) {

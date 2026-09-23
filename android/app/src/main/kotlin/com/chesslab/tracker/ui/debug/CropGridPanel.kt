@@ -43,18 +43,8 @@ private const val BGR_CHANNELS = 3
 private const val RED_SHIFT = 16
 private const val GREEN_SHIFT = 8
 
-/**
- * The exact model-input crops, tiled 8x8 in `labeling.all_squares()` order (`a1,b1,…,h1,a2,…,h8`)
- * — the Android equivalent of Python's `GET /crops.jpg` (`tracker.py::cnn_crops_jpeg`), laid out
- * the same way so the two can be held side by side.
- *
- * **This grid is the ground truth for crop parity.** Phase 09 compares it against Python's
- * `crops.jpg` on the same physical position; a mismatch means the CNN is being fed different
- * pixels than the desktop model was evaluated on, and no threshold tuning can repair that. Do not
- * "clean up" the rendering: these are the crops the inference path itself handed the model, taken
- * from the bordered full-resolution warp (entry.md invariant 1), not a re-render of the detection
- * warp.
- */
+/** Tiled in `all_squares()` order, as Python's `crops.jpg`, so the two can be held side by side. The crops
+ *  the inference path itself handed the model — the ground truth for crop parity. Do not "clean up". */
 @Composable
 fun CropGridPanel(
     state: DebugState,
@@ -82,7 +72,6 @@ fun CropGridPanel(
             Text("no observation yet — is the CNN attached?", color = OnSurfaceMuted)
             return@Column
         }
-        // Row 0 is rank 1, exactly as Python tiles it.
         for (row in 0 until GRID_N) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.hair)) {
                 for (col in 0 until GRID_N) {
@@ -117,7 +106,6 @@ private fun CropTileView(
     }
 }
 
-/** The full-size crop plus that square's probability read — "what exactly did the model see here". */
 @Composable
 private fun CropDetailDialog(
     tile: CropTile?,
@@ -150,13 +138,11 @@ private fun CropDetailDialog(
     )
 }
 
-/** Off the analyzer thread by construction — the caller runs this on `Dispatchers.Default`. */
 internal fun cropTiles(crops: DebugCrops): List<CropTile> =
     crops.crops.mapIndexed { index, image ->
         CropTile(ALL_SQUARES.getOrElse(index) { "?" }, image.toImageBitmap())
     }
 
-/** Interleaved BGR (the seam type) to ARGB_8888. */
 private fun BgrImage.toImageBitmap(): ImageBitmap {
     val pixels = IntArray(width * height)
     for (i in pixels.indices) {

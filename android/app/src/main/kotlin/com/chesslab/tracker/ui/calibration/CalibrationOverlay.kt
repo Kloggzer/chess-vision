@@ -26,7 +26,6 @@ private fun DrawScope.drawQuad(
     }
 }
 
-/** The quad outline alone, for the aiming step where no orientation has been decided yet. */
 @Composable
 fun QuadOutline(
     corners: FloatArray?,

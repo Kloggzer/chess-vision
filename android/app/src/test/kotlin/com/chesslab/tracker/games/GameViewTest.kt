@@ -49,16 +49,12 @@ class GameViewTest {
         assertEquals("Nf3", rows[1].white?.san)
         assertNull(rows[1].black)
 
-        // A position adopted mid-game can start on Black's ply; the numbering must not lie.
         val shifted = moveRows(plies, startsWithBlack = true)
         assertNull(shifted[0].white)
         assertEquals("e4", shifted[0].black?.san)
     }
 
-    /**
-     * `PgnBuilder` numbers from field 5 of the start FEN. The score sheet started at 1 regardless,
-     * so an adopted position read `1...` on the screen and `12...` in the exported PGN.
-     */
+    /** `PgnBuilder` numbers from the start FEN; the score sheet started at 1, so screen and PGN disagreed. */
     @Test
     fun theScoreSheetNumbersFromTheStartFen() {
         val plies = listOf(ReviewPly(1, "e5", "e7e5", "", null), ReviewPly(2, "Nf3", "g1f3", "", null))
@@ -84,7 +80,6 @@ class GameViewTest {
         assertFalse(startsWithBlack("not a fen"))
     }
 
-    /** The archive source replays, because a stored ply carries no position of its own. */
     @Test
     fun aStoredGameReplaysToThePositionEachPlyProduced() {
         val view = stored(moves = listOf(move(1, "e4", "e2e4"))).reviewView()
@@ -96,8 +91,7 @@ class GameViewTest {
         assertEquals(AFTER_E4, view.fenAt(9), "past the end is the last position, never a crash")
     }
 
-    /** chesslib's default `doMove` applies an illegal move without complaint: it teleported the e-pawn
-     *  to e5 and made every later position fiction. Open on the last reachable one instead. */
+    /** chesslib's default `doMove` applies an illegal move without complaint: it teleported the e-pawn. */
     @Test
     fun anIllegalStoredPlyIsANoOpAndNeverMovesAPiece() {
         val view = stored(moves = listOf(move(1, "??", "e2e5"), move(2, "e4", "e2e4"))).reviewView()
@@ -106,7 +100,6 @@ class GameViewTest {
         assertEquals(AFTER_E4, view.plies.last().fenAfter)
     }
 
-    /** Seams survive the projection: the moves after one do not follow the moves before it. */
     @Test
     fun segmentsAndTheirSeamsSurviveTheProjection() {
         val seam = SeamOrigin(fenBefore = AFTER_E4, sans = listOf("Nf3"), ucis = listOf("g1f3"), decider = "cnn_recovery")
@@ -122,7 +115,6 @@ class GameViewTest {
         assertEquals(2, view.segments.size)
         assertNull(view.segments[0].enteredBy)
         assertEquals("cnn_recovery", view.segments[1].enteredBy?.decider)
-        // The second segment replays from ITS OWN start, not from the first segment's last position.
         assertEquals(AFTER_JUMP, view.segments[1].startFen)
         assertEquals(listOf("e4", "Nc6"), view.plies.map { it.san })
     }

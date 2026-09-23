@@ -17,15 +17,8 @@ private class SearchState(
     val conflicts: Set<String>,
 )
 
-/**
- * Ported from `cnn_recovery.py derive_moves_deep` when Python still carried the tracker — conflict-guided beam search over up to
- * [maxPlies] half-moves. Only moves touching at least one CONFLICTING square are expanded,
- * so 4 plies stay a few hundred boards.
- *
- * Terminal candidates are keyed by the **placement-only FEN**: the camera cannot see whose
- * turn it is, so a longer transposition to the same placement is the SAME hypothesis (the
- * shortest sequence wins) — not a rival that would destroy the acceptance margin.
- */
+/** Only moves touching a CONFLICTING square are expanded, so 4 plies stay a few hundred boards. Keyed by
+ *  placement: the camera cannot see whose turn it is, so a longer transposition is the SAME hypothesis. */
 fun CnnRecovery.deriveMovesDeepFull(
     board: Board,
     obs: OccupancyObservation,
@@ -45,17 +38,14 @@ fun CnnRecovery.deriveMovesDeepFull(
         remainingPlies--
         val next = ArrayList<SearchState>()
         for (state in states) {
-            // A fully explained state is not expanded further.
             if (state.conflicts.isEmpty()) continue
             next.addAll(expand(channel, state, finals, n))
         }
         if (next.isEmpty()) break
         states = next.sortedWith(compareBy({ it.conflicts.size }, { it.seq.size })).take(beam)
     }
-    // Length is PRICED, not free (`plyCostSquares`). Ranking on raw hits with length as a mere
-    // tiebreak let a 4-ply fabrication win on one misread square; the score a candidate is ranked
-    // and gated by is therefore its hits minus what its plies cost. At the default 0 this is the
-    // old comparator exactly.
+    // Length is PRICED (`plyCostSquares`): with length a mere tiebreak a 4-ply fabrication won on one misread
+    // square. Candidates are ranked and gated by hits minus ply cost.
     val cost = config.plyCostSquares
     val score = { c: Pair<Int, List<Move>> -> c.first - cost * c.second.size }
     val byScoreThenLength = compareByDescending(score).thenBy { c: Pair<Int, List<Move>> -> c.second.size }
@@ -74,10 +64,6 @@ fun CnnRecovery.deriveMovesDeepFull(
     return DerivedMoves(if (accepted) bestSeq else emptyList(), best, second)
 }
 
-/**
- * Identity when the observation carries labels, else occupancy — same code path, different
- * value function (`cnn_recovery.py`).
- */
 private fun channelFor(
     obs: OccupancyObservation,
     confThr: Double,
@@ -94,7 +80,6 @@ private fun channelFor(
         }
     }
 
-/** `wR` and `wN` collapse to `w`; `empty` stays itself. The colour axis of [CnnConfig.colorAxis]. */
 private fun sideOfLabel(label: String): Any = if (label == "empty") label else label.take(1)
 
 private fun conflictsOf(
@@ -110,7 +95,6 @@ private fun expand(
 ): List<SearchState> {
     val out = ArrayList<SearchState>()
     for (move in state.board.legalMoves()) {
-        // Touches no conflicting square -> fixes nothing.
         if (moveTouchedSquares(state.board, move).none { it in state.conflicts }) continue
         val next = state.board.clone().also { it.doMove(move) }
         val conflicts = conflictsOf(channel, next)
@@ -121,7 +105,7 @@ private fun expand(
     return out
 }
 
-/** `_note`: keyed by placement only; more hits wins, and the SHORTEST sequence wins ties. */
+/** Keyed by placement only; more hits wins, the SHORTEST sequence wins ties. */
 private fun note(
     finals: MutableMap<String, Pair<Int, List<Move>>>,
     seq: List<Move>,
@@ -137,5 +121,4 @@ private fun note(
     }
 }
 
-/** The placement-only FEN field — `chess.Board.board_fen()`. */
 internal fun Board.boardFen(): String = getFen(false).substringBefore(' ')

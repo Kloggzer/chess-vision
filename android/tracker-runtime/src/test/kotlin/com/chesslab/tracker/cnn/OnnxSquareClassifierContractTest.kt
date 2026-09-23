@@ -18,7 +18,6 @@ import kotlin.math.exp
 
 private const val CROP = 128
 
-/** The ORT session is unavailable on the desktop JVM, so the wrapper is driven against this seam. */
 private class FakeRunner(
     private val ran: String? = "CPUExecutionProvider",
     private val classCount: Int = EXPECTED_CLASSES.size,
@@ -43,8 +42,7 @@ private class FakeRunner(
         buffers += input
         firstInput = input.get(0)
         val width = classCount + if (coverageLogit == null) 0 else 1
-        // Row r peaks on class r % classCount, so the argmax is row-dependent and checkable; the
-        // coverage column, when there is one, carries a constant so its sigmoid is checkable too.
+        // Row r peaks on class r % classCount; the coverage column carries a constant.
         return FloatArray(ALL_SQUARES.size * width) { i ->
             val col = i % width
             when {
@@ -86,7 +84,7 @@ class OnnxSquareClassifierContractTest {
             std = listOf(0.229f, 0.224f, 0.225f),
         )
 
-    /** The real asset needs its own size: `preprocessInto` does not resize, it refuses any other. */
+    /** `preprocessInto` does not resize, it refuses any other size. */
     private fun crops(side: Int = CROP): List<BgrImage> = List(ALL_SQUARES.size) { BgrImage(side, side, ByteArray(side * side * 3) { 8 }) }
 
     @Test
@@ -103,7 +101,6 @@ class OnnxSquareClassifierContractTest {
         OnnxSquareClassifier(spec, runner).classify(crops())
         assertEquals(listOf(64L, 3L, 128L, 128L), runner.shapes.single().toList())
         assertEquals(64 * 3 * CROP * CROP, runner.buffers.single().remaining())
-        // Preprocessing came from :core-cnn: (8/255 - mean_r) / std_r on the R plane.
         assertEquals((8f / 255f - 0.485f) / 0.229f, runner.firstInput, 1e-6f)
     }
 
@@ -118,10 +115,7 @@ class OnnxSquareClassifierContractTest {
         }
     }
 
-    /**
-     * 13 classes plus coverage are the SAME 14 columns the old model emits; only the declaration tells
-     * them apart. Softmaxing all 14 would turn coverage into a class probability and bend every other one.
-     */
+    /** 13 classes plus coverage are the SAME 14 columns as the old model; only the declaration tells them apart. */
     @Test
     fun coverageRidesBesideTheClassProbabilitiesAsItsOwnSigmoid() {
         val covering = spec.copy(classes = PIECES13_CLASSES, coverageOutput = true)
@@ -135,7 +129,6 @@ class OnnxSquareClassifierContractTest {
         }
     }
 
-    /** A graph that disagrees with its declaration must still fail loudly, not quietly re-align. */
     @Test
     fun refusesAGraphNarrowerThanTheDeclaredCoverageWidth() {
         val covering = spec.copy(classes = PIECES13_CLASSES, coverageOutput = true)
@@ -147,7 +140,7 @@ class OnnxSquareClassifierContractTest {
         )
     }
 
-    /** Die Kette geht beim naechsten EP weiter — ohne Close bleibt je Versuch eine Session offen. */
+    /** Ohne Close bleibt je EP-Versuch eine Session offen. */
     @Test
     fun aWarmUpThatThrowsClosesItsSession() {
         val runner = ExplodingRunner()
@@ -164,7 +157,7 @@ class OnnxSquareClassifierContractTest {
         runner.buffers.forEach { assertSame(runner.buffers.first(), it) }
     }
 
-    /** The real bundled graph end to end; on the desktop JVM only the CPU provider builds. */
+    /** On the desktop JVM only the CPU provider builds. */
     @Test
     fun stagesAndRunsTheRealAssetModelOnTheFallbackProvider(
         @TempDir tmp: File,
@@ -172,20 +165,18 @@ class OnnxSquareClassifierContractTest {
         val log = RecordingLog()
         val staged = stageAssets(tmp)
         OnnxSquareClassifier.open(staged, log).use { classifier ->
-            // Not "CPU (unverified)": a bare provider name is only printed after ORT's profile observed it.
+            // A bare provider name is only printed after ORT's profile observed it.
             assertEquals("CPU", classifier.backend)
             assertEquals(assetClasses(), classifier.classes)
             val assetSpec = ModelSpec.parse(staged.configJson)
             val probs = classifier.classify(crops(assetSpec.outWidth))
             assertEquals(ALL_SQUARES.size, probs.size)
-            // The CLASSES sum to one; a coverage run's extra column is a sigmoid beside them.
             probs.forEach {
                 val classMass = if (assetSpec.coverageOutput) it.dropLast(1).sum() else it.sum()
                 assertTrue(abs(classMass - 1.0f) < 1e-4f, "row classes sum to $classMass")
             }
             assertTrue(classifier.lastRunMs > 0.0)
         }
-        // Every EP ABOVE CPU must warn and fall through; counted to CPU, since NNAPI (last) is never reached.
         assertEquals(
             epChain(staged.qnn != null).indexOf(Ep.CPU),
             log.warnings.size,
@@ -208,8 +199,7 @@ class OnnxSquareClassifierContractTest {
     fun prefersQuantizedModelForQnnAndFp32Otherwise() {
         val staged = stagedModel(File("."))
         val withQnn = epChain(hasQnnModel = true)
-        // NNAPI is absent on measurement: on an SM8650 it verified as the runner and took 470 ms
-        // per 64 crops against the CPU's 97. Reachable by explicit request, never automatically.
+        // NNAPI: 470 ms per 64 crops on an SM8650 against the CPU's 97.
         assertEquals(listOf("QNN-HTP(NPU)", "XNNPACK", "CPU"), withQnn.map { it.backend })
         assertEquals(MODEL_QNN_FILE, modelFor(staged, withQnn.first()).name)
         assertTrue(

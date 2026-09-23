@@ -94,37 +94,25 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.max
 
-/**
- * Order is the order of the tab row, and **Moments is first** (specs/48) — Review still starts at
- * ply 0, so opening on it asked the reader to walk 83 plies for the three that mattered.
- */
+/** **Moments is first**: Review starts at ply 0, and opening on it meant walking 83 plies for the three that mattered. */
 private enum class ReviewSection {
     MOMENTS,
     REVIEW,
     MOVES,
 }
 
-/**
- * How many findings are shown before "show all". Three: the screen's job in its first five seconds
- * is "which moves decided this game", and working memory holds about four chunks (`docs/game-review.md`).
- */
+/** Three: the first five seconds answer "which moves decided this game" (`docs/game-review.md`). */
 private const val TOP_FINDINGS = 3
 
-/** Eight score-sheet rows are enough to scan before deciding to open the complete game. */
 private const val TOP_MOVE_ROWS = 8
 
-/**
- * The review of a stored game — it opens on rating, board with the win bar, what the move did, and
- * the navigation; moments and score sheet are peers behind tabs (`docs/game-review.md`).
- */
 @Composable
 fun ArchiveReviewRoute(
     id: String,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    // NOT `rememberCoroutineScope()`: that tied a multi-minute grading pass to this composition, so
-    // leaving the screen cancelled it without a word. See [ReviewHost].
+    // NOT `rememberCoroutineScope()`: leaving the screen cancelled a multi-minute pass without a word ([ReviewHost]).
     val model = remember(context) { ReviewHost.of(context) }
     LaunchedEffect(id) { model.load(id) }
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -166,8 +154,7 @@ private fun GameReviewScreen(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(bars),
             contentPadding = PaddingValues(vertical = Space.sm),
-            // The score sheet's rows carry their own vertical padding; a gap between them as well
-            // makes 42 rows a ladder.
+            // The rows carry their own padding; a gap too makes 42 rows a ladder.
             verticalArrangement = Arrangement.spacedBy(if (section == ReviewSection.MOVES) 0.dp else Space.sm),
         ) {
             item(key = "tabs") {
@@ -178,10 +165,7 @@ private fun GameReviewScreen(
                     onSelect = { section = it },
                 )
             }
-            // Whether the engine has read this game is a property of the SCREEN, not of one tab.
-            // It used to live inside `AccuracyRow` under Moments only, so a user on the board tab
-            // tapped a text link in a section they could not see and nothing appeared to happen:
-            // "clicking the review button does not give me an indicator whatsoever" (2026-08-04).
+            // A property of the SCREEN, not one tab: under Moments only, a tap on another tab showed nothing at all.
             analysisPhase(ui)?.let { phase ->
                 item(key = "analysis") { AnalysisState(phase, grade, ui.error, model::review) }
             }
@@ -194,9 +178,6 @@ private fun GameReviewScreen(
                     item(key = "verdict") { ReviewVerdict(review, game, grade) { overlays.mateLine = it } }
                     item(key = "nav") { PlyNav(review.selected, game.plies.size) { seek = it } }
                 }
-                // The rating leads on the tab the screen opens on: it is the answer to "how did I
-                // do" and the one thing the user asked for by name. STARTING the engine is not here
-                // any more — that is the whole screen's business and it is above this `when`.
                 ReviewSection.MOMENTS -> {
                     if (grade != null || ui.opening != null) {
                         item(key = "summary") {
@@ -293,10 +274,7 @@ private fun ReviewDetailsEditor(
     }
 }
 
-/**
- * Player names are the identity of a game; the timestamp is only the fallback file identity.
- * [resultName] is passed in so this stays a plain JVM-testable function.
- */
+/** Names are the identity; the timestamp only the fallback. [resultName] is passed in to stay JVM-testable. */
 internal fun reviewTitle(
     game: GameView,
     resultName: String,
@@ -330,10 +308,7 @@ private fun rememberReviewListState(
 internal data class ReviewSelection(
     val selected: Int,
     val ply: PlyGrade?,
-    /**
-     * The ply whose ENGINE MOVE this screen is showing — the SELECTED ply itself, because the board
-     * once drew the next one's and arrow and card were a ply apart (`docs/game-review.md`).
-     */
+    /** The SELECTED ply itself: the board once drew the next one's, and arrow and card were a ply apart. */
     val advice: PlyGrade?,
     val mateHint: MateLineRequest?,
     val checkmate: Boolean,
@@ -352,14 +327,12 @@ private fun ReviewVerdict(
         selected = review.selected,
         grade = grade,
         playedBy = review.ply?.let { playerAndSide(game, it) },
-        // The same ply the board's accent arrow draws — see [ReviewSelection.advice].
         engineMove = review.advice?.bestSan,
         mateHint = review.mateHint,
         checkmate = review.checkmate,
     ) { review.mateHint?.let(onExploreMate) }
 }
 
-/** The colour is always present; a saved name adds identity without replacing the chess side. */
 internal fun playerAndSide(
     game: GameView,
     ply: PlyGrade,
@@ -382,7 +355,6 @@ internal fun reviewSelection(
         ply = ply,
         advice = if (selected == 0) next else ply,
         // A finding opens the position before its move, so the mate belongs to `next` there.
-        // Stepping normally still shows the same hint on the move after it was played.
         mateHint =
             if (checkmate) {
                 null
@@ -536,9 +508,7 @@ private fun LazyListScope.movesSection(
         maxRows = if (allMoves) null else TOP_MOVE_ROWS,
     )
     if (game.plies.size > TOP_MOVE_ROWS * 2) {
-        // An OUTLINE button, not a text link. Text is the rank for navigation inside a card; this is
-        // the only way out of a truncated list, and *"ich finde es schwierig die clickzone zu
-        // ermitteln"* is what a link with no visible edge costs at the end of a long table.
+        // An OUTLINE button, not a text link: the only way out of a truncated list needs a visible edge.
         item(key = "moves-toggle") {
             OutlineAction(
                 if (allMoves) "Show fewer" else "Show all ${game.plies.size} moves",
@@ -549,10 +519,7 @@ private fun LazyListScope.movesSection(
     }
 }
 
-/**
- * The board, the two arrows, and the bar above them. **Both arrows belong to the SAME ply**: what
- * was played and what the engine wanted instead — that pairing is the whole review (`docs/game-review.md`).
- */
+/** **Both arrows belong to the SAME ply**: what was played and what the engine wanted instead. */
 @Composable
 private fun ReviewBoard(
     game: GameView,
@@ -572,10 +539,7 @@ private fun ReviewBoard(
     }
 }
 
-/**
- * The tab's accessible name is the LABEL, always. With the count inside the same `Text` the name
- * changed while the analysis streamed and `tap-text "Moments"` failed (`docs/game-review.md`).
- */
+/** The accessible name is the LABEL, always: with the count inside, `tap-text "Moments"` failed while streaming. */
 @Composable
 private fun ReviewTabs(
     selected: ReviewSection,
@@ -584,18 +548,14 @@ private fun ReviewTabs(
     onSelect: (ReviewSection) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth()) {
-        // Always enabled, unlike before: it is the tab the screen opens on, and an ungraded game
-        // reaches its own "Review this game" button through it.
+        // Always enabled: an ungraded game reaches its "Review this game" button through it.
         ReviewTab("Moments", moments, ReviewSection.MOMENTS, selected, onSelect, Modifier.weight(1f))
         ReviewTab("Review", null, ReviewSection.REVIEW, selected, onSelect, Modifier.weight(1f))
         ReviewTab("Moves", moves, ReviewSection.MOVES, selected, onSelect, Modifier.weight(1f))
     }
 }
 
-/**
- * The width kept clear for a count on BOTH sides of every label — reserved on the empty side too,
- * because what is centred is the LABEL and not the pair (`docs/game-review.md`).
- */
+/** Reserved on BOTH sides: what is centred is the LABEL, not the pair. */
 private val TAB_COUNT_SLOT = 32.dp
 private val REVIEW_BAR_HEIGHT = 10.dp
 private val REVIEW_BAR_RADIUS = 3.dp
@@ -619,8 +579,7 @@ private fun ReviewTab(
             horizontalArrangement = Arrangement.Center,
         ) {
             Spacer(Modifier.width(TAB_COUNT_SLOT))
-            // `alignByBaseline`, because the count is a different FACE at the same size: box-aligned
-            // it floated above the word beside it, which is what "off center" was.
+            // `alignByBaseline`: the count is another FACE at the same size, and box-aligned it floated above the word.
             Text(label, style = MaterialTheme.typography.labelMedium, color = tint, modifier = Modifier.alignByBaseline())
             Figure(
                 count?.toString().orEmpty(),
@@ -644,10 +603,7 @@ private fun MoveSectionHeading() {
     }
 }
 
-/**
- * The screen's ONE "what does this mean" affordance: a small ⓘ beside a heading. It explains a
- * CONCEPT — a label that needs it to be understood at all is wrong (`docs/game-review.md`).
- */
+/** The screen's ONE ⓘ: it explains a CONCEPT — a label that needs it to be understood is wrong. */
 @Composable
 private fun Info(
     title: String,
@@ -696,10 +652,7 @@ private const val QUALITY_INFO =
         "deep search is not one a human could have been expected to find, so the search is kept " +
         "close to what a strong club player would see."
 
-/**
- * Win expectancy for the position ON SCREEN. Both names and values stay visible, so a number can
- * never be mistaken for the side that happens to have moved last.
- */
+/** Both names and values stay visible, so a number is never mistaken for the side that moved last. */
 @Composable
 private fun ReviewWinBar(winWhite: Double?) {
     val white = winWhite?.coerceIn(0.0, 100.0)
@@ -740,16 +693,12 @@ private fun ReviewWinBar(winWhite: Double?) {
     }
 }
 
-/**
- * What the engine is doing, on EVERY tab — or null when the screen owes the reader nothing, which
- * it does twice over: finished has no state, in-flight belongs to the app bar (`docs/game-review.md`).
- */
+/** Null when the screen owes nothing: finished has no state, in-flight belongs to the app bar. */
 internal enum class AnalysisPhase {
     MISSING_ENGINE,
     ERROR,
     NOT_STARTED,
 
-    /** Scored, but not to the end — a run was stopped, or the screen was left before specs/50. */
     PARTIAL,
 }
 
@@ -765,10 +714,7 @@ internal fun analysisPhase(ui: ReviewUi): AnalysisPhase? {
     }
 }
 
-/**
- * The one card that starts or resumes the engine pass. Reviewing is what an unread game's screen is
- * FOR, so by specs/48 rule 3 it is the filled button (`docs/game-review.md`).
- */
+/** Reviewing is what an unread game's screen is FOR, so it is the filled button (specs/48 rule 3). */
 @Composable
 private fun AnalysisState(
     phase: AnalysisPhase,
@@ -794,8 +740,7 @@ private fun AnalysisState(
                     FilledAction("Start review", onReview)
                 }
             }
-            // A partial review must never look like a finished one. It is the state a stopped run
-            // leaves, and before specs/50 it was also what leaving the screen left, silently.
+            // A partial review must never look like a finished one.
             AnalysisPhase.PARTIAL -> {
                 val done = grade?.scored ?: 0
                 val total = grade?.positions ?: 0
@@ -823,10 +768,7 @@ private fun AnalysisState(
     }
 }
 
-/**
- * The rating, and the first thing on the tab the screen opens on. It states its own denominator
- * because a rating owes one — watched moves, in positions not already decided.
- */
+/** States its denominator: watched moves, in positions not already decided. */
 @Composable
 private fun MomentsSummary(
     grade: GameGrade?,
@@ -887,8 +829,7 @@ private fun AccuracyBlock(
             Text(
                 side.accuracy?.let { percent(it) } ?: "—",
                 style = MaterialTheme.typography.titleLarge,
-                // Lichess' own accuracy bands, from `roundTraining.ts`: >=85 good, >=70 inaccuracy,
-                // >=55 mistake, else blunder. A number nobody can place is a number nobody can use.
+                // Lichess' bands (`roundTraining.ts`): >=85 good, >=70 inaccuracy, >=55 mistake, else blunder.
                 color = side.accuracy?.let { accuracyColor(it) } ?: OnSurfaceMuted,
             )
         }
@@ -896,7 +837,6 @@ private fun AccuracyBlock(
     }
 }
 
-/** Lichess' accuracy colour bands, from `ui/analyse/src/view/roundTraining.ts`. */
 @Composable
 private fun accuracyColor(accuracy: Double) =
     when {
@@ -906,10 +846,7 @@ private fun accuracyColor(accuracy: Double) =
         else -> Danger
     }
 
-/**
- * The one ply the user is looking at — TWO columns, each one position: left BEFORE the ply, right
- * what the engine wanted instead. *"die zweispaltigkeit war besser"* (2026-08-04; `docs/game-review.md`).
- */
+/** TWO columns, one position each: BEFORE the ply, and what the engine wanted instead (`docs/game-review.md`). */
 @Composable
 private fun PlyVerdict(
     ply: PlyGrade?,
@@ -967,7 +904,6 @@ private fun CheckmateColumn(modifier: Modifier = Modifier) {
     }
 }
 
-/** The engine's answer to the played move shown in the left column. */
 @Composable
 private fun EngineColumn(
     bestSan: String?,
@@ -1043,7 +979,7 @@ private fun Verdict(
         Text(san, style = MaterialTheme.typography.titleMedium, color = OnSurface, fontWeight = FontWeight.Bold)
         Text(verdictLabel(ply), style = MaterialTheme.typography.titleMedium, color = verdictColor(ply))
     }
-    // A figure, because stepping ply by ply is exactly when two numbers must not dance in place.
+    // A figure: stepping ply by ply, two numbers must not dance in place.
     Figure(verdictDetail(ply), OnSurfaceMuted)
 }
 
@@ -1056,10 +992,7 @@ private fun verdictColor(ply: PlyGrade): Color =
         else -> badgeColor(ply.quality)
     }
 
-/**
- * The moves that decided the game, and — separately — the mates nobody took: two questions, two
- * sections. A rebuilt ply is in neither (`docs/game-review.md`).
- */
+/** Two questions, two sections: decisive moves, and mates nobody took. A rebuilt ply is in neither. */
 @Composable
 private fun KeyMoments(
     grade: GameGrade?,
@@ -1086,7 +1019,6 @@ private fun KeyMoments(
                 )
             }
             findings.take(if (all) findings.size else TOP_FINDINGS).forEach { FindingCard(it, onSeek) }
-            // The same control as the score sheet's, for the same reason it is outlined there.
             if (findings.size > TOP_FINDINGS) {
                 OutlineAction(if (all) "Show fewer" else "Show all ${findings.size}", { all = !all })
             }
@@ -1100,10 +1032,7 @@ private fun KeyMoments(
     }
 }
 
-/**
- * One finding: what was played, its name, the numbers, the engine's first choice. Tapping seeks to
- * the ply BEFORE it — landing on the mistake itself only shows the damage.
- */
+/** Seeks to the ply BEFORE it: landing on the mistake itself only shows the damage. */
 @Composable
 private fun FindingCard(
     finding: PlyGrade,
@@ -1131,7 +1060,7 @@ private fun FindingCard(
             horizontalArrangement = Arrangement.spacedBy(Space.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // The side is part of the figure: 48 → 13 without “Black” made the numbers ambiguous.
+            // The side is part of the figure: "48 → 13" without "Black" was ambiguous.
             Figure("${movingSide(finding)} ${percent(finding.winBefore)} → ${percent(finding.winAfter)}", OnSurfaceMuted)
             Spacer(Modifier.weight(1f))
             finding.bestSan?.let {
@@ -1144,7 +1073,6 @@ private fun FindingCard(
     }
 }
 
-/** Ply 17 is White's move 9; ply 18 is Black's, written `9...`. */
 private fun moveNumber(ply: PlyGrade): String = "${ply.moveNumber}." + if (ply.whiteMoved) "" else ".."
 
 internal fun label(quality: MoveQuality): String =
@@ -1200,7 +1128,6 @@ private fun ReviewNavButton(
     }
 }
 
-/** Chess move notation without exposing the implementation's “ply” vocabulary. */
 internal fun reviewPositionLabel(
     selected: Int,
     plies: Int,
@@ -1211,10 +1138,6 @@ internal fun reviewPositionLabel(
         else -> "${moveNumberLabel(selected)} Black · $selected/$plies"
     }
 
-/**
- * Everything that is not the review: how the numbers were produced, where a move came from, the PGN.
- * Behind the overflow, so it costs the board and navigation no height.
- */
 @Composable
 private fun AnalysisDetailsDialog(
     ui: ReviewUi,
@@ -1267,10 +1190,7 @@ private fun PgnRow(
     }
 }
 
-/**
- * `EXTRA_TEXT`, not a `FileProvider` URI: a provider needs a manifest entry, and a PGN is a few kB
- * of text.
- */
+/** `EXTRA_TEXT`, not a `FileProvider` URI: that needs a manifest entry, and a PGN is a few kB. */
 private fun share(
     context: Context,
     pgn: String,

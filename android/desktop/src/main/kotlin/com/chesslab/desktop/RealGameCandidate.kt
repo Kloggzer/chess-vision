@@ -16,45 +16,31 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 
-// `candidate.json` plus review JPEGs — the tracker's PROPOSAL, never ground truth.
-//
-// The shape is the Python labeler's (`label_real_game.py`, alive at tag `python-tracker-final`,
-// reference file `data/recordings/game-2026-08-02/candidate.json`): same top-level keys, same
-// `moves[]` row keys, so everything that read the old candidates reads these. `confirmed` is
-// FALSE by construction — a tracker whose own output could become a fixture would freeze its
-// mistakes and then assert forever that it keeps making them.
+// `candidate.json` — the tracker's PROPOSAL, in the Python labeler's shape. `confirmed` is FALSE by
+// construction: a tracker whose output became a fixture would assert forever that it keeps its mistakes.
 
-/** One committed ply as the label records it: the engine's opinion plus this harness's clock. */
 internal data class CommittedPly(
     val ply: Int,
     val san: String,
     val uci: String,
-    /** 0-based decode index of the frame the commit landed on, derived from the virtual clock. */
     val frame: Int,
     val t: Double,
     val decider: String,
-    /** The alarm's `kind` when one was standing at the commit — polled, not engine-recorded. */
+    /** Polled, not engine-recorded. */
     val alarm: String?,
     val fenAfter: String,
-    /** The quad the decider stood on at this commit, source pixels `[a8, h8, h1, a1]`; null = the recording's median. */
+    /** Null = the recording's median. */
     val corners: FloatArray? = null,
     /** Committed inside the motion hold: the frames until the re-captured reference are not settled. */
     val refProvisional: Boolean = false,
 )
 
-/**
- * Collects the committed plies off the decision sink.
- *
- * The sink is streaming (every row reaches it; the engine's 64-row ring is irrelevant here) and a
- * recovery bridge writes one row PER MOVE, so collecting rows collects plies — no batch expansion
- * needed. `frame` is derived from the row's own engine timestamp: the desktop clock is virtual
- * (`t = (index + 1) / fps`), so the inversion is exact, not a race with the drive loop.
- */
+/** A recovery bridge writes one row PER MOVE, so collecting rows collects plies. */
 internal class DecisionCollector(
     private val fps: Double,
     private val alarmKind: () -> String?,
     private val cornersNow: () -> FloatArray? = { null },
-    /** The decoded frame index at the commit; -1 falls back to the clock (`t × fps`), which drifts on VFR footage. */
+    /** -1 falls back to the clock (`t × fps`), which drifts on VFR footage. */
     private val indexNow: () -> Int = { -1 },
 ) {
     val plies = mutableListOf<CommittedPly>()
@@ -65,8 +51,7 @@ internal class DecisionCollector(
 
     fun offer(row: DebugDecision) {
         rows += 1
-        // The one non-commit decider in the vocabulary (`DecisionLog.DECIDER_REJECTED`, a contract
-        // string that candidate files carry verbatim). Everything else on the sink is a commit.
+        // The one non-commit decider (`DecisionLog.DECIDER_REJECTED`, a contract string).
         if (row.decider == "rejected" || row.san == null || row.uci == null) return
         plies +=
             CommittedPly(
@@ -84,21 +69,8 @@ internal class DecisionCollector(
     }
 }
 
-/**
- * The config the engine ACTUALLY ran, key-compatible with the fixture spelling `trackerConfigOf`
- * reads (camelCase, resolved `settleFrames`/`avgFrames`/`confirmFrames`, derived `detSize`).
- *
- * Driven by the KNOBS catalog since 2026-08-14, because the hand-kept list drifted the way any
- * second copy of a table does: five fields were missing, and one of them — `handTolerantCells` —
- * was exactly the experiment knob `2026-08-13-19-34-23` needed on record and did not have. Each
- * knob is emitted under its own key with its native JSON type; an OPTIONAL_INT carrying NaN (the
- * codec's "no override") is written as `null` rather than dropped, so "unset" is stated, not
- * inferred. The four resolved/derived keys stay verbatim — consumers key on them.
- *
- * Two keys the Python files carry are deliberately absent because the Kotlin engine does not have
- * them: `llK` (a constant internal to `Scoring.kt`, not config) and `reconnectGraceS` (camera
- * reconnect is host-side here). Recording them anyway would be inventing provenance.
- */
+/** Driven by the KNOBS catalog: the hand-kept list drifted and lost five fields. An unset OPTIONAL_INT is
+ *  written as `null`, not dropped. `llK` and `reconnectGraceS` are absent: the Kotlin engine has no such config. */
 internal fun effectiveConfigJson(
     config: TrackerConfig,
     cnnOn: Boolean,
@@ -119,7 +91,6 @@ internal fun effectiveConfigJson(
         put("confirmFrames", config.confirmFrames(cnnOn))
     }
 
-/** The `moves[]` rows, key-for-key the Python writer's (ply, san, frame, t, decider, alarm, fen_after). */
 internal fun movesJson(plies: List<CommittedPly>) =
     buildJsonArray {
         for (p in plies) {
@@ -132,8 +103,7 @@ internal fun movesJson(plies: List<CommittedPly>) =
                     put("decider", p.decider)
                     if (p.alarm == null) put("alarm", JsonNull) else put("alarm", p.alarm)
                     put("fen_after", p.fenAfter)
-                    // A board that moves mid-game moves the label's geometry with it: the export cuts
-                    // every interval through ITS ply's quad, `geometry.corners` is only the fallback.
+                    // The export cuts every interval through ITS ply's quad; `geometry.corners` is the fallback.
                     p.corners?.let { put("corners", cornersJson(it)) }
                     if (p.refProvisional) put("ref_provisional", true)
                 },
@@ -141,7 +111,6 @@ internal fun movesJson(plies: List<CommittedPly>) =
         }
     }
 
-/** Flat `[x0, y0, …]` as the file's `[[x, y], …]` — the same spelling `geometry.corners` uses. */
 internal fun cornersJson(flat: FloatArray) =
     buildJsonArray {
         for (i in 0 until 4) {
@@ -154,7 +123,6 @@ internal fun cornersJson(flat: FloatArray) =
         }
     }
 
-/** A [Distribution] in the file's spelling: three keys, three decimals, null when unmeasurable. */
 private fun distributionJson(d: com.chesslab.tracker.geometry.Distribution): JsonObject =
     buildJsonObject {
         put("median", d.median?.round3())
@@ -166,22 +134,16 @@ private fun Double.round3(): Double = kotlin.math.round(this * THOUSAND) / THOUS
 
 private fun Double.round4(): Double = kotlin.math.round(this * TEN_THOUSAND) / TEN_THOUSAND
 
-/** What one replay run produced, next to the plies: the counts the candidate records verbatim. */
 internal data class LabelOutcome(
     val plies: List<CommittedPly>,
     val note: String?,
     val observations: Int,
     val frames: Int,
     val framesWritten: Int,
-    /** The stack's drop line — what this run did NOT process, by reason (`TrackerStack.dropLine`). */
     val drops: String,
 )
 
-/**
- * The whole `candidate.json`, key-for-key the shape the Python writer produced (its reference
- * file is `data/recordings/game-2026-08-02/candidate.json`; `reviewed_plies`/`confirmed_at` are
- * review-added keys and correctly absent on a fresh write).
- */
+/** Key-for-key the Python writer's shape; `reviewed_plies`/`confirmed_at` are review-added and absent here. */
 internal fun candidateJson(
     name: String,
     videoRelative: String,
@@ -257,13 +219,7 @@ private const val THOUSAND = 1000.0
 
 private const val TEN_THOUSAND = 10000.0
 
-/**
- * The video's path relative to `data/`, POSIX separators, refusing anything outside it.
- *
- * Same rule as the Python writer: a candidate stores its video relative so nothing downstream
- * ever holds an absolute path (or a Windows one) to the file. On Windows the naive relative path
- * carries `\` and possibly a drive letter — converted deliberately, never by accident.
- */
+/** A candidate stores its video relative to `data/`: nothing downstream may hold an absolute or Windows path. */
 internal fun relativeVideo(
     video: File,
     dataRoot: File,
@@ -277,13 +233,9 @@ internal fun relativeVideo(
     return root.relativize(path).joinToString("/")
 }
 
-/** UTC, seconds precision, `…Z` — the Python writer's spelling. */
 internal fun createdAtNow(): String = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString()
 
-/**
- * Writes `candidate.json` atomically. **This function cannot write a confirmed one** — the
- * `confirmed` key is hardcoded false here so no future edit upstream can leak a `true` through.
- */
+/** **Cannot write a confirmed one**: `confirmed` is hardcoded false. */
 internal fun writeCandidate(
     dir: File,
     candidate: JsonObject,

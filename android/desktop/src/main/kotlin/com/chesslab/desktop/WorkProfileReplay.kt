@@ -4,7 +4,6 @@ import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.tracker.perf.RecordingWorkProbe
 import java.io.File
 
-/** Adds exact source-work collection around replay without burdening its already hot main path. */
 internal fun replay(
     source: FrameSource,
     name: String,

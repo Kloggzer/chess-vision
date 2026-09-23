@@ -63,18 +63,6 @@ fun GamesRoute(
     GamesScreen(model, onBack, onOpenGame)
 }
 
-/**
- * The library, its statistics, and nothing else.
- *
- * It used to open on "Record training frames" — a developer data-capture setting with a five-line
- * explanation, four size chips and a second toggle — which was by far the tallest element on the
- * screen that holds the games, with the single stored game below it. That panel is a SETTING and it
- * is in Settings › Recording. The running game is not here either: the in-progress banner every
- * screen wears is one row instead of a card, and it is on this screen too.
- *
- * The four tiles arrived from Home (specs/48): they are a summary of THIS list, and on Home they
- * were four numbers about data that was one tap away, one of them duplicating the row beside it.
- */
 @Composable
 private fun GamesScreen(
     model: GamesViewModel,
@@ -90,8 +78,7 @@ private fun GamesScreen(
             Modifier.fillMaxSize().padding(bars),
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
-            // The empty state REPLACES the grid — four tiles of zeroes are the thing it exists to
-            // prevent — and it is the whole screen, so nothing else renders behind it.
+            // The empty state REPLACES the grid: four tiles of zeroes are what it exists to prevent.
             ui.error?.let { error ->
                 item(key = "error") { Text(error, style = MaterialTheme.typography.bodySmall, color = Danger) }
             }
@@ -131,7 +118,6 @@ private fun GamesScreen(
     }
 }
 
-/** Four tiles, each stating its own denominator. See [LibraryStats] for where they came from. */
 @Composable
 private fun LibraryGrid(stats: LibraryStats) {
     Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
@@ -159,10 +145,6 @@ private fun LibraryGrid(stats: LibraryStats) {
 
 private fun rebuiltNote(rebuilt: Int): String = if (rebuilt == 0) "none rebuilt" else "$rebuilt rebuilt"
 
-/**
- * Three lines, not four. Rename and Delete used to be permanent buttons on every row — two controls
- * per game, for acts taken once — and they are behind the row's own `⋯` now.
- */
 @Composable
 private fun GameRow(
     row: GameSummary,
@@ -181,8 +163,7 @@ private fun GameRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = OnSurfaceMuted,
             )
-            // A game the app lost and rebuilt is not the same evidence as one it tracked cleanly, and
-            // the row is where that has to be visible — the alternative is opening every game to find out.
+            // A rebuilt game is not the same evidence as a clean one, and the row is where that must be visible.
             if (row.seams > 0) {
                 Text(
                     "rebuilt ${row.seams}× — the app lost the board and picked it up again",
@@ -216,7 +197,6 @@ private fun RowMenu(
     }
 }
 
-/** Irreversible: the record, its PGN and its stored analysis. The body says how much, in moves. */
 @Composable
 private fun DeleteDialog(
     row: GameSummary,

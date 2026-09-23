@@ -37,11 +37,7 @@ import com.chesslab.tracker.ui.theme.Stroke
 
 private const val BOARD_N = 8
 
-/**
- * The per-square evidence, a8 top-left, with the three veto sets as three DIFFERENT visual
- * channels — outline, hatch-tint and scrim. They mean opposite things for z and the whole point of
- * this panel is that the difference is visible at a glance.
- */
+/** The three veto sets as three DIFFERENT visual channels: they mean opposite things for z. */
 @Composable
 fun EvidencePanel(state: DebugState) {
     var channel by remember { mutableStateOf(EvidenceChannel.FUSED_Z) }
@@ -126,7 +122,7 @@ private fun EvidenceSquare(
             textAlign = TextAlign.Center,
         )
         Text(
-            // A dash, never 0.0: the channel had nothing to say here, which is not a quiet square.
+            // A dash, never 0.0: no value is not a quiet square.
             text = cell.value?.let { fmt(it, 1) } ?: "-",
             style = MaterialTheme.typography.labelSmall,
             color = OnSurfaceMuted,

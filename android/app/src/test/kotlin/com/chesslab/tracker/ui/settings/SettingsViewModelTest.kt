@@ -100,9 +100,8 @@ class SettingsViewModelTest {
         }
 }
 
-// The scope is the TestScope itself, not `backgroundScope`: `advanceUntilIdle` stops as soon as
-// the FOREGROUND work is idle, so a persist launched into the background scope would never run
-// (the mirror image of D06c-12 — there a background flow was required, here it hides the write).
+// The TestScope itself, not `backgroundScope`: `advanceUntilIdle` stops when the FOREGROUND is idle, so a
+// persist launched into the background scope would never run.
 private fun TestScope.viewModel(
     store: ConfigStore,
     applied: MutableList<TrackerConfig>,

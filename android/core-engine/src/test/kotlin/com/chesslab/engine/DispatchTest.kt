@@ -17,8 +17,6 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// Shared helpers of the phase-03d tests, mirroring `_make_tracker` (`tests/test_move_tracker.py`).
-
 internal fun detectConfig(
     confirmFrames: Int = 1,
     requireMotion: Boolean = false,
@@ -34,7 +32,6 @@ internal fun detectConfig(
         confirmFramesOverride = confirmFrames,
     )
 
-/** A state whose base truth is already `(ref, current FEN)`, ready for a direct `tryDetect`. */
 internal fun detectState(
     config: TrackerConfig = detectConfig(),
     fen: String = STARTPOS,
@@ -46,7 +43,6 @@ internal fun detectState(
     return state
 }
 
-/** A minimal [CnnObservation]: only the occupancy axis the desync veto reads. */
 internal class FakeObs(
     private val occupancy: Map<String, Boolean> = emptyMap(),
     private val sure: Set<String> = emptySet(),
@@ -73,7 +69,7 @@ internal class FakeObs(
     override fun occupancyOnly(): CnnObservation = this
 }
 
-/** Ein LESBARES Brett: seit dem Livelock vom 2026-08-29 verlangt der Desync-Veto `minConfidentBoard` sichere Felder. */
+/** Seit dem Livelock vom 2026-08-29 verlangt der Desync-Veto `minConfidentBoard` sichere Felder. */
 internal fun litObs(
     state: EngineState,
     flips: Map<String, Boolean> = emptyMap(),
@@ -109,7 +105,6 @@ internal fun moveOf(
     uci: String,
 ): Move = state.board.legalMoves().first { uciOf(it) == uci }
 
-/** Step 9 (`_dispatch`) plus gates 6b (LL floor), 7 (motion) and 8 (confirmer). */
 class DispatchTest {
     @Test
     fun noCnnCommitsDirectly() {
@@ -133,7 +128,7 @@ class DispatchTest {
 
     @Test
     fun alarmBlocksCommitReanchorAndPending() {
-        // entry.md invariant 9: no commit, no pending, and NO re-anchor while the latch is set.
+        // Invariant 9: no commit, no pending, and NO re-anchor while the latch is set.
         val ref = grayFrame()
         val state = detectState(ref = ref)
         state.cnnRun = true
@@ -149,7 +144,6 @@ class DispatchTest {
 
     @Test
     fun alarmDiscardsPendingCandidate() {
-        // The alarm gate runs before verification, so nothing is queued either.
         val state = detectState(ref = grayFrame(listOf("e2")))
         state.cnnRun = true
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1"), null, null)
@@ -174,7 +168,7 @@ class DispatchTest {
     fun pairRespectsMotionGate() {
         val config = detectConfig(requireMotion = true)
         val state = detectState(config, ref = grayFrame(listOf("e2", "e7")))
-        // pair + 3 residue squares: 7 > max_changed 6 -> only the pair escape can explain it.
+        // Pair + 3 residue squares: 7 > max_changed 6, so only the pair escape can explain it.
         val cur = grayFrame(listOf("e4", "e5", "a3", "b3", "h3"))
         assertFalse(state.motionSinceRef)
         state.tryDetect(cur, null, seq = 1)
@@ -187,7 +181,7 @@ class DispatchTest {
         assertEquals(DECIDER_DIFF_PAIR, state.decisionLog.last().decider)
     }
 
-    /** `motionRecencyS = 0` means OFF: read as `age > 0` it refused every commit all session (live, 2026-08-01). */
+    /** `motionRecencyS = 0` means OFF: read as `age > 0` it refused every commit all session. */
     @Test
     fun aZeroRecencyWindowMeansOffNotAlwaysStale() {
         val config = detectConfig(requireMotion = true).copy(motionRecencyS = 0.0)
@@ -248,13 +242,9 @@ class DispatchTest {
         state.lastMotionTs = state.nowS
         state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
         assertEquals(listOf("e4"), state.history)
-        // `_set_ref` cleared it: the NEXT move needs a new hand.
         assertFalse(state.motionSinceRef)
     }
 
-    // -- the cleanCommitsOnly experiment ---------------------------------------------------------
-
-    /** The strict arm: NO candidate advances while anything reads as a hand — either signal. */
     @Test
     fun cleanCommitsOnlyBlocksWhileAnythingReadsAsAHand() {
         val state = detectState(detectConfig().copy(cleanCommitsOnly = true))
@@ -276,8 +266,7 @@ class DispatchTest {
         assertTrue(state.commitGates(cand), "clean everywhere — the funnel opens")
     }
 
-    /** AUSGESCHALTET traegt ein Latch nur Felder, nie den ganzen Trichter. Vorgabe ist seit
-     *  2026-09-22 AN, der Knopf steht hier also ausdruecklich da. */
+    /** AUSGESCHALTET traegt ein Latch nur Felder; die Vorgabe ist AN, der Knopf steht hier also ausdruecklich da. */
     @Test
     fun cleanCommitsOnlyOffLeavesTheFunnelAlone() {
         val state = detectState(detectConfig().copy(cleanCommitsOnly = false))
@@ -289,7 +278,6 @@ class DispatchTest {
         )
     }
 
-    /** A hand-glance may neither confirm nor reject a pending — alive, but silent. */
     @Test
     fun cleanCommitsOnlyHandGlanceDoesNotVote() {
         val state = pendingState()
@@ -338,7 +326,7 @@ class DispatchTest {
 
     @Test
     fun cnnDesyncVetoesReanchor() {
-        // Bxc3 incident: a confident e2 EMPTY against the believed pawn vetoes the quiet re-anchor.
+        // Bxc3: a confident e2 EMPTY against the believed pawn vetoes the quiet re-anchor.
         val ref = grayFrame()
         val state = detectState(ref = ref)
         state.cnnRun = true
@@ -346,7 +334,6 @@ class DispatchTest {
         state.tryDetect(grayFrame(), null, seq = 1)
         assertSame(ref, state.refGray, "re-anchored over a CNN-confirmed desync")
         assertEquals("cnn_desync", state.stuckReason)
-        // The same quiet frame WITHOUT a conflicting observation -> the re-anchor proceeds.
         state.clearStuck()
         state.cnnSnap = snapshotOf(state, FakeObs())
         val cur = grayFrame()
@@ -356,11 +343,11 @@ class DispatchTest {
         assertTrue(events.any { it is TrackerEvent.ReAnchored })
     }
 
-    /** S17-SIM-2: a WRONG CNN leaves recovery nothing to find; named observations alarm, never re-anchor (Bxc3). */
+    /** A WRONG CNN leaves recovery nothing to find: named observations alarm, never re-anchor. */
     @Test
     fun persistentCnnMisreadEscalatesVetoToAlarm() {
         val ref = grayFrame()
-        // A ply on the record: the alarm may not latch before the first commit (`Alarm.alarmable`).
+        // The alarm may not latch before the first commit (`Alarm.alarmable`).
         val state = detectState(ref = ref).underWay()
         state.cnnRun = true
         val cnn = RecoveryEvaluator(guess = "g1g3")
@@ -381,7 +368,6 @@ class DispatchTest {
         assertSame(ref, state.refGray, "the alarm must not be an excuse to re-anchor")
     }
 
-    /** The same snapshot re-evaluated must not advance the streak (seq contract, Spec 11). */
     @Test
     fun desyncStreakNeedsDistinctObservations() {
         val state = detectState(ref = grayFrame())
@@ -397,7 +383,7 @@ class DispatchTest {
         assertEquals(1, state.desyncObs)
     }
 
-    /** Measured on the clips: unnamed desyncs alarmed falsely (blender-promocapture, blender-shadowsweep). */
+    /** Unnamed desyncs alarmed falsely on the clips (blender-promocapture, blender-shadowsweep). */
     @Test
     fun unnamedDesyncNeverAlarms() {
         val ref = grayFrame()
@@ -415,7 +401,7 @@ class DispatchTest {
         assertSame(ref, state.refGray)
     }
 
-    /** Livelock 2026-08-29: EIN sicheres Feld vetote auf dunklem Brett, 25 Minuten `cnn_desync` ohne Alarm. */
+    /** Livelock: EIN sicheres Feld vetote auf dunklem Brett, 25 Minuten `cnn_desync` ohne Alarm. */
     @Test
     fun blindGlanceCannotVetoTheQuietReanchor() {
         val ref = grayFrame()
@@ -460,14 +446,13 @@ class DispatchTest {
         assertNull(state.refGamut)
         state.tryDetect(grayFrame(), bgrFrame(), seq = 1)
         val rebuilt = requireNotNull(state.refGamut) { "the quiet re-anchor rebuilds the colour gamut" }
-        // Invariant 6: a commit-time reference may carry hand residue.
         state.setRef(grayFrame(), bgrFrame(level = 200), fromCommit = true)
         assertSame(rebuilt, state.refGamut)
     }
 
     @Test
     fun cnnOverruleReplacementMoveIsExpressible() {
-        // entry.md invariant 10 / specs/12 D3: the REPLACEMENT move commits in the same cycle.
+        // Invariant 10: the REPLACEMENT move commits in the same cycle.
         val state = detectState()
         val cur = grayFrame()
         val pending = e2e4Pending(state, cur = cur)
@@ -484,8 +469,7 @@ class DispatchTest {
 
     @Test
     fun theCommittedRowKeepsTheVetoesFromTheLiftingFrame() {
-        // Der echte Weg, nicht `decisionRow` direkt: `applyVerdict` loescht `pending`, BEVOR
-        // `commitMove` seine Zeile schreibt (Astra, 2026-09-22).
+        // Der echte Weg: `applyVerdict` loescht `pending`, BEVOR `commitMove` seine Zeile schreibt.
         val state = detectState()
         state.shadowVetoed = bit(Squares.index("g1"))
         state.occludedVetoed = bit(Squares.index("h1"))
@@ -502,7 +486,6 @@ class DispatchTest {
 
     @Test
     fun theNextRowAfterACommitIsNoLongerTheLiftingFrames() {
-        // Genau EINE Zeile erbt den Spruch der Leiter, wie bei `verdictOutcome`.
         val state = detectState()
         state.shadowVetoed = bit(Squares.index("g1"))
         val pending = e2e4Pending(state, shadowAtLift = state.shadowVetoed)
@@ -531,7 +514,7 @@ class DispatchTest {
 
     @Test
     fun verdictAnchorsOnTheCallerSuppliedFrame() {
-        // entry.md invariant 5: anchored on the OBSERVED frame, not `lastCur` nor the pending's image.
+        // Invariant 5: anchored on the OBSERVED frame, not `lastCur` nor the pending's image.
         val state = detectState()
         val observed = grayFrame()
         val pending = e2e4Pending(state)

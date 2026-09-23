@@ -9,17 +9,12 @@ import com.chesslab.engine.api.ResyncResult
 import com.chesslab.engine.api.TrackerConfig
 import com.github.bhlangonijr.chesslib.move.Move
 
-// Fakes for VerifyPairTest only. Mirrors `_FakeObs` / `_FakeRecovery` in
-// `tests/test_move_tracker.py` — canned occupancy/confidence and canned resync results, so the
-// pair ladder is tested without any CNN.
+// Mirrors `_FakeObs` / `_FakeRecovery` in `tests/test_move_tracker.py`: the pair ladder without any CNN.
 
-/** `_FakeObs`: per-square occupancy plus the confident set; every other axis is unused here. */
 internal class PairObs(
     private val occupancy: Map<String, Boolean> = emptyMap(),
     private val sure: Set<String> = emptySet(),
-    /** Nur fuer die Farbachse; leer heisst "das Modell sagt zur Figur nichts", wie bisher. */
     private val labels: Map<String, String> = emptyMap(),
-    /** Welche Label sicher sind — die Farbachse zaehlt nur diese. */
     private val labelSure: Set<String> = labels.keys,
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = occupancy[square] ?: false
@@ -43,13 +38,8 @@ internal class PairObs(
     override fun occupancyOnly(): CnnObservation = this
 }
 
-/**
- * `_FakeRecovery`, occupancy path. [matchFen] is the `_check` closure the Python after-match test
- * installs: match exactly one position, everything else mismatches.
- *
- * [minConfidentBoard] defaults to 0 — permissive, so the occupancy-axis tests need no 32-square
- * confidence map; the blind-glance guard is exercised explicitly with the real default.
- */
+/** [matchFen] matches exactly one position. [minConfidentBoard] defaults to 0 (permissive); the blind-glance
+ *  guard is exercised explicitly with the real default. */
 internal class PairRecovery(
     override val confThr: Double = 0.85,
     override val minAgreement: Double = 0.97,
@@ -99,7 +89,6 @@ internal class PairRecovery(
     ): String? = null
 }
 
-/** A state with an armed pair candidate, mirroring `_pending_tracker`. */
 internal fun pairState(
     fen: String = STARTPOS,
     ucis: List<String> = listOf("e2e4", "e7e5"),
@@ -124,7 +113,7 @@ internal fun pairState(
     return state
 }
 
-/** The two half-moves, the second one resolved on the MID board — it is illegal before the first. */
+/** The second half-move resolved on the MID board — it is illegal before the first. */
 internal fun pairMoves(
     state: EngineState,
     ucis: List<String>,
@@ -135,7 +124,6 @@ internal fun pairMoves(
     return listOf(first, board.legalMoves().first { uciOf(it) == ucis[1] })
 }
 
-/** One observer glance at the pair candidate. */
 internal fun pairTick(
     state: EngineState,
     cnn: CnnEvaluator,
@@ -143,7 +131,6 @@ internal fun pairTick(
     obs: CnnObservation,
 ) = VerifyPair.tick(state, cnn, moves, state.board.copy(), snapshotOf(state, obs))
 
-/** FEN of the position after both half-moves. */
 internal fun afterFen(
     state: EngineState,
     moves: List<Move>,

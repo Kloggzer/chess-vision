@@ -2,33 +2,23 @@ package com.chesslab.tracker.sync
 
 import java.io.File
 
-/** Where the phone is on the network — enough to name its own /24 and nothing else. */
 data class LanAddress(
     val address: String,
     val prefixLength: Int,
 )
 
-/** What one run did, in the words the Settings screen shows. Never "something went wrong". */
+/** In the words the Settings screen shows. Never "something went wrong". */
 data class SyncReport(
     val base: String? = null,
     val sent: List<Outcome.Sent> = emptyList(),
     val failed: List<Outcome.Failed> = emptyList(),
-    /** Why nothing was sent, when nothing was sent. Null means the sessions above are the story. */
     val note: String? = null,
 ) {
     val bytes: Long get() = sent.sumOf { it.bytes }
 }
 
-/**
- * One transfer run: find the server, send every session that has not been sent.
- *
- * Platform-free on purpose — the Android side of this feature is a WorkManager shell around
- * [run], so the whole decision surface (what is pending, which host, what a failure is called)
- * is exercised on the desktop JVM.
- *
- * The order is deliberate: the pending list is built BEFORE the network is touched. A phone with
- * nothing to send must not sweep a subnet every time it joins a Wi-Fi.
- */
+/** Platform-free: the Android side is a WorkManager shell. The pending list is built BEFORE the network is touched:
+ *  a phone with nothing to send must not sweep a subnet on every Wi-Fi join. */
 class SyncRun(
     private val sessionsDir: File,
     private val gamesDir: File,
@@ -57,10 +47,7 @@ class SyncRun(
             else -> null
         }
 
-    /**
-     * "Nothing to transfer" would be a lie a minute after a game: the session is there and unsent,
-     * it is simply still settling. The two look identical from outside, so they are named apart.
-     */
+    /** A session still settling is not "nothing to transfer" — the two are named apart. */
     private fun idleNote(): String {
         val empty = emptyRecordings(sessionsDir).size
         val settling = unsentSessions(sessionsDir).size - empty
@@ -83,14 +70,12 @@ class SyncRun(
                 is Outcome.Sent -> sent += outcome
                 is Outcome.Failed -> failed += outcome
             }
-            // The next session is not tried after a failure: the usual cause is the Wi-Fi going
-            // away, and hammering it costs battery for a queue the next run picks up whole anyway.
+            // Not continued after a failure: usually the Wi-Fi went away, and the next run picks up the queue.
             if (outcome is Outcome.Failed) break
         }
         return SyncReport(base, sent, failed)
     }
 
-    /** A typed address first, then the one that answered last, then the sweep. */
     private suspend fun resolve(
         prefs: SyncPrefs,
         client: IngestClient,

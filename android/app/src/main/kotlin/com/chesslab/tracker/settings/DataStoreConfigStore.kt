@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.first
 
 private val Context.trackerDataStore: DataStore<Preferences> by preferencesDataStore(name = "chesslab-tracker")
 
-/** The Android half of [ConfigStore]: a DataStore keyed by the slot names the interface defines. */
 class DataStoreConfigStore(
     context: Context,
 ) : ConfigStore {

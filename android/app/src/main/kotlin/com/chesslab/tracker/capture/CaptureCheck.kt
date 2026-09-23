@@ -2,20 +2,13 @@ package com.chesslab.tracker.capture
 
 import com.chesslab.engine.api.DebugCnnRead
 
-// Die CNN-Kontrolle beim Aufbau: sie hilft dem Menschen, sie ersetzt ihn nicht.
-//
-// Ein Veto waere hier falsch herum. Aufgenommen wird GENAU auf den Kombinationen, die dem Modell
-// fehlen — 16 der 46 Luecken haben null Belege, seine Zuverlaessigkeit ist dort nicht einmal
-// messbar. Ein Widerspruch kann also der Aufbau sein oder die Luecke selbst. Deshalb gibt es hier
-// nur Zustaende und einen Satz; gesperrt wird nichts.
+// Hilft dem Menschen, ersetzt ihn nicht: kein Veto, denn aufgenommen wird GENAU dort, wo dem Modell die
+// Belege fehlen (16 der 46 Luecken haben null) — ein Widerspruch kann der Aufbau sein oder die Luecke.
 
 /** Was das Modell auf einem Zielfeld sieht. `OFF` heisst kein Read, nicht „leer". */
 enum class Check { AGREES, OTHER_PIECE, EMPTY, UNSURE, OFF }
 
-/**
- * Je Zielfeld ein Zustand. [EMPTY] ist die Meldung, die sich lohnt — bei 19 Figuren ist eine
- * vergessene oder danebengestellte der haeufigste Fehler, und sie haengt nicht an der Figurklasse.
- */
+/** [EMPTY] lohnt sich: bei 19 Figuren ist eine vergessene oder danebengestellte der haeufigste Fehler. */
 fun checkPlacement(
     targets: List<Target>,
     reads: List<DebugCnnRead>,
@@ -34,12 +27,7 @@ fun checkPlacement(
     }
 }
 
-/**
- * Felder, die kein Ziel sind, auf denen das Modell aber sicher eine Figur sieht.
- *
- * Sie sind der teuerste Aufbaufehler: die FEN fuehrt sie als `empty`, also ist jedes solche Label
- * in jedem Frame des Laufs falsch — und niemand sieht es dem Bild spaeter an.
- */
+/** Der teuerste Aufbaufehler: die FEN fuehrt sie als `empty`, jedes Label des Laufs ist dort falsch. */
 fun strayPieces(
     targets: List<Target>,
     reads: List<DebugCnnRead>,
@@ -48,17 +36,10 @@ fun strayPieces(
     return reads.filter { it.square !in wanted && it.occupied && it.confident }.map { it.square }
 }
 
-/**
- * Das Schachzeichen einer Figur. Ein Kuerzel in der Feldecke sah aus wie ein Befund des Modells —
- * dieselbe Sprache, die das Tracking-Overlay fuer ERKANNTES benutzt. Eine Figur, die im Feld
- * steht, liest dagegen jeder als „hierhin damit".
- */
+/** Das Schachzeichen, kein Kuerzel: ein Kuerzel in der Feldecke las sich wie ein Befund des Modells. */
 fun pieceSymbol(piece: String): String = SYMBOLS[piece] ?: piece
 
-/**
- * Wie weit der Aufbau ist. Ohne Modell zaehlt sie die Aufgabe, nicht den Fortschritt: null von
- * vier gestellt waere gelogen, solange niemand hinsieht.
- */
+/** Ohne Modell zaehlt sie die Aufgabe: "null von vier gestellt" waere gelogen, solange niemand hinsieht. */
 fun progressLine(checks: Map<String, Check>): String {
     if (checks.isEmpty()) return ""
     if (checks.values.all { it == Check.OFF }) return "${checks.size} Figuren aufstellen"
@@ -66,12 +47,7 @@ fun progressLine(checks: Map<String, Check>): String {
     return "$standing von ${checks.size} stehen"
 }
 
-/**
- * Die Belegung als Text: `wQ c8 · bK a1`.
- *
- * Ohne Kamerabild zeichnet der Schirm kein Brett, und dann ist diese Zeile das Einzige, was sagt,
- * was aufzubauen ist — sie darf die Felder deshalb nie weglassen, auch wenn das Overlay sie zeigt.
- */
+/** Ohne Kamerabild ist diese Zeile das Einzige, was sagt, was aufzubauen ist — nie Felder weglassen. */
 fun orderLine(targets: List<Target>): String =
     if (targets.isEmpty()) {
         "nichts aufzubauen — leeres Brett"
@@ -79,7 +55,6 @@ fun orderLine(targets: List<Target>): String =
         targets.joinToString(" · ") { "${it.piece} ${it.square}" }
     }
 
-/** Ein Satz, der zaehlt und benennt — nie ein Urteil ueber den Aufbau. */
 fun checkSummary(
     checks: Map<String, Check>,
     stray: List<String>,
@@ -96,7 +71,6 @@ fun checkSummary(
     return parts.joinToString(" · ")
 }
 
-/** Die Figuren als Zeichen. Weiss und schwarz getrennt, damit auch die FARBE ohne Text liest. */
 private val SYMBOLS =
     mapOf(
         "wK" to "♔",

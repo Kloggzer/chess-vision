@@ -55,8 +55,7 @@ class SessionCaptureTest {
         assertEquals(1, controller.recorder?.count)
     }
 
-    /** The pre-roll rule (2026-08-14): the eager open made nine moveless recordings out of eleven,
-     *  4.7 GB of board setup deleted by hand. */
+    /** The eager open made nine moveless recordings out of eleven. */
     @Test
     fun noSessionDirectoryBeforeTheFirstCommittedMove() {
         val controller = controller()
@@ -68,7 +67,6 @@ class SessionCaptureTest {
     @Test
     fun aMovelessRunLeavesNothingOnDisk() {
         val controller = controller()
-        // The status-boundary sync used to auto-open the session; now it may not, commits or none.
         controller.syncEnabled()
         assertNull(controller.stop())
         assertEquals(0, opened)
@@ -80,7 +78,6 @@ class SessionCaptureTest {
         source.note = "profile 2560x1440, camera delivers 1920x1080"
         val controller = controller()
         controller.queue(1, FEN, "e4", clean = true)
-        // The commit earns the video bundle; the broken geometry blocks only the labeled still.
         assertNotNull(controller.recorder, "geometry failures belong in the debug video instead of preventing it")
         assertEquals(0, controller.recorder?.count)
     }
@@ -89,7 +86,6 @@ class SessionCaptureTest {
     fun captureDefersWhileOccludedOrTainted() {
         val controller = controller()
         controller.queue(1, FEN, "e4", clean = false)
-        // The commit opened the session (video bundle), but no still is written while unclean.
         assertEquals(0, controller.recorder?.count)
         assertNotNull(controller.flush())
         assertEquals(1, controller.recorder?.count)
@@ -102,7 +98,6 @@ class SessionCaptureTest {
         val recorder = controller.recorder
         source.note = "profile 1920x1080, camera delivers 1280x720"
         controller.queue(2, FEN, "e5", clean = true)
-        // Suspended, not stopped: the recorder and the frame already written are untouched.
         assertEquals(recorder, controller.recorder)
         assertEquals(1, controller.recorder?.count)
         assertTrue(gates.reason.orEmpty().contains("Recording paused"))
@@ -115,7 +110,6 @@ class SessionCaptureTest {
     fun recorderSkipsInventoryViolation() {
         val controller = controller()
         controller.queue(1, THREE_BISHOPS, "Bf3", clean = true)
-        // The session opens — a committed ply is a game — but the impossible still is refused.
         assertEquals(0, controller.recorder?.count)
         assertTrue(gates.reason.orEmpty().contains("wB 3/2"))
     }
@@ -124,7 +118,7 @@ class SessionCaptureTest {
     fun deferredCaptureRerunsBothGatesOnFlush() {
         val controller = controller()
         controller.queue(1, THREE_BISHOPS, "Bf3", clean = false)
-        // Queued while clean, mismatched at flush time — Python re-checks, so nothing is written.
+        // Queued while clean, mismatched at flush time — re-checked, so nothing is written.
         controller.queue(2, FEN, "e4", clean = false)
         source.note = "profile 1920x1080, camera delivers 1280x720"
         assertNull(controller.flush())
@@ -161,7 +155,6 @@ class SessionCaptureTest {
         controller.queue(2, FEN, "e5", clean = true)
         assertNull(controller.recorder)
         assertTrue(controller.stoppedReason.orEmpty().contains("limit reached"), controller.stoppedReason)
-        // Nothing is wrapped or overwritten: the frame written before the cap is still there.
         assertTrue(File(dir, "s1/frames/0000.jpg").isFile)
         assertEquals(1, File(dir, "s1/log.jsonl").readLines().size)
     }
@@ -178,8 +171,7 @@ class SessionCaptureTest {
         assertTrue(controller.stoppedReason.orEmpty().contains("limit reached"))
     }
 
-    /** Counting only `video.mp4` made a 761 MB session read as 76,7 MB (`2026-09-11-20-00-52`), so the
-     *  1 GB cap never fired and recordings ran to ~10 GB. Each file here is under the cap on its own. */
+    /** Counting only `video.mp4` read 761 MB as 76.7 MB: the cap never fired. Each file here is under it. */
     @Test
     fun everySegmentCountsAgainstTheSessionCap() {
         prefs = RecordingPrefs(enabled = true, capBytes = 2000L)
@@ -194,7 +186,7 @@ class SessionCaptureTest {
         assertTrue(controller.stoppedReason.orEmpty().contains("limit reached"), controller.stoppedReason)
     }
 
-    /** A gap ends the count — segments are consecutive, and nothing here walks the directory. */
+    /** Segments are consecutive; nothing here walks the directory. */
     @Test
     fun aSegmentBeyondAGapIsNotCounted() {
         prefs = RecordingPrefs(enabled = true, capBytes = 2000L)
@@ -207,8 +199,7 @@ class SessionCaptureTest {
         assertNotNull(controller.recorder)
     }
 
-    /** D3. `SessionRecorder.<init>` wrote its directory BEFORE the cap was evaluated, leaving an empty
-     *  session that counted against the next `totalBytes()`. */
+    /** The directory was written BEFORE the cap was evaluated, leaving an empty session that counted. */
     @Test
     fun aCapBlockedStartCreatesNoSessionDirectory() {
         existing = 2000L
@@ -221,8 +212,7 @@ class SessionCaptureTest {
         assertFalse(File(dir, "s1").exists(), "no empty session directory may be left behind")
     }
 
-    /** D4. A frame that could not be written was swallowed whole (`runCatching{}.getOrDefault(0L)`):
-     *  no counter, no reason, no log, and the UI showed a healthy session. */
+    /** An unwritable frame was swallowed whole: no counter, no reason, a healthy-looking session. */
     @Test
     fun aFailedFrameWriteIsReported() {
         source.frameBytes = 0
@@ -231,14 +221,11 @@ class SessionCaptureTest {
         assertEquals(0, controller.recorder?.count)
         assertEquals(1, controller.failedWrites)
         assertTrue(controller.reason.orEmpty().contains("frame could not be written"), controller.reason)
-        // A frame no log line references is not data — it is only bytes `slice` will trip over.
+        // A frame no log line references is only bytes `slice` will trip over.
         assertFalse(File(dir, "s1/frames/0000.jpg").exists())
     }
 
-    /**
-     * D5. Nothing ever cleared [RecordingGates.reason], so one transient geometry blip left a
-     * permanent skip reason on the only diagnostic the UI shows.
-     */
+    /** Nothing cleared the reason, so one geometry blip left a permanent skip reason. */
     @Test
     fun theSkipReasonClearsWhenTheGateOpensAgain() {
         val controller = controller()
@@ -251,7 +238,6 @@ class SessionCaptureTest {
         assertNull(controller.reason, "a skip that no longer applies must stop being reported")
     }
 
-    /** The acceptance shape `chesslab slice` needs: one log line per frame file, parseable yaml. */
     @Test
     fun aFinishedSessionHasOneLogLinePerFrameFile() {
         val controller = controller()
@@ -275,8 +261,7 @@ class SessionCaptureTest {
         assertNull(controller.stop())
     }
 
-    /** D6. A move photo is lost when the board never goes quiet between two commits (2026-08-14:
-     *  Nc6 of 20260814-204855, Nf3 of 20260814-210104 had no log row); the loss was silent. */
+    /** A move photo is lost when the board never goes quiet between two commits; the loss was silent. */
     @Test
     fun supersededPendingFrameIsReported() {
         val controller = controller()
@@ -290,7 +275,6 @@ class SessionCaptureTest {
         assertEquals(1, controller.recorder?.count)
         val result = controller.stop()
         assertEquals(1, result?.frames)
-        // Reset after the session ends.
         controller.queue(3, FEN, "Nf3", clean = false)
         assertEquals(0, controller.supersededFrames)
     }

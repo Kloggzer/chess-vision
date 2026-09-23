@@ -2,15 +2,10 @@ package com.chesslab.tracker.camera
 
 import com.chesslab.engine.api.BgrImage
 
-/**
- * Die Messung, die [nextExposure] braucht — aus dem rektifizierten Brett, nicht aus dem Rahmen.
- *
- * Das ist der ganze Unterschied zur Geraete-Automatik: sie mittelt, was die Kamera sieht,
- * einschliesslich Tisch, Haenden und Zimmer. Hier zaehlen die 64 Felder und sonst nichts.
- */
+/** Aus dem rektifizierten Brett, nicht aus dem Rahmen: die Geraete-Automatik mittelt Tisch, Haende und Zimmer mit. */
 fun meterBoard(board: BgrImage): ExposureReading {
     val cell = board.width / SIDE
-    // Siehe `meterSharpness`: `cell` kommt aus der Breite, die Schleife liest ueber die Hoehe.
+    // `cell` kommt aus der Breite, die Schleife liest ueber die Hoehe.
     require(cell > 0 && board.height == board.width) { "Brett zu klein oder nicht quadratisch: ${board.width}x${board.height}" }
     val means = FloatArray(ExposureReading.CELLS)
     val hist = IntArray(LEVELS)
@@ -25,8 +20,8 @@ fun meterBoard(board: BgrImage): ExposureReading {
                     val g = board.data[i + 1].toInt() and BYTE
                     val r = board.data[i + 2].toInt() and BYTE
                     sum += (B_WEIGHT * b + G_WEIGHT * g + R_WEIGHT * r).toInt()
-                    // Saettigung faellt je KANAL an, nicht auf der Luminanz: ein Rot bei 255 ist
-                    // ausgebrannt, waehrend die Luminanz noch bei 200 steht und Luft vortaeuscht.
+                    // Saettigung je KANAL: ein Rot bei 255 ist ausgebrannt, waehrend die
+                    // Luminanz bei 200 Luft vortaeuscht.
                     hist[maxOf(b, g, r)]++
                     i += 3
                 }
@@ -38,7 +33,6 @@ fun meterBoard(board: BgrImage): ExposureReading {
     return ExposureReading(means, percentile(hist, pixels, 1f - CLIP_TAIL), clipped(hist, pixels))
 }
 
-/** Der Pegel, unter dem [share] der Pixel liegen — der Ankerwert fuer die Lichtdecke. */
 private fun percentile(
     hist: IntArray,
     pixels: Long,
@@ -66,7 +60,7 @@ private const val SIDE = 8
 private const val LEVELS = 256
 private const val BYTE = 0xFF
 
-/** Das Perzentil, an dem die Lichtdecke haengt — dieselbe Groesse wie [ExposurePolicy.clipCap]. */
+/** Dieselbe Groesse wie [ExposurePolicy.clipCap]. */
 private const val CLIP_TAIL = 0.02f
 
 // ITU-R BT.601, dieselben Gewichte wie `Preprocess.LUMA` und `cv2.COLOR_BGR2GRAY`.

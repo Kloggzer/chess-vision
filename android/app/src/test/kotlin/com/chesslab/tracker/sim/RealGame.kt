@@ -13,19 +13,16 @@ import com.github.bhlangonijr.chesslib.move.Move
 import org.opencv.core.Mat
 import java.io.File
 
-/** A filmed game: everything the engine needs and no claim about the moves (`SimClip` has an answer key). */
 internal data class RealGameSource(
     override val video: File,
     override val config: TrackerConfig,
     override val startFen: String,
-    /** `[a8, h8, h1, a1]` in FRAME pixels — the corner order every geometry call in this repo takes. */
     override val corners: List<DoubleArray>,
-    /** The fraction by which [corners] lie OUTSIDE the playing field, because the markers are glued in the label border. */
+    /** Markers sit in the label border, so [corners] lie OUTSIDE the playing field by this fraction. */
     val margin: Double,
     val boardSize: Int,
     override val fps: Double,
-    /** Deliberately WITHOUT a default (specs/41): a 0.10 harness crop against the served 0.05 desynced
-     *  the CNN three seconds into the 2026-08-02 game. */
+    /** WITHOUT a default: a 0.10 harness crop against the served 0.05 desynced the CNN three seconds in. */
     val cropParams: CropParams,
 ) : SimSource {
     /** The ONE place the crop reaches the warp; an attached model overrides only `outW`/`outH`. */
@@ -40,33 +37,26 @@ internal data class RealGameSource(
             )
 }
 
-/** One committed batch: a recovery bridge reports up to `recoveryMaxPlies` moves with ONE decider and
- *  ONE FEN, after the LAST of them; [realGamePlies] turns it back into plies. */
+/** A recovery bridge reports several moves with ONE decider and ONE FEN, after the LAST of them. */
 internal data class SimBatch(
     val frame: Int,
     val ucis: List<String>,
     val sans: List<String>,
     val decider: String,
-    /** Polled from `status()` at the commit — see [RealGamePly.alarm]. */
     val alarm: Boolean,
-    /** The engine's own position after the whole batch. */
     val fenAfter: String,
 )
 
-/** One committed ply, expanded from the engine's batch commits. */
 internal data class RealGamePly(
     val ply: Int,
     val san: String,
     val uci: String,
-    /** The 0-based index of the decoded frame the commit landed on. */
     val frame: Int,
-    /** Video time in seconds, on the same clock the replay paces the engine with. */
     val t: Double,
     val decider: String,
-    /** The alarm standing at the commit, polled from `status()` — the HARNESS's observation; no
-     *  decision row on either platform records it. */
+    /** The HARNESS's observation: no decision row on either platform records it. */
     val alarm: Boolean,
-    /** The position after THIS ply, never after the batch it came in. */
+    /** After THIS ply, never after its batch. */
     val fenAfter: String,
 )
 
@@ -77,11 +67,8 @@ internal data class RealGameResult(
     val finalNote: String?,
 )
 
-/**
- * One row per ply with the FEN after ITSELF, replayed on a board of its own (Python's `_fens_after`).
- * The engine stays the authority: the batch's last ply takes [SimBatch.fenAfter] and the board is
- * re-seated on it, so an unplayable move stays a local hole.
- */
+/** Replayed on a board of its own, but the engine stays the authority: the batch's last ply takes
+ *  [SimBatch.fenAfter] and the board re-seats on it, so an unplayable move stays a local hole. */
 internal fun realGamePlies(
     batches: List<SimBatch>,
     startFen: String,
@@ -110,7 +97,6 @@ internal fun realGamePlies(
     return plies
 }
 
-/** The real-game twin of `runClip` on the same runner; unscored, there is nothing to score it against. */
 internal fun runRealGame(
     source: RealGameSource,
     cnn: SimCnn?,
@@ -125,13 +111,10 @@ internal fun runRealGame(
     )
 }
 
-/** `Game.fen()`'s spelling, so a replayed FEN is comparable string-for-string with the engine's. */
+/** `Game.fen()`'s spelling, so a replayed FEN compares string-for-string with the engine's. */
 private fun Board.engineFen(): String = getFen(true, true)
 
-/**
- * specs/52 phase 01: measured with the shipping `GeometryScan`, every tenth frame. A refusal is an
- * `error`: a label on crooked geometry is worse than none (2026-07-31, the corpus 3-6 px out).
- */
+/** A refusal is an `error`: a label on crooked geometry is worse than none. */
 internal fun measuredGeometryOf(video: File): ScannedGeometry {
     val scan = GeometryScan(videoFps(video)) { println("  $it") }
     forEachFrameTimed(video) { _, mat, timestampMs -> scan.offer(mat, timestampMs) }

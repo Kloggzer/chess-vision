@@ -6,13 +6,11 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import org.opencv.objdetect.Objdetect
 
-/** Renders DICT_4X4_50 markers 0..3 onto a white canvas at known positions. */
 object SyntheticMarkers {
     const val CANVAS: Int = 800
     const val MARKER_PX: Int = 120
     const val INSET: Int = 120
 
-    /** Top-left corner of marker [id] on the canvas, ids in `[a8, h8, h1, a1]` order. */
     fun origin(id: Int): Pair<Int, Int> {
         val far = CANVAS - INSET - MARKER_PX
         return when (id) {
@@ -23,7 +21,6 @@ object SyntheticMarkers {
         }
     }
 
-    /** Geometric centre of marker [id] — the quad centroid a detector should report. */
     fun center(id: Int): DoubleArray {
         val (x, y) = origin(id)
         return doubleArrayOf(x + MARKER_PX / 2.0 - 0.5, y + MARKER_PX / 2.0 - 0.5)

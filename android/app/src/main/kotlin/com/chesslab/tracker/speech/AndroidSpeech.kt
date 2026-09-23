@@ -11,13 +11,8 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * Exactly one utterance held back until `TextToSpeech` reports its init.
- *
- * The flag is written on the main thread and read from `Dispatchers.Default`, and it has to flip
- * TOGETHER with the held call — between them the utterance is stored by one thread and never seen
- * by the other, and that utterance is the first move of the session.
- */
+/** The flag is written on the main thread and read from `Dispatchers.Default`; it must flip TOGETHER with
+ *  the held call, or the session's first move is stored by one thread and never seen by the other. */
 internal class DeferredSpeech {
     private var readyFlag = false
     private var deferred: (() -> Unit)? = null
@@ -25,7 +20,6 @@ internal class DeferredSpeech {
     val isReady: Boolean
         @Synchronized get() = readyFlag
 
-    /** `true` = say it now; `false` = [say] is held until [ready]. */
     @Synchronized
     fun submit(say: () -> Unit): Boolean {
         if (readyFlag) return true
@@ -33,7 +27,6 @@ internal class DeferredSpeech {
         return false
     }
 
-    /** Init reported: what was held, exactly once. */
     @Synchronized
     fun ready(): (() -> Unit)? {
         readyFlag = true
@@ -41,23 +34,11 @@ internal class DeferredSpeech {
     }
 }
 
-/**
- * The one place `TextToSpeech` is touched.
- *
- * Initialisation is asynchronous and the first announcement is the reason the engine was opened at
- * all, so exactly one utterance is held back until init reports success — dropping it would make
- * the first move of every session silent.
- */
+/** Init is asynchronous, so exactly one utterance is held back — else the first move of every session is silent. */
 class AndroidTts(
     context: Context,
     private val onState: (SpeechState) -> Unit,
-    /**
-     * When the utterance handed to `speak` actually became AUDIBLE, in ms since it was queued.
-     *
-     * `speak` returning is not a sound: the engine synthesises first, and the gap between the two
-     * is the only part of "how long until I hear the move" that neither the tracker nor this app
-     * controls. `onStart` is where the audio begins, so it is where the number is.
-     */
+    /** `speak` returning is not a sound: `onStart` is where the audio begins, so the synthesis latency is measured there. */
     private val onSpoken: (Long) -> Unit = {},
 ) : Tts {
     private val callbacks = ConcurrentHashMap<String, () -> Unit>()
@@ -129,7 +110,6 @@ class AndroidTts(
         tts.shutdown()
     }
 
-    /** Missing voice data falls back to US English — a wrong accent beats no announcement. */
     private fun applyLanguage(): SpeechState {
         val result = tts.setLanguage(Locale.forLanguageTag(language))
         val state =
@@ -144,7 +124,6 @@ class AndroidTts(
     }
 }
 
-/** True when the user has told the phone to be quiet — by ringer switch or by Do-Not-Disturb. */
 internal fun silencedBy(
     ringerMode: Int,
     interruptionFilter: Int,
@@ -179,13 +158,6 @@ class AndroidSilence(
     }
 }
 
-/**
- * The composition root's one-liner: a speech engine wired to this device.
- *
- * [onSpoken] receives the synthesis latency of each utterance — see [AndroidTts]. Together with
- * `MoveAnnouncer`'s own line it closes the last unmeasured leg of "move played -> move heard":
- * the replay measures the board up to the commit, this measures the commit up to the sound.
- */
 fun androidSpeechEngine(
     context: Context,
     onSpoken: (Long) -> Unit = {},

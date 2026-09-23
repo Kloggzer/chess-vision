@@ -4,8 +4,7 @@ import com.chesslab.tracker.settings.FrameRateMode
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-// Skaliert wurde mit der EINGESTELLTEN Rate. Gemessen 2026-09-19 (24117RK2CG, `R1440`/`FPS15`):
-// geliefert 7,5 fps. Die Schwelle war halb so gross wie noetig, das Brett nie ruhig.
+// Skaliert wurde mit der EINGESTELLTEN Rate; geliefert kamen 7,5 fps, das Brett wurde nie ruhig.
 class EffectiveFrameRateTest {
     @Test
     fun `without a measurement the setting decides`() {
@@ -20,7 +19,6 @@ class EffectiveFrameRateTest {
 
     @Test
     fun `small jitter under the setting does not move the threshold`() {
-        // Die gelieferte Rate ist ein EMA: ihr zu folgen liesse `motionThr` wandern.
         assertEquals(15.0, effectiveFrameRate(FrameRateMode.FPS15, 14.3), 0.0)
         assertEquals(15.0, effectiveFrameRate(FrameRateMode.FPS15, 15.4), 0.0)
     }
@@ -38,7 +36,6 @@ class EffectiveFrameRateTest {
     }
 }
 
-// Einmal, nach einer Aufwaermzeit: die gelieferte Rate ist ein EMA und steht anfangs nicht.
 class RetuneDueTest {
     @Test
     fun `nothing happens before the rate has settled`() {
@@ -59,8 +56,7 @@ class RetuneDueTest {
     }
 }
 
-/** `CameraRate` faellt beim Anhalten auf 0, ein Neustart baut mit einer anderen Rate. Ohne
- *  Neubewaffnung lief der Abgleich genau einmal im Prozessleben. */
+/** Ohne Neubewaffnung lief der Abgleich genau einmal im Prozessleben. */
 class RateRetuneTest {
     @Test
     fun `it fires once per run, at the warm-up frame`() {
@@ -89,5 +85,4 @@ class RateRetuneTest {
     }
 }
 
-/** Ein paar Bilder ueber die Aufwaermzeit hinaus. */
 private const val WARM_PLUS = 90

@@ -11,8 +11,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.io.File
 
-/** B5: die Messparameter wurden nur syntaktisch gelesen. Die Temperatur fiel schon einmal an drei
- *  Lesestellen einzeln — der Riegel sitzt jetzt an der Quelle. */
+/** Die Temperatur fiel schon an drei Lesestellen einzeln — der Riegel sitzt an der Quelle. */
 class ModelSpecRangeTest {
     @ParameterizedTest
     @ValueSource(
@@ -72,7 +71,7 @@ class ModelSpecRangeTest {
         }
     }
 
-    /** `JsonObject?.floats` konnte "Block fehlt" nicht von "Schluessel fehlt" trennen: `mean` kam still von ImageNet. */
+    /** "Block fehlt" gegen "Schluessel fehlt": `mean` kam still von ImageNet. */
     @Test
     fun `a normalize block missing one of its stats is refused, not filled from ImageNet`() {
         val partial = """, "normalize": {"mode": "fixed", "std": [0.229, 0.224, 0.225]}"""

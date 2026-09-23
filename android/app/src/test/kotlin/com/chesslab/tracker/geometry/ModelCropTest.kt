@@ -12,23 +12,20 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 
-/** specs/23 phase 01 and specs/45 — the crop a model declares (size and box) reaches the pixels,
- *  taken through the REAL observer path (`cropFrameSource`). */
+/** The crop a model declares (size and box) reaches the pixels, through the REAL observer path. */
 class ModelCropTest {
     @Test
     fun `no model loaded keeps the 128 defaults`() {
         val geom = BoardGeometry()
-        // Returned untouched, which makes calibration-before-a-classifier impossible to regress.
+        // Untouched, so calibration-before-a-classifier cannot regress.
         assertEquals(geom, geom.withCropOf(null))
         assertEquals(128, geom.withCropOf(null).outW)
         assertEquals(128, geom.withCropOf(null).outH)
-        // The same for a geometry that came off a stored profile, which is the real startup path.
         val stored = profile().geometry()
         assertEquals(stored, stored.withCropOf(null))
         assertEquals(128, stored.withCropOf(null).outW)
     }
 
-    /** specs/22: `out_size` is what the crops on disk were built at, `infer_size` what the graph takes. */
     @Test
     fun `the board stays the board when a model declares only its size`() {
         val geom =
@@ -53,7 +50,6 @@ class ModelCropTest {
         val geom = BoardGeometry(boardSize = 800, padSide = 0.10)
         val legacy = geom.withCropOf(spec(96))
         assertEquals(0.10, legacy.padSide)
-        // This string is what the run header and the debug panel show.
         assertTrue(cropLine(spec(96), legacy).contains("LEGACY"), cropLine(spec(96), legacy))
         assertTrue(cropLine(spec(96), legacy).contains("side=0.100"), cropLine(spec(96), legacy))
         assertTrue(cropLine(null, geom).contains("LEGACY"))
@@ -71,8 +67,7 @@ class ModelCropTest {
             assertEquals(96, crop.width, "crop $index (${allSquares()[index]}) width")
             assertEquals(96, crop.height, "crop $index (${allSquares()[index]}) height")
         }
-        // `preprocessInto` REQUIRES `crop.width == outW`; before this wiring it threw
-        // "crop 0 is 128x128, expected 96x96" on the first observation.
+        // `preprocessInto` REQUIRES `crop.width == outW`; before this wiring the first observation threw.
         val tensor = FloatArray(crops.size * CHANNELS * 96 * 96)
         preprocessInto(crops, 96, 96, tensor)
         assertTrue(tensor.any { it != 0.0f }, "the tensor must carry the crops, not zeros")
@@ -99,10 +94,8 @@ class ModelCropTest {
 private const val CHANNELS = 3
 private const val BOARD_SIZE = SYNTHETIC_FRAME_SIDE
 
-/** The shipped 13-class identity order — `ModelSpec.parse` refuses any other list. */
 private val CLASSES_JSON = PIECES13_CLASSES.joinToString(",", "[", "]") { "\"$it\"" }
 
-/** A run's `config.json`, reduced to what `ModelSpec.parse` reads — the one Kotlin reader. */
 private fun spec(
     inferSize: Int,
     padSide: Double? = null,

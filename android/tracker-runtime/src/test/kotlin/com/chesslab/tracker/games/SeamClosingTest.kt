@@ -10,21 +10,18 @@ import org.junit.jupiter.api.Test
 private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 private const val AFTER_JUMP = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
 
-/** The same position with White's queen's rook gone: no legal sequence produces it. */
+/** White's queen's rook gone: no legal sequence produces it. */
 private const val IMPOSSIBLE_JUMP = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/1NBQKB1R b Kkq - 1 2"
 
-/** The two fields a bridge is judged on — see [seamBridge] for why the counters are left out. */
 private fun placementAndSide(fen: String): String {
     val fields = fen.split(" ")
     return "${fields.first()} ${fields.getOrNull(1).orEmpty()}"
 }
 
-/** A seam: the engine committed from a position the record cannot reach — usually a ply missed behind a hand. */
 class SeamClosingTest {
     @Test
     fun theOneLegalSequenceThatExplainsAGapIsTheBridge() {
-        // The record stands after 1.e4; the recovery committed 2.Nf3, which is illegal there. The
-        // only way both are true is that Black played 1...e5 while the tracker was not looking.
+        // After 1.e4 the recovery committed 2.Nf3: only 1...e5 unseen makes both true.
         assertEquals(listOf("e7e5"), seamBridge(AFTER_E4, listOf("g1f3"), AFTER_JUMP))
     }
 
@@ -33,10 +30,7 @@ class SeamClosingTest {
         assertNull(seamBridge(AFTER_E4, listOf("g1f3"), IMPOSSIBLE_JUMP))
     }
 
-    /**
-     * Ra1-a3-c3 and Ra1-c1-c3 both explain the gap; the search takes the first (user: "ich brauch nicht
-     * alle Pfade") but must never return one that does not replay to the engine's position.
-     */
+    /** Two paths explain the gap; the first is taken, but it must replay to the engine's position. */
     @Test
     fun aGapWithTwoExplanationsTakesTheFirstAndStops() {
         val before = "1n2k3/8/8/8/8/8/8/R3K3 w - - 0 1"
@@ -48,7 +42,7 @@ class SeamClosingTest {
         assertEquals(placementAndSide(after), placementAndSide(played.last().fenAfter))
     }
 
-    /** The failed search walks the whole tree and never changes its answer; re-running it made loading slow. */
+    /** A failed search never changes its answer; re-running it made loading slow. */
     @Test
     fun aGapThatCannotBeExplainedIsMarkedSoTheSearchNeverRunsAgain() {
         val marked = gameWithSeam(startFen = IMPOSSIBLE_JUMP).closeSeams()
@@ -91,7 +85,6 @@ class SeamClosingTest {
         assertEquals(1, closed.summary().seams)
     }
 
-    /** 1.e4, then a jump to [startFen] committed as `Nf3` by recovery, then Nc6 on the new line. */
     private fun gameWithSeam(startFen: String): StoredGame {
         val first = StoredMove(1, "e4", "e2e4", 1L)
         val second = StoredMove(2, "Nc6", "b8c6", 3L)

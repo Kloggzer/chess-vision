@@ -5,20 +5,15 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * [withLiveKnobsOf]: the run's config wins except for the twelve live knobs. A replay leaves the
- * repository at [ConfigCodec.defaults], so a restart-only knob read off it overrides the run's own.
- */
+/** A replay's repository holds the defaults, so a restart-only knob read off it overrides the run's own. */
 class LiveKnobsTest {
     private val base =
         TrackerConfig().copy(
-            // restart-only, and each one a knob a replay actually sets
             alignEvery = 2,
             alignScale = 0.25,
             liveAlign = false,
             cnnVerify = false,
             observerIntervalS = 0.15,
-            // live-tunable
             motionThr = 0.40,
         )
 
@@ -46,8 +41,7 @@ class LiveKnobsTest {
 
     @Test
     fun `the knobs it lets through are exactly the twelve the catalog calls live`() {
-        // `changedKeys` is the codec's own diff, NaN-aware — the three optional ints carry NaN as
-        // "no override", and a raw `!=` would report all three as changed on every comparison.
+        // NaN-aware: a raw `!=` reports the three optional ints as changed on every comparison.
         val through = ConfigCodec.changedKeys(base, base.withLiveKnobsOf(ConfigCodec.defaults))
         assertTrue(through.all { it.live }, "a restart-only knob was taken from the repository: ${through.map { it.key }}")
         assertEquals(LIVE_TUNABLE_KEYS, KNOBS.filter { it.live }.map { it.key }.toSet())

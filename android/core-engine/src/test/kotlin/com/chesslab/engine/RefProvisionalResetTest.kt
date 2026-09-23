@@ -5,10 +5,8 @@ import com.chesslab.engine.api.clearReferenceState
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * The provisional mark outlived every path that clears `refGray`/`refFen`, so the first quiet frame
- * after a user correction overwrote that reference via `setRef(fromCommit = true)`, without `markGamutStale` (invariant 6).
- */
+/** The mark outlived every path that clears `refGray`/`refFen`: the first quiet frame after a correction
+ *  overwrote the reference via `setRef(fromCommit = true)`, skipping `markGamutStale` (invariant 6). */
 class RefProvisionalResetTest {
     private fun flagged(): EngineState =
         EngineState(TrackerConfig(), STARTPOS, whitePov = true).also {

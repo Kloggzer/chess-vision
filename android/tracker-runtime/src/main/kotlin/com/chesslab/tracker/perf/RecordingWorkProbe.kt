@@ -8,7 +8,6 @@ import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProbe
 import com.chesslab.engine.perf.WorkSnapshot
 
-/** Thread-safe exact collector for deterministic replays and fuzz scenarios. */
 class RecordingWorkProbe(
     private val nanoTime: () -> Long = System::nanoTime,
 ) : WorkProbe {

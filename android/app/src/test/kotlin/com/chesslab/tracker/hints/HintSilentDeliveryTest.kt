@@ -7,8 +7,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Bei Klingelton-aus verwirft `SpeechEngine` die Ansage, ohne es dem Aufrufer zu sagen — ein nur
- *  gesprochener Tipp verschwaende das Kontingent wortlos. Deshalb IMMER auch die Karte. */
+/** Bei Klingelton-aus verwirft `SpeechEngine` die Ansage stumm — deshalb IMMER auch die Karte. */
 class HintSilentDeliveryTest {
     @Test
     fun aSilencedPhoneNeverReachesTheTextToSpeechEngine() {
@@ -22,7 +21,6 @@ class HintSilentDeliveryTest {
         assertEquals(0, opens)
     }
 
-    /** Die Karte kommt trotzdem, und das Kontingent geht GENAU EINMAL ab. */
     @Test
     fun theCardStillArrivesAndCostsExactlyOne() =
         runTest {
@@ -34,7 +32,6 @@ class HintSilentDeliveryTest {
             assertEquals(2, controller.state.value.remaining)
         }
 
-    /** Auch die ABSAGE ist zweifach: die Karte traegt sie, wenn die Stimme sie verschluckt. */
     @Test
     fun aRefusalIsAlsoPutOnTheCard() =
         runTest {

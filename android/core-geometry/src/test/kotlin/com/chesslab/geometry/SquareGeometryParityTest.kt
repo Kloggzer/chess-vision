@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The file `tests/test_square_geometry_parity.py` and `lib/square-geometry-parity.test.ts` read.
- *  `meta.json` has `padSide * cell` on a whole pixel everywhere, so [pyRound] never worked there. */
+/** The file `tests/test_square_geometry_parity.py` and `lib/square-geometry-parity.test.ts` read. */
 class SquareGeometryParityTest {
     private val cases =
         GeometryFixtures

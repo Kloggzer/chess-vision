@@ -94,7 +94,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 
-/** The tracking route: binds the screen to the service's session and to navigation. */
 @Composable
 fun TrackingRoute(
     onBack: () -> Unit,
@@ -104,21 +103,15 @@ fun TrackingRoute(
     viewModel: TrackingViewModel = viewModel(),
 ) {
     val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
-    // The run switch, not the session: between the tap and the service's first callback there is
-    // no session and tracking is nevertheless on.
+    // The run switch, not the session: between the tap and the first callback tracking is on without one.
     val running by TrackerRun.running.collectAsStateWithLifecycle()
     LaunchedEffect(session) { viewModel.attach(session ?: NoTrackerSession) }
     LaunchedEffect(running) { viewModel.tracking = running }
-    // Recalibrating IS the camera screen in board mode. There used to be a second route for it with
-    // byte-identical arguments; an alias is not an intent.
     LaunchedEffect(viewModel) { viewModel.recalibrateRequests.collect { onCamera() } }
     ScreenBlackout { TrackingScreen(viewModel, running, onBack, onGameSaved, onGameDiscarded) }
 }
 
-/**
- * What is open on top of the board. One state rather than five booleans: at most one of these can be
- * up at a time, and five independent flags made that an invariant nothing enforced.
- */
+/** One state, not five booleans: at most one is up, and five flags made that an unenforced invariant. */
 private enum class TrackerModal {
     NONE,
     ENDING,
@@ -138,8 +131,7 @@ private fun TrackingScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
     val cameraOn by viewModel.cameraOn.collectAsStateWithLifecycle()
-    // The live game lives in the service, not in this screen's view model — the same handle Home and
-    // the Games screen use. Reaching for it here is what lets a game be SAVED where it is played.
+    // The live game lives in the service: that is what lets a game be SAVED where it is played.
     val games by GameSessionHost.controller.collectAsStateWithLifecycle()
     val live by (games?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
     var modal by remember { mutableStateOf(TrackerModal.NONE) }
@@ -148,8 +140,7 @@ private fun TrackingScreen(
     val automaticCalibration = rememberAutomaticCalibration()
     var hintAsked by remember { mutableStateOf(false) }
 
-    // Die Hilfe wird beim PARTIESTART gewaehlt und gilt bis zum Ende der Partie — das Kontingent
-    // ist der Ausgleichsregler. Gefragt wird, sobald ein Brett da ist und noch kein Zug steht.
+    // Gewaehlt beim PARTIESTART, gilt bis zum Ende: gefragt wird, sobald ein Brett da ist und kein Zug steht.
     LaunchedEffect(running, ui.ready, live.moveCount) {
         if (!running) hintAsked = false
         if (running && ui.ready && live.moveCount == 0 && !hintAsked) {
@@ -158,9 +149,7 @@ private fun TrackingScreen(
         }
     }
 
-    // Recalibrating replaces the geometry the running game has been tracked against, and there is no
-    // way back to the old quad. With no moves committed there is nothing to lose (specs/48 rule 6),
-    // and moving the control into the overflow does not change that.
+    // No way back to the old quad; with no moves committed there is nothing to lose (specs/48 rule 6).
     val onRecalibrate = {
         if (live.moveCount > 0) modal = TrackerModal.RECALIBRATING else viewModel.onRecalibrate()
     }
@@ -169,14 +158,11 @@ private fun TrackingScreen(
         title = if (ui.ready) "Game" else "Set up the board",
         onBack = onBack,
         actions = {
-            // The two controls a failing board needs most, one tap from the board itself. Their
-            // TEXT twins stay in the overflow: `scripts/android-ui.ps1 tap-text "Camera view"`
-            // drives those, and a screen reader announces the state with them.
+            // Their TEXT twins stay in the overflow: `android-ui.ps1 tap-text "Camera view"` drives those.
             if (viewModel.hasTorch) {
                 BarToggle(R.drawable.ic_camera_light, R.string.tracking_light, torchOn, viewModel::onToggleTorch)
             }
-            // In the not-ready layout the raw camera IS the picture, so a toggle for it would have
-            // no state to change.
+            // In the not-ready layout the raw camera IS the picture: nothing to toggle.
             if (ui.ready) {
                 BarToggle(R.drawable.ic_camera_view, R.string.tracking_camera_view, showPreview) { showPreview = !showPreview }
             }
@@ -214,7 +200,6 @@ private fun TrackingScreen(
     )
 }
 
-/** Detect and adopt a stable board directly in setup; the separate camera screen is optional. */
 @Composable
 private fun rememberAutomaticCalibration(): CalibrationState? {
     val scope = rememberCoroutineScope()
@@ -224,13 +209,7 @@ private fun rememberAutomaticCalibration(): CalibrationState? {
     return model.state.collectAsStateWithLifecycle().value
 }
 
-/**
- * Everything modal on this screen, kept out of the layout so the screen reads as a layout.
- *
- * Two of these are the acts that cannot be undone (specs/48 rule 6). Undo, Stop tracking and End
- * game are deliberately NOT among them: Undo IS the reversal, and the other two save the game on
- * the way out.
- */
+/** Undo, Stop tracking and End game need no confirmation: Undo IS the reversal, the others save the game. */
 @Composable
 private fun TrackingModals(
     viewModel: TrackingViewModel,
@@ -246,9 +225,8 @@ private fun TrackingModals(
     val promotion by viewModel.promotion.collectAsStateWithLifecycle()
     val acceptCnn by viewModel.acceptCnn.collectAsStateWithLifecycle()
     val close = { onModal(TrackerModal.NONE) }
-    // The record must go with the engine reset. Resetting only the ENGINE left the discarded game
-    // standing in the service, so the next ply was illegal from it and opened a seam inside a game
-    // the user had just thrown away.
+    // The record goes with the engine reset: resetting only the engine left the discarded game in the service,
+    // and its next ply opened a seam inside a game the user had thrown away.
     when (modal) {
         TrackerModal.SHARE -> ShareDialog(close)
         TrackerModal.ENDING ->
@@ -256,8 +234,7 @@ private fun TrackingModals(
                 moves = moves,
                 fen = ui.fen,
                 onSave = { white, black, result ->
-                    // Kein `HintHost.controller.endGame()` mehr: das Kontingent haengt an der
-                    // Partiegrenze im Record, nicht an der Reihenfolge zweier Aufrufe hier.
+                    // Das Kontingent haengt an der Partiegrenze im Record, nicht an der Reihenfolge zweier Aufrufe.
                     val saved = games?.endAndSave(white, black, result)
                     close()
                     TrackerRun.stop(context)
@@ -308,14 +285,8 @@ private fun TrackingModals(
     promotion?.let { PromotionDialog(prompt = it, fen = ui.fen, onChoose = viewModel::onPromotionChosen) }
 }
 
-/**
- * An icon in the app bar that is ON or OFF, and says which to a screen reader.
- *
- * `contentDescription` is not decoration here: `scripts/android-ui.ps1 tap-description` reads
- * Compose semantics, so an icon without one is a control no agent and no smoke test can reach
- * (`CLAUDE.md`). The tint is the state — `Accent` when on — and the description stays the same
- * word either way, because a label that changes wording is the same problem again.
- */
+/** `contentDescription` is not decoration: `android-ui.ps1 tap-description` reads Compose semantics. The
+ *  tint is the state and the description one word either way — a changing label cannot be tapped. */
 @Composable
 private fun BarToggle(
     @DrawableRes icon: Int,
@@ -332,13 +303,7 @@ private fun BarToggle(
     }
 }
 
-/**
- * Everything the action bar used to spend two rows of chips on — and, since specs/49, Recalibrate.
- *
- * The labels are FIXED words with the state beside them in a second `Text`, so `tap-text "Camera
- * view"` keeps working whichever way the toggle stands — a label that changes wording is a control
- * no agent and no smoke test can reach (`CLAUDE.md`).
- */
+/** FIXED labels with the state in a second `Text`, so `tap-text "Camera view"` works either way. */
 @Composable
 private fun RowScope.TrackerMenu(
     viewModel: TrackingViewModel,
@@ -354,8 +319,7 @@ private fun RowScope.TrackerMenu(
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-        // Recalibrating a board that is already tracking is a repair, not one of the three things a
-        // running game is for. It kept its confirmation — a menu is not a licence.
+        // A repair, not one of a running game's acts; it keeps its confirmation.
         DropdownMenuItem(text = { Text("Recalibrate") }, onClick = {
             onRecalibrate()
             open = false
@@ -364,14 +328,12 @@ private fun RowScope.TrackerMenu(
             onTogglePreview()
             open = false
         }
-        // The off switch says what the camera IS, not what the tap does: the service holds the
-        // device for as long as it runs, backgrounded or not.
+        // Says what the camera IS: the service holds the device as long as it runs, backgrounded or not.
         MenuToggle("Tracking camera", cameraOn) {
             viewModel.onToggleCamera()
             open = false
         }
         if (viewModel.hasTorch) {
-            // It re-measures the optics and re-takes the baseline; see `TorchControl`.
             MenuToggle("Light", torchOn) {
                 viewModel.onToggleTorch()
                 open = false
@@ -401,12 +363,6 @@ private fun MenuToggle(
     )
 }
 
-/**
- * Putting the board on the Wi-Fi, from the screen that IS the board.
- *
- * This card used to be the whole unique content of a top-level "Spectator" destination whose board
- * and move list were this screen's, from the same `GameView`.
- */
 @Composable
 private fun ShareDialog(onDismiss: () -> Unit) {
     AlertDialog(
@@ -417,15 +373,8 @@ private fun ShareDialog(onDismiss: () -> Unit) {
     )
 }
 
-/**
- * **Two jobs, two layouts** (specs/49). Getting the camera working and watching a game need
- * different content, and one arrangement for both left roughly half the screen inert in either
- * state: an eval bar with nothing to evaluate, a ~500 px box holding "No moves yet", and — on the
- * screen that OWNS the camera — no camera, so a failing calibration could not be seen at all.
- *
- * [TrackingSwitch] is outside the branch because starting and stopping is the one control both
- * states share, and it is the bottom of the screen in both.
- */
+/** **Two jobs, two layouts** (specs/49): making the camera work and watching a game. [TrackingSwitch] sits
+ *  outside the branch: both states share it, at the bottom. */
 @Composable
 private fun TrackingBody(
     viewModel: TrackingViewModel,
@@ -453,12 +402,7 @@ private fun TrackingBody(
     }
 }
 
-/**
- * **B — tracking.** The job is to watch a game, so the game is what is on screen.
- *
- * Nothing here is filled while tracking is nominal: watching is not an act. The one exception is the
- * alarm card, which when the latch is up IS the screen's current job and carries its own resolution.
- */
+/** **B — tracking.** Nothing filled while nominal; the alarm card is the exception. */
 @Composable
 private fun ColumnScope.Watching(
     viewModel: TrackingViewModel,
@@ -470,16 +414,12 @@ private fun ColumnScope.Watching(
     onEndGame: () -> Unit,
 ) {
     val lastCommit = viewModel.lastCommit.collectAsStateWithLifecycle().value
-    // EIN Analyse-Host je Schirm. Die Hilfe haelt ihn am Leben, wenn die Leiste aus ist — sie
-    // hebt nur `enabled` auf, Hitze, Akku und Bildrate sperren weiter (`gateBlock`).
+    // EIN Analyse-Host je Schirm; die Hilfe haelt ihn am Leben, ohne `gateBlock` aufzuheben.
     val analysis = rememberRunningAnalysis { HintHost.controller.state.value.plan.side != null }
     val hint by HintHost.controller.state.collectAsStateWithLifecycle()
     val onHint = rememberHintRequest(viewModel, games, analysis, ui.fen)
-    // ONE reserved line, and it is the most volatile string on the screen — reflowing it above the
-    // board shifts every button under the user's thumb. It reserved TWO, for a not-calibrated
-    // sentence that belongs to the other layout now and is printed there at full size. Blank while
-    // alarmed: the note doubles as the NOTIFICATION text, so it then reads "Open the app to fix it"
-    // directly above the card that carries the buttons.
+    // ONE reserved line: the most volatile string, and reflowing it shifts every button under the thumb.
+    // Blank while alarmed: the note is also the notification text ("Open the app to fix it").
     Text(
         text = if (ui.alarm != null) " " else ui.infoLine ?: " ",
         style = MaterialTheme.typography.bodySmall,
@@ -488,9 +428,7 @@ private fun ColumnScope.Watching(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
-    // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
-    // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
-    // read square by square is the one from the lens.
+    // The camera takes the BOARD's slot: turned on, you are diagnosing square by square from the lens.
     BoardRow(ui, game.plies.lastOrNull()?.uci, analysis, camera)
     hint.outcome?.let { HintCard(it, speechLanguage(), HintHost.controller::dismiss) }
     ui.alarm?.let {
@@ -502,39 +440,24 @@ private fun ColumnScope.Watching(
             lastCommit = lastCommit,
         )
     }
-    // The last three pairs, and absent while there are none. The scrolling score sheet that used to
-    // sit here is a REVIEW component: it took the height the board wanted for rows nobody reads
-    // while playing. What a player checks mid-game is whether the last move arrived.
     if (game.plies.isNotEmpty()) {
         LastMoves(game = game, modifier = Modifier.weight(1f, fill = false))
     }
-    // Keep the primary game controls in a predictable thumb position. The board and the optional
-    // move list size themselves to their content; without a flexible spacer the action row followed
-    // them immediately and floated halfway up taller screens.
+    // Keeps the controls at a predictable thumb position instead of floating up on tall screens.
     Spacer(Modifier.weight(1f))
-    // Nie von selbst: das Telefon bietet keinen Tipp an, der Nutzer fragt. Waehrend der Alarm
-    // steht, IST die Karte der Job des Schirms, und zwei gefuellte Knoepfe sind Regel 3 gebrochen.
+    // Nie von selbst. Waehrend des Alarms IST die Karte der Job des Schirms (Regel 3).
     HintSlot(HintHost.controller, ui.fen, ui.alarm != null, running, onHint)
-    // Not tracking is a legitimate state of this screen, not an error: the board keeps the
-    // position it last had and the only control left is the one that would change that.
     if (running) {
         ActionBar(
             onUndo = viewModel::onUndo,
             undoLabel = pluralStringResource(R.plurals.tracking_take_back, undoCount(lastCommit), undoCount(lastCommit)),
-            // Ending a game that has moves USED to throw it away without a word.
             onEndGame = onEndGame,
         )
     }
 }
 
-/**
- * **A — not ready.** No camera, no frames or no geometry. The job is to make it work.
- *
- * The picture takes the space, because seeing what the phone sees is the only way to know why it is
- * failing — and the board this screen would otherwise draw is the position the app BELIEVES, which
- * here is an unrelated picture. No board, no eval bar, no move list: none of them can say anything
- * yet. The reason is stated once, at normal size, in the body colour.
- */
+/** **A — not ready.** The picture takes the space: the board would be the position the app BELIEVES,
+ *  an unrelated picture here. */
 @Composable
 private fun ColumnScope.NotReady(
     viewModel: TrackingViewModel,
@@ -543,24 +466,17 @@ private fun ColumnScope.NotReady(
 ) {
     val preview by viewModel.rawPreview.collectAsStateWithLifecycle()
     val rotation by viewModel.previewRotation.collectAsStateWithLifecycle()
-    // With no service there is no camera to look at, so there is no picture and no frame around
-    // one — a box saying "No camera frame yet" over a tracker nobody has started is the reserved
-    // empty container this pack exists to remove. The space keeps the switch at the bottom.
+    // No service, no camera: a box saying "No camera frame yet" is the empty container this layout removes.
     if (ui.task == TrackerTask.START) {
         Spacer(Modifier.weight(1f))
     } else {
-        // The guide is a sibling of the picture, not its overlay: `SourceFramedPreview` puts the
-        // overlay slot INSIDE the rotated, letterboxed image container, so a guide drawn there
-        // inherits the frame's quarter turn and lands off-centre (seen on the emulator
-        // 2026-08-13). What it is about is the screen's frame, not the camera's pixels.
+        // A sibling, not the overlay: the overlay slot sits INSIDE the rotated image and inherits its quarter turn.
         Box(Modifier.fillMaxWidth().weight(1f)) {
             SourceFramedPreview(
                 preview = preview,
                 rotationDegrees = rotation,
                 sourceWidth = preview?.width ?: 0,
                 sourceHeight = preview?.height ?: 0,
-                // The edge is what makes it read as a picture rather than as a hole in the screen:
-                // the frame is letterboxed inside its box and the bands are the app's own ground.
                 modifier =
                     Modifier
                         .fillMaxSize()
@@ -583,9 +499,7 @@ private fun ColumnScope.NotReady(
             )
         }
     }
-    // The screen's ONE filled button, and it is whatever the screen needs NOW. `START` has none of
-    // its own: `TrackingSwitch` below is already that button, and two filled buttons is rule 3
-    // broken in the state the rule was written for.
+    // The ONE filled button is whatever the screen needs NOW; `START` has `TrackingSwitch` already.
     when (ui.task) {
         TrackerTask.CALIBRATE -> Unit
         TrackerTask.RESUME_CAMERA -> FilledAction("Resume camera", viewModel::onToggleCamera, Modifier.fillMaxWidth())
@@ -593,13 +507,7 @@ private fun ColumnScope.NotReady(
     }
 }
 
-/**
- * Where the board goes, as a dashed square over the picture.
- *
- * A framing aid and nothing else: it is drawn at a CONSTANT inset and never from `ui.corners`. The
- * detected quad has a screen of its own (`ui/calibration/CalibrationOverlay.kt`), and a guide that
- * looked like a detection would claim the app had found something it has not.
- */
+/** A CONSTANT inset, never `ui.corners`: a guide that looked like a detection would claim a find. */
 @Composable
 private fun AimGuide() {
     val colour = Outline.copy(alpha = AIM_ALPHA)
@@ -631,16 +539,8 @@ private const val SETUP_HINT_ALPHA = 0.72f
 
 private val SETUP_HINT_TEXT = Color(0xFFEDE3D2)
 
-/**
- * The eval bar is optional, gated and self-contained (07c) — it reads the tracker's status itself
- * and renders nothing when no engine shipped for this ABI. It is skipped outright when analysis is
- * switched off: with nothing to evaluate it drew a static half-and-half split and the word "eval"
- * beside the board, for the whole length of every game. **Absent, not empty.**
- *
- * `IntrinsicSize.Min` is load-bearing: the bar fills the row's height, so without an intrinsic the
- * row claimed the whole column, the move list collapsed to zero and the action bar was pushed
- * off-screen entirely. The square board decides the height here.
- */
+/** **Absent, not empty** when analysis is off. `IntrinsicSize.Min` is load-bearing: without it the bar
+ *  claimed the whole column and pushed the action bar off-screen. */
 @Composable
 private fun BoardRow(
     ui: TrackingUiState,
@@ -667,17 +567,7 @@ private fun BoardRow(
     }
 }
 
-/**
- * One row: how the app is doing on the left, how the GAME is doing on the right.
- *
- * It used to carry the frame rate there — the largest number on the screen, and the one thing on it
- * a player could do nothing about. Both rates and their 5-second medians live on the debug Timings
- * panel, where they were always the more useful. What replaces them is what a person watching a
- * game actually wants and what this screen has never shown: whose move it is, and which move.
- *
- * The dot carries the state's colour so the label does not have to be loud to be seen; while the
- * alarm latch is up it is the alarm colour, because the loop runs and no move can commit.
- */
+/** Whose move and which move, not the frame rate (debug Timings). The dot carries the state colour. */
 @Composable
 private fun StatusLine(ui: TrackingUiState) {
     val tone = toneColor(ui.tone)
@@ -690,7 +580,6 @@ private fun StatusLine(ui: TrackingUiState) {
             Canvas(Modifier.size(STATE_DOT)) { drawCircle(tone) }
             Text(stringResource(labelText(ui.state)), style = MaterialTheme.typography.titleMedium, color = tone, maxLines = 1)
         }
-        // Absent, not empty: before the first frame there is no game to report on.
         if (ui.ready) {
             Text(
                 moveLine(ui.turn, ui.moveNumber),
@@ -702,10 +591,6 @@ private fun StatusLine(ui: TrackingUiState) {
     }
 }
 
-/**
- * "White to move · 14". The separator is layout, not language, and stays here; both halves are
- * dropped when the FEN could not be read rather than guessed at.
- */
 @Composable
 private fun moveLine(
     turn: Turn?,
@@ -716,10 +601,8 @@ private fun moveLine(
         moveNumber?.let { stringResource(R.string.tracking_move_number, it) },
     ).joinToString(" · ")
 
-/** Small enough to read as punctuation, large enough to carry a colour. */
 private val STATE_DOT = 10.dp
 
-/** [TrackerLabel] -> the words for it. The only place those words exist outside `strings.xml`. */
 @StringRes
 private fun labelText(label: TrackerLabel): Int =
     when (label) {
@@ -740,14 +623,7 @@ private fun toneColor(tone: StateTone): Color =
         StateTone.Alarm -> Danger
     }
 
-/**
- * The two things a running game is FOR — taking a move back and finishing.
- *
- * Recalibrate was the third identical outline button here and is in the `⋯` overflow now: it is a
- * repair, not a move in the game, and having it beside Undo is what made the sentence "tap
- * Recalibrate" point at one of three things that all looked the same. It is still a DIFFERENT act
- * from Reset game and must never share a handler (MEMORY: `android-single-camera-owner`).
- */
+/** Recalibrate is in the overflow: a repair, not a move — and never sharing a handler with Reset game. */
 @Composable
 private fun ActionBar(
     onUndo: () -> Unit,
@@ -755,35 +631,15 @@ private fun ActionBar(
     onEndGame: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        // Not always "Undo": one press unwinds the last COMMIT, and a CNN recovery commits a
-        // whole bridge (four plies on 2026-08-02). It gets NO confirmation — it IS the reversal.
+        // One press unwinds the last COMMIT, and a recovery commits a whole bridge. No confirmation: it IS the reversal.
         OutlineAction(undoLabel, onUndo, Modifier.weight(1f))
-        // Nor does ending: the game is saved on the way out, and its dialog asks who played.
         OutlineAction("End game", onEndGame, Modifier.weight(1f))
     }
 }
 
-/**
- * Ending a game where it is PLAYED: the one place the app asks who played it and how it ended.
- *
- * **It always saves.** "Reset game" used to discard a played game without a word; then it asked,
- * with `Discard…` as the dismiss action — a destructive branch two taps from the board you are
- * playing on. Deleting belongs where you can see what you are deleting, and the Games screen has
- * had it all along, with the recorded frames as a second, explicit checkbox.
- *
- * **The result is asked for, not guessed.** `resultFromFen` can only see mate, stalemate and the
- * draw rules, so every game that ended because the players stopped — a resignation, an agreed
- * draw, a session cut short — was stored as `*` and read in the library as "Game in progress".
- * Where the board HAS the answer the question is not asked: it is stated, and there is one button.
- *
- * The default is [GameResult.UNFINISHED] rather than a guess. It is the honest reading of a game
- * nobody has said anything about, and it is correctable in the game's own editor — which is what
- * makes a default acceptable here at all.
- *
- * The two name fields are optional and pre-filled from the last saved game, because the same two
- * people normally play again. Nothing is asked before the first move: a dialog in front of
- * somebody who wants to press one button and play is the reason this was never captured.
- */
+/** **It always saves**: deleting belongs on Games, where you see what you delete. **The result is asked
+ *  for**: `resultFromFen` sees only mate and draw rules; where the board knows, it is stated. The default
+ *  is UNFINISHED — honest and correctable. Names are pre-filled; nothing is asked before the first move. */
 @Composable
 private fun EndGameDialog(
     moves: Int,
@@ -811,7 +667,6 @@ private fun EndGameDialog(
                     Text(stringResource(R.string.endgame_nothing))
                     return@Column
                 }
-                // A question whose answer is on the board in front of the player is not a question.
                 if (onBoard == GameResult.UNFINISHED) {
                     ResultChips(result, { result = it })
                 } else {
@@ -842,14 +697,12 @@ private fun EndGameDialog(
                 Text(stringResource(if (moves > 0) R.string.endgame_save else R.string.endgame_new), color = Accent)
             }
         },
-        // Never destructive: closing changes nothing, and the game keeps running.
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.games_cancel), color = OnSurfaceMuted) }
         },
     )
 }
 
-/** What the board itself says, when it says anything. */
 @StringRes
 private fun terminalText(result: GameResult): Int =
     when (result) {
@@ -859,7 +712,7 @@ private fun terminalText(result: GameResult): Int =
         GameResult.UNFINISHED -> R.string.endgame_question
     }
 
-/** A blank field is not a player called "", it is the same "nobody said" the store already has. */
+/** A blank field is the store's "nobody said", not a player called "". */
 private fun named(value: String): String = value.trim().ifBlank { UNKNOWN }
 
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())

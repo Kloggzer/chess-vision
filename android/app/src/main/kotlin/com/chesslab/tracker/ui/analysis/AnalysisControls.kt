@@ -12,13 +12,7 @@ import kotlin.math.roundToInt
 
 private const val MS_PER_S = 1000f
 
-/**
- * The analysis knobs themselves, with no surface of their own.
- *
- * They are rendered in two places — the eval bar's long-press sheet and the settings screen's
- * Analysis group — so they exist exactly once here. Both callers pass the same
- * `AnalysisSettingsHost` flow in and its `update` out, so neither surface owns state.
- */
+/** Rendered in two places, so it exists once; both pass `AnalysisSettingsHost` in and out, neither owns state. */
 @Composable
 fun AnalysisControls(
     settings: AnalysisSettings,

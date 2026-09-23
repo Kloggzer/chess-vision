@@ -1,12 +1,12 @@
 package com.chesslab.engine.api
 
-/** Kept in [TrackerStatus] because `entry.md` forbids a UI side channel; omitted unless enabled. */
+/** In [TrackerStatus] because `entry.md` forbids a UI side channel; omitted unless enabled. */
 data class DebugPayload(
     val decisions: List<DebugDecision>,
     val cnnReads: List<DebugCnnRead>,
-    // Required to expose entry.md invariant 2: taint zeroes z while the shadow veto preserves it.
+    // Exposes invariant 2: taint zeroes z while the shadow veto preserves it.
     val tainted: Set<String>,
-    // -1 when no observation has landed — all three, `cnnInferMs` as -1.0.
+    // -1 when no observation has landed.
     val cnnSeq: Long,
     val cnnAgeMs: Long,
     val cnnInferMs: Double,
@@ -25,7 +25,7 @@ data class DebugPayload(
     val holdRemainingMs: Double = 0.0,
 )
 
-/** Text-only to avoid retaining warped BGR frames on the phone. */
+/** Text-only: no warped BGR frames retained on the phone. */
 data class DebugDecision(
     val tsS: Double,
     val ply: Int,
@@ -46,10 +46,9 @@ data class DebugDecision(
     val gridCoverage: Double,
     val zThr: Double,
     val motion: Double,
-    // Distinguishes zero agreement from a CNN that was never attached.
+    // Distinguishes zero agreement from a CNN never attached.
     val cnnRun: Boolean,
     val cnnAgreement: Double,
-    /** Taken and stale counts distinguish model disagreement from late or absent reads. */
     val cnnReadsTaken: Long = 0L,
     val cnnReadsStale: Long = 0L,
     val cnnSnaps: Long = 0L,
@@ -58,14 +57,13 @@ data class DebugDecision(
     val cnnSnapsNotDue: Long = 0L,
     val cnnBestMove: String?,
     val stuckReason: String?,
-    // Multi-glance vote outcome required by entry.md invariant 13.
+    // Multi-glance vote outcome (invariant 13).
     val verifyOutcome: String?,
     val accepted: Boolean,
-    /** The commit beat the motion hold (`commitHoldS`): its reference is re-captured later, and the labeler must know. */
+    /** Its reference is re-captured later, and the labeler must know. */
     val refProvisional: Boolean = false,
 )
 
-/** [believed] keeps conflict diagnosis independent of a second game-state lookup. */
 data class DebugCnnRead(
     val square: String,
     val label: String?,

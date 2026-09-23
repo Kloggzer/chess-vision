@@ -8,19 +8,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-/**
- * The reference for a recording: the LONGER of its two sources, never the more convenient one.
- *
- * `candidate.json` carries a frame per ply, which is what a lag measurement needs — but a tracker
- * run wrote it, and it can be wrong in two ways. It stops early ("Position lost — tracking
- * paused"): on `VID_20260824_154327` it holds 51 plies where the PGN holds the whole 117-ply game.
- * And it GUESSES ORDER: a run that commits a backlog puts several plies on one frame, 51 of 606
- * across the corpus sit in such a bundle, and on `VID_20260726_233432` the guess is demonstrably
- * wrong — the pictures show e4 at frame 240, the candidate calls it ply 3.
- *
- * So the PGN decides the sequence wherever there is one, and the candidate only lends its frames
- * to the plies it agrees with.
- */
+/** The LONGER source: `candidate.json` has frames but stops early and GUESSES order on bundled commits
+ *  (wrong on `VID_20260726_233432`). The PGN decides the sequence; the candidate lends frames where it agrees. */
 fun truthOf(dir: File): List<TruthPly> {
     val candidate = candidatePlies(dir)
     val pgn = pgnPlies(dir)
@@ -31,10 +20,7 @@ fun truthOf(dir: File): List<TruthPly> {
     return pgn.mapIndexed { i, san -> TruthPly(san, candidate.getOrNull(i)?.takeIf { it.san == san }?.frame ?: -1) }
 }
 
-/**
- * The label run's plies with their commit frame — a frame carrying SEVERAL plies is a backlog
- * flush, not a measurement, so it goes out as -1 (54 of 1242; 6 of 8 on `2026-08-30-14-33-02`).
- */
+/** A frame with SEVERAL plies is a backlog flush, not a measurement: -1 (54 of 1242). */
 private fun candidatePlies(dir: File): List<TruthPly> {
     val file = File(dir, "candidate.json")
     if (!file.isFile) return emptyList()
@@ -58,7 +44,7 @@ private fun candidatePlies(dir: File): List<TruthPly> {
     return raw.map { if (it.frame in bundled) it.copy(frame = -1) else it }
 }
 
-/** The mainline SANs of `reference.pgn`, normalised through chesslib so they compare against a run's. */
+/** Normalised through chesslib so they compare against a run's. */
 private fun pgnPlies(dir: File): List<String> {
     val file = File(dir, "reference.pgn")
     if (!file.isFile) return emptyList()

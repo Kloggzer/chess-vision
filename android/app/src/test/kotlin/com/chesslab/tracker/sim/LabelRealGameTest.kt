@@ -18,11 +18,8 @@ import org.opencv.core.Core
 import org.opencv.core.Mat
 import java.io.File
 
-/**
- * The shipping tracker on filmed footage: `--tests "*LabelRealGameTest*" -Dchesslab.realgame.video=<mp4>`,
- * skipped without it. Geometry is MEASURED (specs/52 phase 01) and refused rather than guessed; the
- * crop is the shipped model's own declaration (specs/41).
- */
+/** The shipping tracker on filmed footage: `-Dchesslab.realgame.video=<mp4>`, skipped without it. Geometry
+ *  is MEASURED and refused rather than guessed; the crop is the shipped model's own declaration. */
 class LabelRealGameTest {
     @Test
     fun withoutAVideoPropertyTheHarnessIsSkipped() {
@@ -57,11 +54,9 @@ class LabelRealGameTest {
         assertEquals(listOf(1, 2, 3), plies.map { it.ply })
         assertEquals(listOf("e4", "e5", "Nf3"), plies.map { it.san })
         assertEquals(bridge, plies.map { it.uci })
-        // One decision row for the lot: decider, frame and alarm belong to all of its plies.
         assertTrue(plies.all { it.decider == "cnn_recovery" && it.alarm && it.frame == BRIDGE_FRAME })
         assertTrue(plies.all { it.t == (BRIDGE_FRAME + 1) / FPS })
 
-        // A later commit continues from where the bridge left off, on the same replay board.
         val next = fensAfterEachOf(bridge + "b8c6").last()
         val both = realGamePlies(listOf(batch, single(next)), STARTPOS, FPS)
         assertEquals(4, both.size)
@@ -82,8 +77,7 @@ class LabelRealGameTest {
         assertEquals(decoded.size, handed.size, "every decoded frame must be offered exactly once")
         assertEquals(result.frames, handed.size, "the run and the callback must agree on how many frames there were")
         assertEquals(handed.indices.toList(), handed.map { it.first }, "the index is the decode order")
-        // Frame i IS the picture index i decoded: the Python writer paired stale indices and wrote five
-        // duplicated review frames into the 2026-08-02 candidate while its indices looked fine.
+        // Frame i IS the picture index i decoded: the Python writer paired stale indices and wrote duplicates.
         assertEquals(decoded, handed.map { it.second }, "each frame must be the one its index decoded")
     }
 
@@ -115,7 +109,6 @@ class LabelRealGameTest {
 
 private const val VIDEO_PROPERTY = "chesslab.realgame.video"
 
-/** The clip the frame-index test runs on: 60 frames at 640x640, the cheapest committed fixture. */
 private const val RESTING_CLIP = "blender-resting"
 
 private const val BRIDGE_FRAME = 119
@@ -144,7 +137,7 @@ private fun realGameSource(): RealGameSource {
         margin = scan.margin,
         boardSize = scan.boardSize,
         fps = scan.fps,
-        // The MODEL's declaration, as `withCropOf` serves it — never a harness default (specs/41).
+        // The MODEL's declaration, as `withCropOf` serves it — never a harness default.
         cropParams =
             CropParams(
                 padSide = requireNotNull(spec.padSide) { "model '$DEFAULT_MODEL' declares no crop — label with one that does" },
@@ -152,13 +145,11 @@ private fun realGameSource(): RealGameSource {
     )
 }
 
-/** The shipped default model's own `config.json`, read from the committed app assets. */
 private fun shippedModelSpec(): ModelSpec {
     val config = File(repoRoot(), "android/app/src/main/assets/cnn_model/$DEFAULT_MODEL/config.json")
     return ModelSpec.parse(config.readText())
 }
 
-/** A committed clip, driven as if nobody knew its moves. */
 private fun restingClip(): RealGameSource {
     val clip = simClips().first { it.name == RESTING_CLIP }
     return RealGameSource(
@@ -170,12 +161,10 @@ private fun restingClip(): RealGameSource {
         margin = 0.0,
         boardSize = clip.geometry.boardSize,
         fps = clip.fps,
-        // No crop is ever cut without a model; the type refuses to leave it unsaid.
         cropParams = CropParams(padSide = clip.geometry.padSide),
     )
 }
 
-/** One single-ply batch, the shape a `MoveCommitted` takes. */
 private fun single(fenAfter: String): SimBatch =
     SimBatch(
         frame = BRIDGE_FRAME + 1,
@@ -186,7 +175,6 @@ private fun single(fenAfter: String): SimBatch =
         fenAfter = fenAfter,
     )
 
-/** The truth this test measures against, built the way a reviewer's board would be. */
 private fun fensAfterEachOf(ucis: List<String>): List<String> {
     val board = Board().apply { loadFromFen(STARTPOS) }
     return ucis.map { uci ->

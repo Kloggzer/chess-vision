@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.math.abs
 
-/** Colour vetoes and board gamut parity; `occlusionColorThr` is 1.5 in the fixtures, not `TRACK_DEFAULTS`' 3.0 (D00b-3). */
+/** `occlusionColorThr` is 1.5 in the fixtures, not `TRACK_DEFAULTS`' 3.0. */
 class ShadowGamutParityTest {
     @Test
     fun hsvShadowSquaresMatchPython() {
@@ -50,10 +50,7 @@ class ShadowGamutParityTest {
         assertTrue(nonEmpty > 0, "no fixture frame carried a non-empty shadow set")
     }
 
-    /**
-     * The per-square feature is a mean of 8-bit channels, so it inherits the <= 1 LSB colour-conversion
-     * exception (`parity/README.md`, STATUS D01c-4); the 1e-4 tolerance is for the from-features test.
-     */
+    /** A mean of 8-bit channels inherits the <= 1 LSB conversion exception (`parity/README.md`). */
     @Test
     fun boardColorGamutMatchesPython() {
         var checked = 0
@@ -83,7 +80,6 @@ class ShadowGamutParityTest {
         assertTrue(worst.inv <= INV_REL, "worst invCov relative deviation ${worst.inv} > $INV_REL over $checked gamuts")
     }
 
-    /** Running maxima of the end-to-end gamut deviation. */
     private class Worst {
         var feat = 0.0
         var mu = 0.0
@@ -108,7 +104,7 @@ class ShadowGamutParityTest {
         }
     }
 
-    /** Fed Python's own features, isolating the covariance/inverse math from the colour conversion. */
+    /** Fed Python's own features, isolating the covariance math from the colour conversion. */
     @Test
     fun gamutStatisticsFromPythonFeaturesMatchPython() {
         var checked = 0
@@ -128,7 +124,6 @@ class ShadowGamutParityTest {
         assertTrue(checked > 0, "no gamut fixture was consumed")
     }
 
-    /** `occlusion_color_squares` on the quiet detection frames — Python's sets are empty there. */
     @Test
     fun occlusionColorSquaresMatchPythonOnDetectionFrames() {
         var checked = 0
@@ -157,7 +152,7 @@ class ShadowGamutParityTest {
         assertTrue(checked > 0, "no tier-A frame was consumed")
     }
 
-    /** The case the veto exists for, a hand over the board — on the frame's OWN warp, not the averaged `cur`. */
+    /** A hand over the board — on the frame's OWN warp, not the averaged `cur`. */
     @Test
     fun occlusionColorSquaresMatchPythonOnHandFrames() {
         var checked = 0
@@ -191,12 +186,7 @@ class ShadowGamutParityTest {
         assertTrue(nonEmpty > 0, "no fixture frame carried a non-empty chroma-outlier set")
     }
 
-    // -----------------------------------------------------------------------------------
-
-    /**
-     * The gamut changes only at a quiet re-anchor (a Tier-A frame), so it is carried forward; where that
-     * disagrees with the next Tier-A frame's `activeGamutFrames`, the frame is `null` rather than guessed.
-     */
+    /** Carried forward from the quiet re-anchors; where that disagrees with the next Tier-A frame, `null`, not a guess. */
     private fun activeGamutFrames(clip: ParityClip): Map<Int, List<Int>?> {
         val first = clip.tierAFrames().firstOrNull()?.tierA ?: return emptyMap()
         val forward = HashMap<Int, List<Int>>()
@@ -258,13 +248,10 @@ class ShadowGamutParityTest {
         const val SQUARES = 64
         const val DIM = 3
 
-        /** The documented BGR->Lab/HSV conversion exception, propagated through a channel mean. */
         const val LSB = 1.0
 
-        /** Relative bound on the end-to-end inverse covariance; see D01c-4. */
         const val INV_REL = 1e-2
 
-        /** Floor of the relative denominator, so a near-zero entry stays comparable. */
         const val INV_FLOOR = 1e-3
     }
 }

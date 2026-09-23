@@ -27,25 +27,10 @@ import com.chesslab.tracker.ui.settings.ValuePreference
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 
-/**
- * The languages with a hand-written vocabulary in `MovePhrase`; anything else speaks English.
- *
- * Internal because the Settings landing row states the current one in its summary, and a second
- * code→name table over there would be free to disagree with the chips on this page.
- */
+/** Internal: the Settings row states the current one, and a second table there could disagree with the chips. */
 internal val SPEECH_LANGUAGES = listOf("English" to "en-US", "Deutsch" to "de-DE")
 
-/**
- * Spoken moves — a Settings subpage since specs/47.
- *
- * Four settings held a sixth of the app's top-level surface as a "Speech" tab, and they were
- * already built out of the app's own `Card` and outline button. Nothing about them changed; only
- * where they are.
- *
- * Speech is off until the user turns it on here, and this is the only place that says a sentence on
- * demand — the test button is the only way to find out that the device has no voice data for a
- * language before a game depends on it.
- */
+/** The test button is the only way to learn the device has no voice data before a game depends on it. */
 @Composable
 fun SpeechSection() {
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
@@ -79,7 +64,6 @@ fun SpeechSection() {
     }
 }
 
-/** The engine's own state names are jargon; this is what the user can do about each one. */
 private fun speechStateText(state: SpeechState): String =
     when (state) {
         is SpeechState.Ready -> "Voice ready."

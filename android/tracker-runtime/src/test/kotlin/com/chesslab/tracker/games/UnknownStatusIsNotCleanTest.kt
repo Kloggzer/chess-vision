@@ -8,10 +8,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * `isClean` read `status == null` as "the board is clean"; the status flow starts on `null`
- * (`GameSessionWiring`), so every event before the first status released the deferred photo.
- */
+/** The status flow starts on `null`, so every event before the first status released the deferred photo. */
 class UnknownStatusIsNotCleanTest {
     @TempDir
     lateinit var dir: File

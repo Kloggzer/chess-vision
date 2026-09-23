@@ -39,15 +39,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 
-/**
- * The recordings' way to the PC, in the two facts a user can act on: is it paired, and what is
- * still here.
- *
- * The transfer itself has no screen and must not have one — it runs as a WorkManager job so the
- * recording reaches the machine that trains on it whether or not this page was ever opened. What is
- * left here is pairing (a token the server prints) and the report of the last run, because a
- * transfer that quietly does nothing is exactly what this feature exists to replace.
- */
+/** The transfer has no screen and must not have one: WorkManager sends whether or not this page opens.
+ *  Here: pairing, and the last run's report — a transfer that quietly does nothing is what this replaces. */
 @Composable
 fun TransferSection() {
     val context = LocalContext.current
@@ -160,7 +153,6 @@ internal suspend fun saveSyncPrefs(
         notSaved(e)
     }
 
-/** The Settings landing summary — one place decides how the transfer state is written. */
 internal fun transferSummary(
     prefs: SyncPrefs,
     report: SyncReport?,
@@ -190,12 +182,7 @@ private fun describe(report: SyncReport?): String {
     }
 }
 
-/**
- * What is still here, counted off the marker files — true even for a transfer this screen never saw.
- *
- * Walked on the IO dispatcher and once per screen entry, like recording's own storage total: the
- * sessions tree holds gigabytes and a composition must never be the thing that reads it.
- */
+/** Off the marker files, on the IO dispatcher once per entry: the sessions tree holds gigabytes. */
 private suspend fun waiting(
     store: SessionStore,
     sessions: File,
@@ -204,8 +191,7 @@ private suspend fun waiting(
         val empty = emptyRecordings(sessions).size
         val unsent = unsentSessions(sessions).filterNot { isEmptyRecording(it) }
         val sent = store.list().count { readMark(store.dir(it.id)) != null }
-        // Empty recordings are named rather than hidden: they stay on the phone forever otherwise,
-        // and a "waiting" count that never reaches zero is the kind of lie that gets ignored.
+        // Named, not hidden: empty recordings stay forever, and a "waiting" count that never reaches zero gets ignored.
         val tail = if (empty > 0) " · $empty empty, nothing to label" else ""
         if (unsent.isEmpty()) {
             "$sent transferred, nothing waiting$tail"

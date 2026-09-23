@@ -7,11 +7,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Smoke test for the phase-00b golden fixtures. It asserts that the fixtures LOAD and are
- * internally consistent — never that the engine behaves. The engine's own parity is pinned
- * elsewhere; this file only guards the fixtures.
- */
+/** Guards the fixtures only: that they LOAD and are consistent, never that the engine behaves. */
 class ParityFixturesTest {
     @Test
     fun everyClipLoadsWithAscendingFrames() {
@@ -71,8 +67,7 @@ class ParityFixturesTest {
 
     @Test
     fun rawUndilatedOcclusionCoreIsPresent() {
-        // entry.md invariant 3: the '>2 -> occluded' gate counts the RAW core, so the core
-        // must be a subset of the dilated occlusion set and must be emitted separately.
+        // Invariant 3: the core must be a subset of the dilated set and emitted separately.
         var seen = 0
         for (name in ParityFixtures.clips()) {
             for (frame in ParityFixtures.load(name).frames) {
@@ -104,8 +99,6 @@ class ParityFixturesTest {
             val meta = ParityFixtures.load(name).meta
             val eff = meta.effectiveConfig
             val cfg = eff.toTrackerConfig()
-            // Round-trip of the 43 settable knobs, spot-checked on the ones that differ
-            // from the Kotlin defaults, plus the four derived members.
             assertEquals(eff.occlusionColorThr, cfg.occlusionColorThr, "$name: occlusionColorThr")
             assertEquals(eff.overhang, cfg.overhang, "$name: overhang")
             assertEquals(eff.censusThr, cfg.censusThr, "$name: censusThr")
@@ -113,10 +106,8 @@ class ParityFixturesTest {
             assertEquals(eff.boardSize, cfg.boardSize, "$name: boardSize")
             assertEquals(eff.detSize, cfg.detSize, "$name: derived detSize")
             assertEquals(meta.detSize, cfg.detSize, "$name: meta.detSize vs TrackerConfig.detSize")
-            // settle/avg/confirm are CNN-CONDITIONAL in TrackerConfig but plain constructor
-            // overrides in Python (STATUS D00b-17): the seam cannot express an override, so
-            // only clips WITHOUT one may be compared against the derived value. Every port
-            // must read these three from effectiveConfig, never from TrackerConfig.
+            // CNN-CONDITIONAL in TrackerConfig but plain overrides in Python: only clips WITHOUT one compare against the
+            // derived value. Every port reads these three from effectiveConfig.
             assertDerived(name, "settle_frames", meta, eff.settleFrames, cfg.settleFrames(cnnOn = false))
             assertDerived(name, "avg_frames", meta, eff.avgFrames, cfg.avgFrames(cnnOn = false))
             assertDerived(name, "confirm_frames", meta, eff.confirmFrames, cfg.confirmFrames(cnnOn = false))
@@ -189,7 +180,7 @@ class ParityFixturesTest {
     private companion object {
         const val SQUARES = 64
 
-        /** Python's `MoveTracker.__init__` default — NOT `TRACK_DEFAULTS`' 3.0. See STATUS D00b-3. */
+        /** Python's `MoveTracker.__init__` default — NOT `TRACK_DEFAULTS`' 3.0. */
         const val FIXTURE_OCCLUSION_COLOR_THR = 1.5
         val VALID_STATES = setOf("waiting", "moving", "occluded", "move")
         val CNN_FIXTURES =

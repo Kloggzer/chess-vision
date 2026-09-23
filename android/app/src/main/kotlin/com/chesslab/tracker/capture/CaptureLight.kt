@@ -5,13 +5,8 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.squareToCropBox
 import kotlin.math.abs
 
-// Wo die Figuren JETZT hingehoeren — gemessen, nicht geplant.
-//
-// Der Plan nennt Felder nach ihrem Korpus-Median, aber das Band macht die Lampe: dasselbe Feld
-// mass ueber den Korpus 6 bis 207. Also wird das rektifizierte Brett gemessen und jede Figur auf
-// das Feld gelegt, das gerade wirklich im Band liegt. Liegt keines darin, sagt es die Lampe an.
+// Gemessen, nicht geplant: dasselbe Feld mass ueber den Korpus 6 bis 207 — das Band macht die Lampe.
 
-/** Wie ein Feld zum geforderten Band steht. `UNMEASURED` ist kein Fehler, sondern kein Brett. */
 enum class Fit { OK, TOO_DARK, TOO_BRIGHT, UNMEASURED }
 
 data class Target(
@@ -31,11 +26,8 @@ fun squareIsDark(square: String): Boolean {
     return (file + rank - 1) % 2 == 0
 }
 
-/**
- * Grauwert-Mittel je Feld des rektifizierten Bretts, auf der Skala von `brightness` im Manifest
- * (CROP-Box und BGR-Gewichte wie `labeling.py`). [whitePov] MUSS die eingestellte Orientierung
- * sein — siehe [squareBoxes], sonst misst und labelt jede Figur auf dem gespiegelten Feld.
- */
+/** Auf der Skala von `brightness` im Manifest. [whitePov] MUSS die eingestellte Orientierung sein,
+ *  sonst misst und labelt jede Figur auf dem gespiegelten Feld ([squareBoxes]). */
 fun measureSquares(
     board: Bitmap?,
     whitePov: Boolean = true,
@@ -50,11 +42,8 @@ fun measureSquares(
     }
 }
 
-/**
- * Feld -> Crop-Box im rektifizierten Bild; getrennt, weil hier die Annahme sitzt, die ohne Bitmap
- * pruefbar sein muss. Der Warp kennt kein `whitePov`, `squareToColRow` dreht dagegen um 180 Grad:
- * bei BLACK_BOTTOM liegt `a8` da, wo `h1` sonst liegt.
- */
+/** Der Warp kennt kein `whitePov`, `squareToColRow` dreht dagegen um 180 Grad: bei BLACK_BOTTOM liegt
+ *  `a8` da, wo sonst `h1` liegt. */
 internal fun squareBoxes(
     boardSize: Int,
     whitePov: Boolean,
@@ -94,13 +83,8 @@ private fun meanGray(
     return (sum / ((x1 - x0) * (y1 - y0))).toInt()
 }
 
-/**
- * Die Figuren des Auftrags auf die Felder, die JETZT im Band liegen.
- *
- * Der Vorschlag des Plans gilt nur, solange nichts Besseres gemessen wurde; die Feldfarbe bleibt
- * dabei die geforderte, denn sie ist Teil der Luecke. Passt kein Feld, bleibt die Figur auf dem
- * naechstbesten und traegt, in welche Richtung das Licht muss.
- */
+/** Die Feldfarbe bleibt die geforderte, sie ist Teil der Luecke. Passt kein Feld, bleibt die Figur auf
+ *  dem naechstbesten und traegt, in welche Richtung das Licht muss. */
 fun assign(
     place: List<Placement>,
     measured: Map<String, Int>,
@@ -122,13 +106,8 @@ fun assign(
     }
 }
 
-/**
- * Dieselben Felder, neu beurteilt. Sobald der Mensch baut, darf [assign] nicht mehr laufen: eine
- * Figur verschiebt den Crop-Mittelwert ihres Feldes um bis zu 61 Grauwerte (Median -22 fuer
- * Schwarz, gemessen am Manifest), 16 von 80 Verschiebungen ueberspringen ein ganzes Band — die
- * erste hingestellte Figur wuerfelte die Belegung sonst neu. Das Licht bleibt beurteilt: der
- * Crop MIT Figur ist ohnehin der, der im Datensatz landet.
- */
+/** Neu beurteilt, nie neu verteilt: eine Figur verschiebt den Crop-Mittelwert ihres Feldes um bis zu 61
+ *  Grauwerte, 16 von 80 Verschiebungen ueberspringen ein Band. Der Crop MIT Figur landet ohnehin im Datensatz. */
 fun refit(
     frozen: List<Target>,
     measured: Map<String, Int>,
@@ -150,13 +129,8 @@ private fun fitOf(
         else -> Fit.OK
     }
 
-/**
- * Wie weit das Licht seit dem Festhalten gewandert ist, als Median ueber die Zielfelder.
- *
- * Ueber acht Drehungen zieht eine Wolke oder ein Schatten das ganze Brett mit; eine Aufnahme, die
- * dabei aus dem Band laeuft, faellt sonst erst im fertigen Datensatz auf. Felder ohne aktuelle
- * Messung zaehlen NICHT mit — ein fehlender Read waere sonst ein Sturz um 200.
- */
+/** Median ueber die Zielfelder, damit ein Wolkenschatten auffaellt, bevor der Datensatz fertig ist.
+ *  Felder ohne aktuelle Messung zaehlen NICHT — ein fehlender Read waere ein Sturz um 200. */
 fun driftLine(
     frozen: List<Target>,
     live: List<Target>,
@@ -174,10 +148,7 @@ fun driftLine(
     return "Licht seit dem Aufbau $median (am staerksten ${worst.second} ${worst.first})"
 }
 
-/**
- * Ein Satz zur Lampe. Die Mehrheit entscheidet: einzelne Felder liegen auf einem Brett mit
- * Lichtgradient immer daneben, und eine Lampe kann nur alle zusammen verschieben.
- */
+/** Die Mehrheit entscheidet: auf einem Brett mit Lichtgradient liegen einzelne Felder immer daneben. */
 fun lightAdvice(targets: List<Target>): String {
     if (targets.isEmpty()) return ""
     val dark = targets.count { it.fit == Fit.TOO_DARK }

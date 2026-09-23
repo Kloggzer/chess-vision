@@ -9,8 +9,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/** Die gefittete `temperature` muss bis in die Wahrscheinlichkeiten durchkommen: ungelesen
- *  gatterte jede Konfidenz schaerfer als kalibriert (Bug-Audit C3). */
+/** Ungelesen gatterte jede Konfidenz schaerfer als kalibriert (Bug-Audit C3). */
 class ModelSpecTemperatureBugTest {
     @Test
     fun theFittedTemperatureReachesTheProbabilities() {
@@ -22,8 +21,7 @@ class ModelSpecTemperatureBugTest {
         }
     }
 
-    /** Die Prior-Staerke reitet im Modell wie `coverage_gate` — und sie ist die Zahl auf den
-     *  ROHEN Logits, nicht die auf den getemperten (`priorOnTempered`). */
+    /** Die Zahl auf den ROHEN Logits, nicht auf den getemperten (`priorOnTempered`). */
     @Test
     fun everyBundledModelDeclaresItsPriorStrength() {
         for (dir in bundledAssetDirs()) {

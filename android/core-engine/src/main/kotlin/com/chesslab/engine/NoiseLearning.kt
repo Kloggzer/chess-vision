@@ -1,11 +1,8 @@
 package com.chesslab.engine
 
-/**
- * Step 4 — the EMA learns on EVERY stable frame, including the stuck state, or jitter is never adapted away;
- * candidate, shadowed and TAINTED squares are excluded, since learning a shadow or a hand desensitizes a
- * later real move there — `applyTaints` zeroes a tainted square's z, so it never shows up as `changed`.
- * **entry.md invariant 9: nothing is learned under the alarm**, or the desync heals by drift, not correction.
- */
+/** Learns on EVERY stable frame, stuck included, or jitter is never adapted away. Candidate, shadowed and
+ *  TAINTED squares are excluded: learning a hand desensitises a later move there. **Invariant 9: nothing
+ *  under the alarm**, or the desync heals by drift. */
 internal fun EngineState.learnNoise() {
     if (alarm != null) return
     val exclude = changed or shadowVetoed or tainted

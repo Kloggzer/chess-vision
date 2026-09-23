@@ -55,8 +55,7 @@ class CoverageGateConfigTest {
         assertEquals("pOccludedThr should remain at default 0.5", 0.5, result.pOccludedThr, 0.01)
     }
 
-    /** Die Huerde reist durch die Temperatur (`calibratedConfThr`): alle sieben Modelle sind
-     *  ueberkonfident, also forderte `cnnConfThr = 0.85` real 48 bis 70 %. */
+    /** Alle sieben Modelle sind ueberkonfident: `cnnConfThr = 0.85` forderte real 48 bis 70 %. */
     @Test
     fun withCoverageGateOfTranslatesTheConfidenceHurdleThroughTheTemperature() {
         val spec = ModelSpec.parse(modelConfigJson(coverageGate = 0.25, extra = TEMPERED))
@@ -68,10 +67,7 @@ class CoverageGateConfigTest {
         assertTrue("eine ueberkonfidente Temperatur senkt die Huerde", result.cnnConfThr < 0.85)
     }
 
-    /**
-     * Ohne die Spalte ist `pOccluded` immer 0,0 — eine Schwelle dagegen zu ziehen bewegt eine
-     * Zahl, gegen die nie etwas verglichen wird, und schaltet still den modellfreien Arm scharf.
-     */
+    /** Ohne die Spalte ist `pOccluded` immer 0,0 — die Schwelle schaltete still den modellfreien Arm scharf. */
     @Test
     fun withCoverageGateOfIgnoresAGateWithoutTheColumn() {
         val spec = ModelSpec.parse(modelConfigJson(coverageOutput = false, coverageGate = 0.25))

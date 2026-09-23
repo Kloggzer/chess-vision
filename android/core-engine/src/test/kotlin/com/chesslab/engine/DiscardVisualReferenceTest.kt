@@ -9,13 +9,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Eine Geometrieaenderung nimmt die Pixel-Referenz — und muss den laufenden Kandidaten mitnehmen.
- *
- * Sonst wird er gegen einen Warp der ALTEN Geometrie verifiziert und committet mit `pend.cur` als
- * neue Referenz; `setRef` paart dieses alte Bild mit den aktuellen `lastCorners`, also kann
- * `cornersJumped` den Bruch nie bemerken.
- */
+/** Die Geometrieaenderung muss den laufenden Kandidaten mitnehmen: sonst committet er `pend.cur` als Referenz
+ *  gepaart mit den aktuellen `lastCorners`, und `cornersJumped` bemerkt den Bruch nie. */
 class DiscardVisualReferenceTest {
     @Test
     fun `a discarded reference takes the pending candidate with it`() {
@@ -48,8 +43,8 @@ class DiscardVisualReferenceTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
-    /** Der WEICHERE Vorfall raeumt die Bruecken-Stimme, der haertere nicht: Stimme eins fiel
-     *  durch die alte Rektifizierung und committete mit der ersten neuen einen Halbzug. */
+    /** Der WEICHERE Vorfall raeumt die Bruecken-Stimme, der haertere nicht: eine Stimme fiel durch die alte
+     *  Rektifizierung und committete mit der ersten neuen einen Halbzug. */
     @Test
     fun `a discarded reference drops the open recovery vote`() {
         val state = recoveryState()

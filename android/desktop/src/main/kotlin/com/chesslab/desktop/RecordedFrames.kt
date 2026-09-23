@@ -4,20 +4,9 @@ import com.chesslab.tracker.io.Jsonl
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-/**
- * Die Frames, die das TELEFON verarbeitet hat — aus der `timeline.jsonl` einer Aufnahme.
- *
- * Ein Replay ohne sie ist keine Reproduktion: `fps=<n>` trifft die Anzahl der Frames, aber nicht
- * dieselben Bilder, die CameraX live durchliess, und daran haengt, was der Diff vergleicht
- * (`TODO.md`, 2026-08-30).
- */
+/** Die Frames, die das TELEFON verarbeitet hat: `fps=<n>` trifft die Anzahl, aber nicht dieselben Bilder. */
 internal object RecordedFrames {
-    /**
-     * Videozeiten in ms, aufsteigend, oder `null` wenn die Aufnahme keine Messung mitbringt.
-     *
-     * Die Bruecke zwischen Systemuhr und Videozeit sind die `video_sync`-Zeilen: jede sagt, wie
-     * lang das Video zu einem `elapsedNs` war.
-     */
+    /** Null, wenn die Aufnahme keine `video_sync`-Messung mitbringt. */
     fun times(timeline: File): List<Double>? {
         if (!timeline.isFile) return null
         val syncs = ArrayList<Pair<Long, Long>>()
@@ -36,13 +25,8 @@ internal object RecordedFrames {
         return out.filter { it >= 0.0 }.takeIf { it.isNotEmpty() }
     }
 
-    /**
-     * Der naechstgelegene Sync-Punkt plus die verstrichene Systemzeit — die Steigung ist 1.
-     *
-     * Beide Uhren laufen gleich schnell (85 ms Drift auf 25,3 s ueber die 379 Sync-Zeilen von
-     * `rg-2026-08-30-14-33-02`). Aus zwei BENACHBARTEN Punkten geschaetzt las sie 2,36 — reiner
-     * Callback-Jitter —, und die Vorlauf-Zeilen vor dem ersten Sync landeten damit bei -8,5 s.
-     */
+    /** Steigung 1: 85 ms Drift auf 25,3 s. Aus zwei BENACHBARTEN Punkten geschaetzt las sie 2,36 (Callback-Jitter),
+     *  und der Vorlauf landete bei -8,5 s. */
     internal fun videoNsAt(
         elapsedNs: Long,
         syncs: List<Pair<Long, Long>>,
@@ -57,13 +41,7 @@ internal object RecordedFrames {
         return anchor.second + (elapsedNs - anchor.first).toDouble()
     }
 
-    /**
-     * Die Stellung, auf der das Telefon beim ERSTEN aufgezeichneten Frame stand.
-     *
-     * Seit die Frame-Zeilen den Vorlauf mittragen (`RecordingBundleHost.preRollFrames`) ist das
-     * bei einer frischen Partie wieder die Grundstellung. Bei Aufnahmen von vor dem 2026-08-30
-     * beginnt die Zeitleiste am ersten Commit, und dann ist es die Stellung von dort.
-     */
+    /** Bei Aufnahmen von vor dem 2026-08-30 beginnt die Zeitleiste am ersten Commit, nicht in der Grundstellung. */
     fun startFen(timeline: File): String? {
         if (!timeline.isFile) return null
         return Jsonl
@@ -77,19 +55,14 @@ internal object RecordedFrames {
     private const val NS_PER_MS = 1_000_000.0
 }
 
-/**
- * Laesst genau die Frames durch, die den aufgezeichneten Zeiten am naechsten liegen.
- *
- * Greedy und einmal vorwaerts: der erste dekodierte Frame, der eine Zielzeit erreicht, nimmt sie
- * ein; Zielzeiten, die er dabei ueberholt hat, verfallen. Damit ist die Auswahl deterministisch
- * und braucht das Video nicht zweimal.
- */
+/** Greedy und einmal vorwaerts: der erste dekodierte Frame, der eine Zielzeit erreicht, nimmt sie ein; ueberholte
+ *  Zielzeiten verfallen. Deterministisch, und das Video wird nicht zweimal gelesen. */
 internal class RecordedFrameGate(
     private val targetsMs: List<Double>,
 ) {
     private var next = 0
 
-    /** Wie viele Frames durchgingen — die Zahl gehoert in den Lauf, nicht in einen Verdacht. */
+    /** Die Zahl gehoert in den Lauf, nicht in einen Verdacht. */
     var taken = 0
         private set
 

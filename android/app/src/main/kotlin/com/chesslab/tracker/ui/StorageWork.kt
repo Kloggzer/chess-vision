@@ -22,5 +22,4 @@ internal fun CoroutineScope.launchStorageWork(
         }
     }
 
-/** A setting that reached memory but not the disk: in effect now, gone after a restart. */
 internal fun notSaved(e: IOException): String = "Not saved (${e.message}) — lost on restart"

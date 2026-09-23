@@ -12,17 +12,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `_generate_hypothesis` and the step-5 viability filter it consumes.
- *
- * Mirrors the scenario tests of `tests/test_move_tracker.py` named in
- * `specs/17-android-rewrite/03c-hypothesis.md` plus the parity replay over the phase-00b Tier-B
- * fixtures.
- */
 class HypothesisTest {
-    // -- step 5: viability + the shadow-destination rule ---------------------------------------
-
-    /** `test_weak_target_still_wins` — a target just AT the soft gate keeps the move viable. */
     @Test
     fun weakTargetStillViable() {
         val state = hypothesisState()
@@ -33,11 +23,7 @@ class HypothesisTest {
         assertTrue(moves.best > 0.0, "the evidence speaks net FOR the move")
     }
 
-    /**
-     * Ein Schlag auf besetztem Feld: der Diff sieht das ZIEL nicht, weil dort vorher wie nachher
-     * eine Figur steht. Gemessen 2026-08-30 an `Nxe5 Nxe5 dxe5` — 205 Entscheidungen,
-     * `no_legal_move`, und `e5` kein einziges Mal in `changed`.
-     */
+    /** Der Diff sieht das ZIEL eines Schlags nicht: `Nxe5 Nxe5 dxe5`, 205 Entscheidungen, `e5` nie in `changed`. */
     @Test
     fun captureOntoAnOccupiedSquareStaysViable() {
         val state = hypothesisState(CAPTURE_FEN)
@@ -58,7 +44,6 @@ class HypothesisTest {
         assertNull(moves.obsMove, "ohne Bestaetigung darf das stumme Ziel nicht durchgehen")
     }
 
-    /** Liest das Modell auf dem Ziel die ALTE Farbe, bezeugt niemand den Schlag. */
     @Test
     fun captureTheModelContradictsIsNotViable() {
         val state = hypothesisState(CAPTURE_FEN)
@@ -69,7 +54,6 @@ class HypothesisTest {
         assertNull(moves.obsMove, "das Modell sieht auf e5 weiter Schwarz")
     }
 
-    /** Just BELOW the soft gate the same move is not viable at all. */
     @Test
     fun targetBelowTheSoftGateIsNotViable() {
         val state = hypothesisState()
@@ -84,7 +68,6 @@ class HypothesisTest {
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
     }
 
-    /** `test_castling_signature_wins` — all four castling squares hot -> `O-O`. */
     @Test
     fun castlingSignature() {
         val state = hypothesisState(CASTLING_FEN)
@@ -98,7 +81,6 @@ class HypothesisTest {
         assertEquals(true, cand?.vote)
     }
 
-    /** `test_en_passant_signature_wins` — the captured pawn's square is part of the signature. */
     @Test
     fun enPassantSignature() {
         val state = hypothesisState(EN_PASSANT_FEN)
@@ -111,7 +93,6 @@ class HypothesisTest {
         assertEquals(listOf("e5f6"), cand?.moves?.map { uciOf(it) })
     }
 
-    /** `test_unexplained_hot_square_penalizes_noncovering_moves`. */
     @Test
     fun hotUntouchedSquarePenalizes() {
         val state = hypothesisState()
@@ -119,13 +100,11 @@ class HypothesisTest {
         val scored = loglikScores(state.board, z, state.config.zThr, LL_K).associate { uciOf(it.first) to it.second }
 
         assertTrue(scored.getValue("e2e4") > scored.getValue("d2d4"), "d2d4 explains nothing hot")
-        // a3 is hot but only a2a3 / b1a3 cover it — and their other endpoint is cold, so neither is
-        // viable. The candidate is still e2e4.
+        // a3 is hot but only a2a3 / b1a3 cover it, with a cold other endpoint: neither is viable.
         val moves = state.scoreViableMoves(z)
         assertEquals("e2e4", moves.obsMove?.let { uciOf(it) })
     }
 
-    /** `test_shadow_destination_blocks_phantom_move` (specs/09) — destination-only veto. */
     @Test
     fun shadowDestinationBlocksPhantomMove() {
         val state = hypothesisState(ROOK_H1_FEN)
@@ -140,7 +119,7 @@ class HypothesisTest {
         assertEquals("Rg1? destination shadow-vetoed — not a move", state.note)
     }
 
-    /** `test_shadow_on_from_square_still_allows_move` — invariant 2 seen from the scoring side. */
+    /** Invariant 2 seen from the scoring side. */
     @Test
     fun shadowOnFromSquareStillAllowsMove() {
         val state = hypothesisState()
@@ -153,9 +132,7 @@ class HypothesisTest {
         assertTrue(state.shadowBlocked.isEmpty())
     }
 
-    // -- step 6: the too-much-change gate --------------------------------------------------------
-
-    /** entry.md invariant 4 — latched squares count, and a pair is never tried while they do. */
+    /** Invariant 4 — latched squares count, and a pair is never tried while they do. */
     @Test
     fun taintedSquaresCountTowardMaxChanged() {
         val state = hypothesisState()
@@ -181,7 +158,6 @@ class HypothesisTest {
         )
     }
 
-    /** With nothing tainted and at most `maxChanged + 2` squares, the pair IS tried. */
     @Test
     fun pairRescuesTooMuchChangeWhenNothingIsTainted() {
         val state = hypothesisState()
@@ -195,7 +171,6 @@ class HypothesisTest {
         assertNull(state.stuckReason)
     }
 
-    /** Beyond `maxChanged + 2` even a perfect pair is refused. */
     @Test
     fun beyondMaxChangedPlusTwoNoPairIsTried() {
         val state = hypothesisState()
@@ -207,14 +182,8 @@ class HypothesisTest {
         assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
     }
 
-    // -- step 6: the CNN-confirmed-unchanged discount ---------------------------------------------
-
-    /**
-     * The Qxe2 frame of rec-20260808-003957 (@~6800): one true move plus a crown-overhang bleed
-     * cloud read as 8 changed squares while the observer read the cloud as unchanged at full
-     * confidence — the gate refused on evidence the CNN had already contradicted. Confirmed
-     * squares stop COUNTING; z and `changed` stay, and every later gate still stands.
-     */
+    /** Qxe2 of rec-20260808-003957: one move plus a bleed cloud of 8 changed squares that the observer read as
+     *  unchanged at full confidence. Confirmed squares stop COUNTING; z, `changed` and every later gate stay. */
     @Test
     fun cnnConfirmedUnchangedSquaresStopCounting() {
         val state = hypothesisState()
@@ -222,8 +191,7 @@ class HypothesisTest {
         val z = zOf("e2" to HOT, "e4" to HOT)
         val moves = state.scoreViableMoves(z)
         state.armDetection(changed = setOf("e2", "e4", "d1", "e1", "b2", "d2", "f1", "c3"))
-        // The observation contradicts the BLEED cloud only: the move squares read as moved
-        // (e2 empty, e4 occupied — disagreeing with the still-unmoved board), the cloud matches.
+        // Only the BLEED cloud is contradicted: the move squares read as moved, disagreeing with the unmoved board.
         val obs = obsForBoard(state.board, mapOf("e2" to LABEL_EMPTY, "e4" to "wP"))
         state.cnnSnap = recoverySnap(state, obs, seq = 1)
 
@@ -242,8 +210,7 @@ class HypothesisTest {
         val moves = state.scoreViableMoves(z)
         val cloud = setOf("d1", "e1", "b2", "d2", "f1", "c3")
         state.armDetection(changed = setOf("e2", "e4", "a6") + cloud)
-        // The cloud MATCHES the board (a hand over undisturbed squares) but reads occluded; the
-        // three genuinely-moved squares disagree, so nothing outside the hand can be discounted.
+        // The cloud MATCHES the board but reads occluded; nothing outside the hand can be discounted.
         val labels =
             Squares.ALL.associateWith { state.board.labelAt(it) } +
                 mapOf("e2" to LABEL_EMPTY, "e4" to "wP", "a6" to "bP")
@@ -259,14 +226,12 @@ class HypothesisTest {
         )
     }
 
-    /** Squares the observation reads as CHANGED keep counting — a board that is really behind stays stuck. */
     @Test
     fun squaresTheCnnReadsAsChangedKeepCounting() {
         val state = hypothesisState()
         state.cnnRun = true
         val z = zOf("e2" to HOT, "e4" to HOT)
         val moves = state.scoreViableMoves(z)
-        // The observation agrees the whole set changed: occupied squares read empty and vice versa.
         val flips =
             mapOf(
                 "e2" to LABEL_EMPTY,
@@ -291,14 +256,13 @@ class HypothesisTest {
         )
     }
 
-    /** A discount that is too small to open the gate is still visible in the note. */
     @Test
     fun aPartialDiscountIsVisibleInTheNote() {
         val state = hypothesisState()
         state.cnnRun = true
         val z = zOf("e2" to HOT, "e4" to HOT)
         val moves = state.scoreViableMoves(z)
-        // 9 changed; only d1/e1 match the board in the observation -> 2 discounted, 7 still count.
+        // 9 changed; only d1/e1 match the board -> 2 discounted, 7 still count.
         val flips =
             mapOf(
                 "e2" to LABEL_EMPTY,
@@ -321,7 +285,7 @@ class HypothesisTest {
         )
     }
 
-    /** A snapshot of ANOTHER position must not vouch for this one (the `cnnDesync` pattern). */
+    /** A snapshot of ANOTHER position must not vouch for this one. */
     @Test
     fun aSnapshotOfAnotherPositionDiscountsNothing() {
         val state = hypothesisState()
@@ -341,7 +305,6 @@ class HypothesisTest {
         )
     }
 
-    /** Same for a snapshot older than the freshness bound. */
     @Test
     fun aStaleSnapshotDiscountsNothing() {
         val state = hypothesisState()
@@ -355,8 +318,6 @@ class HypothesisTest {
         assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
         assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
     }
-
-    // -- step 6: the CNN-conditional order -------------------------------------------------------
 
     /** The load-bearing ordering: pair BEFORE single with CNN, single first without. */
     @Test
@@ -377,9 +338,6 @@ class HypothesisTest {
         assertEquals(listOf("e2e4", "e7e5"), withCand?.moves?.map { uciOf(it) })
     }
 
-    // -- step 6: ambiguity, promotion, prior ------------------------------------------------------
-
-    /** `test_ambiguity_two_knights_small_margin` — the prior cannot close a 1.2 LL gap. */
     @Test
     fun twoKnightsAmbiguous() {
         val state = hypothesisState(TWO_KNIGHTS_FEN)
@@ -398,10 +356,9 @@ class HypothesisTest {
         assertTrue(state.note!!.endsWith(" — please move cleanly / wait briefly"))
     }
 
-    /** The rerank must clear the FULL margin — 0.01 short is still ambiguous. */
     @Test
     fun priorRerankNeedsTheFullMargin() {
-        // b1d2 gains +0.2 (forward), f3d2 gains nothing: the reranked gap is z[b1] - z[f3] + 0.2.
+        // b1d2 gains +0.2 (forward), f3d2 nothing: the reranked gap is z[b1] - z[f3] + 0.2.
         val short = hypothesisState(TWO_KNIGHTS_FEN)
         val zShort = zOf("b1" to HOT, "f3" to 6.21, "d2" to HOT)
         val shortMoves = short.scoreViableMoves(zShort)
@@ -419,7 +376,6 @@ class HypothesisTest {
         assertEquals(true, cand?.priorUsed)
     }
 
-    /** `test_promotion_waits_for_user_choice` — without CNN the UI is asked. */
     @Test
     fun promotionWithoutCnnYieldsPromoPending() {
         val state = hypothesisState(PROMOTION_FEN)
@@ -439,7 +395,6 @@ class HypothesisTest {
         assertEquals("a7a8q", state.confirmer.key, "the promotion branch does not touch the confirmer")
     }
 
-    /** With CNN the prompt still opens; identity observations may answer it later. */
     @Test
     fun promotionWithCnnStillYieldsPromoPending() {
         val state = cnnState(PROMOTION_FEN)
@@ -455,7 +410,6 @@ class HypothesisTest {
         assertEquals("a8", state.promoPending!!.to)
     }
 
-    /** No prior at all -> the plain ambiguity note. */
     @Test
     fun withoutPriorAnAmbiguousFrameGetsThePlainNote() {
         val state = hypothesisState(TWO_KNIGHTS_FEN, NO_PRIOR_CONFIG)
@@ -467,13 +421,8 @@ class HypothesisTest {
         assertEquals(NOTE_AMBIGUOUS_PLAIN, state.note)
     }
 
-    // -- step 6: the quiet edge ----------------------------------------------------------------------
-
-    /**
-     * The silent exit, made visible: evidence, no candidate, no stuck — and until this row existed,
-     * no trace either. A replay that commits nothing where the live phone committed something has to
-     * say WHICH of the two it was, and only `markStuck` used to say it.
-     */
+    /** Evidence, no candidate, no stuck — and no trace until this row: a replay that commits nothing where the
+     *  phone did must say WHICH exit it took. */
     @Test
     fun anAmbiguousFrameLeavesExactlyOneFoldedQuietEdgeRow() {
         val state = hypothesisState(TWO_KNIGHTS_FEN)
@@ -495,7 +444,6 @@ class HypothesisTest {
         assertEquals(1, state.decisionLog.size, "an identical quiet frame folds into the row at the tail")
     }
 
-    /** A different evidence set is a different event — the fold must not swallow it. */
     @Test
     fun aQuietEdgeOnAnotherChangedSetGetsItsOwnRow() {
         val state = hypothesisState(TWO_KNIGHTS_FEN)
@@ -511,7 +459,6 @@ class HypothesisTest {
         assertEquals(listOf("a3", "b1", "d2", "f3"), state.decisionLog.last().changed)
     }
 
-    /** The promotion prompt is the loudest state there is; it does not also need a row. */
     @Test
     fun aPendingPromotionWritesNoQuietEdgeRow() {
         val state = hypothesisState(PROMOTION_FEN)
@@ -525,15 +472,8 @@ class HypothesisTest {
         assertTrue(state.decisionLog.isEmpty(), "the pending promotion IS the provenance")
     }
 
-    // -- parity ------------------------------------------------------------------------------------
-
-    /**
-     * Replays step 5 + step 6 over every Tier-A frame of every clip and compares against the
-     * recorded Python decision state.
-     *
-     * Frames that COMMITTED are skipped: `frame.fen` is then the position AFTER the move
-     * (STATUS D02a-3), so the board the decision was made on is not recoverable from the fixture.
-     */
+    /** Steps 5 + 6 over every Tier-A frame against Python's decision state. COMMITTED frames are skipped: their
+     *  `frame.fen` is the position AFTER the move. */
     @Test
     fun hypothesisMatchesPythonOnEveryTierAFrame() {
         var frames = 0
@@ -542,16 +482,14 @@ class HypothesisTest {
             val fixture = ParityFixtures.load(clip)
             val config = fixture.meta.effectiveConfig.toTrackerConfig()
             for (frame in fixture.tierAFrames()) {
-                // One `continue` per loop (detekt LoopWithTooManyJumpStatements): a frame without a
-                // tierB block and a frame that COMMITTED are skipped by the same condition.
+                // One `continue` per loop (detekt LoopWithTooManyJumpStatements): both skips share one condition.
                 val tierB = frame.tierB
                 if (tierB == null || tierB.commit != null) continue
                 val state = EngineState(config, frame.fen!!, whitePov = fixture.meta.whitePov)
                 if (replayFrame(state, frame)) stuckAsserted++
                 assertClose(tierB.bestLl, state.bestScore, "$clip/${frame.frame} bestLl")
                 assertClose(tierB.secondLl, state.secondScore, "$clip/${frame.frame} secondLl")
-                // `candidateUci` is written at step 5 and only rewritten by 03d's step 8, where a
-                // single move produces the identical string; a pair key (two ucis) is out of scope.
+                // `candidateUci` is rewritten only by step 8, where a single move gives the identical string; a pair key is out of scope.
                 if (tierB.candidateUci?.contains(' ') != true) {
                     assertEquals(tierB.candidateUci, state.candidateUci, "$clip/${frame.frame} candidateUci")
                 }
@@ -563,7 +501,6 @@ class HypothesisTest {
         assertTrue(stuckAsserted > 0, "the replay is toothless: $coverage")
     }
 
-    /** Runs step 5 + step 6 on [frame]; returns true when the stuck path was asserted. */
     private fun replayFrame(
         state: EngineState,
         frame: ParityFrame,
@@ -603,13 +540,11 @@ class HypothesisTest {
         const val ROOK_H1_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK2R w KQkq - 0 1"
         const val TWO_KNIGHTS_FEN = "rnbqkb1r/ppp2ppp/4pn2/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
 
-        /** Nach 1.e4 e5 2.Nf3 Nc6 3.d4, Weiss am Zug — `Nf3xe5` ist legal und schlaegt. */
         const val CAPTURE_FEN = "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
         const val AFTER_NXE5 = "r1bqkbnr/pppp1ppp/2n5/4N3/3PP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4"
         const val PROMOTION_FEN = "8/P6k/8/8/8/8/7K/8 w - - 0 1"
         const val MIN_PARITY_FRAMES = 150
 
-        /** `"a7a8q"` — four square characters plus the promotion piece. */
         const val PROMOTION_UCI_LENGTH = 5
 
         val NO_PRIOR_CONFIG = TrackerConfig(usePrior = false)

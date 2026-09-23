@@ -8,13 +8,9 @@ import java.io.File
 
 private const val E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
 
-/** Der Schreiber wurde mitten in der Zeile erschlagen: kein Umbruch dahinter. */
 private const val HALF = "{\"ply\":2,\"fen\":\"rnbqkb"
 
-/**
- * Das Telefon haengt `log.jsonl` und `timeline.jsonl` Zeile fuer Zeile an, die Web-App
- * `corrections.jsonl` — eine halbe LETZTE Zeile ist erwartbar und kein Defekt.
- */
+/** Eine halbe LETZTE Zeile ist erwartbar (Telefon und Web-App haengen Zeile fuer Zeile an), kein Defekt. */
 class TornTailTest {
     @TempDir
     lateinit var dir: File

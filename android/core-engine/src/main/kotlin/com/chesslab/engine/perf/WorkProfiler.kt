@@ -6,7 +6,7 @@ const val INHERIT_INPUT: Long = Long.MIN_VALUE
 
 const val UNKNOWN_INPUT: Long = Long.MIN_VALUE + 1
 
-/** Operation names stay stable when Kotlin implementations move, preserving historical reports. */
+/** Stable names: historical reports survive implementations moving. */
 enum class WorkOperation(
     val id: String,
 ) {
@@ -46,7 +46,7 @@ enum class WorkOperation(
     VIDEO_PROGRESS("record.video_progress"),
 }
 
-/** Contains no clock so profiling cannot make the deterministic engine time-dependent. */
+/** No clock, so profiling cannot make the deterministic engine time-dependent. */
 interface WorkProbe {
     fun enter(
         operation: WorkOperation,
@@ -68,7 +68,7 @@ interface WorkProbe {
     )
 }
 
-/** Production default performs no allocation, clock read, storage, or locking. */
+/** No allocation, clock read, storage or locking. */
 object NoopWorkProbe : WorkProbe {
     override fun enter(
         operation: WorkOperation,
@@ -90,7 +90,7 @@ object NoopWorkProbe : WorkProbe {
     ) = Unit
 }
 
-/** [install] restores the prior probe; inline no-op spans allocate no hot-path lambda. */
+/** [install] restores the prior probe; inline no-op spans allocate no lambda. */
 object WorkProfiler {
     @PublishedApi
     internal var active: WorkProbe = NoopWorkProbe
@@ -180,7 +180,7 @@ data class WorkSnapshot(
 ) {
     fun operation(operation: WorkOperation): OperationWork? = operations.firstOrNull { it.operation == operation }
 
-    /** Rows/counts are stable; elapsed times depend on machine and load. */
+    /** Rows and counts are stable; elapsed times depend on machine and load. */
     fun report(): String {
         val rows =
             operations.sortedWith(
@@ -234,7 +234,7 @@ data class WorkViolation(
     val message: String,
 )
 
-/** Property/fuzz performance oracle compares stable work counts, never wall time. */
+/** Compares stable work counts, never wall time. */
 fun WorkSnapshot.check(budgets: Iterable<WorkBudget>): List<WorkViolation> =
     budgets.flatMap { budget ->
         val row = operation(budget.operation) ?: OperationWork(budget.operation, 0, 0, 0, 0, 0, 0)

@@ -10,16 +10,9 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// `_detect_guards` (`tracker.py`) + `_corners_jumped`.
-//
-// Scenarios mirrored from `tests/test_move_tracker.py`:
-//   test_stale_ref_fen_forces_recapture (:839)          -> staleRefFenForcesRecapture
-//   test_valid_move_advances_base_truth_with_fen (:827) -> baseTruthIsImageAndFenPair
-
 private val SQUARE_CORNERS = floatArrayOf(0f, 0f, 400f, 0f, 400f, 400f, 0f, 400f)
 
 class GuardsTest {
-    /** With a live, matching reference and no corner history the guards let detection through. */
     @Test
     fun cleanReferencePassesTheGuards() {
         val state = testState()
@@ -32,7 +25,6 @@ class GuardsTest {
         assertSame(ref, state.refGray, "a passing guard must not touch the reference")
     }
 
-    /** `test_stale_ref_fen_forces_recapture` — the (image, FEN) pair is dropped as ONE unit. */
     @Test
     fun staleRefFenForcesRecapture() {
         val state = testState()
@@ -46,11 +38,6 @@ class GuardsTest {
         assertNull(state.refFen)
     }
 
-    /**
-     * `test_valid_move_advances_base_truth_with_fen` — the guard side of it: as long as the FEN
-     * stamped on the reference equals `board.fen()` the pair is valid; the moment the board moves
-     * on without a new reference, it is not.
-     */
     @Test
     fun baseTruthIsImageAndFenPair() {
         val state = testState()
@@ -65,7 +52,6 @@ class GuardsTest {
         assertNull(state.refFen)
     }
 
-    /** `:3063` — a pending verify or promotion aborts BEFORE the reference is even looked at. */
     @Test
     fun pendingAbortsWithoutTouchingTheReference() {
         val state = testState()
@@ -95,11 +81,7 @@ class GuardsTest {
         assertSame(ref, state.refGray)
     }
 
-    /**
-     * Named invariant test "geometry invalidation": the jump is measured **axis-wise**, not
-     * Euclidean, so 6.1 px on a single corner's single axis already invalidates the base truth
-     * while 5.9 px on both axes of every corner does not.
-     */
+    /** **Axis-wise**, not Euclidean: 6.1 px on one axis of one corner invalidates; 5.9 px on every axis does not. */
     @Test
     fun cornerJumpBeyondSixPxClearsReference() {
         val thr = testConfig().cornerJumpPx
@@ -123,7 +105,6 @@ class GuardsTest {
         }
     }
 
-    /** `:2583-2584` — no reference corners or no current corners is never a jump. */
     @Test
     fun cornersJumpedNeedsBothCornerSets() {
         val state = testState()
@@ -146,7 +127,6 @@ class GuardsTest {
         assertTrue(state.cornersJumped(), "the one comparable pair still counts")
     }
 
-    /** `_clear_stuck` also resets the recovery confirmer (`tracker.py`). */
     @Test
     fun clearStuckResetsTheRecoveryConfirmer() {
         val state = testState()

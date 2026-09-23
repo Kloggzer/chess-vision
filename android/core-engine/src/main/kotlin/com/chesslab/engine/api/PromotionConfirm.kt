@@ -13,11 +13,8 @@ private const val PROMO_CNN_VOTES = 2
 
 private const val PROMO_CNN_MAX_OCCLUDED = 0.10
 
-/**
- * Two distinct decisive identity reads provide the same Q/R/B/N choice as the user — and two reads
- * of a confidently EMPTY target withdraw the question: a prompt raised on residue blocks detection
- * with nobody to answer it (2026-08-08-00-39-57 @6436, 22 plies lost in the replay).
- */
+/** Two distinct decisive reads choose Q/R/B/N like the user would; two reads of a confidently EMPTY target
+ *  withdraw the question — a prompt raised on residue blocked detection (22 plies lost). */
 internal fun confirmPromotionFromCnn(
     state: EngineState,
     snap: CnnSnapshot,
@@ -39,7 +36,6 @@ internal fun confirmPromotionFromCnn(
     return if (piece != null && pending.cnnVotes >= PROMO_CNN_VOTES) choosePromotion(piece) else emptyList()
 }
 
-/** The Q/R/B/N the glance names decisively for the side that promoted, or null. */
 private fun decisivePiece(
     obs: CnnObservation,
     pending: PromoPending,

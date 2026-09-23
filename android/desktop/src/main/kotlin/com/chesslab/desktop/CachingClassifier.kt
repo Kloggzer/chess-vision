@@ -8,27 +8,9 @@ import java.io.EOFException
 import java.io.File
 import java.security.MessageDigest
 
-/**
- * A [SquareClassifier] that remembers what the model said about pixels it has seen before.
- *
- * The key is a digest of the CROPS THEMSELVES (dimensions + BGR bytes), which makes it
- * self-validating: a different video, quad, crop geometry or observation cadence produces
- * different pixels and simply misses — the cache can be stale-proof without knowing why the
- * pixels changed. What the pixels cannot encode is the MODEL, so the cache directory is per
- * model and the engine changes nothing here: gates, alarms and recovery never feed back into
- * what the observer is shown, which is exactly why every engine experiment can replay one
- * recorded observation stream.
- *
- * Only sound because replays are deterministic end to end (one clock, inline inference, one
- * intra-op thread, the seed-synchronous cadence): the same file cuts byte-identical crops at the
- * same video times, run after run. Hashing 64 crops costs ~2 ms against the 47 ms it saves.
- *
- * **Eine Datei JE AUFNAHME, nicht je Eintrag** (2026-09-20). Vorher lagen 655 588 Dateien zu
- * 3,5 KB in einem Verzeichnis: ein zufaelliger Zugriff kostete unter Last 10–13 ms, und bis zu
- * 70 % eines Replays waren Warten auf die Platte. Jetzt liest der Konstruktor die Scherben der
- * Aufnahme EINMAL sequenziell in eine Map, und jeder Treffer ist eine Suche im RAM.
- * `docs/desktop-replay.md`.
- */
+/** Keyed by a digest of the CROPS THEMSELVES, so it is stale-proof; only the MODEL is not in the pixels, so
+ *  the directory is per model. Sound only because replays are deterministic end to end. One file PER
+ *  RECORDING, read once into RAM: 655 588 single files made up to 70 % of a replay disk waits. */
 internal class CachingClassifier(
     private val inner: SquareClassifier,
     private val dir: File,
@@ -43,7 +25,6 @@ internal class CachingClassifier(
     private var sink: DataOutputStream? = null
 
     init {
-        // Alle Scherben der Aufnahme: der eigene Prozess schreibt in seine, liest aber jede.
         // Doppelte Schluessel sind harmlos — der Wert ist eine reine Funktion des Schluessels.
         dir
             .listFiles { f -> f.name.startsWith("$recording.") && f.name.endsWith(".bin") }
@@ -125,5 +106,4 @@ private const val BYTE_BITS = 8
 private const val KEY_BYTES = 16
 private const val RADIX = 16
 
-/** Ein Brett hat 64 Felder; alles darueber ist ein kaputter Satz, kein Eintrag. */
 private const val MAX_ROWS = 64

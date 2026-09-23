@@ -17,13 +17,8 @@ import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.UNKNOWN
 import com.chesslab.tracker.ui.theme.Space
 
-/**
- * The one editor for a stored game's names, event and RESULT, shared by Games and Review.
- *
- * The result belongs here and not only on the end-game dialog: that dialog defaults to
- * "unfinished" rather than guessing, and a default is only honest where it can be corrected.
- * This is where.
- */
+/** The result belongs here too: the end-game dialog defaults to "unfinished", and a default is honest only
+ *  where it can be corrected. */
 @Composable
 fun GameDetailsDialog(
     initialWhite: String,

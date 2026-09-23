@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** What `JsonlPolicyParityTest` does not pin: the rows' content, and a CR that is no newline. */
 class JsonlTest {
     @TempDir
     lateinit var dir: File

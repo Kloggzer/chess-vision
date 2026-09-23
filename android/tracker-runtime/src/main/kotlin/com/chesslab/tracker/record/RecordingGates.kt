@@ -4,16 +4,10 @@ import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.Side
 
-/** `config.DEFAULT_INVENTORY` — what one physical set actually contains, per colour. */
+/** Per colour. */
 val DEFAULT_INVENTORY: Map<Char, Int> = mapOf('P' to 8, 'N' to 2, 'B' to 2, 'R' to 2, 'Q' to 1, 'K' to 1)
 
-/**
- * Port of `state.py::physical_inventory_violations`.
- *
- * Legal chess can create a second queen by promotion, but the real board has one — the player uses
- * an upside-down rook or a chip. Auto-labeling that square as a queen poisons the dataset, so a
- * position that needs more pieces than exist is not recorded at all.
- */
+/** A second queen is an upside-down rook on the real board: labeling it a queen poisons the dataset. */
 fun physicalInventoryViolations(
     fen: String,
     inventory: Map<Char, Int> = DEFAULT_INVENTORY,
@@ -26,7 +20,7 @@ fun physicalInventoryViolations(
     }
     board.boardToArray().forEach { piece ->
         if (piece == null || piece == Piece.NONE) return@forEach
-        // `fenSymbol` and not `pieceType.name`: KNIGHT and KING share their first letter.
+        // `fenSymbol`, not `pieceType.name`: KNIGHT and KING share their first letter.
         val colour = if (piece.pieceSide == Side.WHITE) "w" else "b"
         val label = "$colour${piece.fenSymbol.uppercase()}"
         counts[label] = (counts[label] ?: 0) + 1
@@ -37,10 +31,7 @@ fun physicalInventoryViolations(
     }
 }
 
-/**
- * The two gates that make a recorded session trustworthy. Both increment [skipped] and leave a
- * visible [reason]; neither ever stops the recorder.
- */
+/** Both leave a visible [reason]; neither ever stops the recorder. */
 class RecordingGates(
     var inventoryFilter: Boolean = true,
 ) {
@@ -50,29 +41,16 @@ class RecordingGates(
     var reason: String? = null
         private set
 
-    /**
-     * `_skip_recording_for_geometry` — true while the calibration profile does not match the live
-     * frame size. Capture is **suspended, not stopped**: the recorder and everything already
-     * written stay intact and capture resumes by itself once the size is resolved.
-     *
-     * This is not optional. Recording keeps the RAW frame plus the profile's board corners, and
-     * `chesslab slice` later cuts crops from exactly that pair. With an unresolved size mismatch
-     * the corners belong to another resolution, so every crop would be labeled correctly and cut
-     * from the wrong pixels — poisoned training data that is indistinguishable from good data
-     * afterwards.
-     */
+    /** **Suspended, not stopped**: with a size mismatch the corners belong to another resolution, so every crop
+     *  would be labeled correctly and cut from the wrong pixels. */
     fun geometrySuspends(note: String?): Boolean {
         if (note == null) return false
         skipped++
-        // Name the remedy, not just the fault. This string is the ONLY diagnostic the user gets,
-        // and "board geometry unresolved (profile 1920x1080, camera delivers 2560x1440)" left a
-        // phone recording nothing for seven hours across nine games because nothing said that
-        // recalibrating is what clears it.
+        // Name the remedy: without it a phone recorded nothing for seven hours across nine games.
         reason = "Recording paused — $note. Recalibrate to resume; moves are still tracked."
         return true
     }
 
-    /** `_skip_recording_for_inventory`, controlled by [inventoryFilter] (`record_inventory_filter`). */
     fun inventorySkips(fen: String): Boolean {
         if (!inventoryFilter) return false
         val violations = physicalInventoryViolations(fen)
@@ -83,13 +61,7 @@ class RecordingGates(
         return true
     }
 
-    /**
-     * Both gates, in Python's order. Re-run at flush time, not only when a capture is queued.
-     *
-     * [reason] is cleared first: it used to survive the condition that set it, so one transient
-     * geometry blip left "board geometry unresolved" standing on the only diagnostic the user
-     * sees, forever, while recording was in fact running again.
-     */
+    /** Re-run at flush time. [reason] is cleared first: it once outlived its condition forever. */
     fun blocks(
         fen: String,
         geometryNote: String?,
@@ -99,11 +71,7 @@ class RecordingGates(
     }
 }
 
-/**
- * The geometry note itself: the profile's calibration size against the size the camera really
- * delivers. Same comparison `pipeline.FrameSizeGuard` makes for the tracker; recording needs it as
- * a value, and the guard's result only reaches the UI as prose.
- */
+/** The guard's result only reaches the UI as prose; recording needs it as a value. */
 fun geometryNote(
     profileWidth: Int,
     profileHeight: Int,

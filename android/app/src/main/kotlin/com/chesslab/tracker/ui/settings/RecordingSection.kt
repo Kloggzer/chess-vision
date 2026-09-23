@@ -61,28 +61,20 @@ private const val MB = 1024L * 1024L
 // 8 GB is `DEFAULT_CAP_BYTES`: a default the picker cannot show is a row with nothing selected.
 private val CAPS = listOf(250L * MB, 1024L * MB, 2048L * MB, 8192L * MB, 0L)
 
-/** Also the Settings landing summary — one place decides how a storage cap is written. */
 internal fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else formatBytes(bytes)
 
-/** The screen renders before the service is bound; an unbound live game is simply an empty one. */
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
 
 data class RecordingUi(
     val prefs: RecordingPrefs = RecordingPrefs(),
     val sessions: List<SessionInfo> = emptyList(),
     val sessionBytes: Long = 0L,
-    /** Sessions the PC has acknowledged — the one thing that makes deleting one here safe. */
+    /** Acknowledged by the PC — what makes deleting one here safe. */
     val transferred: Set<String> = emptySet(),
-    /** The last load, save or delete that did not happen. */
     val error: String? = null,
 )
 
-/**
- * Recording's own state, split off the games screen when the panel moved here.
- *
- * [RecordingUi.sessionBytes] walks the sessions tree, so it is read on screen entry and on an
- * explicit action, never on the capture path.
- */
+/** [RecordingUi.sessionBytes] walks the sessions tree: read on entry and on explicit action, never on the capture path. */
 class RecordingViewModel(
     private val sessions: SessionStore,
     private val settings: RecordingSettings,
@@ -94,7 +86,6 @@ class RecordingViewModel(
 
     fun refresh() = io { mutable.value = onDisk(RecordingUi(settings.load())) }
 
-    /** `save` hands the value to the capture path before it writes, so the switch follows that. */
     fun setPrefs(prefs: RecordingPrefs) =
         io {
             try {
@@ -111,10 +102,7 @@ class RecordingViewModel(
             mutable.value = onDisk(mutable.value).copy(error = if (deleted) null else "$id could not be deleted completely")
         }
 
-    /**
-     * [open] is a SAF document, which cannot be renamed into place: an export that does not finish
-     * [discard]s it. ATOMIC, so leaving before the start still removes the document SAF already made.
-     */
+    /** A SAF document cannot be renamed into place: an unfinished export [discard]s it, even before the start. */
     fun exportSession(
         id: String,
         open: () -> OutputStream?,
@@ -168,7 +156,7 @@ class RecordingViewModel(
     }
 }
 
-/** Checks the export's job on every write; a blocking zip otherwise outlives the screen that started it. */
+/** Checks the job on every write, or a blocking zip outlives its screen. */
 private class CancellableOutput(
     out: OutputStream,
     private val job: Job,
@@ -188,17 +176,7 @@ private class CancellableOutput(
     }
 }
 
-/**
- * Session recording, off by default — a Settings subpage since specs/47.
- *
- * It was the first and tallest card on the Games screen, which is the screen that holds the game
- * library: a five-line explainer, four size chips and a second toggle, above the games themselves.
- * It is a setting; this is where settings are.
- *
- * The explanation is not decoration: this is the one switch in the app that makes the phone write
- * hundreds of megabytes of its own storage, and the payoff (auto-labeled training data for
- * `chesslab slice`) is invisible on the device itself.
- */
+/** Explained, not decorated: the one switch that writes hundreds of MB, and the payoff is invisible on the device. */
 @Composable
 fun RecordingSection() {
     val context = LocalContext.current
@@ -253,19 +231,8 @@ fun RecordingSection() {
     }
 }
 
-/**
- * What the running recorder is actually doing.
- *
- * The panel used to show only the on-disk total, and that is a snapshot taken when the screen
- * opened. A recorder that had silently stopped writing — cap reached, geometry suspended, a frame
- * that would not encode — was indistinguishable from one that was working, which is why the only
- * report this feature ever got was "recording doesn't work well".
- *
- * ARMED is its own state since the pre-roll (2026-08-14): while the tracker runs and no move has
- * committed, nothing is on disk BY DESIGN — the encoder holds the last 20 s in memory and the
- * first committed move writes them out. A row that implied "recording" here would be the lie the
- * measurement caught from the other side: eleven recordings, nine without a game.
- */
+/** A silently stopped recorder (cap, suspended geometry, an unencodable frame) looked like a working one.
+ *  ARMED: before the first commit nothing is on disk BY DESIGN — the encoder holds the pre-roll in memory. */
 private fun recordingStatus(
     live: GameSessionState,
     tracking: Boolean,
@@ -289,7 +256,6 @@ private fun SessionRow(
     val export =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri ?: return@rememberLauncherForActivityResult
-            // SAF: the user picks the destination, so no storage permission is involved.
             model.exportSession(
                 session.id,
                 open = { context.contentResolver.openOutputStream(uri) },
@@ -309,8 +275,7 @@ private fun SessionRow(
             TextButton(onClick = { confirming = true }) { Text("Delete", color = Danger) }
         }
     }
-    // The SEVENTH irreversible action, and not on the pack's list either. These frames are the only
-    // copy: nothing on the phone reads them back, so a deletion is discovered on the PC or not at all.
+    // These frames are the only copy: a deletion is discovered on the PC or not at all.
     if (confirming) {
         ConfirmDialog(
             title = "Delete ${session.id}?",

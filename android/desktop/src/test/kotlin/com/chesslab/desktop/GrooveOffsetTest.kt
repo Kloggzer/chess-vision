@@ -11,7 +11,6 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
 class GrooveOffsetTest {
-    /** A light board with dark grooves every cell, the whole grid pushed [shiftPx] to the right and down. */
     private fun board(shiftPx: Int): Mat {
         val mat = Mat(SIDE, SIDE, CvType.CV_8UC3, Scalar(200.0, 200.0, 200.0))
         for (k in 0..8) {
@@ -22,7 +21,6 @@ class GrooveOffsetTest {
         return mat
     }
 
-    /** The quad whose warp is the identity: the image corners pushed outward by the marker margin. */
     private val identity =
         (DEFAULT_MARKER_MARGIN * SIDE).toFloat().let { m ->
             floatArrayOf(-m, -m, SIDE + m, -m, SIDE + m, SIDE + m, -m, SIDE + m)

@@ -29,7 +29,6 @@ class ArucoTest {
             val cy = quad.sumOf { it[1] } / 4.0
             assertEquals(cx, points.getValue(id)[0], 1e-9, "marker $id centroid x")
             assertEquals(cy, points.getValue(id)[1], 1e-9, "marker $id centroid y")
-            // ... and the centroid is the marker's geometric centre.
             val expected = SyntheticMarkers.center(id)
             assertEquals(expected[0], points.getValue(id)[0], 1.0, "marker $id centre x")
             assertEquals(expected[1], points.getValue(id)[1], 1.0, "marker $id centre y")

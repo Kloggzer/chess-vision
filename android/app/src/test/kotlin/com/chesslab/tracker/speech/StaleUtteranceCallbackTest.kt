@@ -4,10 +4,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Der unterbrochene Spruch meldet trotzdem fertig — `UtteranceProgressListener.onStop` ruft
- * `onDone`. Diese Meldung gehoert ihm, nicht dem Alarm, der seinen Platz uebernommen hat.
- */
+/** `UtteranceProgressListener.onStop` ruft `onDone`: die Meldung gehoert dem unterbrochenen Spruch. */
 class StaleUtteranceCallbackTest {
     private val spoken = mutableListOf<Pair<String, Boolean>>()
     private val gen = mutableListOf<Int>()
@@ -17,10 +14,7 @@ class StaleUtteranceCallbackTest {
             gen += at
         }
 
-    /**
-     * Die Reihenfolge ist ein Plattformdetail, das sich hier nicht messen laesst — also muessen
-     * BEIDE Ausgaenge halten. Kommt die alte Meldung spaet, darf sie den Alarm nicht freigeben.
-     */
+    /** Die Reihenfolge ist ein Plattformdetail, hier nicht messbar — also muessen BEIDE Ausgaenge halten. */
     @Test
     fun aLateCallbackFromTheInterruptedUtteranceDoesNotFreeTheAlarmsSlot() {
         queue.offer("Springer f3")
@@ -33,7 +27,6 @@ class StaleUtteranceCallbackTest {
         assertTrue(spoken.last() == "Stellung verloren" to true, spoken.toString())
     }
 
-    /** Und kommt sie frueh, ist sie ohnehin harmlos — `clear` hat den Platz schon geraeumt. */
     @Test
     fun anEarlyCallbackIsHarmlessToo() {
         queue.offer("Springer f3")
@@ -45,7 +38,7 @@ class StaleUtteranceCallbackTest {
         assertFalse(queue.idle)
     }
 
-    /** Der Alarm selbst gibt seinen Platz sehr wohl frei — sonst haelt der Fokus fuer immer. */
+    /** Der Alarm gibt seinen Platz sehr wohl frei — sonst haelt der Fokus fuer immer. */
     @Test
     fun theAlarmsOwnCallbackStillFreesTheSlot() {
         queue.offer("Springer f3")

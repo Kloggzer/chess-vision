@@ -6,10 +6,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * A real ORT trace, trimmed: preamble, a provider-less fence event, and kernels split between QNN
- * and CPU — the partial-assignment shape a working NPU session has.
- */
+/** Trimmed: preamble, a provider-less fence event, and kernels split between QNN and CPU. */
 private val MIXED_TRACE =
     """
     [
@@ -25,7 +22,7 @@ private val MIXED_TRACE =
     ]
     """.trimIndent()
 
-/** The bug this whole file exists for: QNN was appended, QNN ran nothing, every kernel is CPU. */
+/** QNN was appended, QNN ran nothing, every kernel is CPU. */
 private val ALL_CPU_TRACE =
     """
     [
@@ -46,8 +43,7 @@ class EpProfileTest {
 
     @Test
     fun onlyNodeKernelEventsCount() {
-        // Both traces contain Session events and MIXED_TRACE a provider-less fence event; if either
-        // were counted the sums would be wrong, and `model_loading_uri` alone dwarfs every kernel.
+        // `model_loading_uri` alone dwarfs every kernel.
         val sessionOnly =
             """
             [{"cat":"Session","pid":9,"tid":9,"dur":99999,"ts":1,"ph":"X","name":"model_loading_uri","args":{}}]
@@ -57,8 +53,7 @@ class EpProfileTest {
 
     @Test
     fun anUnreadableProfileIsUnknownNotAGuess() {
-        // Truncated, empty and non-array payloads must all say "no answer" rather than default to
-        // anything — a default here is exactly how an unverified EP would sneak back in.
+        // A default here is exactly how an unverified EP would sneak back in.
         assertNull(dominantProvider(""))
         assertNull(dominantProvider("""[{"cat":"Node","name":"conv1_kernel_time","""))
         assertNull(dominantProvider("""{"cat":"Node"}"""))
@@ -84,8 +79,6 @@ class EpProfileTest {
 
     @Test
     fun aContradictedRequestReportsWhatRan() {
-        // The measured bug: ORT accepted the QNN EP, QNN's device creation failed inside
-        // GetCapability, and every kernel ran on the CPU while the app said NPU.
         val verdict = EpVerdict(Ep.QNN, dominantProvider(ALL_CPU_TRACE))
         assertFalse(verdict.matches)
         assertTrue(verdict.contradicted)
@@ -108,7 +101,6 @@ class EpProfileTest {
         assertEquals("CoreMLExecutionProvider", verdict.label)
     }
 
-    /** XNNPACK runs on the same cores and hands the graph's 46 InstanceNormalization blocks back to the CPU EP. */
     @Test
     fun xnnpackHandingOperatorsBackToTheCpuIsNotAContradiction() {
         val verdict = EpVerdict(Ep.XNNPACK, dominantProvider(ALL_CPU_TRACE))

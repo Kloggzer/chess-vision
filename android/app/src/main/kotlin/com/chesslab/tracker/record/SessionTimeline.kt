@@ -19,13 +19,8 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
-/**
- * Deep enough for the pre-roll flush, which arrives as ONE burst.
- *
- * `RecordingBundleHost` holds the armed phase's frame rows back until the session exists and then
- * writes the whole window at once — up to `PRE_ROLL_SECONDS` × 30 fps rows. At 512 that burst
- * evicted its own head and the decision row behind it, `DROP_OLDEST` making the loss invisible.
- */
+/** Deep enough for the pre-roll flush, ONE burst of up to `PRE_ROLL_SECONDS` × 30 rows: at 512 it
+ *  evicted its own head and the decision row behind it, invisibly (`DROP_OLDEST`). */
 private const val TIMELINE_QUEUE = 4096
 private const val CLOSE_DRAIN_MS = 2_000L
 private val TIMELINE_JSON = Json { encodeDefaults = true }
@@ -42,11 +37,9 @@ data class TimelineFrame(
     val height: Int,
     val rotation: Int,
     val fen: String?,
-    /** The engine state, not the whole `TrackerStatus`: the pre-roll ring holds these rows for
-     * `PRE_ROLL_SECONDS`, and a status carries three 64-entry maps per frame. */
+    /** Not the whole `TrackerStatus`: the pre-roll holds these rows, and a status carries three 64-entry maps. */
     val state: String?,
     val corners: FloatArray?,
-    /** The engine's motion score for the frame; the settle lag on the phone is read off this. */
     val motion: Double? = null,
 )
 
@@ -121,10 +114,7 @@ private data class StateRow(
     val kind: String = "state",
 ) : TimelineEntry
 
-/**
- * Session-local, loss-visible timeline. Producers only allocate a small immutable row and perform
- * a non-blocking send; JSON and disk I/O stay off the analyzer thread.
- */
+/** Producers allocate one small row and send without blocking; JSON and disk stay off the analyzer thread. */
 class SessionTimeline(
     dir: File,
     scope: CoroutineScope,
@@ -138,7 +128,6 @@ class SessionTimeline(
     private val queue =
         Channel<TimelineEntry>(queueSize, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { evicted.incrementAndGet() })
 
-    /** Non-null once a write failed; later rows are drained unwritten. The recorder shows it. */
     @Volatile
     var failure: String? = null
         private set
@@ -245,7 +234,6 @@ class SessionTimeline(
         queue.trySend(StateRow(seq.getAndIncrement(), elapsedNs, engineTsS, from, to))
     }
 
-    /** Closing the queue lets the writer drain; waiting for it keeps the tail rows off a dying scope. */
     override fun close() {
         queue.close()
         if (writer.isCompleted) return

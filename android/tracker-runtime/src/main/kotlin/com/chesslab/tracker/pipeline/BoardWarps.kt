@@ -25,25 +25,13 @@ import com.chesslab.geometry.warpBoardForCrops
 import org.opencv.core.Core
 import org.opencv.core.Mat
 
-// The two warps of entry.md invariant 1, and the OpenCV half of the frame pipeline.
-//
-//  - DETECTION warp: borderless, at `detSize = boardSize * detectScale`. Every frame.
-//  - CNN CROP warp: bordered, at full `boardSize`. ONLY when the observer asks. Commit 4a7609e
-//    measured the unconditional full-res warp as one of the two things that held the frame loop
-//    at 100-150 ms; deriving crops from the detection warp instead would silently halve their
-//    resolution, which is the `synth-crop-resolution-gap` failure mode.
+// The two warps of invariant 1. DETECTION: borderless at `detSize`, every frame. CNN CROP: bordered, full
+// `boardSize`, ONLY when the observer asks — cropping from the detection warp would halve the resolution.
 
-/** Interleaved BGR — three bytes per pixel. */
 private const val BGR_CHANNELS = 3
 
-/**
- * Hand-off of the bordered crop warp from the analyzer thread to the CNN observer (05c).
- *
- * Ownership: [update] takes ownership of the given `Mat` and releases whatever it held; [take]
- * transfers ownership to the caller, who must `release()` it; [close] releases what is left.
- * [wantsFrame] is true only while the observer has asked AND has consumed the previous frame —
- * that is what keeps the expensive warp off the per-frame path.
- */
+/** [update] takes ownership and releases the previous; [take] hands ownership to the caller. [wantsFrame] is
+ *  true only while the observer asked AND consumed the previous frame — keeping the warp off the per-frame path. */
 class CropFrameStore(
     private val cachedVisual: ((Long) -> CachedVisual?)? = null,
 ) {
@@ -52,30 +40,19 @@ class CropFrameStore(
         val gridOccluded: Long,
     )
 
-    /**
-     * The bordered warp plus the SAME frame's detection warps and signature. The observer needs
-     * all of it: a recovery commit anchors on the frame the CNN actually looked at, and the
-     * decision seq must be the one that frame carried (entry.md invariants 1, 5 and Spec 11).
-     */
+    /** Plus the SAME frame's detection warps: a recovery commit anchors on the frame the CNN looked at. */
     class Pending(
         val cropWarp: Mat?,
         val seq: Long,
         val tsMs: Long,
         val bgrDet: BgrImage,
         val grayDet: GrayImage,
-        /**
-         * Die Geometrie, mit der [cropWarp] entstanden ist — nicht die, die beim Abholen gilt.
-         *
-         * Der Observer holte sie sich bisher frisch; landet zwischen Warp und Abholung eine
-         * Kalibrierung, schneidet er Kaesten in ein Raster, das es nicht mehr gibt.
-         */
+        /** Die Geometrie beim Warp: landet zwischen Warp und Abholung eine Kalibrierung, schnitte der Observer
+         *  Kaesten in ein Raster, das es nicht mehr gibt. */
         val geometry: BoardGeometry,
         val cached: CachedVisual? = null,
-        /**
-         * Der Warp fuer den Rillen-Sensor in KALIBRIERgroesse, wenn sie von [geometry] abweicht: bei
-         * 80-px-Modellen ist der Crop-Warp 576 px, und dort flaggten die Rillen auf ruhigem Rig-Brett
-         * 13 Felder (gemessen 2026-09-04, 0 von 25 Plies). Null heisst: [cropWarp] taugt fuer beide.
-         */
+        /** In KALIBRIERgroesse, wenn sie abweicht: auf dem 576-px-Crop-Warp flaggten die Rillen auf ruhigem Brett
+         *  13 Felder. Null heisst: [cropWarp] taugt fuer beide. */
         val grid: GridPlane? = null,
     ) {
         fun release() {
@@ -89,11 +66,10 @@ class CropFrameStore(
         val geometry: BoardGeometry,
     )
 
-    /** [wantsFrame] und [idle] lesen es ohne die Sperre, unter der der Observer es raeumt. */
+    /** [wantsFrame] und [idle] lesen es ohne die Sperre. */
     @Volatile
     private var pending: Pending? = null
 
-    /** Warps built for the observer that it never took — overwritten by a newer one, counted. */
     @Volatile
     var overwritten = 0L
         private set
@@ -101,7 +77,6 @@ class CropFrameStore(
     @Volatile
     private var wanted = false
 
-    /** Called by the observer thread when it is ready for the next crop frame. */
     fun request() {
         wanted = true
     }
@@ -110,7 +85,7 @@ class CropFrameStore(
 
     val idle: Boolean get() = pending == null
 
-    /** The request is answered — set by the pipeline, so one request yields exactly one warp. */
+    /** One request yields exactly one warp. */
     internal fun served() {
         wanted = false
     }
@@ -124,7 +99,7 @@ class CropFrameStore(
         pending = frame
     }
 
-    /** The newest crop frame, or null. The caller owns the returned `cropWarp`. */
+    /** The caller owns the returned `cropWarp`. */
     @Synchronized
     fun take(): Pending? {
         val out = pending
@@ -139,42 +114,25 @@ class CropFrameStore(
         wanted = false
     }
 
-    /** `null` heisst: der Cache kennt diesen Frame nicht, also normal rechnen. Ob ein fehlender
-     *  Frame ein FEHLER ist, entscheidet der Cache selbst (`VisualObservationCache`). */
+    /** `null`: der Cache kennt diesen Frame nicht. Ob das ein FEHLER ist, entscheidet der Cache selbst. */
     fun cached(seq: Long): CachedVisual? = cachedVisual?.invoke(seq)
 }
 
-/**
- * The OpenCV-backed stages, in the order [FramePipeline] calls them.
- *
- * Stateful by design: each stage writes into this object's reused `Mat`s and the next stage reads
- * them, so the whole per-frame path allocates nothing but the two seam byte arrays. Calling the
- * stages out of order reads the previous frame's pixels.
- *
- * Both suppressions are about detekt measuring the wrong thing here, and neither is a licence to
- * grow. `TooManyFunctions` counts the [FrameStages] interface — every one of these methods is a
- * STAGE, and the count is the pipeline's length, so the only way to lower it is to shorten the
- * pipeline. `LongParameterList` counts the HOST seam: each parameter is one thing a host must
- * supply and no two of them belong together, so the holder object detekt is asking for would exist
- * only to satisfy detekt (the same reasoning `preprocessInto` records in `:core-cnn`). The next
- * parameter after this one deserves an argument, not another line in this comment.
- */
+/** Stateful: each stage writes reused `Mat`s the next one reads, so calling them out of order reads the previous
+ *  frame. The suppressions count the pipeline's length and the host seam; the next parameter needs an argument. */
 @Suppress("LongParameterList", "TooManyFunctions")
 class OpenCvStages<T>(
-    /** How this host turns its frame into BGR. The phone converts YUV; a file source hands a Mat. */
     private val toBgr: (T) -> Mat?,
-    /** Released with the stages: a converter may own reusable buffers, and YuvToBgr does. */
+    /** A converter may own reusable buffers, and YuvToBgr does. */
     private val closeConverter: () -> Unit = {},
     private var geometry: BoardGeometry,
     private var config: TrackerConfig,
     private val cropStore: CropFrameStore,
-    /** Where the preview/calibration bus receives the converted frame. Throttles and clones itself. */
+    /** Throttles and clones itself. */
     private val frameBus: (Mat) -> Unit = {},
-    /** Where the tracking screen receives the rectified board. Same contract as [frameBus]. */
     private val boardBus: (Mat) -> Unit = {},
-    /** The camera's optics, or null for raw pixels. Only the desktop replay (`lens=true`) passes one. */
+    /** Only the desktop replay (`lens=true`) passes one. */
     private val lens: Undistorter? = null,
-    /** Ob der Rillen-Sensor mitlaeuft — dann braucht er seinen Warp in Kalibriergroesse. */
     private val gridArm: Boolean = true,
 ) : FrameStages<T> {
     private val grid = GridCoverage()
@@ -184,33 +142,26 @@ class OpenCvStages<T>(
     private var frame: Mat? = null
     private var warped: Mat? = null
 
-    /** The corners the last detection warp used — what [boardAt] must warp with to agree with it. */
     private var lastWarpCorners: FloatArray? = null
 
     private var grayMat: Mat? = null
 
-    /** Siehe [cropGeometry] — verworfen, wenn die Geometrie wechselt. */
     private var cropGeom: BoardGeometry? = null
 
-    // Die Detektionsspur als Kette. Der Scope lebt EINEN Frame; `lumaPreClahe` und `grayDet`
-    // teilen sich dadurch die Graustufe, die vorher zweimal gerechnet wurde.
+    // Der Scope lebt EINEN Frame; `lumaPreClahe` und `grayDet` teilen sich dadurch die Graustufe.
     private val pool = MatPool()
     private var scope: FrameScope? = null
     private var chain: DetectionChain? = null
 
-    /** Nur die Identitaet des Frames fuers Profiling — der Engine-`seq` zaehlt EMITTIERTE Frames. */
+    /** Nur fuers Profiling — der Engine-`seq` zaehlt EMITTIERTE Frames. */
     private var seqCounter = 0L
 
-    // Je Groesse einer: eine Engine darf `boardAt` jetzt beliebig oft rufen, ohne zu bezahlen.
     private val boardNodes = HashMap<Int, BoardWarpNode>()
 
-    // The two seam planes are recycled, not reallocated (see PlaneRing.kt). One ring each: they have
-    // different sizes and the gray one is written a stage earlier, so a shared ring would have to
-    // reallocate on every single call.
+    // One ring each: different sizes, and a shared ring would reallocate on every call.
     private val grayRing = PlaneRing(ringDepth(config))
     private val bgrRing = PlaneRing(ringDepth(config))
 
-    /** `detSize = boardSize * detectScale` — the detection warp's side (`TrackerConfig.detSize`). */
     private val detSize: Int
         get() = if (config.detectScale < 1.0) (geometry.boardSize * config.detectScale).toInt() else geometry.boardSize
 
@@ -249,28 +200,14 @@ class OpenCvStages<T>(
         return ok
     }
 
-    /**
-     * Mean luma of the detection warp, measured BEFORE CLAHE — the dark-frame gate's whole point.
-     *
-     * The conversion is not optional. `detectionWarp()` is CV_8UC3 BGR, so `Core.mean` returns one
-     * mean per channel and `.val[0]` is the mean of **blue** — which this did for as long as the
-     * gate has existed, while the KDoc claimed luma and the clip harness
-     * (`sim/ClipPipeline.meanLuma`) and the Python original both convert first.
-     *
-     * Blue is not a stand-in for brightness under warm light, and warm light is a target condition:
-     * a session recorded 2026-07-31 measures R:B 51 against the corpus's 1.1, mean blue 4 of 255 on
-     * a board whose true luma is 56. Against `darkLumaThr = 18` that reads "frame too dark" over a
-     * well-lit board, and detection pauses while the preview keeps updating — which is exactly what
-     * it looked like on the device.
-     */
+    /** Luma BEFORE CLAHE, converted first: `.val[0]` of the BGR mean is **blue**, and under warm light (R:B 51)
+     *  a well-lit board read "frame too dark" while the preview kept updating. */
     override fun lumaPreClahe(): Double = Core.mean(node(requireChain().gray)).`val`[0]
 
     override fun grayDet(): GrayImage {
         val g = node(requireChain().grayDet)
         grayMat = g
-        // NOT a fresh ByteArray, and not a single reused one either: the engine's running mean keeps
-        // references to the planes it averaged (entry.md invariant 14), so the buffer comes from a
-        // ring deeper than everything the engine can hold at once.
+        // A ring deeper than the engine can hold: its running mean keeps references to the planes (invariant 14).
         return toGrayImage(g, grayRing.next(g.rows() * g.cols()))
     }
 
@@ -279,13 +216,7 @@ class OpenCvStages<T>(
         return toBgrImage(warp, bgrRing.next(warp.rows() * warp.cols() * BGR_CHANNELS))
     }
 
-    /**
-     * One warp straight from the converted frame at [size], for an engine that measures grey levels
-     * on the board — `bgrDet` scaled down is a second resample and smooths what it would measure.
-     *
-     * Its own output `Mat` per call rather than a ring: nothing here knows how many sizes a caller
-     * will ask for, and the copy into the seam plane happens immediately anyway.
-     */
+    /** Straight from the frame: `bgrDet` scaled down is a second resample and smooths what an engine measures. */
     override fun boardAt(size: Int): BgrImage? {
         val open = scope ?: return null
         return toBgrImage(open.get(boardNodes.getOrPut(size) { BoardWarpNode(size, WorkOperation.BOARD_WARP) }))
@@ -295,7 +226,6 @@ class OpenCvStages<T>(
 
     override fun roiMotion(corners: FloatArray): Double = motion.score(requireNotNull(frame), corners)
 
-    /** The bordered full-resolution warp. Guarded by [CropFrameStore.wantsFrame] at the call site. */
     override fun updateCropFrame(
         corners: FloatArray,
         seq: Long,
@@ -315,10 +245,8 @@ class OpenCvStages<T>(
         var handed = false
         try {
             gridPlane = gridPlaneFor(corners, cropGeom, source)
-            // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
-            // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can
-            // hold that snapshot for seconds — or adopt it as `refGray`/`refBgr` on a recovery commit,
-            // i.e. forever. That lifetime is unbounded, so it can never come out of the ring.
+            // COPIES, and the one place that must copy: `Pending` crosses to the observer and can become
+            // `refGray`/`refBgr` on a recovery commit — an unbounded lifetime, never out of the ring.
             val copies =
                 WorkProfiler.span(WorkOperation.CROP_FRAME_COPY, seq) {
                     val bgrCopy = bgr.copyPlane()
@@ -337,7 +265,6 @@ class OpenCvStages<T>(
         }
     }
 
-    /** Der Rillen-Warp in KALIBRIERgroesse, wenn sie von der Crop-Groesse abweicht. */
     private fun gridPlaneFor(
         corners: FloatArray,
         cropGeom: BoardGeometry,
@@ -367,8 +294,7 @@ class OpenCvStages<T>(
 
     override fun close() {
         closeConverter()
-        // After `undistort` ran, `frame` aliases the undistorter's own output Mat rather than the
-        // converter's — so both owners have to be closed, and neither of them is this class.
+        // After `undistort`, `frame` aliases the undistorter's Mat: both owners close, neither is this class.
         lens?.close()
         grid.close()
         motion.close()
@@ -384,7 +310,7 @@ class OpenCvStages<T>(
 
     private fun node(of: ImageNode): Mat = requireNotNull(scope) { "warpDetection must run first" }.get(of)
 
-    /** Puffer zurueck in den Pool. Was laenger leben muss, ist bis hier in eine Ebene kopiert. */
+    /** Was laenger leben muss, ist bis hier in eine Ebene kopiert. */
     private fun endFrame() {
         scope?.close()
         scope = null
@@ -392,10 +318,7 @@ class OpenCvStages<T>(
         grayMat = null
     }
 
-    /**
-     * Die Rastergroesse des Crop-Warps: aus dem Modell abgeleitet, nicht aus dem Kalibrierprofil.
-     * Einmal je Geometrie gerechnet, weil `boardSize` sich nur mit ihr aendert.
-     */
+    /** Aus dem Modell, nicht aus dem Kalibrierprofil; einmal je Geometrie. */
     private fun cropGeometry(): BoardGeometry = cropGeom ?: geometry.forNativeCrops().also { cropGeom = it }
 
     private fun dropChain() {
@@ -406,12 +329,7 @@ class OpenCvStages<T>(
     }
 }
 
-/**
- * Die Detektionsspur als Kette: Warp -> Grau -> [CLAHE] -> Blur.
- *
- * `lumaPreClahe` zieht [gray], `grayDet` zieht [grayDet] — gleicher Praefix, eine Rechnung. Ohne
- * Clip faellt der CLAHE-Knoten weg, genau wie `GrayPipeline` ihn uebersprang.
- */
+/** Gleicher Praefix, eine Rechnung. Ohne Clip faellt der CLAHE-Knoten weg. */
 private class DetectionChain(
     detSize: Int,
     claheClip: Double,
@@ -429,7 +347,6 @@ private class DetectionChain(
     }
 }
 
-/** A plane that owns its pixels — for the hand-offs that outlive the ring's cycle. */
 private fun BgrImage.copyPlane(): BgrImage = BgrImage(width, height, data.copyOf())
 
 private fun GrayImage.copyPlane(): GrayImage = GrayImage(width, height, data.copyOf())

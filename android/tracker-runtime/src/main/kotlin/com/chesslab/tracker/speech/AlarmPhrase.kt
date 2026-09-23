@@ -3,11 +3,7 @@ package com.chesslab.tracker.speech
 import com.chesslab.engine.api.AlarmFault
 import com.chesslab.engine.api.AlarmReason
 
-/**
- * Der Alarm in einem Satzteil: erst die Kategorie, dann der Grund. Das erste Wort sagt schon, wer
- * gemeint ist — der Spieler am Brett oder die App. Mehr kommt nicht; Felder und Zug stehen auf der
- * Karte, und die Ansage muss zwischen zwei Züge passen.
- */
+/** Das erste Wort sagt schon, wer gemeint ist — Spieler oder App. Die Ansage muss zwischen zwei Zuege passen. */
 object AlarmPhrase {
     private val ENGLISH =
         mapOf(

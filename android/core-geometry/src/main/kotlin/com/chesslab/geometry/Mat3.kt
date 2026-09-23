@@ -2,25 +2,15 @@ package com.chesslab.geometry
 
 import kotlin.math.abs
 
-// Row-major 3x3 arithmetic on plain `DoubleArray`s, for the alignment correction.
-//
-// Not `Mat`: `correctQuad` chains four of these per iteration and three iterations per frame, and
-// each `Mat` is a native allocation that has to be released on every path out. Nine doubles on the
-// heap cost nothing and cannot leak.
-//
-// The elements are named rather than indexed in [invert3] on purpose — the adjugate written with
-// bare subscripts is the kind of code where a transposed index survives review, and it is also
-// the shape detekt's MagicNumber rule cannot tell from a tuning constant.
+// Plain `DoubleArray`s, not `Mat`: `correctQuad` chains four per iteration, and each native `Mat` must be
+// released on every path. Elements are named in [invert3]: bare subscripts hide a transposed index.
 
-/** Below this determinant the matrix is treated as singular. */
 private const val MIN_DET: Double = 1e-12
 
-/** Below this homogeneous coordinate a point is on the line at infinity. */
 private const val MIN_W: Double = 1e-9
 
 private const val N: Int = 3
 
-/** Row-major 3x3 product. */
 internal fun mul3(
     a: DoubleArray,
     b: DoubleArray,
@@ -36,7 +26,6 @@ internal fun mul3(
     return out
 }
 
-/** Row-major 3x3 inverse by adjugate, or null when singular. */
 internal fun invert3(m: DoubleArray): DoubleArray? {
     val a = m[0]
     val b = m[1]
@@ -66,7 +55,6 @@ internal fun invert3(m: DoubleArray): DoubleArray? {
     )
 }
 
-/** A point through a row-major projective map, or null when it lands on the line at infinity. */
 internal fun project3(
     m: DoubleArray,
     p: DoubleArray,

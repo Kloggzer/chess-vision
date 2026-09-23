@@ -16,14 +16,12 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** [TrackerEngine] against the REAL [CnnRecovery]: the fakes in `:core-engine` hid a `Game` passed
- *  as `Any` (D04a-5 / D04b-3) and a discarded `resync_check` move that killed `cnn_overrule` (D04a-1).
- *  Only `:core-cnn` sees both sides, so the coverage lives here. */
+/** Against the REAL [CnnRecovery]: the fakes in `:core-engine` hid a `Game` passed as `Any` and a discarded
+ *  `resync_check` move. Only `:core-cnn` sees both sides. */
 class EngineSeamIntegrationTest {
     @Test
     fun overruleRungCommitsTheCnnsReplacementMove() {
-        // The diff read e2e4, the board shows d2d4 with e4 under a hand: only `resync_check`'s
-        // derived move can decide, via `ResyncResult.move`/`agreement`.
+        // Only `resync_check`'s derived move can decide, via `ResyncResult.move`/`agreement`.
         val rig = Rig()
         rig.captureReference()
         rig.frame(listOf("e4"))
@@ -41,8 +39,7 @@ class EngineSeamIntegrationTest {
 
     @Test
     fun recoveryCommitsAMoveDerivedThroughTheSeam() {
-        // No pending candidate: `_cnn_tick` handed all three seam calls the engine's `Game`,
-        // which `:core-cnn` rejected — this path threw on the first live frame.
+        // `_cnn_tick` handed all three seam calls the engine's `Game`, which `:core-cnn` rejected on the first live frame.
         val rig = Rig()
         rig.captureReference()
 
@@ -58,8 +55,7 @@ class EngineSeamIntegrationTest {
 
     @Test
     fun alarmRaisesOnARealOccupancyConflict() {
-        // A vanished pawn is explained by no legal move, so the desync streak runs. One ply goes on
-        // the record first: `Alarm.alarmable` refuses a board that has never moved.
+        // One ply goes on the record first: `Alarm.alarmable` refuses a board that has never moved.
         val rig = Rig()
         rig.captureReference()
         val played = observationOf(fenAfter("e2e4"))
@@ -70,8 +66,7 @@ class EngineSeamIntegrationTest {
         val obs = observationOf(fenAfter("e2e4"), mapOf("d2" to ("empty" to 0.99)))
         assertNull(rig.alarmOf(rig.observe(obs)), "one glance is not a desync")
         assertNull(rig.alarmOf(rig.observe(obs)), "two glances are not a desync")
-        // Seit `5d3c0955` misst der Latch eine DAUER (`alarmMinS`), nicht drei Bilder; Frames
-        // dazwischen, weil `nowS` NUR im `FrameLoop` laeuft.
+        // Der Latch misst eine DAUER (`alarmMinS`); Frames dazwischen, weil `nowS` NUR im `FrameLoop` laeuft.
         var alarm: TrackerEvent.Alarm? = null
         var glances = 0
         while (alarm == null && glances < MAX_GLANCES) {
@@ -87,7 +82,6 @@ class EngineSeamIntegrationTest {
         assertEquals(fenAfter("e2e4"), rig.engine.status().fen, "an alarm never moves the game state")
     }
 
-    /** A [TrackerEngine] fed synthetic warps, with the real evaluator injected. */
     private class Rig {
         val engine = TrackerEngine(seamConfig(), STARTPOS)
         private var seq = 0L
@@ -96,7 +90,6 @@ class EngineSeamIntegrationTest {
             engine.attachCnn(CnnRecovery())
         }
 
-        /** The first stable frame becomes base truth; e2 carries the blob the move will vacate. */
         fun captureReference() {
             frame(listOf("e2"))
         }
@@ -117,7 +110,6 @@ class EngineSeamIntegrationTest {
             )
         }
 
-        /** One observer result of the CURRENT position; each glance gets its own seq. */
         fun observe(obs: OccupancyObservation): List<TrackerEvent> {
             seq += 1
             return engine.onCnnSnapshot(
@@ -150,14 +142,11 @@ class EngineSeamIntegrationTest {
         const val CORNER_FLOATS = 8
         const val MS_PER_FRAME = 100L
 
-        /** Genug Blicke, dass `alarmMinS` sicher verstreicht — der Latch braucht rund sechs. */
         const val MAX_GLANCES = 40
 
-        /** `square_region`'s inset, so a blob lands inside the region the evidence channel reads. */
         const val INSET = 0.16
 
-        /** No motion gate and one frame per stage: synthetic warps jump instantly, and this test is
-         *  about the CNN seam, not the settle machinery. */
+        /** No motion gate and one frame per stage: synthetic warps jump instantly, and this is about the seam. */
         fun seamConfig(): TrackerConfig =
             RIG_CONFIG.copy(
                 overhang = 0.0,
@@ -170,7 +159,6 @@ class EngineSeamIntegrationTest {
                 confirmFramesOverride = 1,
             )
 
-        /** A flat board with bright blobs on the named squares (Python `_gray_frame`). */
         fun grayBoard(blobs: List<String>): GrayImage {
             val data = ByteArray(BOARD_SIZE * BOARD_SIZE) { BASE_LEVEL.toByte() }
             val cell = BOARD_SIZE / RANKS.toDouble()
@@ -191,7 +179,6 @@ class EngineSeamIntegrationTest {
 
         fun bgrBoard(): BgrImage = BgrImage(BOARD_SIZE, BOARD_SIZE, ByteArray(BOARD_SIZE * BOARD_SIZE * 3) { BASE_LEVEL.toByte() })
 
-        /** A model-free observation of [fen]; [overrides] are `square -> (label, confidence)`. */
         fun observationOf(
             fen: String,
             overrides: Map<String, Pair<String, Double>> = emptyMap(),

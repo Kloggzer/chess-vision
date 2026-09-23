@@ -15,17 +15,7 @@ import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.ui.review.resultHeadline
 import com.chesslab.tracker.ui.theme.Space
 
-/**
- * How a game ended, as four full-width radio rows.
- *
- * The same control in both places a result can be stated — the end-game dialog and the stored
- * game's editor — because they are the same question, and a second wording for it is a second
- * result. The names come from `resultHeadline`, so the library, the review title and this row can
- * never disagree about what `1/2-1/2` is called.
- *
- * A result is a single choice, and the vertical list remains readable for long translations while
- * matching the end-game sheet's scan order.
- */
+/** One control wherever a result is stated — a second wording is a second result. Names from `resultHeadline`. */
 @Composable
 fun ResultChips(
     selected: GameResult,

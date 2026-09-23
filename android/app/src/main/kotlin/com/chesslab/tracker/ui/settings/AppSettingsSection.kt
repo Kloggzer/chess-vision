@@ -9,8 +9,6 @@ import com.chesslab.tracker.settings.EpRequest
 import com.chesslab.tracker.settings.FrameRateMode
 import com.chesslab.tracker.settings.ResolutionMode
 
-/** Only the graph that this build can execute. */
-
 @Composable
 fun BoardOrientationSection(
     app: AppSettings,
@@ -25,7 +23,6 @@ fun BoardOrientationSection(
     )
 }
 
-/** Device-facing choices use the same rows and radio dialogs as the player settings. */
 @Composable
 fun AppSettingsSection(
     app: AppSettings,
@@ -80,13 +77,8 @@ fun DebugRow(
     }
 }
 
-/**
- * Der Backend-Wunsch, hinter der Developer-Tuer statt neben Aufloesung und Modell.
- *
- * AUTO ist die richtige Antwort (CLAUDE.md), also ist das kein Spielerregler — aber beim Debuggen
- * eines Laufzeitproblems will man ihn erreichen, und fuer `AppSettings` gibt es auf dem Geraet
- * keinen `set:`-Weg wie fuer die Engine-Knobs.
- */
+/** Hinter der Developer-Tuer: AUTO ist richtig, aber zum Debuggen muss er erreichbar sein — fuer
+ *  `AppSettings` gibt es auf dem Geraet keinen `set:`-Weg. */
 @Composable
 fun RuntimeSettingsSection(
     app: AppSettings,

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The per-frame ORDER of `tracker.py::_loop`, with the OpenCV stages faked out. */
 class FramePipelineOrderTest {
     private val stages = FakeStages()
     private val store = CropFrameStore()
@@ -28,10 +27,7 @@ class FramePipelineOrderTest {
         assertTrue(note.startsWith("frame too dark (12 < 18.0)"), note)
     }
 
-    /**
-     * The gate reads `lumaPreClahe`, and `grayDet` (where CLAHE lives) never runs on a dark
-     * frame — so a CLAHE that brightens near-black noise cannot lift a frame through the gate.
-     */
+    /** `grayDet` (where CLAHE lives) never runs on a dark frame, so CLAHE cannot lift a frame through the gate. */
     @Test
     fun `the luma is measured before clahe`() {
         stages.luma = 12.0
@@ -70,7 +66,7 @@ class FramePipelineOrderTest {
             pipeline.cropWarpAfterTick(verifyWaiting = false)
         }
         assertEquals(3, stages.cropWarps)
-        // The crop frame carries the seq of the frame it was warped from (Spec 11 pairing).
+        // The seq of the frame it was warped from.
         assertEquals(listOf(1L, 11L, 21L), stages.cropSeqs)
     }
 
@@ -106,7 +102,6 @@ class FramePipelineOrderTest {
         assertEquals(1, stages.gridCalls)
     }
 
-    /** A disabled gate (`minGridLineCoverage <= 0`, several parity clips) never reads the value. */
     @Test
     fun `a disabled grid gate skips the canny pass`() {
         stages.coverage = 0.1
@@ -116,7 +111,7 @@ class FramePipelineOrderTest {
         assertEquals(GRID_GATE_OFF, input.gridLineCoverage)
     }
 
-    /** Stillness and changeset measure on their own 160 warp; the grid Canny costs 7-20 ms per frame on the phone. */
+    /** The grid Canny costs 7-20 ms per frame on the phone. */
     @Test
     fun `an engine that reads neither takes neither measurement`() {
         stages.motion = 1.75
@@ -129,7 +124,6 @@ class FramePipelineOrderTest {
         assertEquals(MOTION_UNREAD, input.motionRoiScore)
     }
 
-    /** The default is the diff engine's appetite: nothing is skipped unless an engine says so. */
     @Test
     fun `the default reads everything`() {
         pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
@@ -137,17 +131,13 @@ class FramePipelineOrderTest {
         assertEquals(1, stages.motionCalls)
     }
 
-    /**
-     * `publishFrame` feeds `latestCalibrationFrame()` (ArUco, grid fit): a lens after it would correct
-     * the warps' pixels but not the ones the geometry is measured from — a split coordinate space.
-     */
+    /** A lens after `publishFrame` would correct the warps but not the pixels geometry is measured from. */
     @Test
     fun `the lens runs after the convert and before anything reads the frame`() {
         pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
         assertEquals(listOf("convert", "undistort", "publishFrame", "warpDetection"), stages.calls.take(4))
     }
 
-    /** LiveAlign writes `corners` from its own thread; a frame warped with A reported as B hides the swap. */
     @Test
     fun `the emitted corners are the ones the warp used`() {
         val swapped = floatArrayOf(9f, 9f, 90f, 9f, 90f, 90f, 9f, 90f)
@@ -156,7 +146,6 @@ class FramePipelineOrderTest {
         assertSame(stages.warpCorners, input.corners)
     }
 
-    /** Same on the dark-frame exit: the gate must judge corrected pixels, not raw ones. */
     @Test
     fun `a dark frame still went through the lens`() {
         stages.luma = 12.0
@@ -186,7 +175,6 @@ private class FakeStages : FrameStages<FakeImage> {
     var warpCorners: FloatArray? = null
     var onWarp: (() -> Unit)? = null
 
-    /** Every stage in the order it was called: what makes the ORDER itself assertable. */
     val calls = mutableListOf<String>()
 
     override fun convert(image: FakeImage) {

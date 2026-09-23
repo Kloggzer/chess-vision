@@ -6,17 +6,13 @@ import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 
-/**
- * The ring's SHAPE only; the depth invariant itself (running mean corrupted at depth 1) is asserted in
- * `:core-engine`'s `FrameLoopTest.theBufferRingNeverHandsBackAPlaneTheRunningMeanStillHolds`.
- */
+/** The SHAPE only; the depth invariant is asserted in `:core-engine`'s `FrameLoopTest`. */
 class PlaneRingTest {
     @Test
     fun theDepthCoversTheWidestAveragingWindowTheCnnCanAskFor() {
-        // Defaults: 2 with the CNN, 3 without. The pipeline is built long before the CNN attaches,
-        // so the ring has to be sized for the larger of the two from the start.
+        // The pipeline is built long before the CNN attaches, so the larger window from the start.
         assertEquals(AVG_FRAMES_NO_CNN + HEADROOM, ringDepth(TrackerConfig()))
-        // `avgFramesOverride` is a live knob (0..10), which is why the depth is derived and not 5.
+        // `avgFramesOverride` is a live knob, which is why the depth is derived.
         assertEquals(WIDE_WINDOW + HEADROOM, ringDepth(TrackerConfig(avgFramesOverride = WIDE_WINDOW)))
     }
 
@@ -31,7 +27,6 @@ class PlaneRingTest {
         repeat(DEPTH) { assertSame(first[it], ring.next(SIZE), "the ring must come back round to slot $it") }
     }
 
-    /** A relayout at a new `detSize`: the slot is replaced, never handed back at the wrong length. */
     @Test
     fun aPlaneSizeChangeReplacesTheSlot() {
         val ring = PlaneRing(DEPTH)
@@ -45,7 +40,6 @@ class PlaneRingTest {
         assertEquals(SIZE, small.size, "the plane the engine may still hold is untouched")
     }
 
-    /** A depth change drops every slot: the old buffers are still live in the engine. */
     @Test
     fun aResizeNeverRecyclesTheOldSlots() {
         val ring = PlaneRing(DEPTH)

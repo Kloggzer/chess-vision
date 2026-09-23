@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test
 
 private const val PLACEMENT = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
 
-/** The app's FEN field readers disagree on a broken FEN ON PURPOSE; this pins each answer. */
+/** The readers disagree on a broken FEN ON PURPOSE; this pins each answer. */
 class FenFieldReadersTest {
     @Test
     fun theHintNamesNoSideForAnUnreadableField() {

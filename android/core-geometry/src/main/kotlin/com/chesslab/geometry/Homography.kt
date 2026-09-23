@@ -13,23 +13,10 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-// Board homography and marker -> corner reconstruction.
-// Ports of `calibration.py compute_homography` and `:518 resolve_board_corners`.
-
-/** Below this baseline length the 2-marker similarity is undefined (`calibration.py`). */
 private const val MIN_BASELINE: Double = 1e-6
 
-/**
- * Four image points in `[a8, h8, h1, a1]` order -> the 3x3 homography onto a `boardSize`
- * square. Port of `calibration.py compute_homography`.
- *
- * `margin > 0`: the image points lie that fraction OUTSIDE the playing field (markers at the
- * outer corners), so the playing field `[0, boardSize]` is indented accordingly. One value PER
- * CORNER in `[a8, h8, h1, a1]` order — each is pushed outward along its own diagonal, so
- * `margins4(x)` reproduces the old square exactly.
- *
- * Returns a `CV_64F` 3x3 `Mat` (what `Imgproc.getPerspectiveTransform` produces).
- */
+/** `margin > 0`: the points lie that fraction OUTSIDE the field, one value per corner, each pushed along its
+ *  own diagonal. Returns a `CV_64F` 3x3. */
 fun computeHomography(
     corners: List<DoubleArray>,
     boardSize: Int,
@@ -60,21 +47,15 @@ fun computeHomography(
                 ),
             )
         val h = Imgproc.getPerspectiveTransform(src, dst)
-        // Both operands are native allocations; the caller only ever wanted the result. Leaving them
-        // to a finalizer leaked two `Mat`s per frame on the live path.
+        // Both operands are native: left to a finalizer they leaked two `Mat`s per frame on the live path.
         src.release()
         dst.release()
         cache?.put(corners, boardSize, margin, h)
         h
     }
 
-/**
- * Single-entry exact cache for a warp owner's current geometry.
- *
- * Only the nine matrix values live here, not a native [Mat]: every caller receives an independent
- * matrix that it may scale, translate and release. The cache is intentionally owner-confined and
- * unsynchronised; the live pipeline calls it from one analyzer thread.
- */
+/** Only the nine values live here, not a native [Mat]: every caller gets an independent matrix. Owner-confined
+ *  and unsynchronised — one analyzer thread. */
 class HomographyCache {
     private var boardSize = 0
     private var cornerBits = LongArray(0)
@@ -128,7 +109,6 @@ class HomographyCache {
     }
 }
 
-/** Stable within and across runs, unlike collection identity hashes. Only evaluated while profiling. */
 private fun homographyFingerprint(
     corners: List<DoubleArray>,
     boardSize: Int,
@@ -144,14 +124,7 @@ private fun homographyFingerprint(
 
 private const val FINGERPRINT_MULTIPLIER = 31L
 
-/**
- * Reconstruct the 4 corner points `[a8, h8, h1, a1]` from 2/3/4 marker points.
- * Port of `calibration.py resolve_board_corners`.
- *
- * Returns `(corners4, nUsed)`, or `null` when fewer than 2 markers are known (or the 2-marker
- * baseline is degenerate). 4 -> exact perspective, 3 -> affine (parallelogram),
- * 2 -> similarity (square assumption).
- */
+/** `(corners4, nUsed)`, or `null` below 2 markers. 4 -> exact perspective, 3 -> affine, 2 -> similarity. */
 fun resolveBoardCorners(
     pointsById: Map<Int, DoubleArray>,
     boardSize: Int = 800,
@@ -164,7 +137,7 @@ fun resolveBoardCorners(
             doubleArrayOf(bs, bs),
             doubleArrayOf(0.0, bs),
         )
-    // `have` follows the ID ORDER 0,1,2,3 - not the map's iteration order.
+    // `have` follows the ID ORDER 0,1,2,3 — not the map's iteration order.
     val have = (0 until CORNER_COUNT).filter { pointsById.containsKey(it) }
     val src = have.map { board[it] }
     val dst = have.map { pointsById.getValue(it) }
@@ -178,7 +151,6 @@ fun resolveBoardCorners(
     return proj?.let { it to have.size }
 }
 
-/** Similarity (rotation + uniform scale) exactly determined by two point correspondences. */
 private fun similarityProject(
     src: List<DoubleArray>,
     dst: List<DoubleArray>,
@@ -207,8 +179,7 @@ private fun similarityProject(
     }
 }
 
-// Beide geben ihre nativen Mats von Hand frei, wie `computeHomography` oben: sie laufen je
-// Frame auf dem Live-Eckenpfad, und der Finalizer holt das nicht rechtzeitig nach.
+// Native Mats released by hand, as in `computeHomography`: per frame on the live path, the finalizer lags.
 private fun affineProject(
     src: List<DoubleArray>,
     dst: List<DoubleArray>,
@@ -245,7 +216,6 @@ private fun perspectiveProject(
     }
 }
 
-/** `n x 1` `CV_32FC2` — what Python's `astype(np.float32).reshape(-1, 1, 2)` produces. */
 private fun pointsMat(points: List<DoubleArray>): MatOfPoint2f {
     val mat = MatOfPoint2f()
     mat.fromList(points.map { Point(it[0], it[1]) })

@@ -4,7 +4,6 @@ import com.chesslab.tracker.analysis.AnalysisLine
 import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.analysis.GateBlock
 
-/** Schwarz am Zug — so liest jede Probe hier, ausser sie sagt etwas anderes. */
 internal const val FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"
 
 internal const val OTHER_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2"

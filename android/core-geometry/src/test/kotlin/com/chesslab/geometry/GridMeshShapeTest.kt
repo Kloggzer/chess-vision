@@ -3,8 +3,7 @@ package com.chesslab.geometry
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
-/** Ein Mesh kommt STUFENWEISE vollstaendig oder gar nicht: beide Achsen oder keine, Kruemmung
- *  nur auf Neigungen. Sonst traegt der Verbraucher die fehlende Haelfte als Null weiter. */
+/** Beide Achsen oder keine, Kruemmung nur auf Neigungen: sonst traegt der Verbraucher die fehlende Haelfte als Null weiter. */
 class GridMeshShapeTest {
     @Test
     fun `tilts on one axis alone are refused`() {

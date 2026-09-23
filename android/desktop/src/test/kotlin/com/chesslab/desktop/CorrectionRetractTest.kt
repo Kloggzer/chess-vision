@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** `retract: true` ist ein Grabstein (`labeling.load_corrections` `pop`t den Schluessel); der
- *  Pack-Bauer packte ein vom Menschen ZURUECKGEZOGENES Label weiter ins Training. */
+/** `retract: true` ist ein Grabstein (`labeling.load_corrections` `pop`t den Schluessel). */
 class CorrectionRetractTest {
     @TempDir
     lateinit var dir: File

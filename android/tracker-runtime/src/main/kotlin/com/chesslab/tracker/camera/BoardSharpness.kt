@@ -2,17 +2,11 @@ package com.chesslab.tracker.camera
 
 import com.chesslab.engine.api.BgrImage
 
-/**
- * Die Schaerfe des BRETTS: Laplace-Varianz je Feld, Median ueber die 64.
- *
- * Ueber das ganze Bild gerechnet misst sie Tisch, Zimmer und Hand mit — Haut ist texturarm und
- * zieht die Varianz wie Unschaerfe (`framescan.cell_sharpness`: ein scharfes Brett mit nacktem
- * Arm landete bei 17 statt 500). Der Median haelt auch, wenn eine Hand ein paar Felder verdeckt.
- */
+/** Laplace-Varianz je Feld, Median ueber die 64: ueber das ganze Bild zieht texturarme Haut die Varianz wie
+ *  Unschaerfe (ein scharfes Brett mit nacktem Arm landete bei 17 statt 500). */
 fun meterSharpness(board: BgrImage): Float {
     val cell = board.width / SIDE
-    // Beide Kanten, nicht nur die Breite: die Zeilenschleife laeuft bis `8 * cell` und indiziert ein
-    // Raster der Hoehe `height` — die Meldung nannte schon immer beide, geprueft wurde eine.
+    // Beide Kanten: die Zeilenschleife indiziert ein Raster der Hoehe `height`.
     require(cell >= MIN_CELL_PX && board.height == board.width) {
         "Brett zu klein oder nicht quadratisch fuer die Schaerfe: ${board.width}x${board.height}"
     }
@@ -39,7 +33,7 @@ private fun lumaOf(board: BgrImage): IntArray {
     return out
 }
 
-/** Streamend, ohne Zwischenebene: die Laplace-Ebene eines 512er-Bretts waere 1 MB je Messung. */
+/** Streamend: die Laplace-Ebene eines 512er-Bretts waere 1 MB je Messung. */
 private fun cellVariance(
     luma: IntArray,
     width: Int,
@@ -81,5 +75,5 @@ private const val SIDE = 8
 private const val CELLS = SIDE * SIDE
 private const val BYTE = 0xFF
 
-/** Unter dieser Feldgroesse misst der Kern mehr Nachbarfeld als Feld. */
+/** Darunter misst der Kern mehr Nachbarfeld als Feld. */
 private const val MIN_CELL_PX = 8

@@ -4,8 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Der Crop-Kasten muss NATIV auf der Modellgroesse landen: groesser schneiden und mit `INTER_AREA`
- *  herunterrechnen kostete 0,25 Punkte `piece_acc` (gemessen 2026-08-29). */
+/** Groesser schneiden und mit `INTER_AREA` herunterrechnen kostete 0,25 Punkte `piece_acc`. */
 class NativeCropSizeTest {
     private fun boxWidth(geom: BoardGeometry): Int {
         val box = squareToCropBox("d4", geom, clamp = false)

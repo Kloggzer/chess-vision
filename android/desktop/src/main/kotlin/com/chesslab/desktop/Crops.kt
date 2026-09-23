@@ -28,19 +28,9 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.security.MessageDigest
 import javax.imageio.ImageIO
 
-/**
- * `crops <video> <outDir> [frames=<file>|every=N] [out=WxH]` — the 64 square crops, as the device cuts them.
- *
- * The reason this exists is parity, not convenience. `cropSquare` is an explicit port of
- * `labeling.py`, and the plan is to let Kotlin pack the training memmap directly so no crop is
- * ever materialised as a PNG. Before that move, the two implementations have to be shown to agree
- * on the same pixels — a silent divergence here is the `ClipDriver` incident again, where a crop
- * box of 120 px against the served 110 invalidated a whole measurement.
- *
- * The QUAD it used is written into the receipt so the comparison can be run with the same corners
- * on both sides. That isolates the crop construction from the corner detection; mixing the two
- * would leave a disagreement unattributable.
- */
+/** `crops <video> <outDir> [frames=<file>|every=N] [out=WxH]` — for PARITY with `labeling.py`: a crop box of
+ *  120 px against the served 110 once invalidated a whole measurement. The QUAD goes into the receipt so both
+ *  sides cut with the same corners. */
 fun cropsOfVideo(args: List<String>) {
     val video = File(args.getOrNull(0) ?: error("usage: crops <video> <outDir> [frames=<f>|every=N] [out=WxH]"))
     val outDir = File(args.getOrNull(1) ?: error("usage: crops <video> <outDir> [frames=<f>|every=N] [out=WxH]"))
@@ -58,7 +48,6 @@ fun cropsOfVideo(args: List<String>) {
     println("cut ${written * ALL_SQUARES.size} crops from $written frames -> ${outDir.absolutePath}")
 }
 
-/** The loop alone, so the `use` block above stays one statement (detekt's nesting rule). */
 private fun cutEach(
     source: FrameSource,
     outDir: File,
@@ -97,10 +86,8 @@ private const val CROPS_EVERY = 400
 
 private const val PROBE_ARGS = 5
 
-/** `probe-crop <log.jsonl> <framesDir> <stem> <square> <outDir>` — the pack's own warp and cut as
- *  PNGs, so a probe montage shows TRAINING pixels and never a Python approximation. A frame the
- *  sidecar covers is cut exactly like `packLabeledSession` cuts it: fitted field quad, margin 0,
- *  mesh beside it as `cell-mesh.png`. */
+/** `probe-crop <log.jsonl> <framesDir> <stem> <square> <outDir>` — the pack's own warp and cut, so a probe
+ *  shows TRAINING pixels, never a Python approximation. */
 fun probeCrop(args: List<String>) {
     require(args.size >= PROBE_ARGS) { "usage: probe-crop <log.jsonl> <framesDir> <stem> <square> <outDir>" }
     val log = args[0].fileArg()
@@ -194,17 +181,13 @@ private fun putRgbCrop(
     }
 }
 
-/**
- * `turntable-pack <video> <fen> <outDir> [every=N] [max=N] [id=name]` — video straight to a
- * training-compatible RGB uint8 memmap.  A frame is admitted only when the tracker's per-frame
- * quad and grid-groove hand sensor both say it is clean; no Python geometry or crop PNGs exist.
- */
+/** `turntable-pack <video> <fen> <outDir> [every=N] [max=N] [id=name]` — a frame is admitted only when the
+ *  per-frame quad and the grid-groove hand sensor both say it is clean. */
 @Suppress("LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth", "LoopWithTooManyJumpStatements")
 fun packTurntableVideo(args: List<String>) {
-    // Gradle's `--args` tokenizes on spaces. `~` is the portable spelling for spaces in paths.
+    // Gradle's `--args` tokenizes on spaces: `~` spells a space in paths.
     val video = (args.getOrNull(0) ?: packUsage()).fileArg()
-    // Gradle's `--args` tokenizes on spaces. The CLI therefore accepts `_` as the portable
-    // spelling of a FEN field separator, while the metadata always records the canonical FEN.
+    // `_` spells a FEN field separator; the metadata records the canonical FEN.
     val fen = (args.getOrNull(1) ?: packUsage()).replace('_', ' ')
     val outDir = File(args.getOrNull(2) ?: packUsage())
     val rest = args.drop(3)

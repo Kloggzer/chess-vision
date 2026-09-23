@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test
 class BoardSharpnessTest {
     private fun board(value: (x: Int, y: Int) -> Int): BgrImage = lumaBoard(128, value)
 
-    /** Ein Schachbrettmuster je Feld: Kanten ueberall, also Varianz ueberall. */
     private fun textured(period: Int) = board { x, y -> if ((x / period + y / period) % 2 == 0) 30 else 220 }
 
     @Test
@@ -51,7 +50,6 @@ class BoardSharpnessTest {
         assertTrue(e is IllegalArgumentException)
     }
 
-    /** 3x3-Kastenfilter, der billigste Weg zu einem nachweislich weicheren Bild. */
     private fun blurred(source: BgrImage): BgrImage {
         val out = ByteArray(source.data.size)
         val w = source.width

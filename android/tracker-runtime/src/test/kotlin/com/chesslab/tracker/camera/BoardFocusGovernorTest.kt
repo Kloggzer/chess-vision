@@ -79,7 +79,6 @@ class BoardFocusGovernorTest {
             frames++
         }
         assertTrue(port.sets > after) { "danach geht es eine Stufe weiter" }
-        // Der Sprung aus dem Automatikfokus ist der weiteste, den es gibt.
         assertTrue(frames > 5) { "ein weiter Weg braucht mehr als Wartezeit plus drei Messungen" }
     }
 
@@ -346,7 +345,6 @@ class BoardFocusGovernorTest {
     fun `the device autofocus seeds the search and its point is checked against its neighbours`() {
         val port = FakeLookPort(able)
         val g = BoardFocusGovernor(port, settleFrames = 0)
-        // Die Kamera trifft den Gipfel des Fake-Objektivs: die Gegenprobe muss ihn halten.
         port.deviceFocus = 0.3f
         g.onBoard(0, true, FocusRegion(0.5f, 0.5f, 0.4f)) { focusBoard(0f) }
         g.start()
@@ -362,7 +360,7 @@ class BoardFocusGovernorTest {
     fun `a device point one coarse step beside the peak is still corrected locally`() {
         val port = FakeLookPort(able)
         val g = BoardFocusGovernor(port, settleFrames = 0)
-        // 0.37 liegt neben dem Gipfel bei 0.3, aber innerhalb der Feinstufen um den AF-Punkt.
+        // Neben dem Gipfel bei 0.3, aber innerhalb der Feinstufen um den AF-Punkt.
         port.deviceFocus = 0.37f
         g.onBoard(0, true, FocusRegion(0.5f, 0.5f, 0.4f)) { focusBoard(0f) }
         g.start()
@@ -387,16 +385,12 @@ class BoardFocusGovernorTest {
         assertEquals(0.3f, (state as FocusState.Locked).focus, 0.05f)
     }
 
-    /**
-     * `armAutoLock` setzt `armed = false`, BEVOR `askDevice()` gefragt hat. Sagt die Kamera nein
-     * (noch nicht gebunden, Region abgelehnt), kommt der eine Vorgabe-Lock nie wieder.
-     */
+    /** Sagt die Kamera nein, kam der eine Vorgabe-Lock nie wieder. */
     @Test
     fun `a refused auto lock may be tried again once the camera answers`() {
         val port = FakeLookPort(able)
         val g = BoardFocusGovernor(port, settleFrames = 0)
         val region = FocusRegion(0.5f, 0.5f, 0.4f)
-        // Die Kamera ist noch nicht gebunden: `focusOn` sagt nein.
         port.deviceFocus = null
         g.onBoard(0, true, region) { focusBoard(0f) }
         assertEquals(FocusState.Idle, g.state.value)
@@ -436,7 +430,6 @@ class BoardFocusGovernorTest {
         assertEquals(null, g.sharpness.value)
     }
 
-    /** `cancel()` only looked at `sweep`, which is null during the device seek and the confirmation step. */
     @Test
     fun `cancel during the device seek restores the manual distance`() {
         val port = FakeLookPort(able)
@@ -460,7 +453,7 @@ class BoardFocusGovernorTest {
         val g = BoardFocusGovernor(port, settleFrames = 0)
         g.onBoard(0, true, FocusRegion(0.5f, 0.5f, 0.4f)) { focusBoard(0.42f) }
         g.sweep()
-        // Die Bestaetigung ist der Zustand, in dem alle Stufen gelaufen sind (done == total).
+        // Die Bestaetigung: alle Stufen gelaufen (done == total).
         var seq = 1L
         var confirming = false
         while (seq < 400 && !confirming) {

@@ -13,8 +13,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// `_compute_evidence` — the two channels, the RAW census copy and the channel-local guard.
-
 private const val U8 = 0xFF
 
 private const val MIN_TIER_A_FRAMES = 247
@@ -22,10 +20,7 @@ private const val MIN_TIER_A_FRAMES = 247
 private const val Z_HOT = 3.0
 
 class EvidenceTest {
-    /**
-     * Replays the never-reset noise models from the constructor state. Where the guard fired
-     * (`censusNoiseZ == null`) the census update is already inside `computeEvidence` (STATUS D01d-4).
-     */
+    /** Replays the never-reset noise models. Where the guard fired, the census update is already inside `computeEvidence`. */
     @Test
     fun computeEvidenceMatchesPython() {
         var checked = 0
@@ -48,7 +43,7 @@ class EvidenceTest {
         for (frame in clip.frames) {
             val tierA = frame.tierA
             val refFrames = tierA?.refFrames
-            // `refFrames == null`: `_maybe_patch_anomaly` mutated ref_gray in place (D01a-6).
+            // `refFrames == null`: `_maybe_patch_anomaly` mutated ref_gray in place.
             if (tierA == null || refFrames == null) continue
             val where = "${clip.name}/${frame.frame}"
             state.refGray = refs.getOrPut(refFrames) { clip.meanGray(refFrames) }
@@ -80,7 +75,6 @@ class EvidenceTest {
         return guardFrames
     }
 
-    /** `test_normalize_diffs_isolates_hot_fields`, through `computeEvidence`: the UPPER median is subtracted. */
     @Test
     fun medianNormalizationIsolatesHotSquares() {
         val state = testState(testConfig(censusZWeight = 0.0))
@@ -98,7 +92,6 @@ class EvidenceTest {
         }
     }
 
-    /** `test_global_exposure_shift_not_stuck` — +42 everywhere; median normalization leaves no square hot. */
     @Test
     fun globalExposureShiftNotStuck() {
         val state = testState(testConfig(censusZWeight = 0.0))
@@ -136,7 +129,6 @@ class EvidenceTest {
         assertExact(setOf("e4"), hot.sortedSquareNames().toSet(), "hot squares")
     }
 
-    /** `test_global_jitter_median_normalized` — a 1 px wobble fires the RAW census on every textured square. */
     @Test
     fun globalJitterDoesNotFireCensus() {
         val state = testState()
@@ -153,7 +145,7 @@ class EvidenceTest {
         )
     }
 
-    /** Invariant 8: the raw copy is taken BEFORE normalization — the phantom-shadow-as-destination fix. */
+    /** Invariant 8: the raw copy is taken BEFORE normalization. */
     @Test
     fun censusThrComparesAgainstRawCensus() {
         val state = testState()
@@ -175,7 +167,6 @@ class EvidenceTest {
         assertTrue(pulledUnder > 0, "the fixture must contain a square normalization pulls under $thr")
     }
 
-    /** More hot squares than even a pair could explain: the census channel and its raw copy drop for this frame. */
     @Test
     fun censusChannelDroppedWhenTooManyHotSquares() {
         val state = testState(testConfig(maxChanged = 6))
@@ -214,7 +205,6 @@ class EvidenceTest {
         }
     }
 
-    /** `censusZWeight` is live-tunable; a leftover `_cens_raw` would freeze the shadow veto's threshold input. */
     @Test
     fun censRawClearedWhenWeightTunedToZero() {
         val state = testState()
@@ -231,7 +221,6 @@ class EvidenceTest {
         assertNull(state.lastCens)
     }
 
-    /** `_ref_census_codes` caches on IDENTITY — an in-place patch invalidates it. */
     @Test
     fun refCensusCodesCacheKeysOnIdentity() {
         val state = testState()
@@ -239,7 +228,7 @@ class EvidenceTest {
         state.refGray = ref
         val first = state.refCensusCodes()
         assertTrue(first === state.refCensusCodes(), "the same reference object must hit the cache")
-        // The code buffer is REUSED across recomputes, so every comparison below uses a copy.
+        // The code buffer is REUSED across recomputes, so compare copies.
         val firstCodes = first.copyOf()
 
         val twin = GrayImage(ref.width, ref.height, ref.data.copyOf())
@@ -248,8 +237,7 @@ class EvidenceTest {
         assertTrue(state.refCensusFor === twin, "the cache key is the image identity, not equality")
         assertTrue(firstCodes.contentEquals(secondCodes), "equal pixels still give equal codes")
 
-        // `_maybe_patch_anomaly` mutates in place and invalidates explicitly; the probe sits INSIDE a
-        // box because codes are only computed there.
+        // The probe sits INSIDE a box: codes are only computed there.
         val boxes = state.evidenceBoxes
         val probe = (boxes.y0[0] + boxes.y1[0]) / 2 * twin.width + (boxes.x0[0] + boxes.x1[0]) / 2
         twin.data[probe] = (twin.data[probe].toInt() xor U8).toByte()
@@ -258,7 +246,6 @@ class EvidenceTest {
         assertTrue(!secondCodes.contentEquals(thirdCodes), "an invalidated cache must recompute")
     }
 
-    /** The quiet re-anchor ADOPTS this frame's codes as the reference; they must equal a fresh transform. */
     @Test
     fun adoptedReferenceCodesEqualAFreshTransform() {
         val state = testState()
@@ -281,9 +268,6 @@ class EvidenceTest {
         }
     }
 
-    // -- helpers ------------------------------------------------------------------------------
-
-    /** A textured disc over roughly half the inset box of [square] (Python's `_piece`). */
     private fun paintDisc(
         image: GrayImage,
         square: String,
@@ -307,7 +291,6 @@ class EvidenceTest {
         }
     }
 
-    /** One pixel of horizontal wobble — `np.roll(ref, 1, axis=1)`. */
     private fun rollRight(image: GrayImage): GrayImage {
         val w = image.width
         val out = ByteArray(image.data.size)
@@ -319,7 +302,6 @@ class EvidenceTest {
         return GrayImage(w, image.height, out)
     }
 
-    /** Replaces the pixels of the named squares with fresh noise — a structural change everywhere. */
     private fun scrambleSquares(
         image: GrayImage,
         squares: List<String>,

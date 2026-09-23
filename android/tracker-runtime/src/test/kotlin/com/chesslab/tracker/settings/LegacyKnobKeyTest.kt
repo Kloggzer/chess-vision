@@ -6,9 +6,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Ein umbenannter Knopf muss unter dem ALTEN Schluessel ankommen: der steht in der
- *  DataStore-Huelle des Telefons und in jeder Replay-Config. Still fallen lassen hiesse,
- *  eine gesetzte Einstellung wirkt nicht mehr und niemand erfaehrt es. */
+/** Der alte Schluessel steht in der DataStore-Huelle des Telefons und in jeder Replay-Config. */
 class LegacyKnobKeyTest {
     @Test
     fun `der alte Schluessel modelHandGate setzt weiter den Formfilter`() {

@@ -18,8 +18,6 @@ import org.junit.jupiter.api.Test
 class EngineGuardProbeTest {
     private fun EngineState.move(uci: String) = requireNotNull(legalMoveFor(uci))
 
-    // -- Dispatch / Commit ------------------------------------------------------------------------
-
     @Test
     fun theAlarmGateDropsTheConfirmerStreak() {
         val state = detectState()
@@ -59,8 +57,6 @@ class EngineGuardProbeTest {
         state.trackAnomalies()
         assertEquals(10.5, state.anomalyStart[a3], "der Zeitgeber gehoert zur Referenz, die der Commit verliess")
     }
-
-    // -- Guards / Taint -------------------------------------------------------------------------------
 
     @Test
     fun aStuckReasonIsLoggedOnceEvenWithARowInBetween() {
@@ -103,8 +99,6 @@ class EngineGuardProbeTest {
         state.cnnSnap = recoverySnap(state, RecoveryObs(labels, confidence = 0.87), seq = 1, tsMs = 1_000_000L)
         assertEquals(bit(Squares.index("c8")), state.cnnOcclusionFilter(bit(Squares.index("c8"))))
     }
-
-    // -- Alarm / CnnTick ------------------------------------------------------------------------------
 
     @Test
     fun alarmDeferObsPostponesTheLatch() {
@@ -175,8 +169,6 @@ class EngineGuardProbeTest {
         assertEquals(0, state.recoveryConfirmer.count)
     }
 
-    // -- TrackerEngine / EngineState ------------------------------------------------------------------
-
     @Test
     fun aLatchedHandBlocksTheQuietReAnchor() {
         val ref = grayFrame()
@@ -238,8 +230,6 @@ class EngineGuardProbeTest {
         engine.setFen(NF3_NO_CASTLING)
         assertEquals(0, engine.state.desyncObs)
     }
-
-    // -- Promotion ------------------------------------------------------------------------------------
 
     private val promotionFen = "8/P6k/8/8/8/8/7K/8 w - - 0 1"
 

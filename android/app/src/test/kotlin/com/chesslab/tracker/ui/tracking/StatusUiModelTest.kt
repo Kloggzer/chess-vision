@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Calibrated by default: `corners` is what tells "not calibrated" from a stalled detection. */
+/** `corners` is what tells "not calibrated" from a stalled detection. */
 private val CALIBRATED = floatArrayOf(10f, 20f, 110f, 22f, 108f, 120f, 12f, 118f)
 
 private fun status(
@@ -33,11 +33,7 @@ private fun status(
     )
 
 class StatusUiModelTest {
-    /**
-     * `waiting`, `moving` and `move` are ONE label and three tones. They are visible for a fraction
-     * of a second each, so the word cannot tell them apart — but the colour still does, and that is
-     * the only live feedback the header has.
-     */
+    /** One label, three tones: the word cannot tell them apart, the colour still does. */
     @Test
     fun theThreeRunningStatesShareALabelAndKeepTheirTones() {
         val running = listOf(STATE_WAITING, STATE_MOVING, STATE_MOVE)
@@ -51,16 +47,11 @@ class StatusUiModelTest {
         assertEquals(StateTone.Busy, trackingUiState(status(STATE_OCCLUDED, fps = 12.0)).tone)
     }
 
-    /** The fallback may not print an engine identifier at a user. */
     @Test
     fun anUnknownEngineStateIsStillJustLive() {
         assertEquals(TrackerLabel.LIVE, trackingUiState(status("some_new_engine_state", fps = 12.0)).state)
     }
 
-    /**
-     * Frames arrive, the board is fitted, and nothing ticks. This used to live only in `fpsDetail`;
-     * as a label it survives the frame rate leaving the screen.
-     */
     @Test
     fun aStalledEngineOnALiveCameraIsItsOwnLabel() {
         val stalled = trackingUiState(status(fps = 0.0, cameraFps = 30.0))
@@ -72,7 +63,6 @@ class StatusUiModelTest {
             trackingUiState(status(fps = 0.0, alarm = alarm)).state,
             "a latched alarm outranks a stalled engine",
         )
-        // An unfitted board is the other reason nothing is being read, and it is the same sentence.
         assertEquals(
             TrackerLabel.NO_DETECTION,
             trackingUiState(status(fps = 0.0, corners = null)).state,
@@ -92,7 +82,6 @@ class StatusUiModelTest {
         val ui = trackingUiState(status(state = STATE_MOVING, alarm = alarm))
         assertTrue(ui.boardTinted)
         assertEquals(StateTone.Alarm, ui.tone)
-        // The engine blocks every commit while alarmed: the line may not report progress.
         assertNotEquals(TrackerLabel.LIVE, ui.state)
         assertEquals("illegal_move", ui.alarm?.kind)
         assertEquals(listOf("e4", "d5"), ui.alarm?.conflicts)
@@ -100,8 +89,7 @@ class StatusUiModelTest {
         assertFalse(trackingUiState(status(state = STATE_MOVING)).boardTinted)
     }
 
-    /** Ein Alarm schlaegt die Hand. Umgekehrt meldete der Kopf „Hand ueberm Brett", waehrend
-     *  die Engine jeden Zug sperrt — der einzige Kanal, der das sagt, sagte das Falsche. */
+    /** Ein Alarm schlaegt die Hand: sonst meldete der Kopf "Hand ueberm Brett", waehrend die Engine sperrt. */
     @Test
     fun aLatchedAlarmOutranksAHandOverTheBoard() {
         val alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)
@@ -113,10 +101,8 @@ class StatusUiModelTest {
 
     @Test
     fun theInfoLineShowsWhatTheResolverAlreadyDecided() {
-        // Changed 2026-08-01. This used to re-rank `stuckReason` above `status.note` — a SECOND
-        // resolver for one slot, and it discarded the first one's top rung: a latched alarm always
-        // sets `stuck: no_legal_move`, so the board went red while the line beside it explained
-        // something else. `StatusPublisher.resolveNote` owns the precedence; the UI renders it.
+        // A second resolver here discarded the alarm: a latched alarm sets `stuck: no_legal_move`, and the line
+        // explained something else. `StatusPublisher.resolveNote` owns the precedence.
         assertEquals("note text", trackingUiState(status(note = "note text")).infoLine)
         assertEquals(
             "note text",
@@ -126,11 +112,6 @@ class StatusUiModelTest {
         assertNull(trackingUiState(status()).infoLine)
     }
 
-    /**
-     * The frame rate is GONE from the screen, and with it the largest number a player could do
-     * nothing about. Both rates and their 5-second medians remain on the debug Timings panel; what
-     * the header carries instead is the game.
-     */
     @Test
     fun theHeaderCarriesTheMoveAndNotTheFrameRate() {
         val start = trackingUiState(status(fps = 12.0))
@@ -145,7 +126,6 @@ class StatusUiModelTest {
         assertEquals(2, afterE4C5Nf3.moveNumber)
     }
 
-    /** A FEN the app cannot read shows NEITHER half rather than a wrong one. */
     @Test
     fun anUnreadableFenYieldsNoMoveAtAll() {
         val truncated = trackingUiState(status(fps = 12.0).copy(fen = "8/8/8/8/8/8/8/8"))
@@ -153,19 +133,13 @@ class StatusUiModelTest {
         assertNull(truncated.moveNumber)
     }
 
-    /**
-     * Not tracking is not the same as a paused camera, and neither may be reported as engine state.
-     *
-     * The app now opens with no service at all (specs/43), so the header's top rung is "there is no
-     * tracker" — a stale running state over nothing at all is the lie this outranks.
-     */
+    /** With no service at all, a stale running state over nothing is the lie this outranks. */
     @Test
     fun notTrackingOutranksThePausedCameraAndEveryEngineState() {
         val off = trackingUiState(status(state = STATE_MOVING, fps = 14.8), tracking = false)
         assertEquals(TrackerLabel.NOT_TRACKING, off.state)
         assertEquals(StateTone.Idle, off.tone)
         assertFalse(off.ready, "with no tracker there is no game line to show either")
-        // A paused camera keeps its game and says so; no tracker has none to keep.
         val paused = trackingUiState(status(fps = 14.8), cameraOn = false)
         assertEquals(TrackerLabel.CAMERA_OFF, paused.state)
         assertNotEquals(paused.infoLine, off.infoLine)
@@ -197,7 +171,6 @@ class StatusUiModelTest {
         )
     }
 
-    /** D06b-4: without this the overlay is parameterized for a quad it can never draw. */
     @Test
     fun theBoardCornersReachTheOverlay() {
         val corners = floatArrayOf(10f, 20f, 110f, 22f, 108f, 120f, 12f, 118f)
@@ -205,26 +178,17 @@ class StatusUiModelTest {
         assertNull(trackingUiState(idleTrackerStatus()).corners)
     }
 
-    /**
-     * **The filled button is whatever the screen needs NOW** (specs/49). Ranked exactly like the
-     * header: no tracker outranks a released camera, which outranks a board that was never fitted.
-     */
     @Test
     fun theTaskIsWhateverTheScreenNeedsNow() {
         assertEquals(TrackerTask.START, trackingUiState(status(), tracking = false).task)
         assertEquals(TrackerTask.RESUME_CAMERA, trackingUiState(status(), cameraOn = false).task)
         assertEquals(TrackerTask.CALIBRATE, trackingUiState(status(corners = null)).task)
         assertEquals(TrackerTask.WATCH, trackingUiState(status(fps = 14.8)).task)
-        // A released camera on an uncalibrated board is still a released camera — taking it back is
-        // the only act that can lead anywhere, and it must not be ranked under Calibrate.
+        // A released camera on an uncalibrated board is still a released camera — not ranked under Calibrate.
         assertEquals(TrackerTask.RESUME_CAMERA, trackingUiState(status(corners = null), cameraOn = false).task)
     }
 
-    /**
-     * `ready` is what decides which of the two layouts renders, and it needs BOTH a geometry and
-     * frames. Corners with a dead feed is the case that would otherwise draw a board, an eval bar
-     * and a move list over a camera that is delivering nothing.
-     */
+    /** Corners with a dead feed would otherwise draw a board, eval bar and move list over a camera delivering nothing. */
     @Test
     fun readyNeedsGeometryAndFrames() {
         assertTrue(trackingUiState(status(fps = 14.8)).ready)
@@ -234,7 +198,6 @@ class StatusUiModelTest {
         assertFalse(trackingUiState(status(), tracking = false).ready)
     }
 
-    /** A latched alarm is a state of a game being WATCHED — the alarm card owns the filled button. */
     @Test
     fun anAlarmDoesNotLeaveTheWatchingLayout() {
         val alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)

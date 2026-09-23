@@ -5,30 +5,23 @@ import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import kotlin.math.max
 
-/** The engine's clock is seconds, the seam's is ms. */
 private const val MS_PER_S = 1000.0
 
-/** EMA weights of the displayed fps. */
 private const val FPS_EMA_OLD = 0.9
 
 private const val FPS_EMA_NEW = 0.1
 
-/** The baseline-occlusion absdiff threshold, as a multiple of `motionPxThr`. */
 private const val BASELINE_ABS_THR_FACTOR = 4.0
 
-/** The 100 ms occlusion keep-alive that bridges hand-leaves -> motion-hold-expires. */
+/** Bridges "the hand left" -> "the motion hold expired". */
 private const val OCCLUSION_KEEPALIVE_S = 0.1
 
-/**
- * The RAW UNDILATED core only (entry.md invariant 3). One genuinely strong square dilates to five
- * and would lock the tracker in `occluded`, where detection — and with it the CNN move-vs-hand
- * arbitration — never runs.
- */
+/** The RAW UNDILATED core (invariant 3): one strong square dilates to five and would lock `occluded`, where
+ *  the CNN arbitration never runs. */
 private const val OCCLUDED_CORE_LIMIT = 2
 
 private const val BYTE_MASK = 0xFF
 
-/** `sum` of `n` bytes lives in `0 until 256 * n` — the size of [PlaneMean]'s division table. */
 private const val U8_LEVELS = 256
 
 internal const val NOTE_WAITING_CLEAR = "waiting for clear view of the board…"
@@ -44,10 +37,6 @@ internal const val SKIP_SETTLING = "settling"
 
 internal const val SKIP_OCCLUDED = "occluded"
 
-/**
- * What one frame-loop iteration decided. `Detect` means detection must run on the averaged pair;
- * `Skip` means the frame produced no detection evidence.
- */
 internal sealed interface FrameOutcome {
     data class Detect(
         val cur: GrayImage,
@@ -60,28 +49,20 @@ internal sealed interface FrameOutcome {
     ) : FrameOutcome
 }
 
-/**
- * The per-frame detection body. Camera read, reconnect/backoff, overlay encode, the perf log and
- * the CNN worker spawn are NOT here: none of them influences a detection decision.
- * @param setRef the quiet base-truth capture (`fromCommit = false`), injected to stay testable.
- */
+/** No camera, overlay, perf log or CNN spawn here: none of them influences a detection decision. */
 internal class FrameLoop(
     private val state: EngineState,
     private val setRef: (GrayImage, BgrImage?) -> Unit,
 ) {
-    /**
-     * One iteration. The trailing `state`-reset is applied **before** a `Detect` is returned, not
-     * after detection: that is equivalent and provable, because in between nothing reads `state` and
-     * nothing writes anything but `"move"`, which the reset preserves.
-     */
+    /** The trailing `state` reset is applied **before** a `Detect` is returned: equivalent, because in between
+     *  nothing reads `state` and nothing writes anything but `"move"`, which the reset preserves. */
     fun step(input: FrameInput): FrameOutcome {
         // Invariant 14: a repeated frame diffs to zero and reads as "stable" while a hand waves.
         require(input.seq > state.lastInputSeq) {
             "frame seq ${input.seq} was already delivered (last ${state.lastInputSeq})"
         }
-        // `detSize` is computed TWICE in this app — here from `config.boardSize * detectScale`, and
-        // in the frame pipeline from the CALIBRATION PROFILE's board size. A divergence is silent:
-        // the engine reads square boxes at one scale out of a plane rendered at another.
+        // `detSize` is computed TWICE: here from the config, in the pipeline from the calibration profile. A
+        // divergence is silent — boxes read at one scale out of a plane rendered at another.
         require(input.grayDet.width == state.detSize && input.grayDet.height == state.detSize) {
             "detection plane is ${input.grayDet.width}x${input.grayDet.height}, " +
                 "but the engine indexes squares for ${state.detSize} " +
@@ -89,13 +70,12 @@ internal class FrameLoop(
         }
         state.lastInputSeq = input.seq
         state.nowS = input.timestampMs / MS_PER_S
-        // The producer's sequence, not a private count: CNN snapshots carry `FrameInput.seq`, and a
-        // candidate stamped from a second domain lets an OLDER observation satisfy `snap.seq >= pending.seq`.
+        // The producer's sequence: CNN snapshots carry `FrameInput.seq`, and a second domain lets an OLDER
+        // observation satisfy `snap.seq >= pending.seq`.
         state.frameSeq = input.seq
         state.lastCorners = input.corners
         val cfg = state.config
-        // Measured on the luma BEFORE CLAHE: CLAHE amplifies near-black sensor noise into phantom
-        // changed squares, so measuring after it defeats the gate entirely.
+        // BEFORE CLAHE: it amplifies near-black sensor noise into phantom changed squares.
         if (cfg.darkLumaThr > 0 && input.lumaPreClahe < cfg.darkLumaThr) {
             state.note = darkNote(input.lumaPreClahe, cfg.darkLumaThr)
             return FrameOutcome.Skip(SKIP_DARK)
@@ -106,7 +86,6 @@ internal class FrameLoop(
         return if (state.motion <= cfg.motionThr) stableBranch(input) else motionBranch(input)
     }
 
-    /** Display only, but it is state and it is part of the loop's order. */
     private fun updateFps() {
         val last = state.lastLoopTs
         if (last != 0.0) {
@@ -119,10 +98,7 @@ internal class FrameLoop(
         state.lastLoopTs = state.nowS
     }
 
-    /**
-     * The frame motion and the ROI motion (the margin AROUND the board, where the hand is seen
-     * BEFORE it covers a square) are combined with `max`.
-     */
+    /** The ROI margin sees the hand BEFORE it covers a square; combined with `max`. */
     private fun updateMotion(input: FrameInput) {
         val prev = state.prevGray
         // First iteration and a live resolution change alike: seed from the current frame, never throw.
@@ -132,25 +108,19 @@ internal class FrameLoop(
         state.motion = max(frameMotion, input.motionRoiScore)
     }
 
-    /**
-     * Per-square occlusion against the baseline reference while the hand moves or the grid is
-     * covered; the expiry stamps bridge "the hand left" and "motion hold expired". NOT in the
-     * core-gated occluded state: refreshing there re-flags a quiet board that merely differs from
-     * the reference (a played move), and the state never exits without motion (2026-09-12).
-     */
+    /** NOT in the core-gated occluded state: refreshing there re-flags a quiet board that merely differs from
+     *  the reference (a played move), and the state never exits without motion. */
     private fun updateBaselineOcclusion(input: FrameInput) {
         val ref = state.refGray
         val cfg = state.config
-        // A calibration/profile update can replace the detection plane while an earlier baseline is
-        // still live. Comparing pixels from two differently sized warps used to throw here, which
-        // made the camera source drop every following frame.
+        // A calibration can replace the detection plane under a live baseline; two differently sized warps threw
+        // here and the camera source dropped every following frame.
         if (ref != null && (ref.width != input.grayDet.width || ref.height != input.grayDet.height)) {
             state.discardVisualReference()
             state.note = NOTE_WAITING_CLEAR
             return
         }
-        // AUS heisst: kein Nachschub fuer die Verdeckungs-Fristen und kein Schattenveto -- auch
-        // nicht das aus `applyVetoes`, das hier sonst gleich wieder ueberschrieben wuerde.
+        // AUS heisst auch kein Schattenveto aus `applyVetoes`, das hier sonst wieder ueberschrieben wuerde.
         if (!cfg.baselineOcclusion) state.shadowVetoed = 0L
         if (cfg.baselineOcclusion && ref != null && (state.state == STATE_MOVING || state.occlGridActive)) {
             val result =
@@ -174,19 +144,17 @@ internal class FrameLoop(
             result.core.forEachSquare { state.occlCoreExpiry[it] = expiry }
             state.shadowVetoed = result.shadow
         }
-        // Unconditional — outside the guard, so the keep-alive expires on its own.
+        // Unconditional, outside the guard, so the keep-alive expires on its own.
         val live = state.liveExpiry(state.occlusionExpiry)
         state.motionOccluded = live
         state.occludedVetoed = live
         state.expireStalledVerify()
     }
 
-    /** Hand or camera moving: discard the buffers, hold detection off. */
     private fun motionBranch(input: FrameInput): FrameOutcome {
         val cfg = state.config
         state.stableCount = 0
         state.restSettled = false
-        // A hand entered → a real move is now possible; commits must follow motion promptly.
         state.motionSinceRef = true
         state.lastMotionTs = state.nowS
         state.confirmer.reset()
@@ -203,7 +171,6 @@ internal class FrameLoop(
         return FrameOutcome.Skip(SKIP_MOVING)
     }
 
-    /** The quiet branch: average, gate, and hand the pair to detection. */
     private fun stableBranch(input: FrameInput): FrameOutcome {
         state.stableCount += 1
         state.grayBuf.append(input.grayDet)
@@ -211,8 +178,7 @@ internal class FrameLoop(
         var ready = state.stableCount >= state.settleFrames && state.nowS >= state.holdUntil
         var outcome: FrameOutcome = FrameOutcome.Skip(SKIP_SETTLING)
         if (state.grayBuf.size >= state.avgFrames) {
-            // Grid-line gate FIRST, on the LATEST gray, not the mean: a large opaque object hides
-            // the board's grid lines → skip detection AND the buffer means.
+            // Grid gate FIRST, on the LATEST gray: a large opaque object hides the grid lines.
             if (occludedByGrid(input.gridLineCoverage)) {
                 state.occlGridActive = true
                 state.state = STATE_OCCLUDED
@@ -220,13 +186,11 @@ internal class FrameLoop(
                 outcome = FrameOutcome.Skip(SKIP_OCCLUDED)
             } else {
                 if (state.occlGridActive) {
-                    // Gate just cleared: the occluder left. Double the settle hold and DROP both
-                    // buffers, or residual hand pixels (half-shadows, the averaging mix) pollute the
-                    // first detection after occlusion. Never "optimise" this away.
+                    // The occluder left: double the settle hold and DROP both buffers, or residual hand pixels pollute the
+                    // first detection. Never "optimise" this away.
                     state.occlGridActive = false
-                    // The tail below only resets a state that is neither MOVE nor OCCLUDED, so
-                    // `occluded` used to survive until the next MOTION frame — and with it the
-                    // periodic CNN check, whose stable arm needs WAITING or MOVE.
+                    // The tail below only resets a state that is neither MOVE nor OCCLUDED: `occluded` survived until the next
+                    // MOTION frame, and with it the periodic CNN check stayed off.
                     state.state = STATE_WAITING
                     state.holdUntil = max(state.holdUntil, state.nowS + state.config.occluderHoldS)
                     state.refHoldUntil = max(state.refHoldUntil, state.nowS + state.config.occluderHoldS)
@@ -237,16 +201,13 @@ internal class FrameLoop(
                 outcome = stableMeans(ready)
             }
         }
-        // See the note on step(): applied before a Detect is returned.
         if (state.state != STATE_MOVE && state.state != STATE_OCCLUDED) state.state = STATE_WAITING
         return outcome
     }
 
-    /** The averaged pair, the base-truth capture and the raw-core state gate. */
     private fun stableMeans(ready: Boolean): FrameOutcome {
         val cur = state.grayBuf.meanUint8()
         val curBgr = state.bgrBuf.meanUint8()
-        // Assigned unconditionally, including the `null` right after a buffer clear.
         state.lastCur = cur
         state.lastCurBgr = curBgr
         var outcome: FrameOutcome = FrameOutcome.Skip(SKIP_SETTLING)
@@ -254,12 +215,10 @@ internal class FrameLoop(
             // The reference always waits for the FULL motion hold, whatever `commitHoldS` opened.
             val refReady = ready && state.nowS >= state.refHoldUntil
             if (state.refGray == null) {
-                // Initial / re-capture of base truth: wait for a clear, long enough stable view —
-                // never reference an obscured image.
+                // Never reference an obscured image: wait for a clear, long enough stable view.
                 if (refReady) setRef(cur, curBgr) else state.note = NOTE_WAITING_CLEAR
             } else if (refReady && state.refProvisionalUntil > 0.0 && !state.motionSinceRef) {
-                // An early commit anchored on the hand's tail; this is the frame the full hold
-                // would have committed on, so it becomes the reference instead.
+                // The frame the full hold would have committed on becomes the reference instead of the hand's tail.
                 state.setRef(cur, curBgr, fromCommit = true)
                 state.refProvisionalUntil = 0.0
             } else if (ready && state.state != STATE_MOVE) {
@@ -272,7 +231,6 @@ internal class FrameLoop(
                         state.state = STATE_OCCLUDED
                         FrameOutcome.Skip(SKIP_OCCLUDED)
                     } else {
-                        // seq = newest frame in the averaged buffer (the decision signature).
                         FrameOutcome.Detect(cur, curBgr, state.frameSeq)
                     }
             }
@@ -280,10 +238,9 @@ internal class FrameLoop(
         return outcome
     }
 
-    /** The live RAW UNDILATED occluded core — never the dilated `occlusionExpiry`. */
+    /** Never the dilated `occlusionExpiry`. */
     private fun occludedCoreCount(): Int = state.liveExpiry(state.occlCoreExpiry).countOneBits()
 
-    /** `<= 0` disables the gate entirely. */
     private fun occludedByGrid(coverage: Double): Boolean {
         val cfg = state.config
         if (cfg.minGridLineCoverage <= 0) return false
@@ -297,10 +254,7 @@ private fun darkNote(
     thr: Double,
 ): String = "frame too dark (${Math.rint(luma).toLong()} < $thr) — detection paused"
 
-/**
- * A fixed-window running mean over gray planes. Appended planes are stored by REFERENCE, so the
- * frame source must hand the engine a fresh buffer per frame (entry.md invariant 14).
- */
+/** Planes are stored by REFERENCE: the source must hand over a fresh buffer per frame (invariant 14). */
 internal class RunningMeanGray(
     maxlen: Int,
 ) {
@@ -312,13 +266,11 @@ internal class RunningMeanGray(
 
     fun clear() = impl.clear()
 
-    /** New window length; drops everything buffered. */
     fun resize(maxlen: Int) = impl.resize(maxlen)
 
     fun meanUint8(): GrayImage? = impl.mean()?.let { GrayImage(impl.width, impl.height, it) }
 }
 
-/** [RunningMeanGray] for interleaved BGR planes. */
 internal class RunningMeanBgr(
     maxlen: Int,
 ) {
@@ -335,11 +287,8 @@ internal class RunningMeanBgr(
     fun meanUint8(): BgrImage? = impl.mean()?.let { BgrImage(impl.width, impl.height, it) }
 }
 
-/**
- * The shared arithmetic of both running means. The accumulator is an `IntArray`: a handful of `uint8`
- * planes sums to well under 2^31, so the sum is EXACT and float64's 15.4 MB per frame (a 1.92 MB BGR
- * plane) is not paid. The buffer SURVIVES [clear], so the motion frames do not churn large objects.
- */
+/** An `IntArray` accumulator: a handful of `uint8` planes sums EXACTLY under 2^31, without float64's
+ *  15.4 MB per frame. The buffer SURVIVES [clear], so motion frames do not churn large objects. */
 private class PlaneMean(
     maxlen: Int,
 ) {
@@ -347,7 +296,6 @@ private class PlaneMean(
     private val buf = ArrayDeque<ByteArray>()
     private var sum = IntArray(0)
 
-    /** `sum -> sum / divisor` for every reachable sum; see [mean]. */
     private var divisor = 0
     private var divTable = ByteArray(0)
     var width = 0
@@ -371,8 +319,7 @@ private class PlaneMean(
         if (buf.isEmpty()) {
             for (i in sum.indices) sum[i] = data[i].toInt() and BYTE_MASK
         } else if (buf.size == window) {
-            // Evict and add in ONE pass. Two passes over a 1.92 MB BGR plane's 7.7 MB accumulator
-            // read and wrote it twice for an update that is a single subtraction.
+            // Evict and add in ONE pass over the 7.7 MB accumulator.
             val evicted = buf.removeFirst()
             for (i in sum.indices) sum[i] += (data[i].toInt() and BYTE_MASK) - (evicted[i].toInt() and BYTE_MASK)
         } else {
@@ -388,11 +335,8 @@ private class PlaneMean(
         clear()
     }
 
-    /**
-     * TRUNCATION, not rounding. The division goes through a table because the window is tiny (2 to 4
-     * frames) while the plane is not: every reachable sum is `0..255 * n`, so a ~1 KB lookup in L1
-     * replaces an integer division on each of 1.92 million BGR bytes.
-     */
+    /** TRUNCATION, not rounding. Every reachable sum is `0..255 * n` (n = 2..4), so a ~1 KB table replaces an
+     *  integer division on each of 1.92 million bytes. */
     fun mean(): ByteArray? {
         if (buf.isEmpty()) return null
         val n = buf.size

@@ -7,8 +7,8 @@ data class CnnSnapshot(
     val inferMs: Double,
     val warped: BgrImage?,
     val gray: GrayImage?,
-    // Observation-start FEN guards against applying results after the game state changes.
+    // Observation-start FEN: a result must not apply after the game state changed.
     val fen: String?,
-    // Model-free hand map: bit i represents `Squares.ALL[i]`; 0L = clean or no sensor.
+    // Bit i is `Squares.ALL[i]`; 0L = clean or no sensor.
     val gridOccluded: Long = 0L,
 )

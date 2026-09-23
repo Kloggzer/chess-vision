@@ -5,7 +5,7 @@ import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** `arena models` nennt die schwaechsten Klassen — eine ungemessene darf dort nicht als 0,000 stehen. */
+/** Eine ungemessene Klasse darf nicht als 0,000 unter den schwaechsten stehen. */
 class ModelCardTest {
     private fun card(body: String) = ModelCard(Json.parseToJsonElement(body).jsonObject)
 

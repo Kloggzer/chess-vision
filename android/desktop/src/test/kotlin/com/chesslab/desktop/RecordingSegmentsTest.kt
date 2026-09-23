@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** A tool that saw only `video.mp4` would label the first minute of a resumed recording and report success. */
 class RecordingSegmentsTest {
     @TempDir
     lateinit var dir: File

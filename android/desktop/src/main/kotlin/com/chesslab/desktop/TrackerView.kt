@@ -25,27 +25,12 @@ import javax.swing.WindowConstants
 import kotlin.math.abs
 import kotlin.math.min
 
-/**
- * What the tracker sees, while it sees it.
- *
- * The engine already publishes everything this draws — `TrackerStatus` carries the fused
- * per-square evidence, the three veto sets and the CNN conflicts, and `CameraFrameBus` carries
- * the rectified detection warp. The desktop built both and read neither, so a decision printed
- * as `REJECT ... too_many_changed changed=[e7=23.5 g1=23.2 ...]` was the only way to find out
- * WHERE the tracker was looking. This is that same information on the board it came from.
- *
- * The board shown is the DETECTION warp, not the camera frame: it is the picture the engine
- * actually reasons about, at the resolution it reasons about it. A frame that looks fine and a
- * warp that is sheared are the same photograph, and only the second one explains a wrong move.
- *
- * Nothing here is on the frame path. The bus throttles the conversion to one frame in six and
- * runs it off-thread; this only ever paints what it is handed.
- */
+/** The DETECTION warp, not the camera frame, with the engine's published evidence painted on it: a sheared
+ *  warp explains a wrong move where the photograph looks fine. Nothing here is on the frame path. */
 class TrackerView private constructor(
     private val frame: JFrame,
     private val canvas: BoardCanvas,
 ) : AutoCloseable {
-    /** Hand it the latest board and status; safe to call from any thread, cheap when unchanged. */
     fun show(
         board: BufferedImage?,
         status: TrackerStatus?,
@@ -57,19 +42,8 @@ class TrackerView private constructor(
         }
     }
 
-    /**
-     * Block here while the run is paused, and pause it when the engine gets stuck.
-     *
-     * Called from the frame loop, before the next frame is pulled. Blocking the loop is the
-     * point: a stuck tracker is a state, and reading a state off a picture that keeps moving is
-     * how you end up describing the frame after the one that mattered.
-     *
-     * Pausing on `stuckReason` rather than on every frame, and only when the REASON changes —
-     * `no_legal_move` fires on every frame of a settled board, so stopping on each one would be
-     * a break-point that never lets go.
-     *
-     * Returns false once the window is gone, which is how the caller learns to stop.
-     */
+    /** Blocking the loop is the point: a stuck state must not be read off a picture that keeps moving. Pauses
+     *  only when the REASON changes — `no_legal_move` fires on every frame of a settled board. */
     fun awaitStep(status: TrackerStatus?): Boolean {
         if (!frame.isDisplayable) return false
         val reason = status?.stuckReason
@@ -90,16 +64,10 @@ class TrackerView private constructor(
         SwingUtilities.invokeLater { frame.dispose() }
     }
 
-    /** The reason we last paused on, so a persistent one does not stop every frame. */
     private var lastStuck: String? = null
 
     companion object {
-        /**
-         * A window, or null when there is no display.
-         *
-         * Null rather than a thrown exception: a replay on a build server has to run, and the
-         * view is a debugging aid, not part of what is being tested. The caller prints why.
-         */
+        /** Null rather than a throw: a replay on a build server has to run. */
         fun openOrNull(title: String): TrackerView? {
             if (GraphicsEnvironment.isHeadless()) return null
             val canvas = BoardCanvas()
@@ -134,13 +102,8 @@ class TrackerView private constructor(
     }
 }
 
-/**
- * The board, with the engine's evidence drawn where the evidence is about.
- *
- * The colour of a square is what the engine DID with it, not merely how much it changed: a
- * square that moved a lot and was vetoed as a shadow is the interesting case, and a heatmap
- * alone cannot show it. So the vetoes outrank the heat, and the legend says which is which.
- */
+/** The colour is what the engine DID with a square: a square that moved a lot and was vetoed as a shadow is the
+ *  interesting case, so the vetoes outrank the heat. */
 private class BoardCanvas : JPanel() {
     @Volatile var board: BufferedImage? = null
 
@@ -175,12 +138,7 @@ private class BoardCanvas : JPanel() {
         drawStatusLine(g2, status, side)
     }
 
-    /**
-     * The BELIEVED piece on every occupied square, from the engine's own FEN — "what the system
-     * thinks stands on the board", drawn on the board it thinks it about. White pieces write
-     * bright on a dark plate, black ones dark on a bright plate, so the colour survives any
-     * square underneath.
-     */
+    /** The BELIEVED piece from the engine's FEN, bright-on-dark or dark-on-bright so any square shows it. */
     private fun drawBelief(
         g2: Graphics2D,
         st: TrackerStatus,
@@ -206,7 +164,6 @@ private class BoardCanvas : JPanel() {
         }
     }
 
-    /** One tint per square, chosen by what the engine decided rather than by how loud it was. */
     private fun drawEvidence(
         g2: Graphics2D,
         st: TrackerStatus,
@@ -224,17 +181,14 @@ private class BoardCanvas : JPanel() {
                 g2.color = verdict.second
                 g2.fillRect(x, y, w, h)
             } else if (abs(z) > Z_FLOOR) {
-                // The fused evidence itself, for squares the engine did not act on: enough to
-                // see where it is looking, faint enough not to be mistaken for a decision.
+                // For squares the engine did not act on: faint enough not to read as a decision.
                 g2.color = Color(HEAT.red, HEAT.green, HEAT.blue, heatAlpha(z))
                 g2.fillRect(x, y, w, h)
             }
             g2.color = GRID
             g2.drawRect(x, y, w, h)
             if (verdict != null || abs(z) > Z_FULL) {
-                // The number, not just the tint: "this square is red" and "this square reads 18.5
-                // where the moved one reads 7.6" are different findings, and only the second one
-                // points anywhere.
+                // The number, not just the tint: only "18.5 where the moved one reads 7.6" points anywhere.
                 g2.color = Color.WHITE
                 g2.font = LABEL_FONT
                 g2.drawString(
@@ -246,12 +200,7 @@ private class BoardCanvas : JPanel() {
         }
     }
 
-    /**
-     * Which set a square is in, in the order the engine resolves them.
-     *
-     * A vetoed square is also a changed square — that is the whole point of a veto — so asking
-     * "changed?" first would paint over the only information that explains a non-move.
-     */
+    /** A vetoed square is also a changed one, so asking "changed?" first would hide the veto. */
     private fun verdictOf(
         square: String,
         st: TrackerStatus,
@@ -264,7 +213,6 @@ private class BoardCanvas : JPanel() {
             else -> null
         }
 
-    /** State, the move it is weighing, and — when it refused — the reason it gives. */
     private fun drawStatusLine(
         g2: Graphics2D,
         st: TrackerStatus?,
@@ -302,12 +250,7 @@ private class BoardCanvas : JPanel() {
     private fun heatAlpha(z: Double): Int = ((abs(z) / Z_FULL).coerceIn(0.0, 1.0) * HEAT_ALPHA_MAX).toInt()
 }
 
-/**
- * A BGR `Mat` as a Swing image.
- *
- * `TYPE_3BYTE_BGR` on purpose: its raster is BGR in exactly the layout OpenCV already has, so
- * this is one bulk copy and no per-pixel channel swap.
- */
+/** `TYPE_3BYTE_BGR`: its raster is OpenCV's layout, so one bulk copy and no channel swap. */
 fun matToImage(mat: Mat): BufferedImage? {
     if (mat.empty() || mat.type() != CvType.CV_8UC3) return null
     val img = BufferedImage(mat.cols(), mat.rows(), BufferedImage.TYPE_3BYTE_BGR)
@@ -316,7 +259,6 @@ fun matToImage(mat: Mat): BufferedImage? {
     return img
 }
 
-/** `{square: fen piece char}` out of a FEN's placement field. Bad input is an empty belief. */
 private fun piecesOf(fen: String): Map<String, Char> {
     val out = mutableMapOf<String, Char>()
     val ranks = fen.substringBefore(' ').split('/')
@@ -336,14 +278,7 @@ private fun piecesOf(fen: String): Map<String, Char> {
     return out
 }
 
-/**
- * The rectified board with everything the window would draw on it, as one image.
- *
- * Rendered through the SAME canvas the window paints, off-screen. Extracting the drawing into
- * a shared function would have done as well; letting the component paint itself into an image
- * makes it impossible for the two to drift, which is the property that matters — a debugging
- * view that disagrees with the file you study afterwards is worse than either alone.
- */
+/** Through the SAME canvas the window paints, off-screen, so the view and the file cannot drift. */
 fun renderBoardShot(
     board: BufferedImage,
     status: TrackerStatus?,
@@ -359,13 +294,6 @@ fun renderBoardShot(
     return shot
 }
 
-/**
- * The rectified board, as a file, with what the engine believed about it beside it.
- *
- * The window shows this already — but a window is only useful to whoever is sitting in front of
- * it. When the question is "why did this video commit nothing", the answer is in the picture the
- * engine reasons about, and that picture has to survive the run to be looked at.
- */
 fun dumpBoard(
     frame: Int,
     board: BufferedImage?,
@@ -396,7 +324,6 @@ fun dumpBoard(
     )
 }
 
-/** Where a `dump` run writes the board it reasoned about. Under tmp/, which is not the corpus. */
 private const val DUMP_DIR = "../../tmp/board-dump"
 
 private const val DUMP_TOP_Z = 8
@@ -410,18 +337,14 @@ private const val GRID_ALPHA = 90
 private const val FILL_ALPHA = 110
 private const val HEAT_ALPHA_MAX = 150
 
-/** How often a paused loop looks up. Idle cost, and no key press should feel laggy. */
 private const val IDLE_POLL_MS = 30L
 
-/** Below this the fused evidence is indistinguishable from sensor noise; drawing it is clutter. */
 private const val Z_FLOOR = 1.0
 
-/** Where the heat saturates. `zThr` is 3.0, so a square at the decision threshold reads full. */
+/** `zThr` is 3.0, so a square at the decision threshold reads full. */
 private const val Z_FULL = 3.0
 
-// The palette says what a square MEANS, which is why the tints are named after verdicts and not
-// after colours. Red for a square the engine acted on, blue for one a hand is over, grey for one
-// the shadow veto swallowed, magenta for a square where the CNN contradicts the believed board.
+// Red: acted on. Blue: a hand over it. Grey: swallowed by the shadow veto. Magenta: the CNN contradicts the board.
 private val SURFACE = Color(18, 18, 20)
 private val GRID = Color(0, 0, 0, GRID_ALPHA)
 private val HEAT = Color(255, 220, 80)

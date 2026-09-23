@@ -65,7 +65,6 @@ class UciEngineTest {
 
     @Test
     fun scoresAreWhitePov() {
-        // The engine always reports the SIDE TO MOVE. Black to move, "+120" means Black is better.
         assertEquals(-120, PvLine(120, null, 9, listOf("e7e5")).toWhitePov(whiteToMove = false).cp)
         assertEquals(-3, PvLine(null, 3, 9, listOf("e7e5")).toWhitePov(whiteToMove = false).mate)
         assertEquals(120, PvLine(120, null, 9, listOf("e2e4")).toWhitePov(whiteToMove = true).cp)

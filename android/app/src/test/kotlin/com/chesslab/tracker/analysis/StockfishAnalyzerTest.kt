@@ -21,7 +21,6 @@ private const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq
 
 private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
 
-/** Fool's mate: White is mated, so the analyzer must not even launch an engine. */
 private const val MATED = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
 
 private val OPENING_INFO = listOf("info depth 14 multipv 1 score cp 30 pv e2e4 e7e5")
@@ -67,7 +66,7 @@ class StockfishAnalyzerTest {
             runCurrent()
             assertTrue("position fen $STARTPOS" in proc.commands, proc.commands.toString())
             assertTrue("position fen $AFTER_E4" in proc.commands, proc.commands.toString())
-            // The SAN is legal in the SECOND position only — proof that no board state leaked.
+            // Legal in the SECOND position only — proof that no board state leaked.
             assertEquals(
                 "e5",
                 subject.result.value
@@ -86,7 +85,6 @@ class StockfishAnalyzerTest {
             subject.start(backgroundScope)
             testScheduler.advanceTimeBy(500)
             runCurrent()
-            // Black to move and "+120" for Black is -120 for White; the bar must read below 50.
             assertEquals(-120, subject.result.value?.cp)
             assertTrue((subject.result.value?.winWhite ?: 50.0) < 50.0)
             subject.stop()
@@ -205,7 +203,6 @@ class StockfishAnalyzerTest {
             )
         }
 
-    /** Tot ab Sekunde null: `readUntil` bricht dann ohne Warteschleife ab. */
     private class DeadProcess : Process() {
         var destroyed = 0
 

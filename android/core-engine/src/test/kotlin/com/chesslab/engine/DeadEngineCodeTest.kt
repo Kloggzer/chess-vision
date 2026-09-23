@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/** Jeder Name hier wird geschrieben oder berechnet und nirgends gelesen (alle Aufrufer, Tests eingeschlossen). */
+/** Jeder Name hier wird geschrieben oder berechnet und nirgends gelesen, Tests eingeschlossen. */
 class DeadEngineCodeTest {
     @Test
     fun noWriteOnlySymbolsSurviveInTheEngine() {
@@ -30,9 +30,8 @@ class DeadEngineCodeTest {
                 "P_OCCLUDED_THR",
                 // board/Moves.kt: der benutzte `sansOf` ist der Namensvetter in `:app`.
                 "sansOf",
-                // board/Reading.kt: der Verdeckungspfad ging mit der Stillstands-Engine. `coverage`
-                // ist die zweite Haelfte derselben Entfernung — 64 `pOccluded`-Aufrufe je Lesung,
-                // die `fenOf` nie anfasst.
+                // board/Reading.kt: der Verdeckungspfad ging mit der Stillstands-Engine; `coverage` ist die zweite Haelfte
+                // derselben Entfernung.
                 "coveredSquares",
                 "val coverage: DoubleArray",
             )

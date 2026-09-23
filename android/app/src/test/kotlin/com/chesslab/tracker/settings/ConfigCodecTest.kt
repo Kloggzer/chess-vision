@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test
 class ConfigCodecTest {
     @Test
     fun roundTripsEveryTrackerConfigField() {
-        // Every knob moved off its default, so a forgotten row in the table cannot pass.
+        // Every knob moved off its default, so a forgotten table row cannot pass.
         val tuned = KNOBS.fold(TrackerConfig()) { config, knob -> knob.set(config, mutate(knob, config)) }
         val decoded = ConfigCodec.decode(ConfigCodec.encode(tuned))
         assertNull(decoded.note)
@@ -20,8 +20,7 @@ class ConfigCodecTest {
 
     @Test
     fun defaultsMatchTrackerConfigDefaults() {
-        // entry.md invariant 12: config.py TRACK_DEFAULTS wins over the tracker.py constructor
-        // signature, which disagrees on occlusionColorThr (1.5 there, 3.0 in TRACK_DEFAULTS).
+        // entry.md invariant 12: `config.py` TRACK_DEFAULTS wins over the `tracker.py` signature (occlusionColorThr 3.0, not 1.5).
         val defaults = ConfigCodec.decode(null).config
         assertEquals(40.0, defaults.censusThr)
         assertEquals(3.0, defaults.occlusionColorThr)
@@ -39,10 +38,7 @@ class ConfigCodecTest {
         assertNotNull(ConfigCodec.decode("not json at all").note)
     }
 
-    /**
-     * Version 4 stored `reanchorLlFloor` and `handTolerantCells`; both are gone from the seam, so an
-     * envelope from 4 is not the config this build runs. `ignoreUnknownKeys` would take it silently.
-     */
+    /** Version 4's removed keys: `ignoreUnknownKeys` would silently take a config this build does not run. */
     @Test
     fun theEnvelopeOfTheTwoRemovedKnobsIsRejected() {
         val stored = """{"version":4,"values":{"censusThr":11.0,"reanchorLlFloor":2.0,"handTolerantCells":1.0}}"""
@@ -78,10 +74,9 @@ class ConfigCodecTest {
                 "diffClaheClip",
                 "commitLlFloor",
             )
-        // The declaration keeps app.py's ORDER, the knob table TrackerConfig's: only one is a list.
         assertEquals(expected, LIVE_TUNABLE_KEYS.toList())
         assertEquals(expected.toSet(), KNOBS.filter { it.live }.map { it.key }.toSet())
-        // Every live key must exist as a knob — a typo would silently make a knob non-live.
+        // A typo would silently make a knob non-live.
         assertTrue(LIVE_TUNABLE_KEYS.all { key -> KNOBS.any { it.key == key } })
     }
 
@@ -103,7 +98,6 @@ class ConfigCodecTest {
     }
 }
 
-/** A value that differs from the current one for every knob kind, including `null` overrides. */
 private fun mutate(
     knob: Knob,
     config: TrackerConfig,

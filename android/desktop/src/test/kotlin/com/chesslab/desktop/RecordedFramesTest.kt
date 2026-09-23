@@ -19,10 +19,8 @@ private fun sync(
 ) = """{"kind":"video_sync","elapsedNs":$elapsedNs,"durationNs":$durationNs}"""
 
 class RecordedFramesTest {
-    /**
-     * Die beiden ersten Sync-Zeilen von `rg-2026-08-30-14-33-02`: 56 ms Wandzeit, 133 ms Videozeit.
-     * Eine Steigung aus diesem Paar traegt Faktor 2,36 und wirft die Vorlauf-Zeilen ins Negative.
-     */
+    /** `rg-2026-08-30-14-33-02`: eine Steigung aus den zwei ersten Sync-Zeilen traegt Faktor 2,36 und wirft den
+     *  Vorlauf ins Negative. */
     @Test
     fun `a pre-roll frame lands where the video is, not on a two-point slope`(
         @TempDir dir: File,

@@ -6,15 +6,14 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-/** An 8x8 board in a known quad, every cell a DISTINCT gray. The background is NOT black: the
- *  bordered crop warp must be shown to pick up real content outside the playing field. */
+/** Every cell a DISTINCT gray. The background is NOT black: the bordered crop warp must be shown to pick
+ *  up real content outside the playing field. */
 object SyntheticBoard {
     const val FRAME_SIDE: Int = 640
     const val QUAD_MIN: Double = 100.0
     const val QUAD_MAX: Double = 500.0
     const val BACKGROUND: Double = 60.0
 
-    /** Corners in `[a8, h8, h1, a1]` order. */
     val CORNERS: List<DoubleArray> =
         listOf(
             doubleArrayOf(QUAD_MIN, QUAD_MIN),
@@ -23,7 +22,6 @@ object SyntheticBoard {
             doubleArrayOf(QUAD_MIN, QUAD_MAX),
         )
 
-    /** Gray value of the cell at (col, row) — distinct for all 64 cells. */
     fun cellValue(
         col: Int,
         row: Int,
@@ -47,7 +45,6 @@ object SyntheticBoard {
         return img
     }
 
-    /** Blue channel (== all channels here) of one pixel. */
     fun sample(
         img: Mat,
         x: Int,

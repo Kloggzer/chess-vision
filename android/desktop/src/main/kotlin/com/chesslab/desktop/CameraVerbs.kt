@@ -14,10 +14,6 @@ import com.chesslab.tracker.geometry.squareOffsetOf
 import org.opencv.core.Mat
 import java.io.File
 
-/**
- * `align <n>` — the board against its own grid, as the frames arrive. The `raw` toggle that used to
- * sit here died with the stored calibration; `undistort` answers that now (`docs/desktop-replay.md`).
- */
 internal fun alignCamera(index: Int) {
     val cost = Cost()
     WebcamSource(index).use { source ->
@@ -26,7 +22,6 @@ internal fun alignCamera(index: Int) {
     cost.report("what each frame cost:")
 }
 
-/** The camera's frames, corrected if a lens is in play, with both halves on the clock. */
 private fun timedFrames(
     source: FrameSource,
     optics: Undistorter?,
@@ -38,10 +33,7 @@ private fun timedFrames(
         }
     }
 
-/**
- * The board's own markers, before anything else is built — the quad decides the board size, which
- * decides the warp, so it cannot be a stage in the loop (`docs/desktop-replay.md`).
- */
+/** Before anything else is built: the quad decides the board size, which decides the warp. */
 internal fun locateBoard(
     next: () -> Mat?,
     cost: Cost = Cost(),
@@ -49,18 +41,14 @@ internal fun locateBoard(
 ): FloatArray? {
     repeat(attempts) {
         val frame = next() ?: return null
-        // The two halves of `quadOf`, timed separately: each carries its own unverified ms claim,
-        // and one combined number could check neither (`docs/desktop-replay.md`).
+        // Timed separately: each half carries its own unverified ms claim.
         val markers = cost.of("aruco") { rawQuadOf(frame) } ?: return@repeat
         return cost.of("grid refit") { refinedQuad(frame, markers) }
     }
     return null
 }
 
-/**
- * What the STORED marker margin (0.045, hand-glued) costs here, measured absolutely by `alignmentOf`.
- * Changes nothing: a per-corner margin waits until this says by how much (`docs/desktop-replay.md`).
- */
+/** What the STORED marker margin (0.045, hand-glued) costs, measured absolutely by `alignmentOf`. */
 private fun measureAlignment(
     next: () -> Mat?,
     cost: Cost = Cost(),
@@ -104,13 +92,9 @@ private fun measureAlignment(
     }
 }
 
-/**
- * Calibrate the lens from the board, and say plainly whether it worked. Writes nothing on its own:
- * a calibration that misses the limit is a finding, not a file (`docs/desktop-replay.md`).
- */
+/** Writes nothing: a calibration that misses the limit is a finding, not a file. */
 internal fun calibrate(source: FrameSource) {
-    // A LOAN, not a getter: `next()` hands back a Mat the source still owns and will overwrite
-    // (`docs/desktop-replay.md`).
+    // A LOAN: `next()` hands back a Mat the source still owns and will overwrite.
     val fit =
         calibrateFromBoard(
             { use -> source.next()?.also(use) != null },
@@ -138,8 +122,7 @@ private fun report(
         println("not accepted: the bow did not improve by the required margin")
         return
     }
-    // The verdict the fit does not control. A model that flattens its own objective and leaves the
-    // squares where they were has explained nothing — which is a finding, not a calibration.
+    // A model that flattens its own objective and leaves the squares where they were has explained nothing.
     val size = source.delivered
     val raw = medianOffset(source::next)
     val corrected =
@@ -153,10 +136,7 @@ private fun report(
     writeLensProbe(source, fit, File(PROBE_PATH))?.let { println("probe: ${it.absolutePath}") }
 }
 
-/**
- * Median worst square offset over [frames], the only form these numbers may be compared in. Per-run
- * spread is <= 0.07 px over sixty frames — measured, not assumed (`docs/desktop-replay.md`).
- */
+/** Per-run spread is <= 0.07 px over sixty frames — measured. */
 private fun medianOffset(
     next: () -> Mat?,
     frames: Int = ALIGN_FRAMES,
@@ -169,21 +149,16 @@ private fun medianOffset(
     return seen.sorted().getOrNull(seen.size / 2)
 }
 
-/** Frames to spend looking for the markers before giving up. At 30 fps this is two seconds. */
 private const val LOCATE_ATTEMPTS = 60
 
-/** Frames to judge the alignment over. Two seconds is enough to see a jitter that matters. */
 private const val ALIGN_FRAMES = 60
 
-/** Nine lines per axis, both axes — what `gridLines` reports on every frame. */
 private const val GRID_LINES_PER_FRAME = 18
 
 private const val P90_NUM = 9
 
 private const val P90_DEN = 10
 
-/** Where the visual proof lands. Under tmp/, which is not the corpus. */
 private const val PROBE_PATH = "../../tmp/lens-probe.png"
 
-/** Where the quad comparison lands. */
 private const val QUAD_PROBE_PATH = "../../tmp/quad-probe.png"

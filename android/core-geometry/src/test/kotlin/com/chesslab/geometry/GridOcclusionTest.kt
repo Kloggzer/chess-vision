@@ -9,8 +9,7 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-/** A locally erased grid (a hand) named in the ENGINE's convention — on the flipped board a wrong
- *  inverse of `squareToColRow` would veto the mirror-image squares. */
+/** In the ENGINE's convention: on the flipped board a wrong inverse would veto the mirror-image squares. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class GridOcclusionTest {
     private val geom = BoardGeometry(boardSize = SIDE)
@@ -37,8 +36,7 @@ class GridOcclusionTest {
         assertEquals(bits("b6", "a6", "b7", "a7"), gridOccludedSquares(erased(), flipped, PAD))
     }
 
-    /** Raw indices in `Squares.ALL` order (a1=0, b1=1, .. h8): a helper sharing the production
-     *  packing cannot catch a transposition, since only the a1-h8 diagonal survives one. */
+    /** Raw indices: a helper sharing the production packing cannot catch a transposition. */
     @Test
     fun `the mask is packed rank major`() {
         assertEquals((1L shl E4) or (1L shl E5), gridOccludedSquares(erasedFile(), geom, PAD))
@@ -48,8 +46,7 @@ class GridOcclusionTest {
 
     @Test
     fun `a pad too small for the outer window never accuses the outer lines`() {
-        // Interior lines only, no pad: the outer lines are unmeasurable and must read FOUND,
-        // so edge squares carry no standing missing edge.
+        // No pad: the outer lines are unmeasurable and must read FOUND, so edge squares carry no standing missing edge.
         val img = Mat(SIDE, SIDE, CvType.CV_8UC1, Scalar(WHITE))
         val cell = SIDE / 8.0
         for (i in 1 until 8) {
@@ -60,7 +57,6 @@ class GridOcclusionTest {
         assertEquals(0L, gridOccludedSquares(img, geom, 0))
     }
 
-    /** White canvas with all 9 black grid lines per axis, drawn across the padded warp. */
     private fun grid(): Mat {
         val side = SIDE + 2 * PAD
         val img = Mat(side, side, CvType.CV_8UC1, Scalar(WHITE))
@@ -112,10 +108,10 @@ class GridOcclusionTest {
         const val PAD = 12
         const val WHITE = 255.0
 
-        /** 3 px, not 1: `halfDepthCentroid` refuses a run under 3 samples, like a real groove has. */
+        /** 3 px: `halfDepthCentroid` refuses a run under 3 samples, like a real groove. */
         const val GROOVE = 3
 
-        /** Erase a little past the boundary lines so the rectangle's own edge leaves no groove. */
+        /** A little past the boundary lines, so the rectangle's own edge leaves no groove. */
         const val RUB = 4
 
         const val E4 = 28

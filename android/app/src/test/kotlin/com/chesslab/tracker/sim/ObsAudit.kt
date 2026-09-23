@@ -7,8 +7,7 @@ import com.chesslab.cnn.expectedOccupancy
 import com.chesslab.cnn.labelConfidentSquares
 import com.github.bhlangonijr.chesslib.Board
 
-// What the model SAW against the render's own frame label — separates a PORT bug from a MODEL
-// weakness, and stays valid after a desync.
+// What the model SAW against the render's frame label: separates a PORT bug from a MODEL weakness.
 
 private const val TOP_OFFENDERS = 8
 
@@ -21,8 +20,7 @@ internal class ObsAudit {
     private var labelChecked = 0
     private var labelWrong = 0
 
-    // The UNGATED statistic (`pOcc > pEmpty`, no abstaining): what `resyncCheck`, `verifyMove` and
-    // the alarm gate actually live on.
+    // UNGATED (`pOcc > pEmpty`, no abstaining): what `resyncCheck`, `verifyMove` and the alarm gate live on.
     private var allSquares = 0
     private var misses = 0
     private var phantoms = 0
@@ -50,8 +48,7 @@ internal class ObsAudit {
             allSquares += 1
             val got = obs.occupied(square)
             if (got != want) {
-                // A MISS bakes an unseen move into the reference (S17-SIM-1); a PHANTOM trips the
-                // desync veto and starves the re-anchor (S17-SIM-2).
+                // A MISS bakes an unseen move into the reference; a PHANTOM trips the desync veto and starves the re-anchor.
                 if (want) misses += 1 else phantoms += 1
                 allWrongSquares.merge(square, 1, Int::plus)
                 boardWrong += 1
@@ -78,7 +75,6 @@ internal class ObsAudit {
         }
     }
 
-    /** Folds another clip's audit into this one, so a whole model gets one set of numbers. */
     fun absorb(other: ObsAudit) {
         clearFrames += other.clearFrames
         occChecked += other.occChecked
@@ -96,17 +92,14 @@ internal class ObsAudit {
         other.confusions.forEach { (k, v) -> confusions.merge(k, v, Int::plus) }
     }
 
-    /** One line: how often a CONFIDENT statement of the model was wrong, and where. */
     fun summary(): String =
         "clear-frame obs=$clearFrames  confident-occupancy ${pct(occWrong, occChecked)} wrong ($occWrong/$occChecked)  " +
             "confident-identity ${pct(labelWrong, labelChecked)} wrong ($labelWrong/$labelChecked)\n" +
             "      occupancy misreads: ${top(wrongSquares)}\n" +
             "      identity confusions: ${top(confusions)}"
 
-    /**
-     * THE decision metric: occupancy is all the tracker consumes, identity is context only. Far above
-     * `implied` (`perSquareAcc^64`) = errors CLUSTERED; at or below = spread, a resolution ceiling.
-     */
+    /** THE decision metric: occupancy is all the tracker consumes. Far above `implied` (`perSquareAcc^64`)
+     *  means errors CLUSTER; at or below, they spread — a resolution ceiling. */
     fun occupancyAccuracy(): String {
         val right = allSquares - allSquaresWrong
         val perSquare = if (allSquares == 0) 0.0 else right.toDouble() / allSquares
@@ -124,7 +117,6 @@ internal class ObsAudit {
             "${pct(labelWrong, labelChecked)}, confusions: ${top(confusions)}"
     }
 
-    /** How concentrated the errors are: how few squares carry half of them, and how many are clean. */
     private fun clustering(): String {
         if (allSquaresWrong == 0) return "no errors"
         val sorted = allWrongSquares.values.sortedDescending()

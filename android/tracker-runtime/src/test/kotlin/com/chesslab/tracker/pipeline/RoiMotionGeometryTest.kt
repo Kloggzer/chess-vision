@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import kotlin.math.hypot
 
-/**
- * The arithmetic of `_roi_motion` -- geometry, change score, buffer lifecycle. The OpenCV half
- * needs natives `:app`'s unit tests do not have (STATUS D05b-2).
- */
+/** The OpenCV half needs natives `:app`'s unit tests do not have. */
 class RoiMotionGeometryTest {
     private val square = floatArrayOf(100f, 100f, 300f, 100f, 300f, 300f, 100f, 300f)
 
@@ -21,8 +18,7 @@ class RoiMotionGeometryTest {
 
     @Test
     fun `expansion is from the centroid, not from the bounding box`() {
-        // A trapezoid: an AABB inflate would move the two short-side corners by a different
-        // factor than the long-side ones. Centre expansion scales every radius by exactly 1.20.
+        // An AABB inflate would scale the short-side corners differently; centre expansion scales every radius by 1.20.
         val quad = floatArrayOf(0f, 0f, 400f, 40f, 360f, 300f, 40f, 260f)
         val expanded = expandCorners(quad, 0.10)
         val cx = 200.0
@@ -47,7 +43,7 @@ class RoiMotionGeometryTest {
         val second = ByteArray(100)
         for (i in 0 until 25) second[i] = 60
         assertEquals(25.0, motion.scoreRoi(second))
-        // Strictly greater than the threshold, exactly like NumPy's `d > px_thr`.
+        // Strictly greater, exactly like NumPy's `d > px_thr`.
         val third = second.copyOf()
         for (i in 25 until 50) third[i] = 20
         assertEquals(0.0, motion.scoreRoi(third))
@@ -60,20 +56,15 @@ class RoiMotionGeometryTest {
         motion.scoreRoi(plane)
         val moved = ByteArray(100) { 200.toByte() }
         motion.onConfigChanged(TrackerConfig(motionMargin = 0.20))
-        // Without the reset this would score 100.0 against a region that no longer exists.
         assertEquals(0.0, motion.scoreRoi(moved))
     }
 
-    /**
-     * The previous plane is also the buffer that gets overwritten: without the size check the
-     * copy runs into the old, smaller array instead of scoring 0.0 and starting over.
-     */
+    /** Without the size check the copy runs into the old, smaller array instead of scoring 0.0. */
     @Test
     fun `a roi of a different size scores zero and becomes the new reference`() {
         val motion = RoiMotion(margin = 0.10, pxThr = 20.0)
         motion.scoreRoi(ByteArray(100))
         assertEquals(0.0, motion.scoreRoi(ByteArray(400) { 200.toByte() }))
-        // The larger plane really replaced the smaller one — else the next score is against nothing.
         assertEquals(100.0, motion.scoreRoi(ByteArray(400)))
     }
 

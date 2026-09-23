@@ -16,7 +16,7 @@ class FrameSizeGuardTest {
             requestRegeneration = { regenerations += 1 },
         )
 
-    /** The a7dab73 regression test: the note names the DELIVERED size, never the requested one. */
+    /** The note names the DELIVERED size, never the requested one. */
     @Test
     fun `the mismatch is reported from the delivered size, not the requested one`() {
         guard.setProfile("desk", 1280, 720)
@@ -31,7 +31,6 @@ class FrameSizeGuardTest {
         guard.setProfile("desk", 1280, 720)
         repeat(5) { guard.note(1280, 960) }
         assertEquals(5, regenerations)
-        // …and stops the moment a regenerated profile matches.
         guard.setProfile("desk", 1280, 960)
         repeat(5) { guard.note(1280, 960) }
         assertEquals(5, regenerations)
@@ -47,7 +46,6 @@ class FrameSizeGuardTest {
         assertEquals(2, warnings.size)
     }
 
-    /** A fresh install has no profile at all, and `profile '' was calibrated at 0x0` is not a sentence. */
     @Test
     fun `with no profile yet the note asks for a calibration instead of naming an empty one`() {
         guard.note(1440, 1080)
@@ -66,7 +64,6 @@ class FrameSizeGuardTest {
         assertTrue(warnings.isEmpty())
     }
 
-    /** The a7dab73 fall-back warning needs `requestedW`, and nothing outside a test ever set it. */
     @Test
     fun `the fallback warning has a production caller or is gone`() {
         val production =

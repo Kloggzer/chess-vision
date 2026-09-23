@@ -19,7 +19,7 @@ import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 
-/** Explicit controls: profiling never starts merely because the debug screen was opened. */
+/** Explicit: profiling never starts merely because the debug screen opened. */
 @Composable
 internal fun SourceWorkProfileControls(viewModel: DebugViewModel) {
     val available by viewModel.workProfilingAvailable.collectAsStateWithLifecycle()

@@ -14,10 +14,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * Eine `.jsonl` vertraegt eine halbe LETZTE Zeile, ein JSON-DOKUMENT nicht: wer es an Ort und
- * Stelle kuerzt, laesst zwischen Kuerzen und letztem Byte eine Datei liegen, die niemand liest.
- */
+/** Eine `.jsonl` vertraegt eine halbe LETZTE Zeile, ein JSON-DOKUMENT nicht. */
 class JsonDocumentsAreAtomicTest {
     @TempDir
     lateinit var dir: File

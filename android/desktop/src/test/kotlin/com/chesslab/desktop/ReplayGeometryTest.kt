@@ -10,10 +10,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Path
 
-/**
- * What the RECORDING says about its own board, against what the corners alone can say. A replay
- * that keeps the defaults here crops the 180-degree-opposite squares of a black-side game.
- */
+/** A replay that keeps the defaults crops the 180-degree-opposite squares of a black-side game. */
 class ReplayGeometryTest {
     @TempDir
     lateinit var temp: Path

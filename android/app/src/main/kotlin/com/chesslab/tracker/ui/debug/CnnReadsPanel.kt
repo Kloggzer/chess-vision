@@ -28,14 +28,8 @@ import com.chesslab.tracker.ui.theme.Stroke
 
 private const val PERCENT = 100.0
 
-/**
- * What the last glance actually read, per square.
- *
- * Conflicts against the believed FEN are pinned to their own section — that set IS `resync_check`'s
- * conflict list made visible. `nConfident` sits next to `minConfidentBoard` and
- * `minConfidentRecovery` because a glance short of either gate is discarded in silence, and from
- * the outside that is indistinguishable from a CNN that never ran.
- */
+/** Conflicts pinned: that set IS `resync_check`'s conflict list. A glance short of the confidence gates is
+ *  discarded in silence, indistinguishable from a CNN that never ran. */
 @Composable
 fun CnnReadsPanel(
     state: DebugState,
@@ -83,7 +77,6 @@ private fun ReadRow(row: CnnReadRow) {
             else -> OnSurfaceMuted
         }
     Row(Modifier.fillMaxWidth().padding(vertical = Stroke.hairline), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-        // Six columns read down, so all six are figures whether or not they are numbers.
         Figure(row.square, tone, Modifier.weight(0.8f))
         Figure(row.label, tone, Modifier.weight(1.2f))
         Figure(pct(row.conf), tone, Modifier.weight(1f))

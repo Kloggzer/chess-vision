@@ -8,22 +8,15 @@ import org.opencv.core.Mat
 import java.io.File
 import java.nio.ByteBuffer
 
-// mp4 -> BGR `Mat` via JavaCV's FFmpeg, STREAMED: a 126-frame clip is 155 MB of BGR. The Mat
-// handed to the callback is reused and invalid after it returns.
+// STREAMED: a 126-frame clip is 155 MB of BGR. The callback's Mat is reused and invalid after it returns.
 
 private const val BGR_CHANNELS = 3
 
-/**
- * Calls [body] once per decoded frame with its 0-based index and a BGR [Mat].
- *
- * @return the number of frames decoded.
- */
 internal fun forEachFrame(
     video: File,
     body: (Int, Mat) -> Unit,
 ): Int = forEachFrameTimed(video) { index, mat, _ -> body(index, mat) }
 
-/** [forEachFrame] plus each frame's presentation timestamp in ms of VIDEO time. */
 internal fun forEachFrameTimed(
     video: File,
     body: (Int, Mat, Double) -> Unit,
@@ -51,7 +44,6 @@ internal fun forEachFrameTimed(
     return index
 }
 
-/** The container's frame rate — the virtual clock every replay timestamp is derived from. */
 internal fun videoFps(video: File): Double {
     val grabber = FFmpegFrameGrabber(video)
     grabber.start()
@@ -63,10 +55,7 @@ internal fun videoFps(video: File): Double {
 
 private const val MICROS_PER_MS = 1000.0
 
-/**
- * FFmpeg's row-padded plane -> a tightly packed [Mat]. `imageStride` is in bytes for BGR24 and is
- * NOT `width * 3` in general — copying the buffer wholesale skews the image by the padding.
- */
+/** `imageStride` is NOT `width * 3` in general: a wholesale copy skews the image by the row padding. */
 private fun copyInto(
     frame: Frame,
     mat: Mat,

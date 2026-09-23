@@ -6,8 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** 07a's `AppSettings.resolutionMode`, once persisted and read by nobody (STATUS D07a-11). It changes
- *  the WISH only; the delivered size winning is `DeliveredSizeTest` and `ResolutionMismatchLoggerTest`. */
+/** The WISH only; the delivered size winning is `DeliveredSizeTest` and `ResolutionMismatchLoggerTest`. */
 class ResolutionModeRequestTest {
     @Test
     fun everyModeMapsToARequestAndAutoIsTheMeasured1080p() {
@@ -25,7 +24,6 @@ class ResolutionModeRequestTest {
         assertEquals(4, ResolutionMode.entries.size, "a new mode needs a request, or it silently means AUTO")
     }
 
-    /** The rate is a WISH like the size — what it may not do is silently mean something else. */
     @Test
     fun everyRateReachesTheRequestAndTheSetIsSmall() {
         assertEquals(15, cameraRequestFor(ResolutionMode.R1440, FrameRateMode.FPS15).targetFps)

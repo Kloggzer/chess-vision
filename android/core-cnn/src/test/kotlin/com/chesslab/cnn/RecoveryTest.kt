@@ -66,8 +66,8 @@ class RecoveryTest {
         assertClose(1.0, scored.best, "best is still reported")
     }
 
-    /** The live phantom of 30.07.2026: the g7 pawn on the square's edge read `p(occupied) = 0.13`,
-     *  and g7g6, the only move vacating g7, explained 58 of 59 squares — exactly as well as standing still. */
+    /** The live phantom: the g7 pawn read `p(occupied) = 0.13`, and g7g6 explained 58 of 59 squares — exactly
+     *  as well as standing still. */
     @Test
     fun `one square read as wrongly empty does not fabricate a move`() {
         val board = boardOf(PHANTOM_FEN)
@@ -109,8 +109,6 @@ class RecoveryTest {
         assertEquals(listOf("b8"), check32.conflicts)
     }
 
-    /** The seam takes the move as a STRING, so a fabrication would enter here. It THROWS: an abstention
-     *  would read as "too few confident squares", which means something else to the verify ladder. */
     @Test
     fun `verify_move refuses an illegal uci and stays distinguishable from an unreadable one`() {
         val blind = FakeSquareClassifier(STARTPOS, overrides = occluded(ALL_SQUARES)).observe()
@@ -127,7 +125,6 @@ class RecoveryTest {
     private companion object {
         const val THR = 0.85
 
-        /** The position the phantom g6 was committed from (session 20260730-160914, ply 15). */
         const val PHANTOM_FEN = "r1bqkb2/pppp1pp1/2n2n2/1B2p1Nr/4P3/2NP4/PPP2P1P/R1BQK1R1 b Qq - 4 10"
         val RECOVERY = CnnRecovery()
 

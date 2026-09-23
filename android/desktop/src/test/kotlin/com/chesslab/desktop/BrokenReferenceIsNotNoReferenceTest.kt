@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** Eine unlesbare `reference.pgn` fiel still auf `candidate.json` zurueck: der Tracker wurde
- *  gegen seine eigene Ausgabe benotet (found = alles). Codex, 2026-09-15. */
+/** Eine unlesbare `reference.pgn` fiel still auf `candidate.json` zurueck: found = alles. */
 class BrokenReferenceIsNotNoReferenceTest {
     @TempDir
     lateinit var dir: File

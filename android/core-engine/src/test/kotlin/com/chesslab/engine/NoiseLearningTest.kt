@@ -10,16 +10,12 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// Step 4 of `_try_detect`, entry.md invariant 9: the illegal-move alarm FREEZES learning. Excluded
-// squares learn nothing in the gray lane and at 0.125 * alpha in the census lane.
+// Invariant 9: the alarm FREEZES learning. Excluded squares learn nothing in the gray lane, 0.125 * alpha in census.
 
 private const val MIN_TIER_A_FRAMES = 247
 
 class NoiseLearningTest {
-    /**
-     * Never reset in Python, so one mis-ordered update diverges from the next frame on. Where the guard
-     * already learned the census inside `computeEvidence` (`censusNoiseZ == null`), Python passes `cens = None`.
-     */
+    /** Never reset in Python: one mis-ordered update diverges from the next frame on. */
     @Test
     fun learnNoiseMatchesPythonOnEveryTierAFrame() {
         var checked = 0
@@ -30,7 +26,7 @@ class NoiseLearningTest {
             val refs = HashMap<List<Int>, GrayImage>()
             for (frame in clip.frames) {
                 val tierA = frame.tierA
-                // `refFrames == null`: `_maybe_patch_anomaly` mutated ref_gray in place (D01a-6).
+                // `refFrames == null`: `_maybe_patch_anomaly` mutated ref_gray in place.
                 if (tierA?.refFrames == null) continue
                 val tierB = requireNotNull(frame.tierB)
                 val refFrames = requireNotNull(tierA.refFrames)
@@ -58,7 +54,7 @@ class NoiseLearningTest {
         assertTrue(excludeFrames > 0, "no frame ever excluded a candidate square")
     }
 
-    /** entry.md 9: learning the illegal deltas would desensitize the squares that PROVE the desync — healing by drift. */
+    /** Learning the illegal deltas would desensitise the squares that PROVE the desync. */
     @Test
     fun alarmFreezesNoiseLearning() {
         val state = testState()
@@ -78,7 +74,6 @@ class NoiseLearningTest {
             assertEquals(censStd[i], state.censusNoise.std[i], 0.0, "${Squares.ALL[i]} census std")
         }
 
-        // Control: the very same call learns once the alarm is released.
         state.alarm = null
         state.learnNoise()
         assertNotEquals(grayMean[Squares.index("a1")], state.noise.mean[Squares.index("a1")], "learning must resume")
@@ -103,7 +98,6 @@ class NoiseLearningTest {
         assertEquals(alpha * value, state.censusNoise.mean[j], 1e-12, "and at full alpha elsewhere")
     }
 
-    /** The exclusion set is `changed | shadowVeto` — both, never only one of them. */
     @Test
     fun bothChangedAndShadowVetoAreExcluded() {
         val state = testState()
@@ -134,7 +128,6 @@ class NoiseLearningTest {
         assertTrue(state.noise.mean[Squares.index("a1")] > 0.0, "everything else learns")
     }
 
-    /** `cens == null` (channel off or dropped) leaves the census lane completely untouched. */
     @Test
     fun censusLaneUntouchedWithoutAChannel() {
         val state = testState()
@@ -149,7 +142,6 @@ class NoiseLearningTest {
         assertTrue(state.noise.mean[Squares.index("a1")] > 0.0, "the gray lane still learns")
     }
 
-    /** `test_shadow_squares_not_learned_into_noise` — end to end through the veto. */
     @Test
     fun shadowSquaresNotLearned() {
         val state = testState()
@@ -172,9 +164,6 @@ class NoiseLearningTest {
         }
     }
 
-    // -- helpers -----------------------------------------------------------------------------------
-
-    /** Both channels flat at the given levels, plus the post-veto sets `learnNoise` reads. */
     private fun EngineState.feed(
         diffs: Double,
         cens: Double?,

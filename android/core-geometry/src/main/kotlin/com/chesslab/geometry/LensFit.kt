@@ -3,14 +3,8 @@ package com.chesslab.geometry
 import kotlin.math.abs
 import kotlin.math.hypot
 
-/**
- * Straightness of a run of points that is straight in the world: the largest perpendicular distance
- * from the chord through its ends, as a fraction of that chord.
- *
- * Null — never zero — when there is too little to judge. The Python original returns 0.0 for fewer
- * than three points, which is fine as a report and ruinous as an objective: a barely visible line
- * would score perfectly straight and pull the fit toward wherever the least information is.
- */
+/** Null — never zero — with too little to judge: the Python 0.0 would score a barely visible line perfectly
+ *  straight and pull the fit toward the least information. */
 fun bow(points: List<DoubleArray>): Double? {
     if (points.size < MIN_BOW_POINTS) return null
     val first = points.first()
@@ -23,15 +17,15 @@ fun bow(points: List<DoubleArray>): Double? {
     return worst / chord
 }
 
-/** What the fit had to work with. A thin calibration must be recognisable as thin. */
+/** A thin calibration must be recognisable as thin. */
 class LensEvidence(
     val lines: Int,
     val points: Int,
     val axes: Int,
-    /** Fraction of a 3x3 image grid that any contributing point falls in. */
+    /** Fraction of a 3x3 image grid any contributing point falls in. */
     val coverage: Double,
 ) {
-    /** What the evidence can carry — nothing is fitted that nothing was observed for. */
+    /** Nothing is fitted that nothing was observed for. */
     val budget: Int
         get() =
             when {
@@ -44,7 +38,7 @@ class LensEvidence(
     override fun toString(): String = "$lines lines, $points points, $axes axes, coverage ${"%.2f".format(coverage)}"
 }
 
-/** A distortion model and the evidence behind it. [bowAfter] against [bowBefore] is the whole claim. */
+/** [bowAfter] against [bowBefore] is the whole claim. */
 data class LensFit(
     val k1: Double,
     val k2: Double,
@@ -56,20 +50,12 @@ data class LensFit(
     val evidence: LensEvidence,
     val rejected: String? = null,
 ) {
-    /** The Python rule: a fit must beat what it replaces by a real margin, or it is not saved. */
+    /** A fit must beat what it replaces by a real margin, or it is not saved. */
     val ok: Boolean get() = rejected == null && bowAfter <= ACCEPT_RATIO * bowBefore
 }
 
-/**
- * The lens, from lines that are straight in the world.
- *
- * Straightness is invariant to focal length — whether collinear points stay collinear does not
- * depend on it — so this fits distortion ALONE and never trades one against the other. That is why
- * it replaces a search that had to grid over focal length: that objective was a residual after a
- * homography, and a homography absorbs focal length.
- *
- * [focal] is a scale for the model, not an estimate of the optics, and it is held fixed.
- */
+/** Straightness is invariant to focal length, so distortion is fitted ALONE; a residual after a homography
+ *  would absorb focal length. [focal] is a fixed scale, not an estimate. */
 fun fitLens(
     samples: List<GridSample>,
     width: Int,
@@ -109,18 +95,8 @@ fun fitLens(
     return LensFit(k1, k2, best[0], best[1], focal, before, score(k1, k2, best), evidence)
 }
 
-/**
- * Golden-section on [low]..[high], and it can never return something worse than [fallback].
- *
- * Both halves of that sentence were bugs first. The interval update has to move the END AWAY from
- * the better probe: `right` sits above `left`, so a better `right` means the minimum is to the
- * right and the LOW end moves up. Having them the wrong way round walked the search away from the
- * optimum and still returned a confident number.
- *
- * And a search that only reports its own best can report something worse than doing nothing. The
- * fallback is the identity — no distortion — so a fit that cannot beat an uncorrected picture
- * leaves it uncorrected, which is the rule `improveQuad` already follows for quads.
- */
+/** The update moves the END AWAY from the better probe (reversed, it walked away and still sounded sure).
+ *  Never worse than [fallback], the identity: a fit that cannot beat an uncorrected picture leaves it. */
 private fun search(
     low: Double,
     high: Double,
@@ -137,7 +113,7 @@ private fun search(
     return listOf(fallback, low, high, (a + b) / 2).minBy(score)
 }
 
-/** Points of one world-straight line, ordered along it so the chord spans the line's full extent. */
+/** Ordered along the line, so the chord spans its full extent. */
 private fun groupLines(samples: List<GridSample>): List<List<DoubleArray>> =
     samples
         .groupBy { it.axis to it.line }
@@ -166,15 +142,9 @@ private fun evidenceOf(
     )
 }
 
-/**
- * How many of the two line families are actually measurable.
- *
- * Counted from the USABLE lines: a line nobody could measure proves nothing about its orientation,
- * and one family alone cannot separate a lens from a tilt.
- */
+/** From USABLE lines: an unmeasured line proves nothing, and one family alone cannot separate lens from tilt. */
 private fun orientationsIn(usable: List<List<DoubleArray>>): Int {
-    // Magnitudes, not signed deltas: the sign is the direction the points happened to be sorted
-    // in, so past 45 degrees in the frame both families answered alike and the fit saw one axis.
+    // Magnitudes, not signed deltas: past 45 degrees both families answered alike and the fit saw one axis.
     val vertical = usable.count { line -> abs(line.first()[0] - line.last()[0]) < abs(line.first()[1] - line.last()[1]) }
     return when {
         usable.isEmpty() -> 0
@@ -183,7 +153,6 @@ private fun orientationsIn(usable: List<List<DoubleArray>>): Int {
     }
 }
 
-/** Median bow over the lines that can be judged, after undistorting with the candidate model. */
 private fun totalBow(
     lines: List<List<DoubleArray>>,
     k1: Double,

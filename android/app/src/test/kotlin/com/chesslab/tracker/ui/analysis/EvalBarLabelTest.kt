@@ -21,14 +21,7 @@ private fun result(
 ) = AnalysisResult("fen", gameOver, cp, mate, winWhite, emptyList(), 12)
 
 class EvalBarLabelTest {
-    /**
-     * The LIVE bar and the REVIEW bar share a drawing and a slot; until specs/47 one read `+0.3`
-     * and the other `61 %`.
-     *
-     * They then read the same UNIT in two PRESENTATIONS — `63%` here, `63 %` one tab away — for
-     * another day. specs/48 made [com.chesslab.tracker.ui.percent] the only place that decides, and
-     * widened `SLOT_WIDTH` so the space is not a reason to disagree.
-     */
+    /** Live and review bar share a drawing and a slot; they once read `+0.3` and `61 %`. */
     @Test
     fun labelIsWhitesWinExpectancy() {
         assertEquals("63 %", evalLabel(result(cp = 140)))
@@ -61,12 +54,7 @@ class EvalBarLabelTest {
         assertEquals("-M2", lineScore(AnalysisLine("e2e4", "e4", null, -2)))
     }
 
-    /**
-     * **One quantity, one unit — and one presentation** (specs/48 rule 5).
-     *
-     * Four files write a percentage for the reader and each used to format its own. This asserts
-     * they are the same string for the same number, which no per-file test can.
-     */
+    /** **One quantity, one unit, one presentation**: the same string for the same number across all files. */
     @Test
     fun everyWriterOfAPercentageWritesTheSameString() {
         val expected = percent(53.0)

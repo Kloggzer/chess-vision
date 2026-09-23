@@ -5,11 +5,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/** **Die Kamera hat genau EINEN Besitzer**, und das stand bisher nur in drei Kommentaren. Ein
- *  zweites Binding fror den Analyzer-Feed beim Tab-Wechsel tot (MEMORY
- *  `android-single-camera-owner`); ausserhalb von [OWNER] ist CameraX' Bindungs-API jetzt Prosa. */
+/** **Genau EIN Kamerabesitzer**: ein zweites Binding fror den Feed beim Tab-Wechsel tot. Ausserhalb von
+ *  [OWNER] ist CameraX' Bindungs-API Prosa. */
 class SingleCameraOwnerTest {
-    /** Eine Wache, die keine Dateien sieht, besteht aus dem falschen Grund. */
     @Test
     fun theGuardCanSeeTheSources() {
         assertTrue(sources().size > MIN_SOURCES, "found ${sources().size} sources under ${ROOT.absolutePath}")
@@ -29,7 +27,7 @@ class SingleCameraOwnerTest {
         )
     }
 
-    /** Die Gegenprobe: eine eingepflanzte Zeile MUSS auffallen, sonst prueft die Wache nichts. */
+    /** Die Gegenprobe: eine eingepflanzte Zeile MUSS auffallen. */
     @Test
     fun theGuardWouldCatchASecondBinding() {
         assertTrue(offends("        provider.bindToLifecycle(owner, selector, analysis)"))
@@ -54,13 +52,11 @@ private fun offends(line: String): Boolean {
 
 private fun sources(): List<File> = ROOT.walkTopDown().filter { it.extension == "kt" }.toList()
 
-/** Die eine Datei, die den Apparat besitzt — relativ, damit der Pfadtrenner egal ist. */
 private const val OWNER = "camera/TrackerCamera.kt"
 
-/** Es waren 130 Quellen, als das geschrieben wurde; nahe null heisst, der Lauf hat sie verfehlt. */
+/** Nahe null heisst, der Lauf hat die Quellen verfehlt. */
 private const val MIN_SOURCES = 80
 
-/** Der Test laeuft mit dem Modulverzeichnis als Arbeitsverzeichnis. */
 private val ROOT = File("src/main/kotlin/com/chesslab/tracker")
 
 private val BINDING = Regex("""\bProcessCameraProvider\b|\bbindToLifecycle\s*\(""")

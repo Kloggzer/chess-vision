@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.io.File
 
-/**
- * Hard rules 1 and 2 of the Android rewrite (`docs/specs-index.md`): chesslib + kotlin-stdlib only,
- * and a single-threaded state machine.
- */
+/** Hard rules 1 and 2 of the Android rewrite: chesslib + kotlin-stdlib only, and single-threaded. */
 class ClasspathPurityTest {
     @Test
     fun runtimeClasspathHasNoOpenCvOrAndroid() {

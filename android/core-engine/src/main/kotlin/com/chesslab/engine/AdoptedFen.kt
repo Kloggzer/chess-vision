@@ -9,23 +9,16 @@ internal const val NOTE_CNN_KINGS = "CNN position has missing/extra kings — us
 
 internal const val NOTE_CNN_STALE = "no fresh CNN observation — use Undo or a FEN resync"
 
-/** The empty slot of the rebuilt placement — `' '` is not a FEN piece symbol. */
 private const val EMPTY_SQUARE = ' '
 
 private const val PIECE_TYPES = "PNBRQK"
 
-/** FEN field indices of the two clocks (`placement side castling ep halfmove fullmove`). */
 private const val FEN_HALFMOVE = 4
 
 private const val FEN_FULLMOVE = 5
 
-/**
- * The position the last glance would adopt, or `null` with the refusal in `note`.
- *
- * Through [freshSnapshot] like every other reader in the module: a glance older than
- * `OBS_MAX_AGE_S` describes a board that has since been played on, and this path overwrites the
- * user's position. No fresh look means no adoption — never the last one that happened to be around.
- */
+/** Through [freshSnapshot]: a glance older than `OBS_MAX_AGE_S` describes a board played on since, and
+ *  this path overwrites the user's position. */
 internal fun EngineState.adoptableCnnFen(thr: Double): String? {
     val snap = freshSnapshot()
     val obs = snap?.obs?.takeIf { o -> Squares.ALL.any { o.label(it) != null } }
@@ -41,11 +34,8 @@ internal fun EngineState.adoptableCnnFen(thr: Double): String? {
     return fen
 }
 
-/**
- * The position the observation describes, as a minimal edit of the believed one: only
- * label-confident squares take the read piece, everything else keeps the game-state piece.
- * `null` without a clean pair of kings or when the result is unreachable. Nothing is mutated.
- */
+/** A minimal edit: only label-confident squares take the read piece. `null` without a clean pair of kings
+ *  or when unreachable. */
 internal fun EngineState.cnnAdoptedFen(
     obs: CnnObservation,
     thr: Double,
@@ -59,20 +49,16 @@ internal fun EngineState.cnnAdoptedFen(
         pieces[i] = if (label == null) believed else pieceCharOf(label) ?: believed
     }
     if (pieces.count { it == 'K' } != 1 || pieces.count { it == 'k' } != 1) return null
-    // Side to move and the clocks carry over; the en-passant target is dropped, because the
-    // adopted position has no move that could have created it.
+    // The en-passant target is dropped: the adopted position has no move that could have created it.
     val fields = board.fen().split(' ')
     val clocks = "${fields[FEN_HALFMOVE]} ${fields[FEN_FULLMOVE]}"
     val fen = "${placementOf(pieces)} ${fields[1]} ${castlingOf(pieces, fields[2])} - $clocks"
-    // A mate is a legitimate thing to resync onto — the game ends there, the app should show it.
+    // A mate is a legitimate resync target — the game ends there.
     return fen.takeIf { reachable(it) }
 }
 
-/**
- * Two kings are not enough: the side that just moved must not be in check, or the deep search captures
- * the exposed king and the next `legalMoves()` dies at `Index 64` (replay crash, 2026-08-09). Asked by
- * flipping the side to move; doubles as the parse check. A mate passes — the game ends there.
- */
+/** The side that just moved must not be in check, or the deep search captures the king and the next
+ *  `legalMoves()` dies at `Index 64`. Asked by flipping the side to move; doubles as the parse check. */
 internal fun reachable(fen: String): Boolean =
     runCatching {
         val white = fenWhiteToMove(fen) ?: return false
@@ -80,7 +66,6 @@ internal fun reachable(fen: String): Boolean =
         !Game(flipped.joinToString(" ")).result().inCheck
     }.getOrDefault(false)
 
-/** `"empty"` and `"occluded"` are not pieces. */
 private fun pieceCharOf(label: String): Char? {
     if (label.length != 2) return EMPTY_SQUARE.takeIf { label == "empty" }
     val type = label[1].uppercaseChar()
@@ -92,7 +77,7 @@ private fun pieceCharOf(label: String): Char? {
     }
 }
 
-/** The placement field, rank 8 down to rank 1 — [Squares.ALL] runs the other way. */
+/** Rank 8 down to rank 1 — [Squares.ALL] runs the other way. */
 private fun placementOf(pieces: CharArray): String =
     (Squares.N - 1 downTo 0).joinToString("/") { rank ->
         val out = StringBuilder()
@@ -111,7 +96,6 @@ private fun placementOf(pieces: CharArray): String =
         out.toString()
     }
 
-/** A right survives only if its king AND its rook are still at home. */
 private fun castlingOf(
     pieces: CharArray,
     current: String,

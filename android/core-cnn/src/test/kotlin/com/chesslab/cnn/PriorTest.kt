@@ -77,7 +77,6 @@ class PriorTest {
 
     @Test
     fun `an illegal favourite loses to the legal runner-up`() {
-        // 60 % bB against 35 % bR — today's argmax says bB and confThr 0.85 drops the square.
         val probs = doubleArrayOf(0.05, 0.60, 0.35)
         val out = applyPrior(probs, CLASSES, setOf("empty", "bR"), 4.0)
         assertTrue(out[2] > out[1], "bR must win once bB is illegal")
@@ -124,7 +123,6 @@ class PriorTest {
     fun `the prior reaches the label through observationFromProbs`() {
         val rows = Array(ALL_SQUARES.size) { floatArrayOf(0.05f, 0.60f, 0.35f) }
         val obs = observationFromProbs(rows, CLASSES, possibleLabels(STARTPOS), 4.0)
-        // a5 can only be empty after one white half-move, so the 5 % class wins there.
         assertEquals("empty", obs.label("a5"))
         assertEquals("bR", obs.label("a8"))
     }

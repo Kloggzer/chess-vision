@@ -5,56 +5,28 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-// Turning a measured grid into a corrected corner quad. Port of `alignment.py::correct_quad`,
-// `refine_quad` and `improve_quad`.
-//
-// Kept apart from `Alignment.kt`, which MEASURES: this file decides what to do with the numbers.
+// Decides what to do with the numbers `Alignment.kt` measures.
 
-/** Iterations of measure-and-refit. One pass leaves the answer depending on how bad the input was. */
+/** One pass leaves the answer depending on how bad the input was. */
 const val ALIGN_ITERS: Int = 4
 
-/**
- * Search half-width per refit iteration, as a fraction of a cell. A three-marker quad starts a third
- * of a cell out, which is outside `SEARCH_FRAC` at the worst squares — the first pass has to be able
- * to reach the groove at all, and later passes have to stop chasing the neighbour.
- */
+/** A three-marker quad starts a third of a cell out: the first pass must reach the groove, later ones stop
+ *  chasing the neighbour. */
 private val SEARCH_SCHEDULE = doubleArrayOf(0.45, 0.30, 0.22, 0.18)
 
-/** Below this measured displacement (fraction of a cell) the OUTER lines can be searched safely. */
 private const val OUTER_LOCK_FRAC: Double = 0.5 * OUTER_SEARCH_FRAC
 
-/** Denominators below this mean the two lines are parallel in the warp. */
 private const val MIN_DENOM: Double = 1e-9
 
-/** [improveQuad]'s answer: the corrected quad (or null), and the offset before and after. */
 class QuadImprovement(
     val quad: List<DoubleArray>?,
     val before: Double,
     val after: Double,
 )
 
-/**
- * A corrected corner quad, or null when the frame gives too little to fit one.
- *
- * The measurement already says where the board's lines REALLY are, so the correction is the map that
- * puts them where they belong: fit the measured lattice onto the nominal one, chain it onto the
- * existing corner homography, and read the new corners back out in frame pixels.
- *
- *     H_old : frame -> rectified (from the current quad)
- *     H_fix : rectified(measured) -> rectified(nominal)
- *     new   = H_old^-1 . H_fix^-1 . H_old . old
- *
- * That runs [iters] times, re-measuring in the corrected warp each round, and it matters more than
- * anything else here: a badly placed grid puts every groove near the edge of its search window where
- * the measurement is worst, so a single pass leaves the answer depending on how wrong the input was.
- *
- * **Coarse to fine, and the outer lines last.** The window follows [SEARCH_SCHEDULE]; the OUTER
- * lines join only once the measured displacement is under [OUTER_LOCK_FRAC] of a cell, because their
- * window has to stay clear of the board's printed label border a third of a cell further out.
- *
- * Worth applying only to a frame that is out of tolerance: inside the noise band the fit chases
- * measurement noise. Callers decide that; this function just computes.
- */
+/** `new = H_old^-1 . H_fix^-1 . H_old . old`, [iters] times, re-measuring each round: a bad grid puts every
+ *  groove at its window edge. Coarse to fine; outer lines only under [OUTER_LOCK_FRAC] (the label border).
+ *  Worth applying only out of tolerance — callers decide. */
 fun correctQuad(
     frame: Mat,
     quad: List<DoubleArray>,
@@ -97,7 +69,6 @@ private fun worstDisplacement(
     dst: List<DoubleArray>,
 ): Double = src.indices.maxOf { k -> max(abs(src[k][0] - dst[k][0]), abs(src[k][1] - dst[k][1])) }
 
-/** One measure-and-refit pass applied to [quad], or null when the fit gives nothing usable. */
 private fun applyFit(
     quad: List<DoubleArray>,
     src: List<DoubleArray>,
@@ -113,16 +84,8 @@ private fun applyFit(
     return if (moved.any { it == null }) null else moved.filterNotNull()
 }
 
-/**
- * The measured line intersections and where the nominal grid puts them, in RECTIFIED coordinates.
- *
- * Two dimensions, not two collapsed profiles. The previous version fitted over samples that each
- * pinned ONE coordinate and carried the band's centre in the other, which is enough to constrain an
- * affine map and not enough to constrain a homography — a fit over those came out WORSE than its own
- * input on one frame (31.7 px; `docs/data-pipeline.md` §13). Intersecting the fitted lines gives real 2D
- * correspondences, up to 81 of them, and the perspective parameters then have something to be
- * estimated from.
- */
+/** Line INTERSECTIONS, real 2D correspondences (up to 81): samples pinning one coordinate constrain an affine
+ *  map, not a homography — a fit on those came out worse than its input (31.7 px). */
 private fun lattice(
     grid: BoardGrid,
     boardSize: Int,
@@ -147,12 +110,7 @@ private fun lattice(
     return src to dst
 }
 
-/**
- * `(corrected quad or null, offset before, offset after)`.
- *
- * Null for the quad when the fit failed OR when it did not actually improve the frame, so a caller
- * can write the result unconditionally and never make a frame worse.
- */
+/** Null when the fit failed OR did not improve the frame, so a caller writes unconditionally and never worsens it. */
 fun improveQuad(
     frame: Mat,
     quad: List<DoubleArray>,

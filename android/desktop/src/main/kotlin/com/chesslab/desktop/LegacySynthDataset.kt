@@ -13,13 +13,8 @@ import java.util.Locale
 private val LEGACY_CLASSES =
     listOf("empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")
 
-/**
- * `legacy-synth-dataset <legacyRoot> <manifest> <outDir> [prefix=pretrain-synth__]`.
- *
- * Reclaims the project's own parked synthetic crops without letting Python ingest them. PNG pixels
- * are decoded once, resized to the deployment crop size, and written directly into the final RGB
- * memmap. Whole pseudo-sessions form train/val/test, so nearby renders cannot cross split borders.
- */
+/** `legacy-synth-dataset <legacyRoot> <manifest> <outDir> [prefix=pretrain-synth__]`. Whole pseudo-sessions
+ *  form train/val/test, so nearby renders cannot cross split borders. */
 @Suppress("LongMethod", "NestedBlockDepth")
 fun buildLegacySynthDataset(args: List<String>) {
     require(args.size >= 3) { legacyUsage() }

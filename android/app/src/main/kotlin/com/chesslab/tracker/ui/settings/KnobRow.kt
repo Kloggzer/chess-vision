@@ -29,7 +29,6 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 
-/** A dense developer preference: human name first, technical key and tuning context second. */
 @Composable
 fun KnobRow(
     knob: KnobUi,
@@ -89,8 +88,7 @@ private fun KnobSlider(
     onValue: (Double) -> Unit,
 ) {
     val low = if (knob.isOptional) knob.min - knob.step else knob.min
-    // Waehrend des Ziehens nur lokal. `onValueChange` feuert je Compose-Frame, und jeder Wert war
-    // ein DataStore-Schreibvorgang UND ein `UpdateConfig` in der Aktions-Queue der Engine.
+    // Waehrend des Ziehens nur lokal: jeder Wert war ein DataStore-Schreibvorgang UND ein `UpdateConfig`.
     var dragged by remember(knob.key) { mutableStateOf<Float?>(null) }
     Slider(
         modifier = Modifier.testTag(KNOB_SLIDER_TAG),
@@ -104,7 +102,6 @@ private fun KnobSlider(
     )
 }
 
-/** Turns implementation keys into readable labels without hiding the searchable key underneath. */
 internal fun knobTitle(key: String): String {
     val words = key.replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").split(' ')
     return words
@@ -121,7 +118,6 @@ internal fun knobTitle(key: String): String {
         }.replaceFirstChar(Char::uppercase)
 }
 
-/** Formats values in the unit a person tunes, while export keeps the raw machine value. */
 internal fun knobDisplayValue(
     knob: KnobUi,
     value: Double,
@@ -158,5 +154,5 @@ private val PERCENT_KEYS = setOf("motionMargin", "minGridLineCoverage", "cnnConf
 private val BOARD_SQUARE_KEYS = setOf("minConfidentBoard", "minConfidentRecovery")
 private val READING_KEYS = setOf("verifyWindow", "desyncObsN", "verifyObsVotes")
 
-/** Wie `EVAL_WHITE_TAG`: der Regler ist sonst nicht adressierbar (`KnobSliderThrottleTest`). */
+/** Sonst ist der Regler nicht adressierbar (`KnobSliderThrottleTest`). */
 internal const val KNOB_SLIDER_TAG = "knobSlider"

@@ -16,7 +16,6 @@ private val BUDGET = ReviewBudget()
 
 private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-/** A real opening, so every ply carries a legal `fenAfter` and a SAN the grader can name. */
 private const val SANS = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6"
 
 private fun score(
@@ -48,15 +47,12 @@ class GameReviewTest {
         assertEquals(42, ply.moveNumber)
     }
 
-    /** The classic sign flip: a losing move by Black moves the WHITE-POV score UP. */
     @Test
     fun aLossIsMeasuredFromTheMoversPointOfView() {
-        // +20 -> -60 with White to move: White's own winning chances fall.
         val white = grade(listOf(score(20), score(-60))).of(1)!!
         assertTrue(white.winBefore > white.winAfter)
         assertEquals(MoveQuality.INACCURACY, white.quality)
 
-        // The same board swing after BLACK's ply is Black's loss, so Black's chances fall instead.
         val black = grade(listOf(score(20), score(20), score(220))).of(2)!!
         assertTrue(black.winBefore > black.winAfter)
     }
@@ -68,12 +64,10 @@ class GameReviewTest {
         assertEquals(2, graded.white.plies, "plies 1 and 3")
         assertEquals(1, graded.black.plies, "ply 2")
         assertEquals(2, graded.white.count(MoveQuality.BLUNDER))
-        // Ply 2 took White's -600 back to 0: that is Black losing, on Black's sheet.
         assertEquals(1, graded.black.count(MoveQuality.BLUNDER))
     }
 
-    /** The defect that removed centipawns as the unit, 2026-08-03: on `2026-08-02_2159` ply 63 `Rxc6+`
-     *  lost 1 866 cp and moved the winning chances not at all, yet was badged BLUNDER. */
+    /** `Rxc6+` lost 1 866 cp and moved the winning chances not at all, yet was badged BLUNDER. */
     @Test
     fun tradingAMateForAWonEndgameIsNotABlunder() {
         val kept = grade(listOf(score(10_000), score(8_134))).of(1)!!
@@ -91,7 +85,6 @@ class GameReviewTest {
         assertFalse(thrown.decided)
     }
 
-    /** A move that beats the engine's line reads as a NEGATIVE drop; it must not be a bonus. */
     @Test
     fun aMoveThatBeatsTheEngineNeverPaysForABlunderElsewhere() {
         val graded = grade(listOf(score(0), score(-600), score(-900)))
@@ -111,7 +104,6 @@ class GameReviewTest {
         assertEquals("d4", other.bestSan, "named in SAN from the position BEFORE the ply")
     }
 
-    /** specs/42 read one token of the line; an illegal tail truncates rather than losing it. */
     @Test
     fun theEnginesWholeLineIsNamedInSanAndStopsAtTheFirstMoveItCannotPlay() {
         val line = grade(listOf(Score(20, 18, listOf("d2d4", "d7d5", "c2c4")), score(20))).of(1)!!
@@ -187,7 +179,6 @@ class GameReviewTest {
         assertEquals(setOf(3), seamPlies(seamed))
     }
 
-    /** And with no seam, a recovered move is graded exactly like any other. */
     @Test
     fun aRecoveredMoveIsGradedLikeAnyOther() {
         val graded = grade(listOf(score(0), score(-600), score(-600)))
@@ -238,8 +229,6 @@ class GameReviewTest {
             grade(
                 listOf(
                     score(0),
-                    // Ply 1: White hands over most of a level position — the turning point.
-                    // Ply 2: Black, already winning, lets a forced mate go and stays exactly as won.
                     score(-900, best = "d7d5", mate = -6),
                     score(-900),
                 ),
@@ -249,7 +238,6 @@ class GameReviewTest {
         assertEquals(listOf(1), graded.findings().map { it.ply }, "the swing, not the missed mate")
     }
 
-    /** Nearest the reader's finger first, then outward — the whole reason a review feels instant. */
     @Test
     fun theNextPositionSearchedIsTheOneNearestTheReader() {
         val none = List<Score?>(6) { null }
@@ -257,8 +245,7 @@ class GameReviewTest {
         assertEquals(0, nextIndex(none, focus = 0))
         assertEquals(5, nextIndex(none, focus = 99), "a focus past the end walks back from the end")
 
-        // Ply 2 is the step from position 1 to position 2. Position 2 is in, so position 1 — the
-        // other half of the ply the reader is on — comes before anything further out.
+        // Ply 2 spans positions 1 and 2; position 2 is in, so position 1 comes before anything further out.
         val partial = listOf(null, null, score(0), null, null, null)
         assertEquals(1, nextIndex(partial, focus = 2))
         assertEquals(3, nextIndex(listOf(score(0), score(0), score(0), null, null, null), focus = 2))

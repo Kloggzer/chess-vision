@@ -7,12 +7,7 @@ import org.opencv.core.Mat
 import java.io.File
 import java.nio.ByteBuffer
 
-/**
- * A recorded game, one BGR frame at a time.
- *
- * Synchronous on purpose: the arena's cost is the classifier, not the decoder, and a single
- * thread keeps every run byte-for-byte repeatable.
- */
+/** Synchronous on purpose: the cost is the classifier, and one thread keeps every run repeatable. */
 class Recording(
     video: File,
 ) : AutoCloseable {
@@ -26,7 +21,7 @@ class Recording(
     val width: Int = grabber.imageWidth
     val height: Int = grabber.imageHeight
 
-    /** Reused for the whole stream — a per-frame 6 MB allocation at 30 fps is a per-frame collection. */
+    /** Reused: a per-frame 6 MB allocation at 30 fps is a per-frame collection. */
     private val mat = Mat(height, width, CvType.CV_8UC3)
     private val packed = ByteArray(width * height * BGR_CHANNELS)
 
@@ -36,7 +31,7 @@ class Recording(
     var timestampMs: Double = 0.0
         private set
 
-    /** The next frame, or null at the end. The `Mat` is OWNED HERE and overwritten by the next call. */
+    /** The `Mat` is OWNED HERE and overwritten by the next call. */
     fun next(): Mat? {
         val frame = generateSequence { grabber.grabImage() }.firstOrNull() ?: return null
         index += 1
@@ -45,10 +40,7 @@ class Recording(
         return mat
     }
 
-    /**
-     * FFmpeg's row-padded plane into a tightly packed `Mat`. `imageStride` is in BYTES and is not
-     * `width * 3` in general; copying wholesale shears the picture instead of failing.
-     */
+    /** `imageStride` is in BYTES and not `width * 3` in general; a wholesale copy shears the picture. */
     private fun copyInto(
         buffer: ByteBuffer,
         stride: Int,

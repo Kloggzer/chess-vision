@@ -14,12 +14,10 @@ private val INFO = listOf("info depth 30 multipv 1 score cp 20 pv e2e4 e7e5")
 
 private fun game() = reviewGameOf(SANS)
 
-/** specs/44: how many SEARCHES the reader waits through — the multiplier on the device's ~2.2 s
- *  per position (measured 2026-08-03), the only part that is not a property of today's phone. */
+/** How many SEARCHES the reader waits through — ~2.2 s per position on the device. */
 class GameReviewerTest {
     private fun reviewer() = GameReviewer(EngineService { UciEngine("fake") { ScriptedEngineProcess(engineScript(INFO)) } })
 
-    /** The pass it replaced showed nothing until all eleven searches (84 on the real game) were done. */
     @Test
     fun theFirstGradeArrivesAfterTwoSearchesAndNotAfterTheWholeGame() {
         val game = game()
@@ -36,7 +34,6 @@ class GameReviewerTest {
         assertEquals(game.plies.size + 1, searches, "and it still finishes the whole game")
     }
 
-    /** And the ply it grades first is the one being looked at, not ply 1. */
     @Test
     fun theFirstGradedPlyIsTheOneTheReaderIsOn() {
         val game = game()
@@ -50,7 +47,6 @@ class GameReviewerTest {
         assertEquals(4, first)
     }
 
-    /** Leaving the screen used to throw every second of engine time away. */
     @Test
     fun aFullSeedNeedsNoEngineAtAll() {
         val game = game()
@@ -58,14 +54,12 @@ class GameReviewerTest {
         var emissions = 0
         val started =
             runBlocking {
-                // A null factory: if this touches the engine at all, it returns false.
                 GameReviewer(EngineService { null }).review(game, seed = complete) { emissions++ }
             }
         assertTrue(started)
         assertEquals(1, emissions, "one paint, straight from the store")
     }
 
-    /** A partial seed resumes rather than restarting — an interrupted review must not redo its work. */
     @Test
     fun aPartialSeedIsResumedAndItsScoresAreKept() {
         val game = game()
@@ -93,7 +87,6 @@ class GameReviewerTest {
         assertEquals(3, startScore?.mate)
     }
 
-    /** No engine binary for this ABI is a `false`, never an exception on the review screen. */
     @Test
     fun aMissingEngineIsReportedRatherThanThrown() {
         var emissions = 0
@@ -102,7 +95,6 @@ class GameReviewerTest {
         assertEquals(0, emissions)
     }
 
-    /** A mate or stalemate is scored by the rules, not searched: the missing binary is no reason to fail here. */
     @Test
     fun onlyTerminalPositionsOpenNeedNoEngine() {
         val game = reviewGameOf("1. f3 e5 2. g4 Qh4#")

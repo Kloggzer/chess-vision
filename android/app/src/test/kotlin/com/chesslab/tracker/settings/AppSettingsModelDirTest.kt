@@ -6,13 +6,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The persisted model outlives the APK that wrote it: a directory the new APK does not carry would
- *  fail its attach on every launch (the `modelAsset` bug of 2026-07-27, one knob over). */
+/** A persisted model directory the new APK does not carry would fail its attach on every launch. */
 class AppSettingsModelDirTest {
     @Test
     fun aFreshInstallRunsTheOcclusionAwareIdentityModel() {
-        // Ein 14-Klassen-Lauf ohne `coverage_output` laesst den Gitterarm an, der den Tracker sperrt
-        // (2026-08-07-13-52-38: vier gefunden bei drei Phantomen).
+        // Ein 14-Klassen-Lauf ohne `coverage_output` laesst den Gitterarm an, der den Tracker sperrt.
         assertEquals("p4a-80-clahe", DEFAULT_MODEL)
         assertEquals(DEFAULT_MODEL, AppSettings().modelDir)
         assertEquals(DEFAULT_MODEL, decodeAppSettings(null).modelDir)
@@ -32,8 +30,7 @@ class AppSettingsModelDirTest {
         assertEquals(explicitCurrentChoice, decodeAppSettings(encodeAppSettings(explicitCurrentChoice)))
     }
 
-    /** Retired names are matched RAW (`bundledModelOrDefault` would hide them); `v9-retired` is merely
-     *  unbundled. Either way only the model moves — an unknown value must not reset every other field. */
+    /** Retired names are matched RAW; an unknown value must not reset every other field. */
     @Test
     fun everyRetiredOrUnbundledModelLandsOnTheDefaultWithoutLosingTheRest() {
         listOf("shipped", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128", "v9-retired").forEach { model ->
@@ -63,15 +60,13 @@ class AppSettingsModelDirTest {
         assertTrue(BUNDLED_MODELS.size > 1, "a selector over one model is not a selector")
     }
 
-    /** Settings written before this knob existed carry no key at all. */
     @Test
     fun aPayloadFromBeforeTheKnobDecodesToTheDefaultModel() {
         val stored = """{"resolutionMode":"R1440","modelAsset":"model.onnx","epRequest":"AUTO"}"""
         assertEquals(DEFAULT_MODEL, decodeAppSettings(stored).modelDir)
     }
 
-    /** 2026-07-27: a stored `model.qnn.onnx` kept `stage()` from ever copying a new `model.onnx` — the
-     *  phone ran `b24f1f3`'s graph three releases behind every quoted accuracy number. */
+    /** A stored `model.qnn.onnx` kept `stage()` from copying a new graph: the phone ran three releases behind. */
     @Test
     fun aStoredQnnGraphIsMigratedBackToTheFp32One() {
         val stored = """{"resolutionMode":"R1440","modelAsset":"model.qnn.onnx","epRequest":"AUTO"}"""

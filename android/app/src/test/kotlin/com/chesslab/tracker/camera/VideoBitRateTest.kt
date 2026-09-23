@@ -4,11 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The rate is a FUNCTION of the picture, not two numbers that happen to be right today. Every case
- * here would stay green against a hardwired constant except the coupling ones, which is why they
- * are the point.
- */
+/** Every case would pass against a hardwired constant except the coupling ones — which are the point. */
 class VideoBitRateTest {
     @Test
     fun twoResolutionsAtOneFrameRateDifferByTheirPixelCount() {
@@ -23,21 +19,18 @@ class VideoBitRateTest {
         assertEquals(2.0, bitRateFor(QHD_W, QHD_H, FPS * 2).toDouble() / bitRateFor(QHD_W, QHD_H, FPS), TOLERANCE)
     }
 
-    /** The two numbers the decision was taken on — the formula has to reproduce them, not replace them. */
     @Test
     fun theDecidedProfilesComeOutOfTheFormula() {
         assertClose(30_000_000, bitRateFor(QHD_W, QHD_H, FPS))
         assertClose(67_000_000, bitRateFor(UHD_W, UHD_H, FPS))
     }
 
-    /** An implausibly small delivered frame must not produce a file nothing can be cut from. */
     @Test
     fun aTinyFrameIsFlooredRatherThanBelieved() {
         assertTrue(rawBitRateFor(TINY, TINY, FPS) < MIN_VIDEO_BIT_RATE)
         assertEquals(MIN_VIDEO_BIT_RATE, bitRateFor(TINY, TINY, FPS))
     }
 
-    /** A profile states a picture; the rate comes with it, so the two can never drift apart. */
     @Test
     fun aCaptureProfileDerivesItsOwnRate() {
         assertEquals(bitRateFor(UHD_W, UHD_H, FPS), CaptureProfile(UHD_W, UHD_H, FPS).bitRate)

@@ -10,14 +10,11 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
 
-/** Tier C — `labeling.py crop_square` and `imgops.py`. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class CropsTest {
     @Test
     fun `the warp border always covers the pad, so no edge crop is black padded`() {
-        // `cropBorderPx` is max(CROP_WARP_BORDER_CELLS, padSide) since the upward pad was retired
-        // (2026-09-14), so the box can no longer reach past the border. The black-pad path in
-        // `cropSquare` stays as the guard it is; no geometry should be able to trigger it.
+        // The box can no longer reach past the border; the black-pad path stays as a guard no geometry should trigger.
         val geom = BoardGeometry(boardSize = 640, padSide = 0.25)
         val bordered = warpBoardForCrops(SyntheticBoard.frame(), geom, SyntheticBoard.CORNERS)
         val crop = cropSquare(bordered, "a8", geom)

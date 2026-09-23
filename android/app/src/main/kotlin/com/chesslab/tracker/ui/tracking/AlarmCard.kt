@@ -29,15 +29,7 @@ import com.chesslab.tracker.ui.theme.Stroke
 
 private const val CONFLICTS_SHOWN = 8
 
-/**
- * What the user is told the alarm IS.
- *
- * The card used to print the raw latch name — `alarm.kind.replace('_',' ').uppercase()`, i.e.
- * "ILLEGAL MOVE" — which reads as an accusation about the player's move rather than what it means:
- * the app's board and the physical board have drifted apart and the app knows it. Both kinds say
- * the same thing to the user — tracking stopped, the board below is stale — so both open with
- * "Position lost"; the `when` keeps the raw string as a fallback for a kind nobody phrased yet.
- */
+/** Not the raw latch name: "ILLEGAL MOVE" read as an accusation. Both kinds mean the boards drifted apart. */
 private fun headlineFor(kind: String): String =
     when (kind) {
         "illegal_move" -> "Position lost — the board and the app disagree"
@@ -45,21 +37,13 @@ private fun headlineFor(kind: String): String =
         else -> kind.replace('_', ' ').uppercase()
     }
 
-/**
- * The illegal-move latch, made actionable.
- *
- * Shown iff `status.alarm != null` — the same condition that tints the board. While it is up the
- * engine blocks every commit, re-anchor and pending candidate (invariant 9), so the three actions
- * here are the only ways forward: adopt what the CNN sees, take the last move back, or declare the
- * physical board correct and re-reference it.
- */
+/** While up, the engine blocks every commit (invariant 9): these three actions are the only ways forward. */
 @Composable
 fun AlarmCard(
     alarm: AlarmUi,
     onAcceptCnn: () -> Unit,
     onUndo: () -> Unit,
     onNewBaseline: () -> Unit,
-    /** The SANs of the last commit — see [undoCount]; this card is where Undo is usually pressed. */
     lastCommit: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
@@ -72,23 +56,9 @@ fun AlarmCard(
             .padding(Space.md),
         verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        // The PROSE gives way and scrolls; the buttons below never move.
-        //
-        // This card is a non-weighted child of a full-height Column, and a Column hands each
-        // non-weighted child what is left in order. The conflict list grows with the number of
-        // disagreeing squares, so on a bad board the card grew until the action bar underneath it —
-        // measured last — rendered 1-2 mm tall and could not be pressed. `heightIn(min = 48.dp)`
-        // does not save a child there: a minimum is not a reservation.
-        //
-        // Capping the card's TEXT is the fix rather than scrolling the screen: the move list below
-        // is a `LazyColumn`, and nesting one inside a `Modifier.verticalScroll` throws outright
-        // (tried on 2026-08-02, crashed on launch). Bounding the growth at its source needs no
-        // scrolling container above the list at all.
-        //
-        // `weight` and not just `heightIn`: a Column measures its NON-weighted children first, so
-        // a mere cap let the prose take its 200dp before the buttons were measured and left them
-        // 1-2 mm tall whenever the board above had eaten the card's room (2026-08-21). Weighted,
-        // the prose is measured LAST and gives way — which is what "the buttons never move" means.
+        // The PROSE gives way, the buttons never move: a growing conflict list squeezed the action bar to 1-2 mm.
+        // `weight`, not `heightIn`: non-weighted children are measured first. No scrolling container — nesting the
+        // move list's `LazyColumn` in `verticalScroll` crashed on launch.
         Column(
             Modifier
                 .weight(1f, fill = false)
@@ -110,10 +80,7 @@ fun AlarmCard(
             )
             AlarmFacts(alarm, lastCommit)
         }
-        // The action that resolves the alarm, first and on its own line. While the alarm is up this
-        // card IS what the screen is for, so this is the screen's one filled button — and it is the
-        // ACCENT, not the danger colour: danger is the state this card is reporting, and a state is
-        // not an accent (rule 2). The stripe and the headline carry the alarm.
+        // ACCENT, not danger: danger is the state this card reports, and a state is not an accent.
         FilledAction("Accept CNN position", onAcceptCnn, Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             OutlineAction(
@@ -126,13 +93,7 @@ fun AlarmCard(
     }
 }
 
-/**
- * The three things worth knowing before choosing: where the two boards disagree, what the app
- * thinks it saw, and what Undo would take back.
- *
- * The last one is here rather than on the button because a CNN recovery commits a whole bridge —
- * four plies on 2026-08-02 — and the button has room for a count, not for the moves.
- */
+/** Undo's plies are listed here: a CNN recovery commits a whole bridge, and the button only fits a count. */
 @Composable
 private fun AlarmFacts(
     alarm: AlarmUi,
@@ -157,10 +118,4 @@ private fun AlarmFacts(
     }
 }
 
-/**
- * How much height the card's prose may take before it scrolls instead of growing.
- *
- * Enough for the headline, the two-line explanation and a handful of facts; short enough that the
- * three buttons and the action bar under the card keep their own height on a phone in portrait.
- */
 private const val PROSE_MAX = 200

@@ -4,9 +4,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-// The shot list, as `docs/capture-plan.schema.json` defines it — that file is the authority and
-// this is a transcript of it, not a second design. Unknown keys are ignored so a key the planner
-// adds later reaches an older APK as silence instead of an exception.
+// Transcript of `docs/capture-plan.schema.json`, which is the authority. Unknown keys are ignored, so a
+// key the planner adds later reaches an older APK as silence, not an exception.
 
 /** Ein VORSCHLAG: `lo`/`hi` ist das Band, gegen das [assign] die Livemessung haelt. */
 @Serializable
@@ -52,10 +51,7 @@ data class CapturePlan(
     val why: String? = null,
 )
 
-/**
- * `data/reports/coverage-gaps.json` plus the `generated_at` the route reads off its mtime. It comes
- * from a BUILT dataset and does not move after an upload, so the screen shows that date beside it.
- */
+/** From a BUILT dataset, so it does not move after an upload — the screen shows its date beside it. */
 @Serializable
 data class CaptureCoverage(
     @SerialName("generated_at") val generatedAt: String = "",

@@ -8,8 +8,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import kotlin.math.abs
 
-/** A grid distorted by a KNOWN k1: the rig can only say "the bow got smaller", which is what the
- *  fit optimises and therefore cannot be its own proof. */
+/** A KNOWN k1: "the bow got smaller" is what the fit optimises and cannot be its own proof. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class LensFitTest {
     @Test
@@ -20,11 +19,9 @@ class LensFitTest {
 
     @Test
     fun tooFewPointsIsUnjudgeableRatherThanPerfect() {
-        // The trap this exists to prevent: two points are exactly collinear, so a bow of 0 would be
-        // arithmetically true and would tell the fit that the least-observed line is its best one.
+        // Two points are exactly collinear: a bow of 0 would tell the fit the least-observed line is its best.
         assertNull(bow(listOf(doubleArrayOf(0.0, 0.0), doubleArrayOf(500.0, 0.0))))
         assertNull(bow(listOf(doubleArrayOf(0.0, 0.0), doubleArrayOf(1.0, 0.0), doubleArrayOf(2.0, 0.0))))
-        // And a run of points too short to say anything about curvature is refused as well.
         assertNull(bow((0..5).map { doubleArrayOf(it * 2.0, 0.0) }))
     }
 
@@ -64,8 +61,7 @@ class LensFitTest {
         assertNotNull(fitLens(vertical, WIDTH, HEIGHT).rejected)
     }
 
-    /** Forward through the Brown model on purpose: the fit inverts it, so the inverse here would
-     *  test the generator against itself. */
+    /** Forward through the Brown model: the fit inverts it, so the inverse here would test the generator against itself. */
     private fun distortedGrid(
         k1: Double,
         lines: Int,

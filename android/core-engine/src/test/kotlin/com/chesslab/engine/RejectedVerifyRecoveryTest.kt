@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The 2026-09-06 f5/Re8 loops: a rejected diff pair must not monopolize the observer. */
+/** The f5/Re8 loops: a rejected diff pair must not monopolise the observer. */
 class RejectedVerifyRecoveryTest {
     @Test
     fun aCorrectCnnSingleSurvivesRepeatedWrongPairsUsingRawObservations() {
@@ -79,8 +79,7 @@ class RejectedVerifyRecoveryTest {
             engine.onCnnSnapshot(snap.copy(fen = Game(STARTPOS).also { it.push(state.legalMoveFor("e2e4")!!) }.fen()))
         }
         assertTrue(state.history.isEmpty())
-        // The verify seam now rejects the stale input before a terminal verdict can route it
-        // into periodic recovery. Neither the candidate nor either vote is consumed.
+        // The verify seam rejects the stale input before a terminal can route it into recovery.
         assertNotNull(state.pending)
         assertEquals(0, state.pending!!.frames)
         assertEquals(0L, state.cnnReadsStale)
@@ -141,7 +140,6 @@ class RejectedVerifyRecoveryTest {
     }
 }
 
-/** Fully consistent, confident CNN result for e4, while the diff proposes e4 + e5. */
 private class E4Recovery : CnnEvaluator by VerifyEvaluator(deriveMove = "e2e4") {
     var recoveryObs: CnnObservation? = null
 

@@ -3,8 +3,8 @@ package com.chesslab.engine
 import com.github.bhlangonijr.chesslib.move.Move
 import kotlin.math.abs
 
-// Touched and destination sets must differ: only a shadow-vetoed destination blocks the move.
-// Chesslib moves require the position to classify castling and en passant; inputs must be legal.
+// Touched and destination sets differ: only a shadow-vetoed destination blocks a move. Castling and en
+// passant need the position, so inputs must be legal.
 
 internal fun isCastling(
     g: Game,
@@ -36,7 +36,7 @@ internal fun isCapture(
     mv: Move,
 ): Boolean = g.pieceCharAt(mv.to.ordinal) != null || isEnPassant(g, mv)
 
-/** Push/pop avoids reparsing a FEN; the move stack does not affect `isKingAttacked`. */
+/** The move stack does not affect `isKingAttacked`, so push/pop avoids reparsing a FEN. */
 internal fun givesCheck(
     g: Game,
     mv: Move,
@@ -81,7 +81,6 @@ internal fun moveTouchedMask(
     return mask
 }
 
-/** Rook origins and en-passant captures are absent because destinations contain gained pieces only. */
 internal fun moveDestinationMask(
     g: Game,
     mv: Move,

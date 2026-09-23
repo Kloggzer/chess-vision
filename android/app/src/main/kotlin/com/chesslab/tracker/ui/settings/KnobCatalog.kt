@@ -9,34 +9,17 @@ import com.chesslab.tracker.ui.settings.KnobGroup.MOTION
 import com.chesslab.tracker.ui.settings.KnobGroup.SCORING
 import com.chesslab.tracker.ui.settings.KnobGroup.VETOES
 
-// The knobs a person at a real board turns, grouped, with their range and one line of why. The
-// help text was condensed from the comments the Python tracker carried — they carry the
-// live-tuning history (why censusThr is 40 and not 160, why occlusionColorThr is 3.0 and not the
-// historic 1.5), which is exactly what someone tuning on a strange board under a strange lamp
-// needs. Numbers live HERE and nowhere else; no composable carries a literal.
-//
-// **This was "every `TrackerConfig` field" until 2026-08-02, and that rule was the whole reason
-// the screen had 46 sliders.** Nobody ever asked which of them a human should be offered; the test
-// asked only that each field had a row, so each field got one. A knob is now either here or in
-// [NOT_A_SETTING] with the reason it is not a decision, and `KnobCatalogTest` asserts the two
-// tables partition the seam exactly. `row()` still fails loudly at construction if the key is not
-// in the persistence table.
+// The knobs a person at a real board turns; help text carries the live-tuning history (why censusThr is
+// 40, not 160). A knob is here or in [NOT_A_SETTING] with its reason — `KnobCatalogTest` asserts the two
+// partition the seam, and `row()` fails loudly for a key missing from the persistence table.
 
 private val BY_KEY = KNOBS.associateBy { it.key }
 
-/** Hilfetexte lesen ihre Zahlen HIER, statt sie abzuschreiben: eine abgeschriebene Vorgabe
- *  veraltete lautlos, als sechs Knoepfe am 2026-09-20 neue Werte bekamen. */
+/** Hilfetexte lesen ihre Zahlen HIER: eine abgeschriebene Vorgabe veraltete lautlos. */
 private val DEFAULTS = TrackerConfig()
 
-/**
- * Persisted and settable in code, deliberately absent from the screen — with the reason.
- *
- * None of these is a preference. Each is either a measurement the app makes for itself, a seam the
- * clip harness needs, or a value whose usable range is empty. Offering them as sliders invited a
- * user to spend an evening on a knob that at best does nothing and at worst quietly stops the
- * tracker. They stay in `TrackerConfig` because the parity fixtures depend on the field set,
- * not because anyone should move them.
- */
+/** Not preferences: measurements the app makes, harness seams, or values with no usable range. They stay
+ *  in `TrackerConfig` for the parity fixtures, not because anyone should move them. */
 val NOT_A_SETTING: Map<String, String> =
     linkedMapOf(
         "taintIdentityThr" to

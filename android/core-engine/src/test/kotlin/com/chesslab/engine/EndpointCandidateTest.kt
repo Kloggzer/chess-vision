@@ -10,21 +10,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `_single_endpoint_candidate` — the destination-only rescue path for a
- * low-contrast vacated origin. Mirrors `test_single_endpoint_candidate_unambiguous` and
- * `test_single_endpoint_none_when_multi_changed`.
- */
 class EndpointCandidateTest {
-    /**
-     * `test_single_endpoint_candidate_unambiguous` — only `c6` is hot, so a move landing on `c6` is
-     * proposed even though its origin is below the both-endpoints gate.
-     *
-     * Python asserts the DESTINATION, not the uci, and so does this port: `b8c6` and `c7c6` score
-     * identically (cold origin + hot destination), and a tie is not order-comparable between
-     * chesslib and python-chess (STATUS D03c-4). Adding a tie-break Python does not have is
-     * forbidden.
-     */
+    /** Asserts the DESTINATION, as Python does: `b8c6` and `c7c6` score identically, and a tie is not
+     *  order-comparable between chesslib and python-chess. Adding a tie-break Python lacks is forbidden. */
     @Test
     fun unambiguousEndpoint() {
         val state = hypothesisState(AFTER_E4)
@@ -37,7 +25,6 @@ class EndpointCandidateTest {
         assertEquals("c6", Squares.ALL[move!!.to.ordinal])
     }
 
-    /** `test_single_endpoint_none_when_multi_changed` — two strong squares is a normal move. */
     @Test
     fun noneWhenMultipleStrongSquares() {
         val state = hypothesisState()
@@ -47,7 +34,6 @@ class EndpointCandidateTest {
         assertNull(state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null))
     }
 
-    /** Exactly one strong square is required — zero is as fatal as two. */
     @Test
     fun noneWhenNoStrongSquare() {
         val state = hypothesisState(AFTER_E4)
@@ -57,7 +43,6 @@ class EndpointCandidateTest {
         assertNull(state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null))
     }
 
-    /** A shadow-vetoed destination can never be an endpoint candidate. */
     @Test
     fun shadowVetoedDestinationYieldsNull() {
         val state = hypothesisState(AFTER_E4)
@@ -68,14 +53,8 @@ class EndpointCandidateTest {
         assertNull(state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null))
     }
 
-    /**
-     * Rivals to the SAME destination do not make the candidate ambiguous — the CNN
-     * then simply confirms this one move.
-     *
-     * This test also pins a finding (STATUS D03c-3): because `cands` is filtered to the ONE strong
-     * square, every candidate has the same destination, so Python's "different destination" loop
-     * can never fire. Asserted here from both sides.
-     */
+    /** Rivals to the SAME destination do not make it ambiguous. `cands` holds only the ONE strong square, so
+     *  Python's "different destination" loop can never fire — asserted from both sides. */
     @Test
     fun rivalsToTheSameDestinationDoNotBlock() {
         val state = hypothesisState(TWO_KNIGHTS)
@@ -94,10 +73,7 @@ class EndpointCandidateTest {
         )
     }
 
-    /**
-     * `vote = false`: the endpoint candidate skips the confirmer AND the absolute LL floor, because
-     * the CNN verify IS its multi-frame confirmation. The dispatch tests assert the exemption.
-     */
+    /** `vote = false` skips confirmer and LL floor: the CNN verify IS its confirmation. */
     @Test
     fun voteFalseSkipsConfirmerAndFloor() {
         val state = cnnState(AFTER_E4)
@@ -117,10 +93,7 @@ class EndpointCandidateTest {
         assertTrue(cand.note!!.endsWith("? verifying via CNN…"))
     }
 
-    /**
-     * `a7a8q`, `a7a8r`, `a7a8b` und `a7a8n` sind ueber Belegtheit identisch, also haette CNN-Verify
-     * die Variante des Generators bestaetigt statt der gespielten Figur. Der Endpunkt-Kandidat fragt.
-     */
+    /** `a7a8{q,r,b,n}` sind ueber Belegtheit identisch: CNN-Verify haette die Variante des Generators bestaetigt. */
     @Test
     fun aPromotionEndpointAsksInsteadOfHandingOneVariantToVerify() {
         val state = cnnState(PROMOTION)
@@ -132,7 +105,6 @@ class EndpointCandidateTest {
         assertEquals("a8", state.promoPending?.to)
     }
 
-    /** Und derselbe Weg durch `tryDetect`: die Q/R/B/N-Frage statt eines pending Kandidaten. */
     @Test
     fun aPromotionEndpointRaisesThePromptThroughTryDetect() {
         val state = detectState(fen = PROMOTION, ref = grayFrame())
@@ -145,7 +117,6 @@ class EndpointCandidateTest {
         assertTrue(events.any { it is TrackerEvent.PromotionPending }, "events were $events")
     }
 
-    /** Without a CNN the endpoint path does not exist at all — the frame goes stuck. */
     @Test
     fun withoutCnnThereIsNoEndpointCandidate() {
         val state = hypothesisState(AFTER_E4)
@@ -166,7 +137,6 @@ class EndpointCandidateTest {
     }
 }
 
-/** A state with the CNN verify path armed (`cnnOn == true`). */
 internal fun cnnState(fen: String = STARTPOS): EngineState {
     val state = EngineState(TrackerConfig(cnnVerify = true), fen, whitePov = true)
     state.cnnRun = true

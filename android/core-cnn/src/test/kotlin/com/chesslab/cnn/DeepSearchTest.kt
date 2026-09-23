@@ -56,9 +56,8 @@ class DeepSearchTest {
         assertEquals(listOf("e2e4", "e7e5"), derived.moves.map { uciOf(it) })
     }
 
-    /** Free length let B<->R confusion fabricate with one extra square: rec-20260807-135238 gave
-     *  12 phantoms at cost 0, 1 at cost 1, 0 at cost 2 (where recovery commits nothing). A genuine
-     *  four-ply desync explains eight squares and must still pay for itself at 1. */
+    /** Free length let B<->R confusion fabricate with one extra square: 12 phantoms at cost 0, 1 at 1, 0 at 2.
+     *  A genuine four-ply desync explains eight squares and must still pay for itself at 1. */
     @Test
     fun `a genuine four-ply recovery still pays for its length at cost 1`() {
         val row = deepRow("deep_four_ply")
@@ -78,8 +77,7 @@ class DeepSearchTest {
         assertTrue(overpriced.moves.isEmpty(), "4 plies explaining 8 squares must not survive a 12-square bill")
     }
 
-    /** Default 1 since 2026-08-09: at 0 003957 fabricated a 3-ply bridge at ply 39 (`g4/Bxg4/Kg3`
-     *  against `Kxf3`) and lost 29 plies; at 2 recovery commits nothing (specs/53 table). */
+    /** At 0, 003957 fabricated a 3-ply bridge and lost 29 plies; at 2 recovery commits nothing. */
     @Test
     fun `the default prices length at one square per half-move`() {
         assertEquals(1, CnnConfig().plyCostSquares, "0 fabricates bridges, 2 kills recovery — see specs/53")
@@ -110,7 +108,6 @@ class DeepSearchTest {
         assertTrue(derived.best > 0.0, "occupancy fallback still scores")
     }
 
-    /** The `minConfidentRecovery` guard, inherited from the deleted identity search. */
     @Test
     fun `too few confident squares short-circuits the search`() {
         val blind = FakeSquareClassifier(STARTPOS, overrides = ALL_SQUARES.associateWith { "occluded" to 0.99 })

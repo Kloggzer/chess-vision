@@ -13,7 +13,6 @@ internal const val SYNTHETIC_FRAME_SIDE = 640
 private const val CHANNELS = 3
 private const val BOARD_INSET = 40.0
 
-/** `[a8, h8, h1, a1]` in source pixels, inset so every edge square has real content around it. */
 private val CORNERS: List<DoubleArray> =
     listOf(
         doubleArrayOf(BOARD_INSET, BOARD_INSET),
@@ -22,7 +21,6 @@ private val CORNERS: List<DoubleArray> =
         doubleArrayOf(BOARD_INSET, SYNTHETIC_FRAME_SIDE - BOARD_INSET),
     )
 
-/** The bordered crop warp of [syntheticFrame], pending in a [CropFrameStore] as the analyzer leaves it. */
 internal fun storeWithSyntheticWarp(geom: BoardGeometry): CropFrameStore {
     val store = CropFrameStore()
     val frame = syntheticFrame()
@@ -32,7 +30,6 @@ internal fun storeWithSyntheticWarp(geom: BoardGeometry): CropFrameStore {
     return store
 }
 
-/** The 64 crops exactly as the CNN observer receives them. */
 internal fun cropsAsHandedToTheClassifier(geom: BoardGeometry): List<BgrImage> =
     requireNotNull(cropFrameSource(storeWithSyntheticWarp(geom)).take()) { "the store held a pending warp" }.crops
 

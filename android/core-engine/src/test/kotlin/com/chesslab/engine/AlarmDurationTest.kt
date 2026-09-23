@@ -4,14 +4,11 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `desyncObsN` only counted observations; reads on settle arrive every 0.07 s, so three are 0.21 s —
- * on `VID_20260824_154327` the latch then cost 107 of 117 plies (`docs/tracker-flow.md`).
- */
+/** Three reads on settle are 0.21 s: on `VID_20260824_154327` the latch then cost 107 of 117 plies. */
 class AlarmDurationTest {
     private val obsGapS = 0.07
 
-    /** A move-shaped guess, so the bound under test is `desyncObsN` and not the standoff bound. */
+    /** Move-shaped, so the bound under test is `desyncObsN` and not the standoff bound. */
     private fun heldFor(
         seconds: Double,
         minS: Double,
@@ -19,7 +16,7 @@ class AlarmDurationTest {
         val state = EngineState(recoveryConfig().copy(alarmMinS = minS), NF3_NO_CASTLING, whitePov = true).armed().underWay()
         val cnn = RecoveryEvaluator(guess = "e1g1")
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
-        // Elapsed, not absolute: `armed()` starts the deterministic clock at 1000 s.
+        // Elapsed, not absolute: `armed()` starts the clock at 1000 s.
         val start = state.nowS
         var seq = 0L
         while (state.nowS - start < seconds) {

@@ -3,50 +3,18 @@ package com.chesslab.tracker.pipeline
 import com.chesslab.engine.api.TrackerConfig
 import kotlin.math.max
 
-// The per-frame seam planes, recycled.
-//
-// `toGrayImage`/`toBgrImage` used to allocate a fresh 640 KB + 1.92 MB pair per frame — 77 MB/s at
-// 30 fps, all of it large-object garbage the collector then had to chase on the analyzer thread.
-//
-// They cannot simply be reused: entry.md **invariant 14** — the engine stores the planes it is
-// handed BY REFERENCE (`RunningMeanGray.append` keeps the array, `prevGray` keeps the array), so a
-// single shared buffer rewrites the frames the running mean is still averaging and the mean drifts
-// SILENTLY towards the newest frame. What the engine holds is bounded, though, so a ring deeper
-// than that bound is safe.
+// The per-frame seam planes, recycled: a fresh pair per frame was 77 MB/s of large-object garbage. Not ONE
+// shared buffer: the engine holds planes BY REFERENCE (invariant 14), and the running mean would drift silently
+// towards the newest frame. What it holds is bounded, so a deeper ring is safe.
 
-/**
- * Slots beyond the averaging window.
- *
- * The tight bound is `window + 1`, and it is tight for a reason worth writing down. At the moment
- * the ring hands out the plane for frame `N`, the engine still holds
- * `N-1 .. N-window` (the running mean's deque, whose newest element is also `prevGray`) — `window`
- * planes — and `PlaneMean.append` reads the evicted plane `N-window` in the same pass in which it
- * reads the new one, so those two must be different arrays as well.
- *
- * The extra slots are headroom for the two ways the window can move without the ring being told in
- * the same frame: `avgFramesOverride` raised from the settings screen, and the CNN attaching (which
- * flips `avgFrames` between its with-CNN and without-CNN values). [ringDepth] already takes the max
- * over the CNN flip; the headroom covers the ordering.
- */
+/** The tight bound is `window + 1`: `PlaneMean.append` reads the evicted plane in the same pass as the new one.
+ *  Headroom for a window that moves before the ring is told (`avgFramesOverride`, the CNN attaching). */
 private const val RING_HEADROOM = 3
 
-/**
- * How many planes the ring must hold for [config].
- *
- * The **max** over the CNN flip, not the current value: `avgFrames` is CNN-conditional (2 with, 3
- * without) and the CNN attaches asynchronously, long after the pipeline was built. A fixed 5 would
- * be right for the defaults and wrong the moment `avgFramesOverride` is set — it is a live knob
- * (`ConfigKnobs.kt`), so the depth is derived, not hard-coded.
- */
+/** The **max** over the CNN flip: `avgFrames` is CNN-conditional and the CNN attaches asynchronously. */
 fun ringDepth(config: TrackerConfig): Int = max(config.avgFrames(cnnOn = true), config.avgFrames(cnnOn = false)) + RING_HEADROOM
 
-/**
- * A fixed number of reusable plane buffers, handed out round-robin.
- *
- * Single-threaded by contract — it belongs to the analyzer thread. A plane that escapes that thread
- * or outlives the cycle (the CNN crop hand-off) must be COPIED by the caller, never taken from here;
- * see [CameraStages.updateCropFrame].
- */
+/** Analyzer thread only. A plane that escapes it or outlives the cycle must be COPIED by the caller. */
 class PlaneRing(
     depth: Int,
 ) {
@@ -55,13 +23,7 @@ class PlaneRing(
 
     val depth: Int get() = slots.size
 
-    /**
-     * The next buffer of exactly [size] bytes.
-     *
-     * A size change (the detection plane was rebuilt at a new `detSize`) replaces slots one at a
-     * time as they come round, which is correct: the stale-sized ones are exactly the planes the
-     * engine may still be holding, and it drops them itself when the plane size changes.
-     */
+    /** A size change replaces slots as they come round: the stale-sized ones are what the engine may still hold. */
     fun next(size: Int): ByteArray {
         val index = cursor
         cursor = (index + 1) % slots.size
@@ -72,11 +34,7 @@ class PlaneRing(
         return fresh
     }
 
-    /**
-     * Grow or shrink the ring. Every slot is dropped rather than carried over: the buffers handed
-     * out under the old depth are still live in the engine, and re-indexing them would be exactly
-     * the aliasing this class exists to prevent.
-     */
+    /** Every slot is dropped: the old buffers are still live in the engine, re-indexing them would alias. */
     fun resize(depth: Int) {
         val want = max(1, depth)
         if (want == slots.size) return

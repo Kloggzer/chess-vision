@@ -2,27 +2,19 @@ package com.chesslab.engine
 
 import com.github.bhlangonijr.chesslib.move.Move
 
-// Log-likelihood scoring of legal moves against the fused per-square z-map.
-//
-// `p(square changed) = sigmoid(k * (z - zThr))` and `logit(sigmoid(x)) == x`, so a square's
-// contribution to a move that "explains" it is `k * (z - zThr)`, clipped so one extremely hot square
-// cannot dominate. Hot squares a move does NOT touch therefore penalise it relative to moves that do.
+// `p(changed) = sigmoid(k * (z - zThr))` and `logit(sigmoid(x)) == x`, so a square adds `k * (z - zThr)`,
+// clipped so one very hot square cannot dominate. Hot squares a move does NOT touch penalise it.
 
 internal const val Z_THR_DEFAULT = 3.0
 
-/**
- * The log-likelihood temperature, and a CONSTANT: it scales every per-square logit, so it silently
- * rescales `ambiguityMarginLl`, `commitLlFloor` and `reanchorLlFloor` together — three knobs tuned
- * against incidents measured at this scale. Changing it means re-deriving those three, not a dial turn.
- */
+/** A CONSTANT: it rescales `ambiguityMarginLl`, `commitLlFloor` and `reanchorLlFloor` together — changing it
+ *  means re-deriving all three, not a dial turn. */
 internal const val LL_K = 1.0
 
 internal const val LOGIT_CLIP = 12.0
 
-/** The soft gate when the caller passes none. */
 internal const val PAIR_SOFT_FACTOR = 0.5
 
-/** Was ein Paar ist, und die kuerzeste Sequenz, die als Kandidat zaehlt. */
 internal const val PAIR_PLIES = 2
 
 /** Deckel gegen den Suchbaum; [endpointsOk] beschneidet ihn ohnehin auf die bewegten Felder. */
@@ -41,11 +33,8 @@ internal fun logits(
     return out
 }
 
-/**
- * Per legal move: the sum of [logits] over its touched squares, sorted DESCENDING. Stable sort, no
- * secondary key — equal scores are NOT order-comparable across implementations that enumerate the
- * legal moves in a different order.
- */
+/** Stable sort, NO secondary key: equal scores are not order-comparable across implementations that
+ *  enumerate moves differently. */
 internal fun loglikScores(
     g: Game,
     z: DoubleArray,
@@ -67,11 +56,8 @@ internal fun loglikScores(
     return scored
 }
 
-/**
- * LL score for MOVE PAIRS — die Naht, an der `ScoringTest` gegen die Python-Fixtures prueft.
- * Der ausgelieferte Pfad ruft `loglikSequenceScores` direkt; der Wrapper haelt die Paritaet
- * an genau der Form fest, die Python rechnet.
- */
+/** Die Naht, an der `ScoringTest` gegen die Python-Fixtures prueft; der ausgelieferte Pfad ruft
+ *  `loglikSequenceScores` direkt. */
 internal fun loglikPairScores(
     g: Game,
     z: DoubleArray,
@@ -80,11 +66,7 @@ internal fun loglikPairScores(
     soft: Double? = null,
 ): List<Pair<List<Move>, Double>> = loglikSequenceScores(g, z, zThr, k, soft, PAIR_PLIES)
 
-/**
- * Dasselbe fuer bis zu [maxPlies] Halbzuege, jenseits von zwei nur der Abtausch auf DEMSELBEN Zielfeld:
- * `f3xe5 c6xe5 d4xe5` als Paar gelesen erfindet eine Figur, frei gesucht erfand die dritte Ebene ein
- * `Rg1` statt `Bc4 Bc5 O-O` (2026-08-30).
- */
+/** Jenseits von zwei nur der Abtausch auf DEMSELBEN Feld: frei gesucht erfand die dritte Ebene `Rg1` statt `Bc4 Bc5 O-O`. */
 internal fun loglikSequenceScores(
     g: Game,
     z: DoubleArray,
@@ -104,8 +86,6 @@ internal fun loglikSequenceScores(
         claimed: Long,
     ) {
         if (path.size >= maxPlies || nodes > SEQUENCE_NODE_CAP) return
-        // From the third ply on ONLY the exchange on the same square: a free search invented
-        // `Rg1` for `Bc4 Bc5 O-O` — more squares explained, still wrong.
         val sameSquare = if (path.size >= PAIR_PLIES) path.last().to else null
         for (mv in g.legalMoves()) {
             if (!endpointsOk(z, mv, cut) || (sameSquare != null && mv.to != sameSquare)) continue
@@ -120,8 +100,7 @@ internal fun loglikSequenceScores(
                 union.forEachSquare { score += logit[it] }
                 scored.add(path.toList() to score)
             }
-            // Leaves need only their touched squares, computed in the parent position.
-            // Avoid validating and mutating chesslib for a recursion that immediately returns.
+            // Leaves need only their touched squares, computed in the parent: no chesslib mutation for them.
             if (path.size < maxPlies) {
                 g.push(mv)
                 try {
@@ -144,11 +123,7 @@ private fun endpointsOk(
     soft: Double,
 ): Boolean = z[mv.from.ordinal] >= soft && z[mv.to.ordinal] >= soft
 
-/**
- * A stable, purely numeric descending sort with NO secondary key. Never add a tie-break and never use
- * `sortedByDescending` — the key negation keeps `-0.0` behind `0.0` where a comparator on the raw value
- * would not.
- */
+/** NO secondary key, never `sortedByDescending`: the key negation keeps `-0.0` behind `0.0`. */
 internal fun <T> sortByValueDescending(scored: MutableList<Pair<T, Double>>) {
     scored.sortWith { a, b ->
         when {

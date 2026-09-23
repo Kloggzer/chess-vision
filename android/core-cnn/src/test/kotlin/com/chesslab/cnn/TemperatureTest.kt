@@ -5,8 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Die Temperatur macht die Wahrscheinlichkeiten ehrlich, den Argmax laesst sie in Ruhe: alle
- *  sieben Modelle liegen ueber 1, `cnnConfThr` sah sie ungelesen schaerfer als geeicht. */
+/** Alle sieben Modelle liegen ueber T = 1: `cnnConfThr` sah sie ungelesen schaerfer als geeicht. */
 class TemperatureTest {
     private val logProbs = floatArrayOf(-0.1f, -2.4f, -5.0f, -3.3f)
 
@@ -25,8 +24,8 @@ class TemperatureTest {
         assertEquals(1.0f, scaled.sum(), TOLERANCE)
     }
 
-    /** Der Kopf gibt Log-Wahrscheinlichkeiten aus; Softmax ist verschiebungsinvariant, also ist
-     *  Teilen durch T dort dasselbe wie auf den rohen Logits — darauf wurde sie gefittet. */
+    /** Softmax ist verschiebungsinvariant: Teilen durch T auf Log-Wahrscheinlichkeiten ist dasselbe wie auf
+     *  den rohen Logits, auf denen sie gefittet wurde. */
     @Test
     fun `shifting the input leaves the scaled result unchanged`() {
         val shifted = FloatArray(logProbs.size) { logProbs[it] - 7.5f }
@@ -34,8 +33,7 @@ class TemperatureTest {
         assertArrayEquals(softmaxAt(logProbs, T_SHIPPED), softmaxAt(shifted, T_SHIPPED), TOLERANCE)
     }
 
-    /** `spec.temperature` wird an DREI Stellen gelesen, `softmaxAt` teilte ungeprueft: negativ wird
-     *  der Argmax die UNwahrscheinlichste Klasse, bei 0 jede Zeile NaN, und 0,85 wird 0,005. */
+    /** Negativ wird der Argmax die UNwahrscheinlichste Klasse, bei 0 jede Zeile NaN, und 0,85 wird 0,005. */
     @Test
     fun `all three readers of the temperature refuse the same values`() {
         for (t in listOf(0.0, -T_SHIPPED, -1.0)) {
@@ -45,7 +43,6 @@ class TemperatureTest {
         }
     }
 
-    /** Die Sperre darf keinen ausgelieferten Lauf bewegen: alle sieben liegen ueber 1. */
     @Test
     fun `every shipped temperature still divides exactly as before`() {
         for (t in SHIPPED) {
@@ -60,8 +57,7 @@ class TemperatureTest {
         assertEquals(ENGINE_THR, calibratedConfThr(ENGINE_THR, 1.0, CLASSES), EXACT_D)
     }
 
-    /** Gemessen am Regressionssatz: mit T = 1,495 und dieser Schwelle ist der Lauf Ziffer fuer
-     *  Ziffer die Referenz (385/14/1/167 bei 6 Alarmen, 2026-09-16). */
+    /** Am Regressionssatz: mit T = 1,495 und dieser Schwelle ist der Lauf Ziffer fuer Ziffer die Referenz. */
     @Test
     fun `the default model's 0_85 is really 0_58`() {
         assertEquals(0.584, calibratedConfThr(ENGINE_THR, T_SHIPPED, CLASSES), 0.001)
@@ -78,7 +74,6 @@ class TemperatureTest {
     }
 
     private companion object {
-        /** `config.json` der sieben gebundelten Modelle, `p4a-80-clahe` (1,495) ist die Vorgabe. */
         val SHIPPED = listOf(1.2603, 1.495, 1.5285, 1.5963, 1.6684, 1.7202, 1.7551)
         const val T_SHIPPED = 1.495
         const val ENGINE_THR = 0.85

@@ -9,13 +9,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.lang.reflect.Modifier
 
-/**
- * `TrackerConfig`'s constructor properties, by reflection.
- *
- * Java fields and not `memberProperties`: kotlin-reflect is not on this module's classpath, and a
- * backing field is exactly what a settable knob has — the derived `detSize` has none, and
- * `settleFrames(cnnOn)` is a function, so both drop out without a filter that could hide a real one.
- */
+/** Java fields, not `memberProperties`: kotlin-reflect is not on this classpath, and a settable knob is a
+ *  backing field — derived `detSize` and function `settleFrames` drop out without a filter. */
 private fun trackerConfigFields(): Set<String> =
     TrackerConfig::class.java.declaredFields
         .filterNot { it.isSynthetic || Modifier.isStatic(it.modifiers) }
@@ -23,15 +18,8 @@ private fun trackerConfigFields(): Set<String> =
         .toSet()
 
 class KnobCatalogTest {
-    /**
-     * Every field is classified — shown to a person, or named in [NOT_A_SETTING] with the reason.
-     *
-     * The old rule was "every field must have a row", which is how the screen came to offer 46
-     * sliders: it made adding a knob to the seam the same act as offering it to a user, and nobody
-     * ever had to argue that a human should see it. The partition forces that argument, in the
-     * direction that matters — a new knob is invisible until someone writes down why it is a
-     * decision, or why it is not.
-     */
+    /** Every field is classified — shown, or in [NOT_A_SETTING] with its reason. "Every field has a row" made
+     *  46 sliders; the partition forces the argument for each new knob. */
     @Test
     fun everyTrackerConfigFieldIsEitherShownOrExplained() {
         val fields = trackerConfigFields()
@@ -43,7 +31,6 @@ class KnobCatalogTest {
         assertEquals(fields.size, KNOB_CATALOG.size + NOT_A_SETTING.size, "one entry per field, no duplicates")
     }
 
-    /** A reason that says nothing is the same as no reason — this is the whole value of the table. */
     @Test
     fun everyWithheldKnobSaysWhy() {
         NOT_A_SETTING.forEach { (key, why) ->
@@ -51,8 +38,7 @@ class KnobCatalogTest {
         }
     }
 
-    /** Ein abgeschriebener Vorgabewert veraltet lautlos: `commitHoldS` nannte noch 0.067 s / 0.20 s,
-     *  als die Knoepfe laengst auf 0.0632 / 0.1592 standen. Der Text liest sie jetzt aus der Config. */
+    /** Ein abgeschriebener Vorgabewert veraltet lautlos (`commitHoldS` nannte 0.067 statt 0.0632). */
     @Test
     fun withheldKnobsQuoteTheLiveDefaultsAndNotAStaleCopy() {
         val defaults = TrackerConfig()
@@ -93,7 +79,7 @@ class KnobCatalogTest {
     fun everyDefaultLiesInsideItsOwnRange() {
         KNOB_CATALOG.filterNot { it.isFlag }.forEach {
             val value = it.pythonDefault
-            // `NaN` is the optional knobs' "auto", which is deliberately outside the range.
+            // `NaN` is the optional knobs' "auto", deliberately outside the range.
             if (!value.isNaN()) {
                 assertTrue(value in it.min..it.max, "${it.key} default $value is outside ${it.min}..${it.max}")
             }
@@ -136,5 +122,4 @@ class KnobCatalogTest {
 
 private const val TWELVE = 12
 
-/** Long enough to be a sentence rather than a shrug. */
 private const val MIN_REASON = 40

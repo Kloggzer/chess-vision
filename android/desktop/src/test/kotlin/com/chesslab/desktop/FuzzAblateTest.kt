@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
-/**
- * `fuzz ablate` faellt ein Urteil ("der Fuzzer sieht diese Wache nicht"). Ohne Gegenprobe waere
- * das eine Behauptung: ein Zaehler, der immer dasselbe liefert, meldet JEDE Wache als unsichtbar.
- */
+/** Ein Zaehler, der immer dasselbe liefert, meldet JEDE Wache als unsichtbar. */
 class FuzzAblateTest {
     @Test
     fun `derselbe Knopfsatz liefert denselben Zustandszaehler`() {

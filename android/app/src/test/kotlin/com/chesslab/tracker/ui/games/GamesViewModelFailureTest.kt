@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** A game file that does not parse is a storage failure the list has to name, not a crash. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class GamesViewModelFailureTest {
     @TempDir

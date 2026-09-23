@@ -26,7 +26,7 @@ private class MapStore(
     }
 }
 
-/** Pins the bytes on the device: recording omits defaults, sync writes them — two formats, kept. */
+/** Recording omits defaults, sync writes them — two formats on the device, kept. */
 class PrefsSlotFormatTest {
     @Test
     fun recordingWritesOnlyWhatDiffersFromTheDefaults() =

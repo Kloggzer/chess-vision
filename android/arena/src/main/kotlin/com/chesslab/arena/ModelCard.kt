@@ -8,13 +8,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-/**
- * What a model's own training run measured about it — its test split, not this arena's footage.
- *
- * Only the VISIBLE figures are headlined. A covered cell keeps its FEN label but is masked out of
- * the classification loss, so the model never learns it and a metric that counts it measures the
- * hand, not the classifier (`TODO.md`, measured 2026-08-25).
- */
+/** Only VISIBLE figures are headlined: a covered cell is masked out of the loss, so a metric counting it
+ *  measures the hand, not the classifier. */
 class ModelCard(
     private val metrics: JsonObject,
 ) {
@@ -29,7 +24,6 @@ class ModelCard(
                 ?.toMap()
                 .orEmpty()
 
-    /** The headline plus the weakest [worst] classes, as printable lines. */
     fun lines(worst: Int): List<String> =
         listOfNotNull(
             HEADLINE
@@ -46,12 +40,7 @@ class ModelCard(
         )
 }
 
-/**
- * `model_card.json` beside the run, or null.
- *
- * Deliberately not fatal: the card is documentation, and a missing one may not stop a measurement
- * from running.
- */
+/** Not fatal: the card is documentation and may not stop a measurement. */
 fun modelCard(model: String): ModelCard? =
     runCatching {
         val dir = File(MODEL_CARDS, model)
@@ -60,7 +49,6 @@ fun modelCard(model: String): ModelCard? =
         ModelCard(metrics ?: card)
     }.getOrNull()
 
-/** Some runs leave `metrics` empty and write the numbers to `eval_<split>.json` beside it. */
 private fun evaluation(dir: File): JsonObject? =
     dir
         .listFiles { file -> file.name.startsWith("eval_") && file.extension == "json" }
@@ -68,14 +56,9 @@ private fun evaluation(dir: File): JsonObject? =
         ?.lastOrNull()
         ?.let { Json.parseToJsonElement(it.readText()).jsonObject }
 
-/** Where the training runs live. Not in the APK: the card is for a reader, not for the phone. */
 val MODEL_CARDS = File("../../data/models")
 
-/**
- * `board_acc` is deliberately absent: it demands all 64 cells at once, covered ones included, so
- * it is capped at 54 % by coverage alone and is `piece_acc` to the 32nd besides. A number that is
- * almost always zero cannot separate two models.
- */
+/** `board_acc` is absent: coverage alone caps it at 54 %, so it cannot separate two models. */
 private val HEADLINE =
     listOf(
         "visible piece" to "visible_piece_acc",

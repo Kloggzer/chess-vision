@@ -31,11 +31,10 @@ private const val TEXTURE = 24
 private const val FRAME_MS = 33L
 private const val PRIME = 1_000_003L
 
-/** Genug Hand, um den Zug zu verbergen, und genug Frames, damit die Engine ihn verpasst. */
 private const val HIDE_SQUARES = 20
 private const val HIDE_FRAMES = 24
 
-/** Die ausgelieferte Reihenfolge; `empty` zuerst, sonst liest `observationFromProbs` falsch. */
+/** `empty` zuerst, sonst liest `observationFromProbs` falsch. */
 private val CLASSES =
     listOf("empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")
 
@@ -48,18 +47,15 @@ internal object Envelope {
     const val OBS_LAG_MAX = 41
 }
 
-/** Was der synthetische Treiber erzeugt. Jedes Feld ist ein Suchparameter. */
 internal data class Scene(
     val plies: Int = 8,
     val stillFrames: Int = 20,
     val moveFrames: Int = 6,
-    /** Wie weit die Hand je Frame wandert, in Feldern. Die Bewegung ENTSTEHT daraus; einen
-     *  freien `motionRoiScore` gibt es nicht mehr, den misst `RoiMotion` aus den Pixeln. */
+    /** In Feldern je Frame; die Bewegung misst `RoiMotion` aus den Pixeln. */
     val handSpeed: Int = 2,
-    /** Wie stark die Hand ein Feld deckt. Abgestuft, sonst trennt `pOccludedThr` nichts. */
+    /** Abgestuft, sonst trennt `pOccludedThr` nichts. */
     val handCover: Double = 0.95,
-    /** Faehrt ein Coverage-Modell? Dann ist der Rillen-Arm AUS, sonst AN -- am Geraet gilt
-     *  `runGridOcclusion = coverageOutput != true`, die beiden Arme sind also EXKLUSIV. */
+    /** Coverage-Modell heisst Rillen-Arm AUS: am Geraet sind die Arme EXKLUSIV. */
     val coverageModel: Boolean = true,
     val handFrames: Int = 0,
     val handSquares: Int = 0,
@@ -69,12 +65,10 @@ internal data class Scene(
     val obsLagFrames: Int = 0,
     val obsWrong: Int = 0,
     val luma: Double = 120.0,
-    /** Jeder n-te Halbzug faellt UNTER die Hand: kein Bewegungsausschlag, die Engine sieht ihn
-     *  nie. Erst damit laufen Brett und Engine wirklich auseinander (`docs/engine-fuzz.md`). */
+    /** Jeder n-te Halbzug faellt UNTER die Hand: erst damit laufen Brett und Engine auseinander. */
     val hiddenEvery: Int = 0,
 )
 
-/** Welche Zustaende der Lauf erreicht hat — dieselben Achsen, die `ReplayTrace` schreibt. */
 internal data class FuzzResult(
     val frames: Int,
     val reached: Map<String, Int>,
@@ -85,15 +79,13 @@ internal data class FuzzResult(
 
 internal fun squares(): List<String> = buildList { for (r in 1..8) for (f in FILES) add("" + f + r) }
 
-/** Bit i steht fuer `squares()[i]` — dieselbe Reihenfolge, die `Squares.ALL` benutzt. */
 private fun maskeVon(felder: Set<String>): Long {
     var maske = 0L
     for ((i, sq) in squares().withIndex()) if (sq in felder) maske = maske or (1L shl i)
     return maske
 }
 
-/** Die Hand wandert ueber das Brett, statt als Block zu stehen: nur so entsteht im Bild echte
- *  Bewegung, und nur so misst `RoiMotion` etwas. */
+/** Wandert, statt als Block zu stehen: nur so misst `RoiMotion` etwas. */
 private fun handAt(
     schritt: Int,
     felder: Int,
@@ -121,7 +113,6 @@ private fun startTruth(): MutableMap<String, Char> {
 
 private const val SQUARES = 64
 
-/** `col = Linie`, `row = 8 - Rang` — dieselbe Abbildung wie `squareRegion`, das `internal` ist. */
 private fun rectOf(
     square: String,
     size: Int,
@@ -133,8 +124,7 @@ private fun rectOf(
     return intArrayOf(col * cell + m, row * cell + m, (col + 1) * cell - m, (row + 1) * cell - m)
 }
 
-/** Ein Rauschfeld je FUELLUNG. Ein gemeinsames waere schneller und falsch: dann traegt eine
- *  ankommende Figur keine neue Struktur, der Census liest einen Schatten (null Commits). */
+/** Ein Rauschfeld je FUELLUNG: bei einem gemeinsamen traegt eine ankommende Figur keine neue Struktur (null Commits). */
 private class Texture(
     private val size: Int,
     private val seed: Long,
@@ -164,8 +154,7 @@ private fun paint(
     }
 }
 
-/** Eine Hand wirft einen Schatten auf die Nachbarfelder: dunkler, aber gleiche Farbe. Genau das
- *  trennt `ShadowVeto` von einer Verdeckung — ohne Schatten ist `verify:shadow` unerreichbar. */
+/** Dunkler, gleiche Farbe — ohne Schatten ist `verify:shadow` unerreichbar. */
 private fun shadowOf(hand: Set<String>): Set<String> {
     if (hand.isEmpty()) return emptySet()
     val out = HashSet<String>()
@@ -183,8 +172,7 @@ private fun shadowOf(hand: Set<String>): Set<String> {
     return out - hand
 }
 
-/** Der Schluessel der Textur ist der INHALT, nicht die Helligkeit: ein Schatten laesst das Muster
- *  stehen und senkt nur den Wert — sonst faellt er durch Cucchiaras Farbton-Pruefung. */
+/** Ein Schatten laesst das Muster stehen und senkt nur den Wert, sonst faellt er durch die Farbton-Pruefung. */
 private fun contentOf(
     square: String,
     truth: Map<String, Char>,
@@ -208,8 +196,7 @@ private fun levelOf(
     return ground + drop + if (piece.isUpperCase()) WHITE_PIECE else BLACK_PIECE
 }
 
-/** Die Textur haengt an (Feld, Fuellung), NICHT am Frame: ein ruhendes Brett muss bytegleiche
- *  Bilder liefern, sonst sieht die Engine in jedem Frame das ganze Brett wechseln. */
+/** An (Feld, Fuellung), NICHT am Frame: ein ruhendes Brett muss bytegleiche Bilder liefern. */
 
 private fun grayOf(
     truth: Map<String, Char>,
@@ -225,8 +212,7 @@ private fun grayOf(
     return GrayImage(size, size, data)
 }
 
-/** Der Schatten-Veto und die Verdeckungs-Farbachse lesen Chroma. Ein graues Bild macht sie
- *  konstruktiv tot — `verify:shadow` war deshalb unerreichbar, nicht selten. */
+/** Schatten-Veto und Verdeckungs-Farbachse lesen Chroma; ein graues Bild macht sie konstruktiv tot. */
 private fun tintOf(
     square: String,
     truth: Map<String, Char>,
@@ -263,7 +249,6 @@ private const val BYTE_MASK = 255
 
 private fun pieceName(piece: Char): String = (if (piece.isUpperCase()) "w" else "b") + piece.uppercaseChar()
 
-/** Die Zeilen, die das Modell liefern WUERDE: Spitze auf der Wahrheit, Rest gleichverteilt. */
 private fun probsOf(
     truth: Map<String, Char>,
     hand: Set<String>,
@@ -277,13 +262,11 @@ private fun probsOf(
     for (sq in all) {
         val piece = truth[sq]
         val truthName = if (piece == null) "empty" else pieceName(piece)
-        // Eine FESTE Fehlklasse ist kein Rauschen: der Resync-Pfad sucht eine Stellung, die die
-        // Beobachtung erklaert, und die gibt es zu immer derselben Verwechslung nie.
+        // Eine FESTE Fehlklasse: der Resync-Pfad findet zu immer derselben Verwechslung nie eine Stellung.
         val name = if (sq in wrong) CLASSES.filter { it != truthName }.random(rng) else truthName
         val row = DoubleArray(CLASSES.size + 1) { (1.0 - scene.obsConf) / (CLASSES.size - 1) }
         row[CLASSES.indexOf(name)] = scene.obsConf
-        // ABGESTUFT, nicht 0/1: bei binaerer Deckung trennt `pOccludedThr` ueber seinen ganzen
-        // Suchbereich nichts, und der Knopf sieht folgenlos aus, obwohl er es nicht ist.
+        // ABGESTUFT: bei binaerer Deckung trennt `pOccludedThr` ueber seinen Suchbereich nichts.
         row[CLASSES.size] =
             when {
                 !scene.coverageModel -> 0.0
@@ -296,7 +279,6 @@ private fun probsOf(
     return rows
 }
 
-/** Eine kurze, legale Linie — der Fuzzer sucht Zustaende, nicht Eroeffnungen. */
 private val LINE =
     listOf(
         "e2e4",
@@ -333,15 +315,12 @@ internal fun fuzzRun(
             decisionSink = { if (it.san != null) committed += 1 },
             stateSink = { _, to, _ -> reached.merge("state:" + to, 1, Int::plus) },
         )
-    // OHNE Evaluator committet Verify den Kandidaten sofort, statt die Leiter zu fahren: der
-    // erste Lauf erreichte `resynced`/`ghost`/`shadow` deshalb nie, obwohl der Korpus sie traegt.
+    // OHNE Evaluator committet Verify sofort: `resynced`/`ghost`/`shadow` waeren unerreichbar.
     engine.attachCnn(CnnRecovery(cnnConfig(config)))
     engine.setDebugEnabled(true)
     // Die Engine indiziert Felder auf `boardSize * detectScale`; eine eigene Groesse fliegt raus.
     val size = (config.boardSize * config.detectScale).toInt()
     val corners = cornersOf(size)
-    // Die ECHTE Messung auf den gerenderten Pixeln. Vorher war `motionRoiScore` eine freie Zahl,
-    // und damit konnten `motionPxThr` und `motionMargin` im Fuzzer gar nichts bewirken.
     val roi = RoiMotion(config.motionMargin, config.motionPxThr)
     val mat = Mat(size, size, CvType.CV_8UC3)
     val texture = Texture(size, seed * PRIME)
@@ -359,17 +338,14 @@ internal fun fuzzRun(
         val bgr = bgrOf(gray, truth, hand)
         mat.put(0, 0, bgr.data)
         val motion = roi.score(mat, corners)
-        // ZUERST die faelligen Schnappschuesse, DANN der Frame: `EngineHost` macht es so, und die
-        // umgekehrte Reihenfolge liefert eine Beobachtung aus dem Frame, den die Engine gerade
-        // erst gesehen hat — das kann die echte Kette nicht.
+        // ZUERST die faelligen Schnappschuesse, DANN der Frame, wie `EngineHost`.
         while (pending.isNotEmpty() && pending.first().first <= seq) {
             engine.onCnnSnapshot(pending.removeFirst().second)
         }
         engine.onFrame(FrameInput(seq, gray, bgr, corners, motion, coverage, scene.luma, tsMs))
         if (seq % scene.obsEvery == 0L) {
             val obs = observationFromProbs(probsOf(truth, hand, shadowOf(hand), scene, rng), CLASSES)
-            // Der modellfreie Verdeckungsarm war immer 0, also stumm — dabei liest ihn die Engine
-            // sowohl fuer die Handform als auch fuer die Sichtbarkeitsserie.
+            // Der modellfreie Arm war immer 0; die Engine liest ihn fuer Handform und Sichtbarkeitsserie.
             val gitter = if (scene.coverageModel) 0L else maskeVon(hand)
             pending +=
                 (seq + scene.obsLagFrames) to
@@ -400,15 +376,12 @@ internal fun fuzzRun(
         fun felderVon(vararg ucis: String): List<String> = ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, 4)) }
 
         for (ply in 0 until minOf(scene.plies, LINE.size)) {
-            // Ein verdeckter Abtausch nimmt ZWEI Halbzuege vorweg; ohne diese Marke spielte die
-            // naechste Runde denselben Zug ein zweites Mal.
+            // Ein verdeckter Abtausch nimmt ZWEI Halbzuege vorweg.
             if (ply == uebersprungen) continue
             repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
             val zweiter = if (ply + 1 < minOf(scene.plies, LINE.size)) LINE[ply + 1] else LINE[ply]
             val verdeckt = scene.hiddenEvery > 0 && (ply + 1) % scene.hiddenEvery == 0
             if (verdeckt) {
-                // Die Hand liegt jetzt UEBER den Zugfeldern; vorher stand sie als Block ab `a1`,
-                // waehrend der Zug anderswo sichtbar blieb — der Lauf hiess nur "verdeckt".
                 val felder = felderVon(LINE[ply], zweiter)
                 val decke = maxOf(scene.handSquares, HIDE_SQUARES)
                 val takte = maxOf(scene.handFrames, HIDE_FRAMES) / 2
@@ -428,8 +401,7 @@ internal fun fuzzRun(
         }
         repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
     } finally {
-        // `fuzzSearch` verschluckt jede Ausnahme und laeuft weiter; ohne `finally` sammelt
-        // ein langer Suchlauf den nativen Puffer jedes fehlgeschlagenen Versuchs an.
+        // `fuzzSearch` verschluckt jede Ausnahme: ohne `finally` sammelt er native Puffer an.
         mat.release()
     }
     return FuzzResult(seq.toInt(), reached, committed)

@@ -32,7 +32,7 @@ private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQ
 private const val AFTER_E4E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2"
 private const val E4E5_PLACEMENT = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR"
 
-/** The sync anchor: video time zero sits at one second of system time, so videoMs = elapsedMs - 1000. */
+/** videoMs = elapsedMs - 1000. */
 private const val SYNC_NS = 1_000_000_000L
 
 private fun rowsOf(
@@ -54,7 +54,7 @@ class PhoneCandidateTest {
         assertEquals(20L to TimeRule.FRAME, hit)
     }
 
-    /** A transposition repeats a placement; the bound is what keeps the second visit from the first. */
+    /** A transposition repeats a placement; the bound keeps the second visit from the first. */
     @Test
     fun `a repeated placement after the bound is found again, an earlier one is not`() {
         val rows =
@@ -78,7 +78,6 @@ class PhoneCandidateTest {
         assertEquals(50L to TimeRule.DECISION, PhoneClock(rows).elapsedNs(2, AFTER_E4E5, 0L, Long.MIN_VALUE))
     }
 
-    /** Both clocks are `System.currentTimeMillis()`, so the nearest row plus the difference. */
     @Test
     fun `the wall rule is the last resort`() {
         val rows = rowsOf(frames = listOf(FrameRow(1_000_000_000L, 1000L, null), FrameRow(2_000_000_000L, 2000L, null)))
@@ -86,8 +85,7 @@ class PhoneCandidateTest {
         assertEquals(1_400_000_000L to TimeRule.WALL, PhoneClock(rows).elapsedNs(1, AFTER_E4, 1400L, Long.MIN_VALUE))
     }
 
-    /** Der NAECHSTE Ankerpunkt, nicht der erste: bei sauberen Zeilen ist das dasselbe, und genau
-     *  deshalb faellt es nicht auf. Hier driftet die zweite Zeile um 100 ms — drei Bilder. */
+    /** Der NAECHSTE Ankerpunkt: bei sauberen Zeilen dasselbe wie der erste. Hier driftet die zweite Zeile um 100 ms. */
     @Test
     fun `die Wanduhr ankert am naechsten Punkt, auch wenn die Zeilen zittern`() {
         val rows = rowsOf(frames = listOf(FrameRow(1_000_000_000L, 1000L, null), FrameRow(2_000_000_000L, 2100L, null)))
@@ -97,8 +95,7 @@ class PhoneCandidateTest {
         assertEquals(1_950_000_000L to TimeRule.WALL, hit, "der erste Punkt haette 2_050_000_000 gesagt")
     }
 
-    /** Vorwaerts zuerst, sonst der letzte davor: ohne den Rueckfall traegt ein Halbzug, dessen
-     *  Bild keine Ecken mitbrachte, gar keinen Quad — und die Herkunft der Geometrie faellt weg. */
+    /** Ohne den Rueckfall traegt ein Halbzug ohne Ecken gar keinen Quad, und die Herkunft der Geometrie faellt weg. */
     @Test
     fun `cornersAt faellt auf die letzte Zeile davor zurueck`() {
         val quad = FloatArray(8) { it.toFloat() }
@@ -144,7 +141,6 @@ class PhoneCandidateTest {
         assertTrue(refusal.message!!.contains("no game record"), refusal.message)
     }
 
-    /** 2026-08-24-22-43-46: no record, and the photo log skips six plies — the decisions have all 79. */
     @Test
     fun `without a record the timeline's decisions are the record, a skipped ply is derived`() {
         val dir = bundle("decisions", games = emptyMap())
@@ -183,7 +179,6 @@ class PhoneCandidateTest {
         assertEquals(9, candidate.int("frames_written"))
     }
 
-    /** The board moved after the candidate's segment (16-20-19): the median then sits beside the grooves. */
     @Test
     fun `the quad on the grooves wins, whichever measured it`() {
         val board = Mat(SIDE, SIDE, CvType.CV_8UC3, Scalar(200.0, 200.0, 200.0))
@@ -205,7 +200,6 @@ class PhoneCandidateTest {
         assertEquals(cornersFromFlat(onGrooves).map { it.toList() }, kept.corners.map { it.toList() }, "no sample: the scan stands")
     }
 
-    /** The board moved between two plies: each one carries the quad the phone stood on when it committed. */
     @Test
     fun `every ply carries the phone's quad at its commit`() {
         val dir = bundle("ply-corners", games = emptyMap())
@@ -259,7 +253,7 @@ class PhoneCandidateTest {
         assertNotNull(source.getValue("crop").jsonObject["pad_side"])
     }
 
-    /** B2: ein fremdes Schema dekodiert zu VORGABEN — die durften nicht als gemessene Konfiguration landen. */
+    /** Ein fremdes Schema dekodiert zu VORGABEN — die durften nicht als gemessene Konfiguration landen. */
     @Test
     fun `settings json unter fremdem Schema wird als unbekannt vermerkt, nicht als Vorgabe`() {
         val dir = bundle("old-schema", games = mapOf("g.json" to oneSegmentRecord()))
@@ -271,7 +265,6 @@ class PhoneCandidateTest {
         assertTrue("schema 4" in config.getValue("unknown").jsonPrimitive.content)
     }
 
-    /** Gegenprobe: das eigene Schema traegt weiter die gespeicherten Werte. */
     @Test
     fun `settings json unter dem eigenen Schema traegt die gespeicherten Werte`() {
         val dir = bundle("own-schema", games = mapOf("g.json" to oneSegmentRecord()))
@@ -302,10 +295,7 @@ class PhoneCandidateTest {
         ROOT.deleteRecursively()
     }
 
-    /**
-     * The fixture lives under `data/` because a candidate stores its video relative to it
-     * (`relativeVideo`) — a temp directory outside the tree is refused before anything is written.
-     */
+    /** Under `data/`: `relativeVideo` refuses a temp directory outside the tree. */
     private fun bundle(
         name: String,
         games: Map<String, String>,
@@ -364,7 +354,6 @@ class PhoneCandidateTest {
 
         private val FRAMES = PhoneFrameClock(listOf(0.0, 33.3, 66.7, 100.0, 133.3))
 
-        /** e4 at video ms 30 (decoded frame 1), e5 at 90 (frame 3) — both found by the frame rule. */
         private val TIMELINE =
             listOf(
                 """{"kind":"video_sync","elapsedNs":$SYNC_NS,"durationNs":0}""",
@@ -374,12 +363,11 @@ class PhoneCandidateTest {
 
         const val AFTER_NF3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
 
-        /** Ply 4, accepted 20 s after the last frame row — the recorder had stopped. */
         private val LATE_DECISION =
             """{"kind":"decision","elapsedNs":21000000000,"ply":4,"accepted":true,"san":"Nc6","uci":"b8c6","fenBefore":"$AFTER_NF3"}""" +
                 "\n"
 
-        /** Ply 2 has no decision row (a pair commit writes one for the second ply only). */
+        /** A pair commit writes one row for the second ply only. */
         private val DECISIONS =
             listOf(
                 """{"kind":"frame","elapsedNs":1120000000,"wallTsMs":1120,"fen":"$AFTER_NF3"}""",

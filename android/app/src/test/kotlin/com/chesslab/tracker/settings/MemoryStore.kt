@@ -1,6 +1,5 @@
 package com.chesslab.tracker.settings
 
-/** DataStore needs a Context and a real file; the repository's decisions do not. */
 internal class MemoryStore(
     text: String? = null,
 ) : ConfigStore {

@@ -10,11 +10,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The search, the "what did I change" view, and the two-level shape specs/51 gave this screen —
- * the things that make ~37 documented knobs usable rather than merely present, without putting
- * them in front of somebody who came here to turn spoken moves on.
- */
 class SettingsNavTest {
     @Test
     fun developerKeysGetReadablePrimaryLabels() {
@@ -25,8 +20,7 @@ class SettingsNavTest {
 
     @Test
     fun tuningValuesNameTheirHumanUnit() {
-        // FESTE Eingaben: geprueft wird die Einheit, nicht die Vorgabe -- sonst bricht der Test
-        // bei jeder Neujustierung, obwohl die Darstellung unveraendert stimmt.
+        // FESTE Eingaben: geprueft wird die Einheit, nicht die Vorgabe.
         fun shown(
             key: String,
             value: Double,
@@ -47,25 +41,18 @@ class SettingsNavTest {
 
     @Test
     fun anEmptyQueryFindsNothingRatherThanEverything() {
-        // A blank box means "show me the groups", never "show me all 46 rows again".
         assertTrue(searchKnobs("").isEmpty())
         assertTrue(searchKnobs("   ").isEmpty())
     }
 
-    /**
-     * Substring, not equality: "censusThr" is meant to surface `occlCensusThr` alongside it. Both
-     * are census thresholds and someone hunting one usually wants to see the other.
-     */
+    /** Substring: "censusThr" surfaces `occlCensusThr` too — someone hunting one wants the other. */
     @Test
     fun searchFindsAKnobByItsKeyAndItsRelatives() {
         assertEquals(listOf("censusThr", "occlCensusThr"), searchKnobs("censusThr").map { it.key }.sorted())
         assertEquals(listOf("darkLumaThr"), searchKnobs("darkLuma").map { it.key })
     }
 
-    /**
-     * The reason the help text is in the haystack: nobody remembers that the shadow veto is called
-     * `censusThr`, and the word "shadow" appears only in its explanation.
-     */
+    /** Nobody remembers `censusThr`; "shadow" appears only in its help text. */
     @Test
     fun searchFindsAKnobByAWordFromItsExplanation() {
         val hits = searchKnobs("shadow").map { it.key }
@@ -91,11 +78,7 @@ class SettingsNavTest {
         KnobGroup.entries.forEach { assertEquals(0, modifiedCount(it, TrackerConfig())) }
     }
 
-    /**
-     * The whole point of the developer door: a tuning group's way out is Developer, never the
-     * player's landing page. Getting this wrong drops the user two levels on one tap, which is the
-     * exact bug specs/47 fixed for the system back button.
-     */
+    /** A tuning group's way out is Developer, never the landing page: two levels on one tap. */
     @Test
     fun aTuningGroupReturnsToDeveloperAndAPlayerPageToSettings() {
         assertEquals(SettingsPlace.Developer, parentOf(SettingsPlace.Group(KnobGroup.MOTION)))
@@ -106,16 +89,11 @@ class SettingsNavTest {
         assertEquals(SettingsPlace.Groups, parentOf(SettingsPlace.Speech))
     }
 
-    /** `null` is the one place that leaves Settings altogether, and only the landing page may. */
     @Test
     fun onlyTheLandingPageLeavesSettings() {
         assertNull(parentOf(SettingsPlace.Groups))
     }
 
-    /**
-     * Every summary states the CURRENT VALUE, and "off" has to read as off — a row that describes
-     * the destination instead is the half of the Android pattern that does no work.
-     */
     @Test
     fun aSummaryStatesTheValueAndNotTheDestination() {
         assertEquals("Off", speechSummary(AppSettings()))

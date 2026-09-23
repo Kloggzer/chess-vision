@@ -8,7 +8,7 @@ import com.google.zxing.qrcode.QRCodeReader
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** ZXing's JavaSE image sources are not on the Android classpath; a BitMatrix is all we need. */
+/** ZXing's JavaSE image sources are not on the Android classpath. */
 private class MatrixSource(
     private val matrix: BitMatrix,
 ) : LuminanceSource(matrix.width, matrix.height) {

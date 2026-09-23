@@ -8,16 +8,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `loglik_scores` and `loglik_pair_scores` against the phase-00b
- * golden fixtures (`tierA.loglikScores` / `tierA.loglikPairScores`, the top 12 in Python's own
- * order over `tierA.zFused`, with `zThr` from `meta.effectiveConfig` and the `LL_K` constant).
- *
- * **Ties are not order-comparable**: chesslib and python-chess enumerate legal moves in
- * different orders and neither implementation has a tie-break. The score SEQUENCE is
- * order-independent and is compared element by element; the move identity is only asserted
- * where the fixture's score is strictly separated from its neighbour.
- */
+/** **Ties are not order-comparable**: chesslib and python-chess enumerate differently and neither has a
+ *  tie-break. The score SEQUENCE is compared; move identity only where strictly separated. */
 class ScoringTest {
     @Test
     fun loglikScoresMatchPython() {
@@ -66,8 +58,6 @@ class ScoringTest {
         assertConsumed(checked, "loglikPairScores frames")
         assertConsumed(nonEmpty, "frames with a non-empty pair fixture")
     }
-
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun anAllZeroZMapScoresEveryMoveByItsTouchedCount() {
@@ -124,8 +114,6 @@ class ScoringTest {
         assertTrue(loglikPairScores(game, flat(HOT_Z), Z_THR, K).isEmpty())
     }
 
-    // ---------------------------------------------------------------------------------------
-
     private fun pairScoresWith(zE5: Double): List<Pair<List<com.github.bhlangonijr.chesslib.move.Move>, Double>> {
         val z = flat(0.0)
         z[Squares.index("e2")] = HOT_Z
@@ -146,12 +134,6 @@ class ScoringTest {
         }
     }
 
-    /**
-     * The fixture holds Python's top 12. The score sequence is compared element by element (it
-     * is independent of how ties were ordered), every fixture key must exist in the port's
-     * result with the same score, and the top key is only pinned when its score is strictly
-     * separated from the runner-up.
-     */
     private fun assertScoreSequence(
         expected: List<Pair<String, Double>>,
         actual: List<Pair<String, Double>>,

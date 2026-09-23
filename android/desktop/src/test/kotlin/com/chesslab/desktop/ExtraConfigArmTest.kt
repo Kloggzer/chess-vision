@@ -9,9 +9,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** `configs=` bekam frueher den FERTIGEN `base` und legte seine Knoepfe danach drauf, umging
- *  damit `atFrameRate` und `coverage_gate`: `motionThr` und `cnnConfThr` hiessen in den zwei
- *  Armen Verschiedenes, und ein A/B verglich zwei Skalen statt zweier Werte. */
+/** Mit dem FERTIGEN `base` umging `configs=` `atFrameRate` und `coverage_gate`: ein A/B verglich zwei Skalen. */
 class ExtraConfigArmTest {
     @TempDir
     lateinit var dir: File
@@ -28,7 +26,6 @@ class ExtraConfigArmTest {
                "coverage_output":true,"coverage_gate":0.25,"temperature":1.42}""",
         )
 
-    /** Dieselbe Kette, die `DesktopMain` dem Hauptlauf gibt. */
     private fun baue(extra: Map<String, Double>): TrackerConfig =
         ReplayOptions(fps = 15.0, overrides = extra)
             .trackerConfig(geometry, live = false)
@@ -52,7 +49,6 @@ class ExtraConfigArmTest {
         assert(out < 0.85) { "T=1,42 macht aus der Huerde eine kleinere echte Wahrscheinlichkeit, war $out" }
     }
 
-    /** Gegenprobe: eine Zeile ohne die drei Knoepfe ist Wort fuer Wort der alte Arm. */
     @Test
     fun `eine Zeile ohne die drei Knoepfe bleibt verhaltensgleich`() {
         assertEquals(baue(emptyMap()).copy(recoveryMaxPlies = 6), arm("a recoveryMaxPlies=6"))
@@ -62,6 +58,21 @@ class ExtraConfigArmTest {
     fun `ein Tippfehler im Knopfnamen bricht ab, statt die Vorgabe zu messen`() {
         assertThrows(IllegalStateException::class.java) { arm("a motionThrr=0.6") }
         assertThrows(IllegalStateException::class.java) { TrackerConfig().withOverrides(mapOf("gibtsNicht" to 1.0)) }
+    }
+
+    @Test
+    fun `configs= und set lesen dieselben Werte, auch true und false`() {
+        val set = ReplayOptions.parse(listOf("set:cnnVerify=false", "set:recoveryMaxPlies=6", "set:usePrior=true")).overrides
+        assertEquals(mapOf("cnnVerify" to 0.0, "recoveryMaxPlies" to 6.0, "usePrior" to 1.0), set)
+        assertEquals(baue(set), arm("a cnnVerify=false recoveryMaxPlies=6 usePrior=true"))
+        assertEquals(false, arm("a cnnVerify=false").cnnVerify)
+    }
+
+    @Test
+    fun `ein Wert, der weder Zahl noch true oder false ist, bricht in beiden Formen ab`() {
+        assertThrows(IllegalStateException::class.java) { ReplayOptions.parse(listOf("set:cnnVerify=nein")) }
+        assertThrows(IllegalStateException::class.java) { arm("a cnnVerify=nein") }
+        assertThrows(IllegalStateException::class.java) { arm("a cnnVerify") }
     }
 
     private companion object {

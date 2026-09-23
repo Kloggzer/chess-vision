@@ -9,47 +9,34 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-// One run against one label: found / missed / invented / beyond, each with frame indices.
-//
-// Deliberately NEVER folded into a single accuracy. The project rule (2026-07-30) is that
-// phantoms disqualify while misses are negotiable, so a number that averages the two directions
-// hides exactly the distinction every decision downstream is made on. specs/52 phase 04:
-// measurement only, forbidden from fixing what it finds.
+// found / missed / invented / beyond, NEVER folded into one accuracy: phantoms disqualify while misses are
+// negotiable. Measurement only, forbidden from fixing what it finds.
 
-/** One ply as the comparison sees it — a SAN, the frame it landed on, who decided it. */
 internal class ScoredPly(
     val san: String,
     val frame: Int,
     val decider: String,
 )
 
-/** One stretch both sides walked differently and ended on the same board. */
 internal class ReorderedStretch(
     val label: List<ScoredPly>,
     val run: List<ScoredPly>,
 )
 
 internal class MoveScore(
-    /** Label ply matched to the run ply that found it, in game order. */
     val found: List<Pair<ScoredPly, ScoredPly>>,
-    /** Label plies the run never committed. */
     val missed: List<ScoredPly>,
-    /** Run commits inside the reference that are not in it — the phantoms. */
+    /** The phantoms. */
     val invented: List<ScoredPly>,
-    /** Run commits past the reference's end — unjudged, because the label stops before them. */
+    /** Unjudged, because the label stops before them. */
     val beyond: List<ScoredPly>,
-    /** Found stretches whose ORDER the two sides disagree on — see [scoreMoves]. */
     val reordered: List<ReorderedStretch>,
 ) {
     val reorderedPlies: Int get() = reordered.sumOf { it.label.size }
 }
 
-/**
- * A still frame cannot prove an ORDER: where the two sides disagree but meet on the same board again
- * within [REORDER_LOOKAHEAD] plies, the stretch counts as found and is reported as reordered. Where
- * they never meet, the rest falls to a longest common subsequence and a run off the line keeps its
- * phantoms. Only past the last found ply AND the last label frame is a commit beyond, not invented.
- */
+/** A still frame cannot prove an ORDER: sides meeting on the same board within [REORDER_LOOKAHEAD] plies count
+ *  as found, reordered. Otherwise LCS. Only past the last found ply AND the last label frame is a commit beyond. */
 internal fun scoreMoves(
     label: List<ScoredPly>,
     run: List<ScoredPly>,
@@ -77,7 +64,6 @@ internal fun scoreMoves(
     return lcsRest(label, run, i, j, found, reordered)
 }
 
-/** Longest common subsequence over what the parallel walk could not align. */
 private fun lcsRest(
     label: List<ScoredPly>,
     run: List<ScoredPly>,
@@ -116,10 +102,8 @@ private fun lcsRest(
     }
     while (i < label.size) missed += label[i++]
     while (j < run.size) unmatched += IndexedValue(j, run[j++])
-    // Nur ein Lauf, der das Label bis zum Ende gegangen ist, hat einen Nachlauf. Wer Plies
-    // uebersprungen hat und dann weiterlief, hat Phantome — und die bleiben Phantome. Ohne das
-    // Gate reichte ein Label ohne Frames (`frame = -1`, der Normalfall bei Ply-Versatz), um
-    // jedes Phantom nach `beyond` zu schieben. Dieselbe Regel wie im Arena-Zwilling.
+    // Nur ein Lauf, der das Label bis zum Ende ging, hat einen Nachlauf: sonst schob ein Label ohne Frames
+    // (`frame = -1`) jedes Phantom nach `beyond`. Dieselbe Regel wie im Arena-Zwilling.
     val referenceEnd = label.maxOfOrNull { it.frame } ?: -1
     val (beyond, invented) =
         if (missed.isEmpty()) {
@@ -130,12 +114,8 @@ private fun lcsRest(
     return MoveScore(found, missed, invented.map { it.value }, beyond.map { it.value }, reordered)
 }
 
-/**
- * Plies until the two lines stand on the same board again, null when they do not.
- *
- * Equal counts only: with the same side to move, a board reached in a DIFFERENT number of
- * half-moves is a disagreement about what happened, not about an order the frames cannot show.
- */
+/** Equal counts only: the same board after a DIFFERENT number of half-moves is a disagreement about what
+ *  happened. */
 private fun reorderedLength(
     fen: String,
     label: List<ScoredPly>,
@@ -162,26 +142,20 @@ private fun fensAfter(
     return out
 }
 
-/** Placement plus side to move — castling and clocks are not what the camera sees. */
+/** Castling and clocks are not what the camera sees. */
 private fun position(fen: String): String = fen.split(' ').take(2).joinToString(" ")
 
-// 12, not 6: on 2026-08-08-11-59-12 the tracker took the b8 exchange 27 s before the label's
-// bundle and the boards met again only ten plies later, at Raxd4.
+// 12, not 6: on 2026-08-08-11-59-12 the boards met again only ten plies later.
 private const val REORDER_LOOKAHEAD = 12
 
-/**
- * The label's plies: the `reference.pgn` where one exists, with the candidate's frames alongside.
- * The PGN is the checked source; the candidate is a tracker artefact that guesses the order of a
- * bundle it committed on one frame — demonstrably wrong on `VID_20260726_233432` (e4 sits at frame
- * 240, the label calls it ply 3). Scoring against the guess punishes the tracker that read it right.
- */
+/** The `reference.pgn` where one exists: the candidate guesses the order of a bundle committed on one frame,
+ *  wrong on `VID_20260726_233432`. */
 internal fun labelPlies(candidate: File): List<ScoredPly> {
     val fromCandidate = candidatePlies(candidate)
     val start = startFenOf(candidate)
     val pgn = File(candidate.parentFile, "reference.pgn")
     if (!pgn.isFile) return fromCandidate
-    // Eine vorhandene, aber unlesbare Referenz ist NICHT "keine Referenz": der Rueckfall benotet
-    // den Tracker gegen seine eigene Ausgabe und meldet dann found = alles.
+    // Eine vorhandene, aber unlesbare Referenz ist NICHT "keine Referenz": sonst found = alles.
     val sans = runCatching { pgnSans(pgn.readText(), start) }.getOrDefault(emptyList())
     check(sans.isNotEmpty()) { "$pgn liegt da, ergibt aber keinen Zug — Referenz reparieren oder entfernen" }
     return sans.mapIndexed { i, san ->
@@ -190,9 +164,7 @@ internal fun labelPlies(candidate: File): List<ScoredPly> {
     }
 }
 
-/** Wo die Aufnahme ANFAENGT (`rxr-c8-20260919`: Zug 26). Ohne sie faellt `fensAfter` schon auf
- *  dem ersten SAN aus und mit ihm die Reorder-Erkennung — ein vertauschter Abtausch zaehlt dann
- *  als `missed` PLUS `invented`, also als Phantom. */
+/** Ohne sie faellt `fensAfter` schon auf dem ersten SAN aus, und ein vertauschter Abtausch zaehlt als Phantom. */
 internal fun startFenOf(candidate: File): String =
     Json
         .parseToJsonElement(candidate.readText())
@@ -212,7 +184,6 @@ private fun candidatePlies(candidate: File): List<ScoredPly> {
     }
 }
 
-/** The mainline SANs, normalised through chesslib so they compare against a run's. */
 private fun pgnSans(
     text: String,
     startFen: String,
@@ -241,12 +212,7 @@ private val PGN_NUMBER = Regex("""\d+\.(\.\.)?""")
 private val PGN_RESULT = Regex("""(1-0|0-1|1/2-1/2|\*)""")
 private val PGN_SPACE = Regex("""\s+""")
 
-/**
- * Three numbers, three lists, no average — und das MODELL, mit dem sie entstanden sind.
- *
- * Ohne den Namen ist die Zahl nicht zuzuordnen, und das Label ist ein historischer App-Stand
- * statt einer Wahrheit ueber das Brett.
- */
+/** Three numbers, three lists, no average — und das MODELL: ohne den Namen ist die Zahl nicht zuzuordnen. */
 internal fun printScore(
     candidate: File,
     label: List<ScoredPly>,

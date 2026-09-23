@@ -4,13 +4,10 @@ import com.chesslab.cnn.IMAGENET_MEAN
 import com.chesslab.cnn.IMAGENET_STD
 import com.chesslab.cnn.PIECES13_CLASSES
 
-/** Das gemessene Gate von `p4a-80-clahe`, dem `DEFAULT_MODEL` (`docs/occlusion-gate.md`). */
+/** `docs/occlusion-gate.md`. */
 const val SHIPPED_COVERAGE_GATE: Double = 0.25
 
-/**
- * Ein `config.json` in der Form, die das APK seit 2026-09-14 ausliefert. Die Alt-Form ohne Coverage
- * muss ausdruecklich angefordert werden, sonst schreibt ein Test sie versehentlich fest.
- */
+/** Die Alt-Form ohne Coverage muss ausdruecklich angefordert werden, sonst schreibt ein Test sie fest. */
 fun modelConfigJson(
     classes: List<String> = PIECES13_CLASSES,
     outSize: List<Int> = listOf(128, 128),

@@ -3,8 +3,7 @@ package com.chesslab.cnn
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
-/** `:core-cnn` names no OpenCV symbol, and it was only an Android module because `:core-geometry`
- *  was an AAR. Both facts are asserted so the cascade cannot come back unnoticed. */
+/** `:core-cnn` names no OpenCV symbol; it was an Android module only because `:core-geometry` was an AAR. */
 class PlatformPurityTest {
     @Test
     fun theClasspathIsPlainJvm() {

@@ -9,7 +9,6 @@ class SpectatorPageTest {
 
     @Test
     fun pageHasNoExternalReferences() {
-        // A CDN reference on a LAN with no internet renders a blank board rather than degrading.
         listOf("http://", "https://", "//cdn", "<script src", "<link href").forEach {
             assertFalse(page.contains(it), "page references $it")
         }

@@ -6,10 +6,7 @@ import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.games.GameResult
 
-/**
- * What a result is CALLED, as a string resource. It resolves nothing itself: this file is reached
- * from plain functions as well as from composables, and an `@StringRes` id travels through both.
- */
+/** An `@StringRes` id: reached from plain functions as well as composables. */
 @StringRes
 internal fun resultHeadline(result: GameResult): Int =
     when (result) {
@@ -30,7 +27,6 @@ internal fun mateStory(grade: GameGrade): String {
     }
 }
 
-/** Names the first attacking move in the final uninterrupted line that actually reached mate. */
 internal fun followedMateStory(grade: GameGrade): String? {
     if (grade.evalMate.lastOrNull() != 0) return null
     val finalLine =

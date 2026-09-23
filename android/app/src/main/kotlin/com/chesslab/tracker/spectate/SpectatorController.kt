@@ -31,12 +31,7 @@ import kotlinx.coroutines.launch
 
 private const val SPECTATOR_NOTIFICATION_ID = 2
 
-/**
- * Owns the server, the wire snapshot and the "it is running" indicator.
- *
- * It lives outside the Compose tree on purpose: a ViewModel dies when the user navigates away, and
- * a spectator server that stops because somebody pressed Back is a server whose URL silently rots.
- */
+/** Outside the Compose tree: a server that stops because somebody pressed Back leaves a rotten URL. */
 class SpectatorController(
     context: Context,
     private val scope: CoroutineScope,
@@ -53,15 +48,13 @@ class SpectatorController(
     val enabled: StateFlow<Boolean> = enabledFlow.asStateFlow()
 
     init {
-        // The persisted flag is written, never read back at launch: the app can NEVER come back up
-        // serving. Persisting it only keeps the settings export honest about what is running.
+        // Written, never read back at launch: the app can NEVER come back up serving.
         persist(on = false)
         scope.launch { followTracker() }
         watchWifi()
         registerStopAction()
     }
 
-    /** The only way the server ever starts. Persists through the shared repository — no second store. */
     fun setEnabled(on: Boolean) {
         enabledFlow.value = on
         persist(on)
@@ -69,7 +62,6 @@ class SpectatorController(
         notify(if (on) (server.state.value as? SpectatorState.Running)?.url else null)
     }
 
-    /** The shared repository, never a second store — the settings export must not disagree with reality. */
     private fun persist(on: Boolean) {
         val repository = SettingsHost.repository.value ?: return
         repository.updateApp(repository.appSettings.value.copy(spectatorEnabled = on))
@@ -77,16 +69,8 @@ class SpectatorController(
 
     private suspend fun followTracker() = followTrackerSessions(TrackerSessionHost.session, ::onStatus)
 
-    /**
-     * The score sheet is the service's ONE live game, never a second accumulator.
-     *
-     * This class used to build its own list off the event stream, under a lock, because [scope] is
-     * `Dispatchers.IO` — a thread POOL — and the event and status collectors genuinely ran
-     * concurrently on an `ArrayList`. It also never handled an undo (the engine emits no undo
-     * event), so a taken-back move stayed on the spectator's sheet for the rest of the game, and it
-     * cleared the whole sheet on any return to the start position. `LiveGame` answers all three,
-     * and there is nothing left here to get wrong.
-     */
+    /** The service's ONE live game, never a second accumulator: the old one raced on an `ArrayList` across the
+     *  IO pool, missed every undo and cleared on any return to the start position. */
     private fun onStatus(status: TrackerStatus?) {
         val game =
             GameSessionHost.controller.value
@@ -96,7 +80,6 @@ class SpectatorController(
         snapshot.value = gameSnapshot(status, game, System.currentTimeMillis())
     }
 
-    /** Wi-Fi came or went: reconcile against the toggle rather than guess. */
     private fun watchWifi() {
         val manager = app.getSystemService(ConnectivityManager::class.java) ?: return
         val request = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build()
@@ -114,10 +97,7 @@ class SpectatorController(
         notify((server.state.value as? SpectatorState.Running)?.url)
     }
 
-    /**
-     * The user must never be able to forget the board is on the LAN, so a running server is an
-     * ongoing notification. [url] `null` takes it down.
-     */
+    /** A running server is an ongoing notification: the user must never forget the board is on the LAN. */
     private fun notify(url: String?) {
         val manager = app.getSystemService(NotificationManager::class.java) ?: return
         if (url == null) {
@@ -144,7 +124,6 @@ class SpectatorController(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    /** Registered at runtime, not in the manifest — the manifest belongs to phase 06c. */
     private fun registerStopAction() {
         val receiver =
             object : BroadcastReceiver() {
@@ -163,12 +142,8 @@ class SpectatorController(
     }
 }
 
-/**
- * Follow whatever session is current, and let go of the one that died.
- *
- * The teardown is a `null` emission, so it has to REACH [collectLatest]: filtering it away left the
- * inner collector — and the dead service's binder with it — attached for the life of the process.
- */
+/** The teardown is a `null` emission and must REACH [collectLatest]: filtering it kept the dead
+ *  service's binder attached for the life of the process. */
 internal suspend fun followTrackerSessions(
     sessions: Flow<TrackerSession?>,
     onStatus: (TrackerStatus?) -> Unit,
@@ -176,12 +151,7 @@ internal suspend fun followTrackerSessions(
 
 private const val ACTION_STOP = "com.chesslab.tracker.SPECTATOR_STOP"
 
-/**
- * The one controller in the process.
- *
- * Created on the main thread by the spectator screen and never disposed: the server outlives the
- * screen by design, and a second controller would be a second listener on port 8420.
- */
+/** Never disposed: the server outlives the screen, and a second controller would listen on port 8420 twice. */
 object SpectatorHost {
     private var controller: SpectatorController? = null
 

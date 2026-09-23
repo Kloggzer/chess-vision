@@ -9,15 +9,10 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The illegal-move latch. Every state is [underWay]: with no ply on the record there is no latch at
- * all (`Alarm.alarmable`), and a "never alarms" case would pass for the wrong reason.
- */
+/** Every state is [underWay]: with no ply on record there is no latch at all, and "never alarms" would
+ *  pass for the wrong reason. */
 class AlarmLatchTest {
-    /**
-     * specs/39 phase 01: `guessIllegalMove`'s 1-and-1 shape names neither a castling nor a chronic
-     * misread, so such a standoff was held silently forever (2026-08-02, rec-20260807 after Qh4).
-     */
+    /** The 1-and-1 shape names neither castling nor a chronic misread: such a standoff was held silently forever. */
     @Test
     fun aStandoffOnOneSquareEventuallyAlarms() {
         val state = recoveryState(NF3_NO_CASTLING).underWay()
@@ -60,7 +55,6 @@ class AlarmLatchTest {
         }
     }
 
-    /** The move-shaped guess is stronger evidence and must keep latching at `desyncObsN`, not 12. */
     @Test
     fun theMoveShapedGuessStillWinsFirst() {
         val state = recoveryState(NF3_NO_CASTLING).underWay()
@@ -77,7 +71,6 @@ class AlarmLatchTest {
 
     @Test
     fun alarmTriggersAfterNStableMismatches() {
-        // `test_alarm_triggers_after_n_stable_mismatches`: e1/g1 stable over three glances.
         val state = recoveryState(NF3_NO_CASTLING).underWay()
         val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
@@ -96,7 +89,7 @@ class AlarmLatchTest {
 
     @Test
     fun identityOnlyConflictNeverAlarms() {
-        // The N/B/R gap (~40% identity precision) is a model weakness, not a desync.
+        // The N/B/R gap is a model weakness, not a desync.
         val state = recoveryState(NF3_NO_CASTLING).underWay()
         val cnn = RecoveryEvaluator(conflicts = listOf("b1", "g1"), occupancyConflict = false, guess = "b1c3")
         val obs = obsForBoard(state.board, mapOf("b1" to "wB", "g1" to "wB"))
@@ -105,10 +98,7 @@ class AlarmLatchTest {
         assertEquals(8, state.desyncObs, "the streak still runs — only the raise is gated")
     }
 
-    /**
-     * Not before the first ply: the latch has no automatic way out, and `2026-08-15-22-48-04` alarmed
-     * at video t=0.8 s on the position it was HANDED, then replayed 0 of its 19 plies.
-     */
+    /** Not before the first ply: `2026-08-15-22-48-04` alarmed at t=0.8 s on the HANDED position and replayed 0 of 19. */
     @Test
     fun noAlarmBeforeTheFirstPlyIsOnTheRecord() {
         val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
@@ -123,10 +113,7 @@ class AlarmLatchTest {
         assertNotNull(started.alarm)
     }
 
-    /**
-     * The hand triggers the alarm it explains (User, 2026-08-24) — it covers exactly the squares that
-     * then read wrong. The alarm path was the one place that never asked `handInFrame`.
-     */
+    /** The hand covers exactly the squares that then read wrong; the alarm path never asked `handInFrame`. */
     @Test
     fun aHandInFrameDefersTheLatch() {
         val state = recoveryState(NF3_NO_CASTLING).underWay()
@@ -146,7 +133,6 @@ class AlarmLatchTest {
 
     @Test
     fun noAlarmWithoutCnn() {
-        // `test_no_alarm_without_cnn`: a diff-only tracker stuck on no_legal_move never alarms.
         val state = recoveryState()
         val obs = obsForBoard(state.board)
         for (seq in 1L..10L) state.cnnTick(null, recoverySnap(state, obs, seq))
@@ -178,8 +164,7 @@ class AlarmLatchTest {
 
     @Test
     fun desyncCountsDistinctObservations() {
-        // `TestSeqContract::test_desync_counts_distinct_observations`: `desyncObsN` means
-        // "persistent over seconds", not "evaluated three times".
+        // `desyncObsN` means "persistent over seconds", not "evaluated three times".
         val state = recoveryState(NF3_NO_CASTLING).underWay()
         val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
@@ -228,7 +213,6 @@ class AlarmLatchTest {
         assertNull(state.alarm)
     }
 
-    /** The reset lived only in `clearAlarm`, which returns early without a latch — so a MATCH never broke the streak. */
     @Test
     fun aMatchingObservationBreaksTheDesyncStreak() {
         val state = recoveryState(NF3_NO_CASTLING).underWay()
@@ -264,7 +248,6 @@ class AlarmLatchTest {
         assertNull(state.alarm, "one read after a move may not latch the alarm")
     }
 
-    /** Dieselbe Serie, derselbe Stellungswechsel — nur committet ihn die CNN-Recovery. */
     @Test
     fun aRecoveryCommitClearsTheDesyncStreak() {
         val (state, cnn) = streakedState()
@@ -282,10 +265,7 @@ class AlarmLatchTest {
         assertNull(state.alarm, "one read after a bridge may not latch the alarm")
     }
 
-    /**
-     * Ohne Latch kehrt `clearAlarm` sofort zurueck, und genau dann raeumte niemand die Serie ab:
-     * der Undo verliess die Stellung, gegen die sie gezaehlt war, und nahm sie mit.
-     */
+    /** Ohne Latch kehrt `clearAlarm` sofort zurueck: der Undo verliess die Stellung und nahm die Serie mit. */
     @Test
     fun undoClearsTheDesyncStreakWithoutALatch() {
         val engine = TrackerEngine(recoveryConfig().copy(alarmMinS = STREAK_ALARM_MIN_S), NF3_NO_CASTLING)
@@ -309,10 +289,7 @@ class AlarmLatchTest {
         assertNull(state.alarm, "one read after an undo may not latch the alarm")
     }
 
-    /**
-     * `{e1}` → `{e1,g1}` → `{g1}` never has ONE square disagreeing throughout: the subset rule
-     * carried the streak across a set that had drifted whole. The running core `{e1}∩{g1}` is empty.
-     */
+    /** `{e1}` → `{e1,g1}` → `{g1}` never has ONE square disagreeing throughout; the running core is empty. */
     @Test
     fun aStreakNeedsARunningCoreOfConflicts() {
         val state = recoveryState(NF3_NO_CASTLING).underWay()
@@ -328,7 +305,6 @@ class AlarmLatchTest {
         assertNull(state.alarm)
     }
 
-    /** A streak of two against the current position, with the latch's duration gate live. */
     private fun streakedState(): Pair<EngineState, RecoveryEvaluator> {
         val config = recoveryConfig().copy(alarmMinS = STREAK_ALARM_MIN_S)
         val state = EngineState(config, NF3_NO_CASTLING, whitePov = true).armed().underWay()
@@ -346,7 +322,6 @@ class AlarmLatchTest {
 
     @Test
     fun alarmBlocksFabricatedRecovery() {
-        // `test_alarm_blocks_fabricated_recovery`: a legal move that leaves the king on g1 unexplained.
         val (state, cnn) = alarmedState()
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
         val fenBefore = state.board.fen()
@@ -360,8 +335,7 @@ class AlarmLatchTest {
 
     @Test
     fun alarmRecoveryIgnoresUnrelatedIdentityMistakes() {
-        // Identity errors (a1 read as a knight) may travel in the diagnostic conflict list, but must
-        // not block an occupancy-resolving bridge forever.
+        // Identity errors may travel in the diagnostic conflict list, but must not block an occupancy-resolving bridge forever.
         val state = recoveryState(NF3_NO_CASTLING).underWay()
         val cnn = RecoveryEvaluator(conflicts = listOf("g8", "f6", "a1"), guess = "g8f6")
         val obs = obsForBoard(state.board, mapOf("g8" to LABEL_EMPTY, "f6" to "bN", "a1" to "wN"))
@@ -378,8 +352,7 @@ class AlarmLatchTest {
 
     @Test
     fun verifiedRestoreClearsAlarm() {
-        // `test_alarm_blocks_fabricated_recovery`'s tail: match_ok is the take-back the latch waits
-        // for — the only release that is not a user correction.
+        // match_ok is the take-back the latch waits for — the only release that is not a user correction.
         val (state, cnn) = alarmedState()
         cnn.match = true
         cnn.moves = emptyList()
@@ -393,7 +366,7 @@ class AlarmLatchTest {
 
     @Test
     fun undoClearsAlarmLatch() {
-        // Black is to move in the fixture, and a6 leaves e1/g1 — the alarm's own squares — alone.
+        // Black is to move, and a6 leaves e1/g1 — the alarm's own squares — alone.
         val engine = alarmedEngine(commit = "a7a6")
         engine.undo()
         assertNull(engine.state.alarm)
@@ -401,10 +374,8 @@ class AlarmLatchTest {
         assertTrue(engine.state.decisionLog.any { it.reason == "illegal_move_undone" })
     }
 
-    /**
-     * The undo deleted its own `decider = "user"` row: stamped with the CURRENT `history.size`, then
-     * trimmed above the RESTORED one. [undoClearsAlarmLatch] has no history, so its trim never runs.
-     */
+    /** The undo deleted its own `decider = "user"` row: stamped with the CURRENT `history.size`, trimmed above
+     *  the RESTORED one. [undoClearsAlarmLatch] has no history, so its trim never runs. */
     @Test
     fun undoKeepsItsOwnUserRow() {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
@@ -433,10 +404,7 @@ class AlarmLatchTest {
         assertTrue(engine.state.decisionLog.any { it.reason == "illegal_move_accepted" })
     }
 
-    /**
-     * Ein verrutschtes Brett sagt nichts darueber, ob Stellung und Brett wieder zusammenpassen —
-     * also faellt die Pixel-Referenz und der Latch bleibt (Invariante 9, `docs/tracker-flow.md`).
-     */
+    /** Ein verrutschtes Brett sagt nichts ueber die Stellung: die Pixel-Referenz faellt, der Latch bleibt (Invariante 9). */
     @Test
     fun aChangedRectificationDropsTheReferenceAndKeepsTheLatch() {
         val engine = alarmedEngine()
@@ -456,7 +424,6 @@ class AlarmLatchTest {
 
     @Test
     fun alarmStatusFieldsForUi() {
-        // `test_alarm_status_fields_for_ui`: everything the red-board card renders.
         val (state, _) = alarmedState()
         val alarm = requireNotNull(state.toStatus().alarm)
         assertEquals(ALARM_ILLEGAL_MOVE, alarm.kind)
@@ -473,15 +440,12 @@ class AlarmLatchTest {
         assertNull(state.board.alarmGuessSan(null))
         assertNull(state.board.alarmGuessSan("zz9"))
         assertEquals("a4->a5", state.board.alarmGuessSan("a4a5"), "an empty from-square has no piece")
-        // Schwarz ist am Zug, der Springer auf f3 ist weiss — das ist der Grund, nicht "suspected".
         assertEquals("N f3->e5 (it is Black to move)", state.board.alarmGuessSan("f3e5"))
-        // Dieselbe Stellung, aber eine schwarze Figur: die Seite stimmt, also bleibt es generisch.
         assertEquals("N b8->a6 (illegal move suspected)", state.board.alarmGuessSan("b8a6"))
     }
 
     @Test
     fun acceptCnnPositionAdoptsTheObservationAndClearsTheLatch() {
-        // `test_accept_cnn_position_*`: "the board is right, the game state is not".
         val engine = alarmedEngine()
         val events = engine.acceptCnnPosition()
         assertEquals("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQ1BKR b - - 1 1", engine.status().fen)
@@ -505,8 +469,6 @@ class AlarmLatchTest {
 
     @Test
     fun acceptCnnPositionPrunesCastlingRightsAndKeepsSideToMove() {
-        // The h1 rook is observed on h5, so White's kingside right cannot survive — but the queenside
-        // right, both black rights and "White to move" must.
         val engine = TrackerEngine(recoveryConfig(), "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
         val state = engine.state
         state.cnnSnap =
@@ -515,7 +477,7 @@ class AlarmLatchTest {
         assertEquals("r3k2r/8/8/7R/8/8/8/R3K3 w Qkq - 0 1", engine.status().fen)
     }
 
-    /** [commit] plays a real ply for the `undo` caller; the others use `underWay`, which leaves the BOARD alone. */
+    /** [commit] plays a real ply for `undo`; the others use `underWay`, which leaves the BOARD alone. */
     private fun alarmedEngine(commit: String? = null): TrackerEngine {
         val engine = TrackerEngine(recoveryConfig(), NF3_NO_CASTLING)
         val state = engine.state
@@ -530,13 +492,12 @@ class AlarmLatchTest {
     }
 }
 
-/** The glance the user is answering happened NOW — `adoptableCnnFen` only reads a fresh one. */
+/** `adoptableCnnFen` only reads a fresh glance. */
 private fun nowMs(state: EngineState): Long = (state.nowS * 1000.0).toLong()
 
-/** Far past every threshold: long enough that "never" means never, cheap enough to soak. */
 private const val STANDOFF_SOAK = 50L
 
-/** The latch's duration gate, live — a streak that survives a commit brings its clock along. */
+/** A streak that survives a commit brings its clock along. */
 private const val STREAK_ALARM_MIN_S = 5.0
 
 private const val STREAK_GAP_S = 30.0

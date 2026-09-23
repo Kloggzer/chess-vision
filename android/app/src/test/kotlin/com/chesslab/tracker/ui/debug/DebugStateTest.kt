@@ -18,7 +18,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** What `geometry.cropLine` produces for a model that declares its crop (specs/45). */
 private const val CROP = "side=0.050"
 
 private fun payload(
@@ -92,7 +91,6 @@ class DebugStateTest {
         assertEquals(95.0, total.p95)
     }
 
-    /** Diagnosing a slow pipeline needs BOTH rates: delivered, and actually analysed. */
     @Test
     fun theTimingsPanelSeesTheCameraRateAsWellAsTheEngineRate() {
         val assembler = DebugPayloadAssembler()
@@ -103,7 +101,6 @@ class DebugStateTest {
         assertEquals(30.0, state!!.cameraFps)
         assertEquals(10.0, state!!.fpsMedian)
         assertEquals(30.0, state!!.cameraFpsMedian, "a steady camera rate must not follow the engine's dip")
-        // The window is dropped with the gate, so a reopened screen shows no stale rate.
         assembler.reset()
         state = assembler.assemble(delivering.copy(fps = 1.0, cameraFps = 2.0))
         assertEquals(2.0, state!!.cameraFpsMedian)
@@ -111,7 +108,7 @@ class DebugStateTest {
 
     @Test
     fun heatmapSeparatesShadowFromOcclusion() {
-        // entry.md invariant 2: the shadow veto PRESERVES z, the occlusion veto ZEROES it.
+        // Invariant 2: the shadow veto PRESERVES z, the occlusion veto ZEROES it.
         val cells =
             evidenceCells(
                 status(z = mapOf("d4" to 5.0, "e5" to 6.0), shadow = setOf("d4"), occlusion = setOf("e5")),
@@ -126,10 +123,7 @@ class DebugStateTest {
         assertEquals(0.0, occluded.value)
     }
 
-    /**
-     * `TrackerStatus.census` is an EMPTY map whenever the channel never produced values — weight 0,
-     * or its own hot-square guard dropped the frame. A 0.0 there is a measurement nobody made.
-     */
+    /** `census` is EMPTY when the channel produced nothing; a 0.0 there is a measurement nobody made. */
     @Test
     fun theCensusChannelSaysNothingRatherThanZeroWhenItNeverRan() {
         val dropped = evidenceCells(status(z = mapOf("d4" to 5.0)), payload(), EvidenceChannel.CENSUS)
@@ -138,7 +132,6 @@ class DebugStateTest {
         assertEquals(2.0, measured.single { it.square == "d4" }.value)
     }
 
-    /** A DISABLED or FAILED attach has timed nothing; 0.0 ms there reads as a free inference. */
     @Test
     fun theInferTimeIsADashUntilSomethingHasBeenTimed() {
         val idle = CnnRuntimeInfo(null, null, null, null, null, null, 0.0, 0)
@@ -157,7 +150,6 @@ class DebugStateTest {
 
     @Test
     fun heatmapUsesA8TopLeft() {
-        // Corner order [a8, h8, h1, a1] (invariant 11) — NOT the crop grid's all_squares() order.
         val squares = evidenceCells(status(), payload(), EvidenceChannel.FUSED_Z).map { it.square }
         assertEquals(64, squares.size)
         assertEquals("a8", squares[0])
@@ -168,7 +160,6 @@ class DebugStateTest {
 
     @Test
     fun cropGridUsesAllSquaresOrder() {
-        // `labeling.all_squares()` = a1,b1,…,h1,a2,…,h8. `cropTiles` indexes straight into this.
         assertEquals(64, ALL_SQUARES.size)
         assertEquals("a1", ALL_SQUARES[0])
         assertEquals("h1", ALL_SQUARES[7])
@@ -216,28 +207,23 @@ class DebugStateTest {
     fun cnnStateShowsActualEpNotRequested() {
         val fellBack = CnnRuntimeInfo("QNN-HTP(NPU)", "NNAPI", "real14-80", "model.onnx", "64x3x80x80", CROP, 9.0, 3)
         assertEquals("QNN-HTP(NPU) (requested) → NNAPI (actual)", epLine(fellBack))
-        // The tone is a palette lookup; the testable part is the decision behind it.
         assertTrue(epFellBack(fellBack))
         val asked = fellBack.copy(actualEp = "QNN-HTP(NPU)")
         assertEquals("QNN-HTP(NPU)", epLine(asked))
         assertFalse(epFellBack(asked))
     }
 
-    /** The user switches models mid-comparison; both halves are MEASURED (staged directory, built tensor). */
     @Test
     fun cnnStateNamesTheAttachedModelAndItsInputSize() {
         val live = CnnRuntimeInfo("CPU", "CPU", "real14-80", "model.onnx", "64x3x80x80", CROP, 9.0, 3)
         assertEquals("real14-80 @ 80x80 · crop $CROP", modelLine(live))
         assertEquals("id35-80 @ 96x96 · crop $CROP", modelLine(live.copy(modelDir = "id35-80", inputShape = "64x3x96x96")))
-        // Nothing attached yet: a dash, never a guess at what the settings asked for.
         assertEquals("-", modelLine(live.copy(modelDir = null, inputShape = null, crop = null)))
-        // A model that declared no crop is served the profile's pads, and says so (specs/45).
         assertTrue(modelLine(live.copy(crop = "side=0.100 (LEGACY: the model declares no crop)")).contains("LEGACY"))
     }
 
     @Test
     fun cnnAttachFailureIsNotDismissible() {
-        // The banner is a pure function of the state — there is no "dismissed" input to pass.
         val failed = CnnState.Failed("no execution provider")
         repeat(5) { assertNotNull(attachBannerText(failed)) }
         assertEquals("FAILED(no execution provider)", attachLabel(failed))
@@ -256,7 +242,6 @@ class DebugStateTest {
         assertTrue(text.contains("# app: 1.0-test"))
         assertTrue(text.contains("#   zThr = 3.0"), "the full config block is part of the header")
         assertTrue(text.contains("ep: CPU (requested QNN-HTP(NPU))"))
-        // "model.onnx" alone names every bundled model.
         assertTrue(text.contains("# model: real14-80/model.onnx @ 64x3x80x80"), text.lines()[2])
         val rows = text.lines().filterNot { it.startsWith("#") }.filter { it.isNotBlank() }
         assertEquals(3, rows.size, "one column header plus one line per record")

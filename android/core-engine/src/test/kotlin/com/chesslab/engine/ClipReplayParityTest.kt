@@ -15,10 +15,8 @@ import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import com.chesslab.engine.api.STARTPOS as API_STARTPOS
 
-/**
- * The phase-03d integration gate: every clip through [TrackerEngine.onFrame] must equal Python's Tier B
- * frame for frame. The fixture IS the input stream, so a divergence is a port bug, never a tolerance.
- */
+/** Every clip through [TrackerEngine.onFrame] must equal Python's Tier B frame for frame: the fixture IS the
+ *  input stream, so a divergence is a port bug, never a tolerance. */
 class ClipReplayParityTest {
     @Test
     fun everyClipReplaysPythonsDecisionsFrameForFrame() {
@@ -46,7 +44,6 @@ class ClipReplayParityTest {
         }
         assertEquals(index.clips.size, clipsPassed, "every clip must replay with zero diverging frames ($summary)")
         assertTrue(framesAsserted > 0, "no frame was asserted")
-        // `test_single_move_detected` at clip scale: the whole move list, in order.
         for ((clip, run) in runs) {
             assertEquals(clip.meta.replayedSans, run.sans, "${clip.name}: committed SAN sequence")
             assertEquals(clip.meta.replayedFen, run.fen, "${clip.name}: final FEN")
@@ -54,7 +51,6 @@ class ClipReplayParityTest {
     }
 }
 
-/** One diverging field of one frame — the only thing worth printing. */
 private data class Divergence(
     val clip: String,
     val frame: Int,
@@ -77,14 +73,13 @@ private const val VCLOCK_START = 1_700_000_000.0
 
 private const val MS_PER_S = 1000.0
 
-/** The clips replay with `live_align=False`, so the warp corners are frozen for the whole run. */
+/** `live_align=False`: the warp corners are frozen for the whole run. */
 private val FROZEN_CORNERS = FloatArray(8) { it.toFloat() }
 
 private fun replay(clip: ParityClip): ReplayResult {
     val meta = clip.meta
     assertTrue(meta.whitePov, "${meta.clip}: the engine assumes whitePov (EngineState has no override)")
-    // Never Kotlin defaults: `occlusionColorThr` is 1.5 here and 3.0 in TRACK_DEFAULTS (D00b-3).
-    // Parity with the Python tracker, which had no commit hold.
+    // Never Kotlin defaults: `occlusionColorThr` is 1.5 here and 3.0 in TRACK_DEFAULTS. Python had no commit hold.
     val engine = TrackerEngine(meta.effectiveConfig.toTrackerConfig().copy(commitHoldS = null), meta.startFen ?: API_STARTPOS)
     // The emitter calls `reset_to_start(start_fen)` after construction: "Reference set" on frame 0.
     engine.setFen(meta.startFen ?: API_STARTPOS)
@@ -133,7 +128,6 @@ private fun frameInput(
         timestampMs = Math.round(clock * MS_PER_S),
     )
 
-/** Compares one frame's full Tier-B record; returns the divergences found (empty = identical). */
 private fun compareFrame(
     clip: ParityClip,
     frame: ParityFrame,
@@ -175,7 +169,6 @@ private fun compareFrame(
     return out
 }
 
-/** `tierB.commit`: `{uci, san, …}` for a single move, `{ucis, sans, …}` for a pair. */
 private fun compareCommit(
     clip: ParityClip,
     frame: ParityFrame,

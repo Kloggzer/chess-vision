@@ -2,10 +2,8 @@ package com.chesslab.engine.board
 
 import com.chesslab.engine.api.CnnSnapshot
 
-/**
- * A camera can infer only placement, not turn, castling, or clocks; White is the parseable default.
- * The next commit corrects the turn if needed.
- */
+/** A camera infers placement only, not turn, castling or clocks; White is the parseable default and the
+ *  next commit corrects it. */
 fun fenOf(snap: CnnSnapshot): String? {
     val reading = Reading.of(snap) ?: return null
     val letters = reading.classes
@@ -17,10 +15,6 @@ fun fenOf(snap: CnnSnapshot): String? {
     return fenOf(board)
 }
 
-/**
- * Square ("h3") to label ("wQ"); what is missing is [blank]. The `CnnSnapshot` path always supplies
- * all 64 squares ([BOARD_SQUARES]), so it reads the same string it did when the map was total.
- */
 fun fenOf(
     board: Map<String, String>,
     blank: String = "empty",

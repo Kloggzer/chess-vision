@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.io.File
 
-/** The asset is the source of truth (`ee7c83c`); a reordered class list silently relabels every piece. */
+/** The asset is the source of truth: a reordered class list silently relabels every piece. */
 class ModelSpecTest {
     @Test
     fun parsesClassesInputSizeAndNormalizeFromTheRealAssetConfig() {
@@ -37,7 +37,6 @@ class ModelSpecTest {
                 it[3] = "wN"
             }
         val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(classes = swapped)) }
-        // The accepted order the message omits is the one the failing model is closest to.
         for (accepted in listOf(EXPECTED_CLASSES, PIECES13_CLASSES)) {
             assertTrue(error.message!!.contains(accepted.toString()), "$accepted missing from: ${error.message}")
         }
@@ -50,7 +49,6 @@ class ModelSpecTest {
         assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(classes = missingMiddle)) }
     }
 
-    /** Accepted because the prefix is identical: every index read by name lands in the same place. */
     @Test
     fun acceptsThePieces13IdentityList() {
         val spec = ModelSpec.parse(modelConfigJson(classes = PIECES13_CLASSES))
@@ -66,7 +64,6 @@ class ModelSpecTest {
         assertEquals(96, spec.outHeight)
     }
 
-    /** A live case: only the exporter writes `infer_size`, freshly trained runs carry none. */
     @Test
     fun fallsBackToOutSizeWhenInferSizeIsAbsent() {
         val spec = ModelSpec.parse(modelConfigJson(outSize = listOf(128, 128)))
@@ -98,7 +95,6 @@ class ModelSpecTest {
         assertEquals(InputRepr.GRAY_SOBEL, gs.repr)
         assertEquals(2, gs.channels)
 
-        // Kein Schluessel heisst RGB — der Zustand jedes ausgelieferten Modells und jedes aelteren.
         val absent = ModelSpec.parse(modelConfigJson())
         assertEquals(InputRepr.RGB, absent.repr)
         assertEquals(3, absent.channels)
@@ -106,8 +102,7 @@ class ModelSpecTest {
         assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(inputRepr = "edges")) }
     }
 
-    /** specs/45 — a DECLARED 0.05 differs from a profile-served one. `pad_up` (retired 2026-09-14)
-     *  is an ignored unknown key, never a reason to refuse an archived model. */
+    /** A DECLARED 0.05 differs from a profile-served one; the retired `pad_up` is ignored, never refused. */
     @Test
     fun readsTheDeclaredCropAndTreatsAnAbsentOneAsLegacy() {
         val declared = ModelSpec.parse(modelConfigJson(padSide = 0.05))
@@ -126,7 +121,6 @@ class ModelSpecTest {
         assertFalse(ModelSpec.parse(modelConfigJson(padUp = 0.0)).declaresCrop)
     }
 
-    /** A bundled model with unknown pads is silently served the device's calibration profile. */
     @Test
     fun everyBundledModelDeclaresItsCrop() {
         for (dir in bundledAssetDirs()) {
@@ -147,7 +141,6 @@ class ModelSpecTest {
         assertEquals(EXPECTED_CLASSES.size, legacy.outputWidth)
     }
 
-    /** Every bundled config must describe exactly the columns its graph returns. */
     @Test
     fun bundledModelsDeclareTheirOutputWidth() {
         for (dir in bundledAssetDirs()) {
@@ -192,13 +185,12 @@ class ModelSpecTest {
 
     @Test
     fun `a run without a clahe key asks for none`() {
-        // `0.0` ist das Aus-Signal; die drei p4-Laeufe ohne CLAHE stehen genau so im APK.
         assertEquals(0.0, ModelSpec.parse(modelConfigJson()).claheClip)
     }
 
     @Test
     fun `preprocessing this runtime cannot reproduce is refused, not ignored`() {
-        // Still ignoriert saehe das Modell Pixel, die es nie gesehen hat — ohne jede Warnung.
+        // Still ignoriert saehe das Modell Pixel, die es nie gesehen hat.
         val e =
             assertThrows<IllegalArgumentException> {
                 ModelSpec.parse(modelConfigJson(claheClip = 2.0, extra = ", \"clahe_denoise\": \"pre\""))
@@ -215,7 +207,6 @@ private fun rawClasses(json: String): List<String> =
         .jsonArray
         .map { it.jsonPrimitive.content }
 
-/** An int array a `config.json` literally declares — no fallback, so a missing key fails. */
 private fun rawInts(
     json: String,
     key: String,
@@ -227,7 +218,7 @@ private fun rawInts(
         .jsonArray
         .map { it.jsonPrimitive.content.toInt() }
 
-/** Asserted to exist rather than discovered, so a listed but missing model fails here, not on the device. */
+/** Asserted, not discovered: a listed but missing model fails here, not on the device. */
 internal fun bundledAssetDirs(): List<File> =
     BUNDLED_MODELS.map { model ->
         assetDirOf(model).also { check(File(it, MODEL_CONFIG_FILE).isFile) { "bundled model $model has no ${it.path}" } }

@@ -3,12 +3,7 @@ package com.chesslab.tracker.analysis
 import java.io.InputStream
 import java.io.OutputStream
 
-/**
- * A fake Stockfish: responses are produced synchronously while the command is written, so the whole
- * UCI exchange stays on one thread and every test is deterministic.
- *
- * The real binary cannot run on the host JVM, so this is the only way to exercise the protocol.
- */
+/** Responses are produced synchronously while the command is written: one thread, deterministic. */
 class ScriptedEngineProcess(
     private val respond: (String) -> List<String>,
 ) : Process() {
@@ -17,15 +12,13 @@ class ScriptedEngineProcess(
     private val pending = ArrayDeque<Byte>()
     private var alive = true
 
-    /** Kills the process the moment this command is written — the mid-analysis crash case. */
     var dieOn: String? = null
 
     private val input =
         object : InputStream() {
             override fun read(): Int = if (pending.isEmpty()) -1 else pending.removeFirst().toInt() and BYTE_MASK
 
-            // Reading only what is available is essential: the default implementation would block
-            // on read() past the end of the pending bytes.
+            // Only what is available: the default implementation would block on read() past the pending bytes.
             override fun read(
                 bytes: ByteArray,
                 off: Int,
@@ -85,7 +78,6 @@ class ScriptedEngineProcess(
     }
 }
 
-/** The handshake plus one `go` answer; [infoLines] is what the search reports. */
 fun engineScript(
     infoLines: List<String>,
     bestMove: String = "bestmove e2e4",

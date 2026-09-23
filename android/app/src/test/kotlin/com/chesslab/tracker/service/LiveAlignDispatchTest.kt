@@ -25,8 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-/** For months ArUco (44-87 ms) ran on `Dispatchers.Main.immediate` via the service's lifecycle scope.
- *  The probe is `geometry`: evaluated INSIDE the coroutine, unlike `config`. */
+/** ArUco (44-87 ms) ran on `Dispatchers.Main.immediate` for months. The probe is `geometry`: evaluated
+ *  INSIDE the coroutine. */
 @EnabledIf(OpenCvGate.REF)
 class LiveAlignDispatchTest {
     @Test
@@ -75,17 +75,13 @@ class LiveAlignDispatchTest {
         assertEquals(1, source.clones, "a known frame version must be rejected before its full-plane clone")
     }
 
-    /**
-     * Der Refit sagt es weiter. Die Korrektur wird seit jeher nachgemessen, die Pixel-Referenz blieb
-     * — danach verglich jeder Frame gegen ein anders ausgerichtetes Bild (`docs/tracker-flow.md`).
-     */
+    /** Der Refit sagt es weiter: sonst verglich jeder Frame gegen ein anders ausgerichtetes Referenzbild. */
     @Test
     fun aRegridSaysSoAndOnlyWhenTheBoardReallyMoved() {
         assertEquals(0, refitsAfterMarkerShift(shiftPx = 0.5), "marker jitter must not throw the reference away")
         assertEquals(1, refitsAfterMarkerShift(shiftPx = 60.0), "a board that moved must drop the reference")
     }
 
-    /** Two aligns from cached markers, the second one [shiftPx] away; returns the refits reported. */
     private fun refitsAfterMarkerShift(shiftPx: Double): Int {
         val refits = AtomicInteger()
         val align =
@@ -104,7 +100,6 @@ class LiveAlignDispatchTest {
         return refits.get()
     }
 
-    /** The four board markers `[a8, h8, h1, a1]`, all of them moved [shiftPx] along x. */
     private fun markerQuad(shiftPx: Double): Map<Int, DoubleArray> =
         mapOf(
             0 to doubleArrayOf(MARKER_LOW + shiftPx, MARKER_LOW),
@@ -120,7 +115,6 @@ class LiveAlignDispatchTest {
         assertNotNull(alignAcross(resetMidFlight = false), "without a reset the align must still apply — else this proves nothing")
     }
 
-    /** One align held inside `geometry()`; [resetMidFlight] recalibrates while it waits. */
     private fun alignAcross(resetMidFlight: Boolean): FloatArray? {
         val pool = Executors.newSingleThreadExecutor { Thread(it, NAMED_THREAD) }
         val applied = AtomicReference<FloatArray?>(null)
@@ -176,14 +170,12 @@ class LiveAlignDispatchTest {
         }
     }
 
-    /** One align, on a scope pinned to [SCOPE_THREAD]; returns the thread the work ran on. */
     private fun runAlignOn(dispatcher: CoroutineDispatcher?): String? {
         val pool = Executors.newSingleThreadExecutor { Thread(it, SCOPE_THREAD) }
         val scope = CoroutineScope(pool.asCoroutineDispatcher())
         val seen = AtomicReference<String?>(null)
         val done = CountDownLatch(1)
         val geometry = {
-            // Coroutine debug mode appends " @coroutine#N" to the thread name.
             seen.set(Thread.currentThread().name.substringBefore(" @"))
             done.countDown()
             BoardGeometry(boardSize = BOARD_SIZE)
@@ -220,22 +212,18 @@ class LiveAlignDispatchTest {
     }
 
     private companion object {
-        /** Stands in for the phone's UI thread: what `lifecycleScope` gave `LiveAlign` for months. */
         const val SCOPE_THREAD = "pretend-main"
 
         val CACHED_CORNERS = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
 
-        /** Belongs to neither the scope nor `Dispatchers.Default` — only the parameter reaches it. */
         const val NAMED_THREAD = "somewhere-else"
         const val FRAME_SIDE = 64
         const val BOARD_SIZE = 320
 
-        /** A quad inside [BOARD_SIZE]; one cell is 40 px, so `DRIFT_REFIT_CELLS` is 10 px. */
         const val MARKER_LOW = 40.0
         const val MARKER_HIGH = 240.0
         const val TIMEOUT_SECONDS = 10L
 
-        /** `alignEvery = 1` so the very first frame aligns; the default of 3 would need three. */
         val CONFIG = TrackerConfig().copy(alignEvery = 1)
     }
 }

@@ -19,9 +19,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Die Zusicherung aus TODO.md, eine Ebene unter `AlarmCardLayoutTest`: in einem 220-dp-Fach
- *  haelt JEDES Aktions-Primitiv seine 48 dp — das deckt jeden Schirm ab, der sie benutzt.
- *  `TextAction` mass hier 40 (Material-Vorgabe) und war der einzige ohne `Touch.min`. */
+/** In einem 220-dp-Fach haelt JEDES Aktions-Primitiv seine 48 dp; `TextAction` mass hier 40 (Material-Vorgabe). */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [ROBOLECTRIC_SDK], qualifiers = PHONE_PORTRAIT, application = Application::class)
 class ActionTouchTargetTest {
@@ -55,7 +53,6 @@ private const val OUTLINE = "Outline"
 private const val TEXT = "Text"
 private const val DANGER = "Danger"
 
-/** Roughly what is left under the board on a phone in portrait — the squeeze both incidents were. */
 private val SQUEEZE = 220.dp
 
 private const val ROBOLECTRIC_SDK = 35

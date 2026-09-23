@@ -3,7 +3,7 @@ package com.chesslab.tracker
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
 
-/** JUnit's `@EnabledIf` resolves a static METHOD reference; the natives live in another module. */
+/** JUnit's `@EnabledIf` resolves a static METHOD reference. */
 object OpenCvGate {
     const val REF = "com.chesslab.tracker.OpenCvGate#available"
 

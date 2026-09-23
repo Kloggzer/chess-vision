@@ -7,7 +7,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import java.io.IOException
 
-/** Extends the persistent position library after the positions from the played game are complete. */
 class PositionLibraryWarmer(
     private val engines: EngineService,
     private val store: ReviewStore,

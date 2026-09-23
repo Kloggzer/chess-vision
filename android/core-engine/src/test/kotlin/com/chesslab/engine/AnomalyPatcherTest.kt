@@ -9,11 +9,9 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** `_maybe_patch_anomaly` — `tests/test_move_tracker.py::TestNudgePatch`. */
 class AnomalyPatcherTest {
     @Test
     fun nudgePatchesOccupiedSquare() {
-        // An OCCUPIED square changed with no move behind it (a nudge) is pulled forward at once.
         val config = detectConfig().copy(nudgeTimeoutS = 0.0)
         val state = detectState(config, ref = grayFrame())
         val cur = grayFrame(listOf("e2"))
@@ -21,7 +19,6 @@ class AnomalyPatcherTest {
         state.tryDetect(cur, null, seq = 2)
         assertNull(state.stuckReason)
         assertEquals(emptyList<String>(), state.history)
-        // The reference adopted the cell -> the next frame is quiet.
         state.tryDetect(cur, null, seq = 3)
         assertEquals(0L, state.changed)
     }
@@ -40,8 +37,7 @@ class AnomalyPatcherTest {
 
     @Test
     fun aDesyncedBoardIsNeverPatched() {
-        // Healing a PHYSICALLY moved board into the reference is the silent desync the quiet-re-anchor
-        // veto prevents, on a path it never covered. Each of the three must hold ALONE.
+        // Healing a PHYSICALLY moved board into the reference is a silent desync. Each of the three must hold ALONE.
         for (desync in listOf("alarm", "streak", "status")) {
             val state = detectState(ref = grayFrame())
             val ref = requireNotNull(state.refGray)
@@ -58,10 +54,8 @@ class AnomalyPatcherTest {
         }
     }
 
-    /**
-     * The first guard tested `stuckReason == STUCK_CNN_DESYNC`, which is only written where `changed == 0`
-     * and so is never the reason at the patcher. Half the guard was dead; this drives the engine there.
-     */
+    /** `stuckReason == STUCK_CNN_DESYNC` is only written where `changed == 0`, never at the patcher: half the
+     *  guard was dead. This drives the engine there. */
     @Test
     fun theStuckReasonAtThePatcherIsNeverTheDesyncOne() {
         val state = detectState(ref = grayFrame())
@@ -95,7 +89,7 @@ class AnomalyPatcherTest {
         assertTrue(ref.data.any { it == TEST_BLOB_LEVEL.toByte() }, "the CNN agreed again — healing must resume")
     }
 
-    /** Die beiden CNN-Uebergaenge raeumten `anomalySince` nicht: ein abgelaufener Timer patchte gegen eine neue Referenz. */
+    /** Die CNN-Uebergaenge raeumten `anomalySince` nicht: ein abgelaufener Timer patchte gegen eine neue Referenz. */
     @Test
     fun aMatchOkPullForwardRestartsTheAnomalyTimers() {
         val state = recoveryState()
@@ -109,7 +103,6 @@ class AnomalyPatcherTest {
         assertTrue(observed.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer must restart with the reference")
     }
 
-    /** Derselbe Uebergang, nur ueber die Recovery-Bruecke — und `a7` bleibt dabei besetzt. */
     @Test
     fun aRecoveryCommitRestartsTheAnomalyTimers() {
         val state = recoveryState()
@@ -124,8 +117,7 @@ class AnomalyPatcherTest {
         assertTrue(observed.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer must restart with the reference")
     }
 
-    /** Dieselbe Wurzel auf dem Pfad, der Referenz UND Geometrie wegnimmt: ein gegen die alte
-     *  Ebene gestarteter Timer war gegen die erste NEUE Referenz sofort faellig. */
+    /** Ein gegen die alte Ebene gestarteter Timer war gegen die erste NEUE Referenz sofort faellig. */
     @Test
     fun aDiscardedVisualReferenceRestartsTheAnomalyTimers() {
         val state = detectState(ref = grayFrame())
@@ -143,7 +135,7 @@ class AnomalyPatcherTest {
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason, "and the refusal stands instead of being patched away")
     }
 
-    /** Der Zeitgeber wurde nur in den Verweigerungs-Armen gepflegt; nach 100 s Kandidaten-Pfad war er sofort faellig. */
+    /** Nur in den Verweigerungs-Armen gepflegt: nach 100 s Kandidaten-Pfad war der Timer sofort faellig. */
     @Test
     fun aQuietStretchRestartsTheAnomalyTimer() {
         // The vote count keeps the candidate from committing — a commit clears the timers itself.
@@ -152,7 +144,6 @@ class AnomalyPatcherTest {
         state.armAnomaly("e4", since = 0.0)
         state.nowS = 100.0
 
-        // A clean single move elsewhere: the candidate path, where no refusal arm ever runs.
         state.tryDetect(grayFrame(listOf("g1", "f3")), null, seq = 1)
         assertNull(state.stuckReason, "precondition: the candidate path ran, not a refusal")
         assertEquals(emptyList<String>(), state.history, "precondition: nothing committed")
@@ -182,11 +173,9 @@ class AnomalyPatcherTest {
 
     @Test
     fun patchRegionIncludesOverhang() {
-        // Patching only the base cell leaves the overhang strip hot forever.
         val config = detectConfig(overhang = 0.25).copy(nudgeTimeoutS = 0.0)
         val state = detectState(config, ref = grayFrame())
         val ref = requireNotNull(state.refGray)
-        // A uniformly BRIGHTER frame, so the copied box is visible pixel for pixel.
         val cur = grayFrame(base = 200)
         state.nowS = 10.0
         state.armAnomaly("e2")
@@ -223,7 +212,6 @@ class AnomalyPatcherTest {
 
     @Test
     fun restingHandIsNeverPatched() {
-        // More than `maxChanged + 2` changed squares is a hand, not a nudge.
         val state = detectState(detectConfig().copy(nudgeTimeoutS = 0.0), ref = grayFrame())
         val squares = listOf("a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "a2")
         state.nowS = 10.0

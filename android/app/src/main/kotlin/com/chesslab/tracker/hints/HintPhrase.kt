@@ -2,11 +2,9 @@ package com.chesslab.tracker.hints
 
 import com.chesslab.tracker.games.HintStatus
 
-/** Wie viele Zuege der Mattweg hoechstens nennt — danach hoert niemand mehr zu. */
 private const val LINE_PLIES = 6
 
-/** Der Wortlaut des Tipps und der Absage, in denselben zwei Sprachen wie `AlarmPhrase`.
- *  Beides geht ueber den Speaker UND auf die Karte: bei Klingelton-aus schweigt die Stimme. */
+/** Beides geht ueber den Speaker UND auf die Karte: bei Klingelton-aus schweigt die Stimme. */
 object HintPhrase {
     fun of(
         outcome: HintOutcome,
@@ -59,8 +57,7 @@ private val GERMAN =
         HintRefusal.NOT_YOUR_TURN to "Du bist nicht am Zug.",
     )
 
-/** Der Vermerk an einer Zugzeile: ein Zeichen und sein Klartext, in denselben zwei Sprachen. Er
- *  benotet NICHTS — und fuer eine Partie ohne Aufzeichnung sagt er genau das, nicht "kein Tipp". */
+/** Er benotet NICHTS — und fuer eine Partie ohne Aufzeichnung sagt er genau das, nicht "kein Tipp". */
 object HintMark {
     fun sign(status: HintStatus): String =
         when (status) {

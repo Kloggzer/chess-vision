@@ -3,14 +3,10 @@ package com.chesslab.engine
 import com.github.bhlangonijr.chesslib.move.Move
 import kotlin.math.max
 
-/** Sentinel for "there is no second-best". */
 internal const val NO_SCORE = -1e9
 
-/**
- * Fast play: two half-moves inside one settle window, accepted only when the best pair is clearly ahead
- * of both the second-best pair and the best single, and only past a viability re-filter STRICTER than
- * step 5's — `h2h4 + Be7` lost to a fabricated `Nf3 + Be7` built on 1.2/1.4 sensor noise.
- */
+/** Clearly ahead of the second pair AND the best single, past a re-filter STRICTER than step 5's —
+ *  `h2h4 + Be7` lost to a fabricated `Nf3 + Be7` built on 1.2/1.4 sensor noise. */
 internal fun EngineState.pairCandidate(
     z: DoubleArray,
     bestSingle: Double,
@@ -31,15 +27,10 @@ internal fun EngineState.pairCandidate(
     return Candidate(moves = seq, priorUsed = false, vote = true)
 }
 
-/**
- * A capture target is occupied before AND after, so the keep-alive's occupancy filter reads it as a
- * hand and zeroes it; a detect inside the keep-alive (the commit hold, 133 ms) then loses the pair
- * Kxd8 + Rxd3+ to the single (21-29-35, 2026-09-13). For pair scoring only, such a square keeps
- * the threshold's worth of evidence when the fresh observation reads it confidently occupied.
- */
+/** A capture target is occupied before AND after, so the keep-alive reads it as a hand and zeroes it; a
+ *  detect inside the commit hold then lost Kxd8 + Rxd3+ to the single. Restored for pair scoring only. */
 private fun EngineState.captureTargetsRestored(z: DoubleArray): DoubleArray {
-    // Die Stellung muss dieselbe sein: hier wird Evidenz ERZEUGT, eine Lesung aus der
-    // Stellung davor hob sonst ein leeres Feld auf `zThr`.
+    // Dieselbe Stellung: hier wird Evidenz ERZEUGT, eine Lesung von davor hob sonst ein leeres Feld auf `zThr`.
     val snap = freshSnapshot()?.takeIf { it.fen == board.fen() } ?: return z
     var restored = 0L
     keepaliveTainted.forEachSquare { i ->
@@ -53,11 +44,8 @@ private fun EngineState.captureTargetsRestored(z: DoubleArray): DoubleArray {
     return out
 }
 
-/**
- * The stricter re-filter. The **second** half is evaluated on the INTERMEDIATE board: on the pre-push
- * board its touched/destination squares would be wrong whenever the reply captures, castles or
- * en-passants into the position the first half created.
- */
+/** The **second** half is evaluated on the INTERMEDIATE board, or a reply that captures, castles or takes en
+ *  passant has the wrong squares. */
 private fun EngineState.sequenceViable(
     seq: List<Move>,
     z: DoubleArray,
@@ -74,9 +62,5 @@ private fun EngineState.sequenceViable(
     return allAbove(touched, z, soft) && dests and shadowVetoed == 0L
 }
 
-/**
- * Wie viele Halbzuege schnelles Spiel hoechstens in einem Blick unterbringt. Drei, seit `f3xe5 c6xe5
- * d4xe5` als Paar gelesen einen Springer auf d4 erfand, der dort nie stand (2026-08-30); vier
- * brauchen eine eigene Messung.
- */
+/** Drei, seit `f3xe5 c6xe5 d4xe5` als Paar gelesen einen Springer erfand; vier brauchen eine eigene Messung. */
 private const val FAST_PLIES = 3

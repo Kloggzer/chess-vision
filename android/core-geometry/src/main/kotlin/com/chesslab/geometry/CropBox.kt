@@ -5,33 +5,18 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
-// Per-square boxes in the rectified board image. Ports of `calibration.py
-// square_to_crop_box`, `:377 square_center`, `:384 crop_border_px` and
-// `tracker.py square_region`.
-//
+// Ports of `calibration.py square_to_crop_box`, `square_center`, `crop_border_px` and `tracker.py square_region`.
 // OpenCV-free ON PURPOSE (see Corners.kt).
 
-/** `config.CROP_WARP_BORDER_CELLS` (config.py) — minimum crop-warp border in cells. */
 const val CROP_WARP_BORDER_CELLS: Double = 0.1
 
-/** Default inset of `square_region` (tracker.py) — guards against grid-line/neighbour noise. */
 const val SQUARE_REGION_INSET: Double = 0.16
 
-/**
- * Python's `round()` on a float: half-to-EVEN (banker's rounding), which on the JVM is
- * `Math.rint`. NOT `Math.round` (half-up) and not `Double.roundToInt` (half-away-from-zero).
- */
+/** Python's `round()`: half-to-EVEN, i.e. `Math.rint` — NOT `Math.round` (half-up) nor `roundToInt`. */
 internal fun pyRound(v: Double): Int = Math.rint(v).toInt()
 
-/**
- * `'e4' -> (x0, y0, x1, y1)` in the rectified `boardSize` image.
- * Port of `calibration.py square_to_crop_box`.
- *
- * The base cell is expanded symmetrically by `padSide * cell`, so the box stays square.
- * `clamp = true` clips to the image (box may shrink); `clamp = false` returns
- * the raw box — `cropSquare` then pads the overhang with black so the box geometry is
- * constant across all 64 squares.
- */
+/** Expanded symmetrically by `padSide * cell`, so the box stays square. `clamp = false` returns the raw box;
+ *  `cropSquare` pads the overhang black, keeping the geometry constant across all 64 squares. */
 fun squareToCropBox(
     square: String,
     geom: BoardGeometry,
@@ -50,21 +35,11 @@ fun squareToCropBox(
     return intArrayOf(fix(x0), fix(y0), fix(x1), fix(y1))
 }
 
-/**
- * Dieselbe Geometrie, aber mit dem `boardSize`, das die Crops NATIV in Modellgroesse cuttet.
- *
- * Der Kasten folgt aus `outW` und `pad_side`, nicht aus dem Kalibrierprofil —
- * `docs/data-pipeline.md` 3.1.
- */
+/** Der Kasten folgt aus `outW` und `pad_side`, nicht aus dem Kalibrierprofil (`docs/data-pipeline.md` 3.1). */
 fun BoardGeometry.forNativeCrops(): BoardGeometry = copy(boardSize = BOARD_SIDE * nativeCell())
 
-/**
- * Die Zelle, deren Crop-Kasten genau `outW` breit wird.
- *
- * GESUCHT, nicht gerechnet: [squareToCropBox] rundet die ENDPUNKTE einzeln, also ist die Breite
- * `cell + 2*round(padSide*cell)`. Bei `outW` 80 gibt die Formel 73 und einen 81er Kasten, richtig
- * ist 72. Trifft keine Zelle exakt, gewinnt die naechstkleinere.
- */
+/** GESUCHT, nicht gerechnet: [squareToCropBox] rundet die ENDPUNKTE einzeln — bei `outW` 80 gibt die Formel 73
+ *  und einen 81er Kasten, richtig ist 72. Trifft keine Zelle exakt, gewinnt die naechstkleinere. */
 private fun BoardGeometry.nativeCell(): Int {
     val guess = (outW / (1.0 + 2.0 * padSide)).toInt()
     val candidates = (max(1, guess - 3)..guess + 3).toList()
@@ -74,33 +49,22 @@ private fun BoardGeometry.nativeCell(): Int {
     } ?: guess
 }
 
-/**
- * Border in pixels the board is warped with for the DATA crop, so edge squares have real
- * content for their `padSide` extension. Port of `calibration.py crop_border_px`.
- *
- * Defaults (`boardSize = 1600`, `padSide = 0.05`, `cell = 200`): the 0.1 floor decides, 20 px.
- */
+/** Edge squares need real content for their `padSide` extension. At the defaults the 0.1 floor decides: 20 px. */
 fun cropBorderPx(geom: BoardGeometry): Int = pyRound(max(CROP_WARP_BORDER_CELLS, geom.padSide) * geom.cell)
 
-/** Grid lines per axis: 8 cells share 9 boundaries. */
 const val GRID_LINES_PER_AXIS: Int = 9
 
 /** A steeper line is a misfit, not a lens — shared with realgames/mesh.py and `lib/warp.ts`. */
 const val MESH_TILT_LIMIT: Double = 0.05
 
-/** The same for the parabola term — realgames/mesh.py `MESH_CURV_LIMIT` explains the number. */
+/** realgames/mesh.py `MESH_CURV_LIMIT` explains the number. */
 const val MESH_CURV_LIMIT: Double = 0.08
 
-/** Simultaneous evaluations per point — three leaves the residual far inside a pixel. */
+/** Three leaves the residual far inside a pixel. */
 const val CORNER_ITERATIONS: Int = 3
 
-/**
- * The 18 MEASURED grid lines of one frame (`quad-fit.json` `grid_lines`, realgames/mesh.py), as
- * fractions of the playing-field side — `xs` left to right, `ys` top to bottom, white POV.
- * [tx]/[ty] are the lines' dimensionless tilts about the board centre, [cx]/[cy] their parabola
- * terms; each pair comes complete or not at all, and curvature only on top of tilts, so a
- * consumer can never cut half a stage.
- */
+/** Fractions of the field side, white POV. Tilt and curvature pairs come complete or not at all, and
+ *  curvature only on top of tilts, so a consumer can never cut half a stage. */
 class GridMesh(
     val xs: DoubleArray,
     val ys: DoubleArray,
@@ -130,8 +94,7 @@ class GridMesh(
     }
 }
 
-/** A curvature this far off the cross-line trend was measured on pieces, not optics — twin of
- *  `calibration.CURV_TREND_LIMIT`, where the number is explained. */
+/** Twin of `calibration.CURV_TREND_LIMIT`, where the number is explained. */
 const val CURV_TREND_LIMIT: Double = 0.02
 
 private fun median(values: DoubleArray): Double {
@@ -152,18 +115,14 @@ private fun trendReplaced(values: DoubleArray): DoubleArray {
     }
 }
 
-/**
- * Curvature is optics and optics are smooth across parallel lines — a line breaking out of the
- * others' Theil-Sen trend was measured on whatever stood ON it and takes the trend's value.
- * Twin: `calibration.smooth_mesh_curvature`, pinned by `curvature_trend_parity.json`.
- */
+/** Optics are smooth across parallel lines: a line breaking out of the Theil-Sen trend was measured on what
+ *  stood ON it and takes the trend's value. Pinned by `curvature_trend_parity.json`. */
 fun smoothMeshCurvature(mesh: GridMesh): GridMesh {
     val cx = mesh.cx ?: return mesh
     val cy = mesh.cy ?: return mesh
     return GridMesh(mesh.xs, mesh.ys, mesh.tx, mesh.ty, trendReplaced(cx), trendReplaced(cy))
 }
 
-/** Where line [k] of one axis sits at run [t] along it, in field fractions (`pos(t)`). */
 private fun lineAt(
     offs: DoubleArray,
     tilts: DoubleArray,
@@ -175,12 +134,8 @@ private fun lineAt(
     return offs[k] + tilts[k] * d + (curvs?.let { it[k] * d * d } ?: 0.0)
 }
 
-/**
- * The point of the MEASURED board belonging to the ideal one at ([u], [v]) — field fractions both
- * ways. The two bounding lines of a cell blend linearly and the axes are coupled, so the pair is
- * solved by [CORNER_ITERATIONS] simultaneous evaluations. A mesh without tilts is carried as tilt
- * 0: its offsets alone are still a correction. Twins: `calibration.mesh_point`, `lib/warp.ts`.
- */
+/** The two bounding lines of a cell blend linearly and the axes are coupled, so the pair is solved by
+ *  [CORNER_ITERATIONS] evaluations. Twins: `calibration.mesh_point`, `lib/warp.ts`. */
 fun meshPoint(
     u: Double,
     v: Double,
@@ -201,7 +156,6 @@ fun meshPoint(
     return doubleArrayOf(x, y)
 }
 
-/** Pixel centre of the base cell. Port of `calibration.py square_center`. */
 fun squareCenter(
     square: String,
     geom: BoardGeometry,
@@ -211,14 +165,8 @@ fun squareCenter(
     return intArrayOf(((col + HALF) * cell).toInt(), ((row + HALF) * cell).toInt())
 }
 
-/**
- * Pixel box `(x0, y0, x1, y1)` of the cell in a `boardSize` rectified image, slightly INSET
- * against grid-line/neighbour noise. Ported from `tracker.py square_region` when Python still carried the tracker — this is the
- * region the detection evidence is measured over, NOT the crop box.
- *
- * `extendUp` (fraction of a cell) extends the box toward the top of the image; extended cells
- * may overlap, which the soft LL scoring tolerates. Truncation (`int()`), not rounding.
- */
+/** INSET against grid-line/neighbour noise: the region the detection evidence is measured over, NOT the crop
+ *  box. `extendUp` extends toward the image top; truncation (`int()`), not rounding. */
 fun squareRegion(
     square: String,
     boardSize: Int,

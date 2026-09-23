@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/** `overhang` is live-tunable: without a rebuild the next frame measures with the old evidence boxes. */
+/** `overhang` is live: without a rebuild the next frame measures with the old boxes. */
 class UpdateConfigRebuildsBoxesTest {
     @Test
     fun `a tuned overhang rebuilds the evidence boxes`() {
@@ -50,7 +50,7 @@ class UpdateConfigRebuildsBoxesTest {
         assertArrayEquals(fresh, state.refCensusCodes(ref), "die Codes stammen noch aus den alten Boxen")
     }
 
-    /** `diffClaheClip` verschiebt die Grauwerte; `updateConfig` verwarf die Referenz nur bei geaendertem `detSize`. */
+    /** `diffClaheClip` verschiebt die Grauwerte; die Referenz fiel nur bei geaendertem `detSize`. */
     @Test
     fun `a changed clahe clip discards the visual reference`() {
         val engine = TrackerEngine(detectConfig())

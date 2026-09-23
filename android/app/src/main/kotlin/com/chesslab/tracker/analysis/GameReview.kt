@@ -14,122 +14,80 @@ import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 
-/**
- * A mate as a centipawn score, so one subtraction reaches every reader and no mate special case is
- * needed. Any value past lichess' ±1000 ceiling would do (`docs/game-review.md`).
- */
+/** A mate as centipawns past lichess' ±1000 ceiling, so one subtraction serves every reader. */
 private const val MATE_CP = 10_000
 
-/** How the review's engine budget differs from the live one — see [ReviewBudget]. */
 private const val REVIEW_NODES = 1_500_000L
 private const val REVIEW_CAP_MS = 3_000L
 
 private const val FULL_PERCENT = 100.0
 private const val FEN_FULLMOVE_INDEX = 5
 
-/**
- * The review pass's engine budget: **[nodes], the way lichess does it**, [capMs] only a safety
- * valve. Why, what 1.5 M buys, and why it is the cache KEY: `docs/game-review.md`.
- */
+/** Budget in [nodes], as lichess does; [capMs] is only a safety valve (`docs/game-review.md`). */
 @Serializable
 data class ReviewBudget(
     val nodes: Long = REVIEW_NODES,
     val capMs: Long = REVIEW_CAP_MS,
     val threads: Int = 2,
     val hashMb: Int = 64,
-    /**
-     * 1, because the review only reads the best line and extra slots cost depth in the same budget.
-     * Settable only so `ReviewDepthMeasurement` can reproduce the live bar exactly.
-     */
+    /** 1: extra PV slots cost depth in the same budget. Settable only for `ReviewDepthMeasurement`. */
     val multiPv: Int = 1,
 ) {
     val profile: EngineProfile get() = EngineProfile(threads, hashMb)
 }
 
-/**
- * One graded ply, in the unit the screen speaks: win expectancy for the side that moved. There is no
- * centipawn field — it was the unit until 2026-08-03 and it was the defect (`Accuracy.kt`).
- */
+/** Win expectancy for the mover — there is deliberately no centipawn field (`Accuracy.kt`). */
 data class PlyGrade(
     val ply: Int,
-    /** The move that was played, so a finding can name itself without the caller holding the game. */
     val san: String,
     /** Explicit identity from the position before the move; parity is wrong for imported FENs. */
     val whiteMoved: Boolean = ply % 2 == 1,
     /** FEN fullmove number, so an imported game does not restart its labels at move one. */
     val moveNumber: Int = (ply + 1) / 2,
     val quality: MoveQuality,
-    /** The mover's winning chances before and after, 0..100. */
     val winBefore: Double,
     val winAfter: Double,
-    /** Lichess' per-move accuracy for this ply, 0..100. */
     val accuracy: Double,
     /** The depth actually reached — the SHALLOWER of the two searches, which is the weight of the grade. */
     val depth: Int,
-    /** The engine's own move in the position before this ply. Null when the search returned no line. */
     val bestSan: String?,
     val bestUci: String?,
-    /** Its whole continuation from that position, in SAN — "what would have been better", spelled out. */
     val bestLine: List<String>,
-    /**
-     * Past lichess' ±1000 cp ceiling at BOTH ends: the move showed nothing and scores 100 % free.
-     * Counting them cost Black nine points of their own defeat (`docs/game-review.md`).
-     */
+    /** Past lichess' ±1000 cp ceiling at BOTH ends: scores 100 % free (`docs/game-review.md`). */
     val decided: Boolean,
-    /** The engine's continuation in UCI, kept beside [bestLine] so the UI can replay it on a board. */
     val bestUciLine: List<String> = emptyList(),
-    /** The mover could force mate before this move. */
     val mateBefore: Boolean = false,
-    /** The same mover can still force mate after this move. */
     val mateAfter: Boolean = false,
-    /** True when the played UCI exactly matched the engine's first move before this ply. */
     val playedBest: Boolean = false,
-    /** The move stayed inside the same already-forced mating sequence. */
     val forcedMateLine: Boolean = false,
-    /** Exact mate distance available to the mover before this move. */
     val mateInBefore: Int? = null,
-    /** Absolute engine mate distance before this move, regardless of which side is winning. */
     val mateDistanceBefore: Int? = null,
-    /** Absolute engine mate distance after this move, regardless of which side is winning. */
     val mateDistanceAfter: Int? = null,
 )
 
 val PlyGrade.missedMate: Boolean get() = mateBefore && !mateAfter && !playedBest
 
-/**
- * One side's report. [accuracy] is over the plies that are evidence about this player — a RECOVERED
- * move counts like any other, a ply after a SEAM is not graded at all (`docs/game-review.md`).
- */
+/** [accuracy]: a RECOVERED move counts, a ply after a SEAM is not graded (`docs/game-review.md`). */
 data class SideSummary(
     val plies: Int,
     /** How many of [plies] went into [accuracy]. The screen shows it — a rating owes its denominator. */
     val scored: Int,
-    /** Null while nothing this side played has been graded yet. */
     val accuracy: Double?,
     val counts: Map<MoveQuality, Int>,
 ) {
     fun count(quality: MoveQuality): Int = counts[quality] ?: 0
 }
 
-/**
- * A game as far as it has been graded. [byPly] is SPARSE on purpose: the pass no longer runs to
- * completion before anything is shown, so a partial review is simply a grade over fewer plies.
- */
+/** [byPly] is SPARSE: a partial review is a grade over fewer plies. */
 data class GameGrade(
     val byPly: Map<Int, PlyGrade>,
-    /**
-     * WHITE's win expectancy per POSITION; null where the engine has not been yet. The bar beside
-     * the board reads the ply being looked at, never the tracker's current position.
-     */
+    /** WHITE's win expectancy per POSITION, null where the engine has not been yet. */
     val winWhite: List<Double?>,
-    /** White-POV engine score per position, used for the score sheet's position trend. */
     val evalCp: List<Int?>,
-    /** White-POV mate distance per position; magnitude is the remaining number of moves. */
     val evalMate: List<Int?>,
     val white: SideSummary,
     val black: SideSummary,
     val budget: ReviewBudget,
-    /** Positions scored so far, out of the game's `plies + 1`. Equal means the review is finished. */
     val scored: Int,
     val positions: Int,
 ) {
@@ -137,36 +95,24 @@ data class GameGrade(
 
     fun of(ply: Int): PlyGrade? = byPly[ply]
 
-    /**
-     * The plies that decided the game, worst first — sorted by SWING and nothing else. A missed mate
-     * is a curiosity, not a turning point, so it is [missedChances] instead (`docs/game-review.md`).
-     */
+    /** Sorted by swing only; a missed mate goes to [missedChances] (`docs/game-review.md`). */
     fun findings(): List<PlyGrade> =
         byPly.values
             .filter { it.quality >= MoveQuality.INACCURACY }
             .sortedByDescending { it.winBefore - it.winAfter }
 
-    /**
-     * The forced mates that were available and not taken, in the order they came up. One that also
-     * cost a large share of the position appears in [findings] TOO: it is both things.
-     */
+    /** A missed mate that also cost a large share of the position appears in [findings] too. */
     fun missedChances(): List<PlyGrade> = byPly.values.filter { it.missedMate }.sortedBy { it.ply }
 
     fun missedMates(white: Boolean): Int = byPly.values.count { it.missedMate && it.whiteMoved == white }
 }
 
-/**
- * Grades a finished game with the engine, NEAREST THE PLY BEING LOOKED AT FIRST — the old pass
- * measured 25 of 84 positions in 55 s and showed nothing until done (`docs/game-review.md`).
- */
+/** Searches NEAREST THE VIEWED PLY FIRST: the old pass showed nothing for 55 s (`docs/game-review.md`). */
 class GameReviewer(
     private val engines: EngineService,
     private val budget: ReviewBudget = ReviewBudget(),
 ) {
-    /**
-     * Scores [game]'s positions until done or cancelled, handing the whole array to [onScored] each
-     * time. [seed] resumes a stored run, [focus] is re-read per search. False: no engine for this ABI.
-     */
+    /** Hands the whole array to [onScored] per search; [focus] is re-read each time. False: no engine for this ABI. */
     suspend fun review(
         game: GameView,
         seed: List<Score?> = emptyList(),
@@ -195,10 +141,7 @@ class GameReviewer(
     }
 }
 
-/**
- * The next position to search: the unscored one closest to [focus]. A ply is the step between
- * positions `focus - 1` and `focus`, so its own index reaches both first, then walks outward.
- */
+/** The unscored position closest to [focus]; a ply's own index reaches both of its positions first. */
 internal fun nextIndex(
     scores: List<Score?>,
     focus: Int,
@@ -207,10 +150,7 @@ internal fun nextIndex(
         .filter { scores[it] == null }
         .minByOrNull { abs(it - focus) }
 
-/**
- * A terminal position's score is the outcome itself. Asking the engine returns an empty PV, which
- * reads as even — a checkmate would then grade the mating move as costing nothing.
- */
+/** The outcome itself: the engine's empty PV reads as even, and the mating move would cost nothing. */
 internal fun terminalScore(board: Board): Score? =
     when {
         board.isMated -> Score(if (board.sideToMove == Side.WHITE) -MATE_CP else MATE_CP, 0, mate = 0)
@@ -218,13 +158,10 @@ internal fun terminalScore(board: Board): Score? =
         else -> null
     }
 
-/** One position's verdict in white-POV centipawns, how deep the engine got, and the line it wants. */
 data class Score(
     val cp: Int,
     val depth: Int,
-    /** The engine's continuation from this position, in UCI. Empty for a terminal position. */
     val line: List<String> = emptyList(),
-    /** Stockfish's signed mate distance from White's point of view. */
     val mate: Int? = null,
 ) {
     val bestUci: String? get() = line.firstOrNull()
@@ -236,10 +173,7 @@ internal fun cpOf(line: PvLine?): Int {
     return line?.cp ?: 0
 }
 
-/**
- * The pure half: ply `i` is the step from `scores[i]` to `scores[i + 1]`, graded once both exist. It
- * takes the whole [game] because of SEAMS, whose first ply is skipped (`docs/game-review.md`).
- */
+/** Ply `i` is `scores[i]` -> `scores[i + 1]`. Takes the whole [game] because a SEAM's first ply is skipped. */
 internal fun grade(
     game: GameView,
     scores: List<Score?>,
@@ -274,10 +208,7 @@ internal fun grade(
     )
 }
 
-/**
- * The first ply of every segment the app entered by a SEAM — the only plies whose "before" position
- * is not the result of the move before them.
- */
+/** A SEAM's first ply: its "before" position is not the result of the move before it. */
 internal fun seamPlies(game: GameView): Set<Int> =
     game.segments
         .filter { it.enteredBy != null }
@@ -341,7 +272,6 @@ private fun moverMateIn(
 
 private fun mateWinnerWhite(score: Score): Boolean? = score.mate?.let { if (it == 0) score.cp > 0 else it > 0 }
 
-/** Win expectancy for the side that just moved, 0..100, through lichess' ceiling. */
 private fun winFor(
     whitePovCp: Int,
     whiteMoved: Boolean,
@@ -357,10 +287,7 @@ private fun summarise(plies: List<PlyGrade>): SideSummary {
     )
 }
 
-/**
- * SAN for display. An unparsable move falls back to its UCI rather than showing nothing — the point
- * of the line is "play this instead", and `e2e4` still says it.
- */
+/** Falls back to UCI: `e2e4` still says "play this instead". */
 internal fun sanOf(
     fen: String,
     uci: String,
@@ -370,10 +297,7 @@ internal fun sanOf(
         MoveList(fen).apply { add(Move(uci, side)) }.toSanArray().first()
     }.getOrDefault(uci)
 
-/**
- * A whole UCI line as SAN, replayed from [fen]. Truncated at the first move chesslib will not play
- * rather than abandoned: half a line is still an idea.
- */
+/** Truncated at the first move chesslib will not play: half a line is still an idea. */
 internal fun sansOf(
     fen: String,
     line: List<String>,
@@ -395,13 +319,11 @@ internal fun sansOf(
     return runCatching { moves.toSanArray().toList() }.getOrDefault(emptyList())
 }
 
-/** One step of an engine line, including the untouched starting position at index zero. */
 data class LineFrame(
     val fen: String,
     val lastMoveUci: String?,
 )
 
-/** Replay as much of an engine line as is legal, never fabricating positions after a broken move. */
 internal fun lineFrames(
     startFen: String,
     uciLine: List<String>,

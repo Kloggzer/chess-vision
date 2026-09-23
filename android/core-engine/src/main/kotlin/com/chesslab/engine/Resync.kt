@@ -5,11 +5,9 @@ import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.clearAlarm
 import com.chesslab.engine.api.clearReferenceState
 
-// Re-anchor on the board WITHOUT inventing history: every other way out either fabricates the path
-// (`commitRecovery` writes bridging moves) or destroys the record (`setFen`). A resync does neither —
-// the moves really played stay, nothing is appended, one decision row records the discontinuity.
+// Re-anchor WITHOUT inventing history: recovery fabricates the path, `setFen` destroys the record. A resync
+// keeps the moves played, appends nothing and records one discontinuity row.
 
-/** Adopt [fen], keep the history and the log, invent nothing. */
 internal fun EngineState.performResync(
     fen: String,
     how: String,
@@ -21,10 +19,7 @@ internal fun EngineState.performResync(
     return clearAlarm(ALARM_RESYNCED)
 }
 
-/**
- * The position is redefined: every latch keyed to the old one goes, the reference is stale by
- * definition. History, decision log and the alarm are the caller's call.
- */
+/** Every latch keyed to the old position goes; history, log and alarm are the caller's call. */
 internal fun EngineState.adoptPosition(fen: String) {
     board = Game(fen)
     lastMove = null
@@ -46,11 +41,8 @@ internal fun EngineState.adoptPosition(fen: String) {
     clearDesyncStreak()
 }
 
-/**
- * The auto arm — a REPLAY instrument, off by default (`autoResyncObsN = 0`): with the alarm latched, that
- * many CONSECUTIVE observations must carry an identity axis, be hand-free and agree on the SAME position.
- * A legal bridge is preferred (it is history); the latching look is already vote one, so the phone keeps 0.
- */
+/** A REPLAY instrument, off by default: with the alarm latched, that many CONSECUTIVE hand-free identity
+ *  looks must agree on ONE position. A legal bridge is preferred (it is history). */
 internal fun EngineState.maybeAutoResync(
     snap: CnnSnapshot,
     confThr: Double,
@@ -71,16 +63,14 @@ internal fun EngineState.maybeAutoResync(
     return performResync(fen, how = "auto, $wanted consistent looks")
 }
 
-/** The adopted FEN this snapshot may vote for, or null — resetting the streak where demanded. */
 private fun EngineState.resyncVoteFen(
     snap: CnnSnapshot,
     confThr: Double,
 ): String? {
     val gated = config.autoResyncObsN > 0 && alarm != null && snap.seq != lastResyncVoteSeq
     if (!gated || Squares.ALL.all { snap.obs.label(it) == null }) return null
-    // A hand or a kingless read PAUSES the streak, it does not reset it: a covered board says nothing
-    // about where the pieces are (rec-20260808-115912: of 699 alarmed evaluations 222 were hand-free,
-    // and 221 of those failed the kings guard). What resets is contradiction, not silence.
+    // A hand or a kingless read PAUSES the streak: silence says nothing (of 222 hand-free alarmed evaluations
+    // 221 failed the kings guard). Contradiction resets, silence does not.
     val fen = if (handInFrame()) null else cnnAdoptedFen(snap.obs, confThr)
     if (fen == board.fen()) resetResyncVotes()
     return fen?.takeIf { it != board.fen() }
@@ -91,7 +81,7 @@ internal fun EngineState.resetResyncVotes() {
     resyncVotes = 0
 }
 
-/** `san = null` so no consumer reads the row as a ply; `fenBefore` is the position abandoned. */
+/** `san = null` so no consumer reads the row as a ply. */
 private fun EngineState.recordResync(
     from: String,
     how: String,
@@ -100,5 +90,4 @@ private fun EngineState.recordResync(
     decisionLog.add(row.copy(fenBefore = from))
 }
 
-/** `clearAlarm`'s reason when a resync released the latch — the log's provenance string. */
 internal const val ALARM_RESYNCED = "resynced"

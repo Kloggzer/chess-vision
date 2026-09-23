@@ -9,10 +9,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `_verify_tick` — mirrors `tests/test_move_tracker.py::TestCnnVerify` scenario by scenario, plus
- * the Spec-11 seq contract and the multi-glance vote.
- */
+/** Mirrors `TestCnnVerify` scenario by scenario, plus the Spec-11 seq contract and the multi-glance vote. */
 class VerifySingleTest {
     private fun EngineState.glance(
         cnn: CnnEvaluator?,
@@ -31,8 +28,7 @@ class VerifySingleTest {
         assertNull(state.pending)
         assertEquals("shadow", state.verifyState)
         assertEquals("shadow", state.cnnStatus)
-        // Invariant 5: the verify path re-anchors on the candidate's own averaged frame, never on
-        // the frame the CNN looked at.
+        // Invariant 5: re-anchor on the candidate's own averaged frame, never the frame the CNN looked at.
         assertTrue(state.refGray === candidateFrame)
     }
 
@@ -49,7 +45,6 @@ class VerifySingleTest {
         assertEquals(false, state.recoveredLast)
     }
 
-    /** Inside the motion hold the commit needs the move's squares seen settled, not the clock. */
     @Test
     fun anEarlyCommitNeedsTheMoveSquaresSeenSettled() {
         val cnn = VerifyEvaluator(occAgree = 1.0, occN = 2)
@@ -88,7 +83,6 @@ class VerifySingleTest {
         assertEquals(listOf("e4"), seen.history)
     }
 
-    /** A capture commits on occupancy only once the capturer is SEEN on the target. */
     @Test
     fun aCaptureWaitsUntilTheCapturerIsReadOnTheTarget() {
         val fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -116,7 +110,6 @@ class VerifySingleTest {
         assertNotNull(waiting.pending, "the pawn on d5 is still black: nothing has arrived")
 
         val landed = VerifyObs(mapOf("e4" to false, "d5" to true), mapOf("e4" to true, "d5" to true), labels = mapOf("d5" to "wP"))
-        // Early commits also need the sight series (`earlyCommitObs`): d5 occupied, e4 empty, both seen.
         val done = early()
         val all = -1L
         repeat(2) { done.sights.addLast(SquareSight(it.toLong(), visible = all, confident = all, occupied = 1L shl Squares.index("d5"))) }
@@ -124,10 +117,8 @@ class VerifySingleTest {
         assertEquals(listOf("exd5"), done.history)
     }
 
-    /**
-     * `Bxe4` (11-59-12, 2026-09-12): a capture's target is occupied before AND after, so the sights
-     * settle with the capturer still in the hand. Only the identity read on the target separates them.
-     */
+    /** A capture's target is occupied before AND after, so the sights settle with the capturer still in the hand;
+     *  only the identity read on the target separates them. */
     @Test
     fun aSettledCaptureStillWaitsForTheCapturerOnTheTarget() {
         val fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -166,10 +157,7 @@ class VerifySingleTest {
         assertNotNull(state.pending, "the window keeps looking instead of committing the capture")
     }
 
-    /**
-     * `applyVerdict` raeumte `pending` weg, BEVOR die Zeile geschrieben wurde, also trug ausgerechnet
-     * die Zeile der Leiter `verify=` leer — und leer hiess beides (`docs/tracker-flow.md`).
-     */
+    /** `applyVerdict` raeumte `pending` weg, BEVOR die Zeile geschrieben wurde: die Zeile der Leiter trug `verify=` leer. */
     @Test
     fun theCommittedRowNamesTheRungThatCommittedIt() {
         val state = pendingState()
@@ -180,14 +168,8 @@ class VerifySingleTest {
         assertNull(state.verdictOutcome, "genau eine Zeile erbt ihn")
     }
 
-    /**
-     * The 003957 ply-39 incident (2026-08-09): a resting hand over the destination read
-     * "confidently occupied" — `pOccluded` is identically 0.0 under a 13-class model — and the
-     * confirm rung committed a fabricated `g4` through it. The grid-groove read of the observed
-     * frame is the model-free witness, and while it reports a HAND-SHAPED cluster
-     * (`GRID_HAND_MIN_SQUARES`), the glance may neither confirm nor reject: no vote, no verdict,
-     * liveness advances.
-     */
+    /** 003957 ply 39: a resting hand read "confidently occupied" (`pOccluded` is 0.0 under 13 classes) and rung 2
+     *  committed a fabricated `g4`. A HAND-SHAPED groove cluster holds the verdict: no vote, liveness advances. */
     @Test
     fun aGridOccludedGlanceNeitherConfirmsNorRejects() {
         val state = pendingState()
@@ -206,13 +188,8 @@ class VerifySingleTest {
         assertEquals(listOf("e4"), state.history)
     }
 
-    /**
-     * The h7h5 incident (session 20260814-203552): an ARRIVING hand reached over the kingside,
-     * the grid map lagged it by one observation (empty at the confirming glances), occupancy read
-     * the covered file as a move, and `cnn_pair` committed a never-played `h5`. The model's
-     * occluded head had flagged the hand on those very glances — since the plausibility filter it
-     * is trustworthy enough to hold the verdict alongside the groove read.
-     */
+    /** h7h5: the grid map lagged an ARRIVING hand by one observation and `cnn_pair` committed a never-played `h5`,
+     *  while the model head had flagged the hand on those very glances. */
     @Test
     fun anArrivingHandHoldsTheVerdictThroughTheModelHead() {
         val state = pendingState()
@@ -227,14 +204,8 @@ class VerifySingleTest {
         assertEquals(state.nowS, state.pending!!.lastTickS, "alive — a covered board is not a dead observer")
     }
 
-    /**
-     * The c8 lesson of VID_20260802_222741: ONE square flagged on 73 % of all frames — a piece
-     * leaning over its own grooves, standing for minutes — and gating on the raw map blanked the
-     * whole replay to zero plies. A lone flag is furniture, not a hand; it must not block. Nor
-     * may two flags WITHOUT adjacency — that is the leaning piece plus scattered noise, and a
-     * count threshold that blocked on it is how c8 kept blanking frames. A hand always leaves
-     * neighbouring flags (its trailing edge is h3+h2 — a pair), which is the whole rule.
-     */
+    /** ONE square flagged on 73 % of frames (a leaning piece) blanked a whole replay. A lone flag is furniture; so
+     *  are two WITHOUT adjacency. A hand always leaves neighbouring flags — that is the whole rule. */
     @Test
     fun flagsWithoutAdjacencyAreNotAHand() {
         val state = pendingState()
@@ -247,12 +218,8 @@ class VerifySingleTest {
         assertEquals(listOf("e4"), scattered.history, "two non-adjacent flags must not hold the commit")
     }
 
-    /**
-     * `test_confirm_acts_on_one_glance_contradiction_still_needs_two`. One observation is a full
-     * observer round trip (~0.21 s on the SM8650); the CONFIRM rung concurs with a candidate the
-     * diff already carried through `confirmFrames`, the ambiguity margin and `commitLlFloor`, so it
-     * acts on the first. Contradicting rungs still need `verifyObsVotes`.
-     */
+    /** One observation is ~0.21 s; the CONFIRM rung concurs with a candidate that already passed `confirmFrames`,
+     *  the margin and `commitLlFloor`, so it acts on the first. Contradicting rungs still need `verifyObsVotes`. */
     @Test
     fun confirmActsOnOneGlanceContradictionStillNeedsTwo() {
         val state = pendingState()
@@ -270,13 +237,8 @@ class VerifySingleTest {
         assertEquals("ghost", ghost.verifyState)
     }
 
-    /**
-     * `test_verify_resolves_on_the_wall_clock_not_only_the_observation_count`. `verifyWindow`
-     * counts OBSERVATIONS and what one costs is set by the CNN, so 8 of them is 1.2 s on a warm
-     * desktop batch and 2.4 s at the 290 ms measured on an SM8650. The candidate here is
-     * undecidable (both endpoints unreadable) and only TWO observations arrive: on the count alone
-     * it would hold for six more, on the clock it resolves.
-     */
+    /** `verifyWindow` counts OBSERVATIONS, whose cost the CNN sets (8 are 2.4 s at 290 ms each). Undecidable here
+     *  and only TWO arrive: on the count it would hold six more, on the clock it resolves. */
     @Test
     fun verifyResolvesOnTheWallClockNotOnlyTheObservationCount() {
         val state = pendingState()
@@ -290,11 +252,7 @@ class VerifySingleTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
-    /**
-     * `test_a_stalled_observer_cannot_pin_the_tracker_forever`. The other end of the same defect:
-     * `frames` only advances inside a tick, so a candidate that receives NO observation is bounded
-     * by nothing and the engine refuses every detection while routing nothing to recovery.
-     */
+    /** `frames` only advances inside a tick: a candidate receiving NO observation was bounded by nothing. */
     @Test
     fun aStalledObserverCannotPinTheEngineForever() {
         val state = pendingState()
@@ -332,8 +290,7 @@ class VerifySingleTest {
 
     @Test
     fun fromLeftAloneNeverCommitsNonCastling() {
-        // b1c4 incident: the knight was physically placed on c4 (illegal), the diff proposed the
-        // best LEGAL move Na3. b1 confidently empty is TRUE and must still not commit.
+        // b1c4: the knight stood illegally on c4 and the diff proposed Na3. b1 confidently empty is TRUE and must still not commit.
         val state = pendingState(uci = "b1a3")
         val obs = VerifyObs(mapOf("a3" to false, "b1" to false), mapOf("a3" to false, "b1" to true))
         state.glance(VerifyEvaluator(), obs)
@@ -367,8 +324,7 @@ class VerifySingleTest {
 
     @Test
     fun fromOccupiedButArrivedCommitsAfterWindow() {
-        // d2d4 case: the destination arrived but the origin is mis-read as still occupied. Both
-        // signals contradict, so it HOLDS; the window fallback checks the whole post-move board.
+        // d2d4: destination arrived, origin misread as still occupied. It HOLDS; the window fallback checks the whole board.
         val state = pendingState(verifyWindow = 2)
         val obs = VerifyObs(mapOf("e4" to true, "e2" to true), mapOf("e4" to true, "e2" to true))
         state.glance(VerifyEvaluator(), obs)
@@ -383,8 +339,7 @@ class VerifySingleTest {
 
     @Test
     fun arrivedButOriginNeverEmptiedDiscards() {
-        // d4b3 incident: a foreign piece landed on the destination while the origin pawn provably
-        // never moved. The post-move board check conflicts on the origin → discard.
+        // d4b3: a foreign piece landed while the origin pawn provably never moved. The post-move check conflicts → discard.
         val state = pendingState(verifyWindow = 2)
         val cnn = VerifyEvaluator(conflicts = listOf("e2"))
         val obs = VerifyObs(mapOf("e4" to true, "e2" to true), mapOf("e4" to true, "e2" to true))
@@ -419,9 +374,7 @@ class VerifySingleTest {
 
     @Test
     fun counterMoveOverrules() {
-        // The endpoints of e2e4 are unreadable while d2d4's own ARE read (d2 empty, d4 occupied),
-        // so the CNN's move wins — and it commits in THIS cycle, carried by the verdict's
-        // replacement move (invariant 10).
+        // The endpoints of e2e4 are unreadable while d2d4's ARE read, so the CNN's move wins in THIS cycle (invariant 10).
         val state = pendingState()
         val cnn = VerifyEvaluator(deriveMove = "d2d4", deriveAgreement = 0.99)
         val obs =
@@ -442,11 +395,8 @@ class VerifySingleTest {
         assertTrue(state.note!!.contains("CNN overruled e4"))
     }
 
-    /**
-     * S17-SIM-3: the whole-board score alone let a phantom Bg5 — whose destination the model never
-     * read confidently — discard the correct Bf4. An overruling move whose endpoints are inferred
-     * rather than observed must NOT overrule; the diff candidate falls through to the window.
-     */
+    /** A phantom Bg5 whose destination was never read confidently discarded the correct Bf4: an overrule inferred,
+     *  not observed, must NOT overrule. */
     @Test
     fun overruleNeedsItsOwnEndpointsRead() {
         val state = pendingState(verifyWindow = 99)
@@ -480,7 +430,7 @@ class VerifySingleTest {
 
     @Test
     fun fallbackRejectsWhenPostmoveBoardContradicts() {
-        // b1d4 incident: endpoint-local reasoning never looked at the square the piece landed on.
+        // b1d4: endpoint-local reasoning never looked at the square the piece landed on.
         val state = pendingState(verifyWindow = 2)
         val cnn = VerifyEvaluator(conflicts = listOf("d4"))
         val obs = VerifyObs(mapOf("e4" to false, "e2" to false), mapOf("e4" to false, "e2" to true))
@@ -491,7 +441,7 @@ class VerifySingleTest {
         assertEquals("ghost", state.verifyState)
     }
 
-    /** The origin left but the target never became readable: under the both-ends rule that is a hand, not a clear view. */
+    /** Origin left, target never readable: under the both-ends rule that is a hand, not a clear view. */
     @Test
     fun oneReadableEndpointIsAnOcclusionTimeoutWhenBothAreRequired() {
         val state = pendingState(verifyWindow = 3, bothEnds = true)
@@ -564,9 +514,8 @@ class VerifySingleTest {
 
     @Test
     fun alternatingReadingsCannotOutliveTheVerifyWindow() {
-        // `verifyTimeoutS` nennt sich im eigenen Kommentar die Wanduhr-Grenze des Verifys, aber
-        // sie stand als letzte Sprosse: traf eine fruehere zu, ohne ihre Stimmen zu bekommen,
-        // wurde sie nie erreicht -- und `lastTickS` frischt jeder Blick wieder auf.
+        // `verifyTimeoutS` stand als letzte Sprosse: traf eine fruehere zu, ohne ihre Stimmen zu bekommen, wurde sie
+        // nie erreicht — und `lastTickS` frischt jeder Blick wieder auf.
         val state = pendingState(verifyWindow = 4)
         val shadowing = VerifyEvaluator(match = true)
         val ghostObs = VerifyObs(mapOf("e4" to false, "e2" to true), mapOf("e4" to true, "e2" to true))
@@ -579,9 +528,8 @@ class VerifySingleTest {
 
     @Test
     fun singleGlanceNeverDecidesAgainstTheDiff() {
-        // g8h6 incident: one frame's confident-empty misread overruled a real move. Every rung
-        // that CONTRADICTS the diff still needs `verifyObsVotes`; only the confirm rung is exempt
-        // (see COMMIT_VOTES and confirmActsOnOneGlanceContradictionStillNeedsTwo).
+        // g8h6: one frame's confident-empty misread overruled a real move. Every contradicting rung needs
+        // `verifyObsVotes`; only confirm is exempt (COMMIT_VOTES).
         val state = pendingState()
         val shadowing = VerifyEvaluator(match = true)
         val ghostObs = VerifyObs(mapOf("e4" to false, "e2" to true), mapOf("e4" to true, "e2" to true))
@@ -603,11 +551,8 @@ class VerifySingleTest {
         assertEquals("shadow", state.pending!!.voteOutcome)
     }
 
-    /**
-     * `pendingVoted` verlangt AUFEINANDERFOLGENDE Blicke, aber eine brauchbare, unentschiedene
-     * Lesung fiel in das letzte `else` und liess Stimme und Zaehler stehen — shadow(1/2), neutral,
-     * shadow(2/2) verwarf den Kandidaten auf zwei Stimmen, die nie hintereinander lagen.
-     */
+    /** Eine unentschiedene Lesung liess Stimme und Zaehler stehen: shadow(1/2), neutral, shadow(2/2) verwarf den
+     *  Kandidaten auf zwei Stimmen, die nie hintereinander lagen. */
     @Test
     fun aNeutralGlanceRestartsTheVote() {
         val state = pendingState()
@@ -632,8 +577,7 @@ class VerifySingleTest {
 
     @Test
     fun blindGlanceDoesNotReAnchorOnACoveredBoard() {
-        // `resyncCheck` matches VACUOUSLY under a hand. With the real `minConfidentBoard` the
-        // shadow rung must not fire, and the candidate must not be silently accepted either.
+        // `resyncCheck` matches VACUOUSLY under a hand: the shadow rung must not fire, nor may it be silently accepted.
         val state = pendingState(verifyWindow = 2)
         val cnn = VerifyEvaluator(match = true, minConfidentBoard = 32)
         val obs = VerifyObs(confidence = mapOf("e4" to false, "e2" to false))

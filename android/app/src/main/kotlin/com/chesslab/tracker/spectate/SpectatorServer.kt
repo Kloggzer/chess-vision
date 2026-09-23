@@ -19,7 +19,7 @@ import kotlinx.serialization.json.Json
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 
-/** Fixed, so the URL and the QR the user photographed stay valid for the whole session. */
+/** Fixed, so the photographed URL and QR stay valid for the whole session. */
 const val SPECTATOR_PORT = 8420
 
 private const val STOP_GRACE_MS = 200L
@@ -42,11 +42,7 @@ sealed interface SpectatorState {
 
 private val wireJson = Json { encodeDefaults = true }
 
-/**
- * The complete routing table. Two GETs, and nothing that can reach the tracker: [snapshots] hands
- * back an already-built immutable value, so a request cannot call the engine, the game store or
- * settings even by accident. There is no write endpoint to secure because there is none to write.
- */
+/** Two GETs over an already-built immutable value: no request can reach engine, store or settings. */
 internal fun Application.spectatorModule(snapshots: () -> GameSnapshot) {
     install(ContentNegotiation) { json(wireJson) }
     routing {
@@ -55,14 +51,8 @@ internal fun Application.spectatorModule(snapshots: () -> GameSnapshot) {
     }
 }
 
-/**
- * The LAN spectator, off until asked.
- *
- * Threading: Ktor CIO owns its own event-loop and worker threads, entirely separate from the
- * analyzer thread that drives the engine. Handlers do exactly one volatile-free `StateFlow.value`
- * read and never block, so a connected spectator cannot enter the frame budget — the 15 fps
- * tracking loop outranks this feature absolutely.
- */
+/** Ktor CIO owns its own threads; handlers do one `StateFlow.value` read and never block, so a spectator
+ *  cannot enter the 15 fps frame budget. */
 class SpectatorServer(
     private val wifi: WifiAddress = SystemWifiAddress,
     private val snapshots: () -> GameSnapshot,
@@ -77,12 +67,7 @@ class SpectatorServer(
 
     fun stop() = refresh(enabled = false)
 
-    /**
-     * The single reconciliation point: desired state in, actual state out.
-     *
-     * Wi-Fi loss and Wi-Fi return are the same call, because a server bound to an address that no
-     * longer exists is worse than no server — it advertises a URL nobody can reach.
-     */
+    /** Wi-Fi loss and return are the same call: a server on a vanished address advertises an unreachable URL. */
     fun refresh(enabled: Boolean) {
         val host = wifi.current()
         when {
@@ -119,10 +104,7 @@ class SpectatorServer(
         stateFlow.value = next
     }
 
-    /**
-     * Probed before binding so a taken port fails loudly. The legacy code drifted to a free
-     * ephemeral port instead, which left the displayed URL and the scanned QR pointing at nothing.
-     */
+    /** A taken port fails loudly; drifting to a free port left the shown URL and QR pointing at nothing. */
     private fun portIsFree(host: String): Boolean =
         runCatching {
             ServerSocket().use { it.bind(InetSocketAddress(host, SPECTATOR_PORT)) }

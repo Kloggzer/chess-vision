@@ -5,25 +5,9 @@ import java.io.DataInputStream
 import java.io.File
 import java.io.RandomAccessFile
 
-/**
- * Rebuild an MP4 whose recorder was killed before it wrote the index.
- *
- * `moov` is written when the muxer closes; a process killed mid-capture leaves `ftyp` + `mdat` and
- * nothing that says where the frames are. Four recordings of 2026-08-13 are in that state, 1.99 GB,
- * killed by `adb install` over a live session (`reason=16 PACKAGE UPDATED`). The recorder no longer
- * loses more than a minute (`CameraVideo.SEGMENT_SECONDS`), but these four predate that.
- *
- * The payload is intact and self-describing: inside an MP4, AVC samples are length-prefixed NALs,
- * so walking `mdat` from its first byte recovers every frame boundary — measured on
- * `20260813-124512`, the walk lands exactly on the file's last byte after 1 337 NALs (45 of them
- * IDR). What is NOT in `mdat` is the codec configuration: `MediaMuxer` consumes SPS/PPS into the
- * `avcC` box, which died with the index. They come from a REFERENCE recording made by the same app
- * on the same phone — same resolution, profile and level, so the parameter sets are the right ones.
- *
- * What cannot be recovered is the per-sample timing: the reference's frame rate is assumed and
- * stated. That is a real approximation, and it is why this writes a repaired COPY beside the
- * original rather than over it.
- */
+// Rebuilds the index of an MP4 whose recorder was killed first (four of 2026-08-13, `adb install` over a live
+// session). `mdat` is length-prefixed NALs, so the walk recovers every sample; SPS/PPS come from a REFERENCE
+// recording of the same app and phone. Timing is assumed, hence a repaired COPY beside the original.
 private const val NAL_HEADER = 4
 private const val NAL_TYPE_MASK = 0x1F
 private const val NAL_IDR = 5
@@ -40,7 +24,6 @@ data class RepairReport(
     val out: File,
 )
 
-/** `repair-recording <broken.mp4> <reference.mp4> <out.mp4>` */
 fun repairRecording(args: List<String>) {
     require(args.size >= ARGUMENTS) { "usage: repair-recording <broken.mp4> <reference.mp4> <out.mp4>" }
     val broken = File(args[0])
@@ -67,14 +50,11 @@ internal fun repair(
     val samples = walkSamples(broken, payloadStart)
     check(samples.isNotEmpty()) { "${broken.name}: no samples in mdat" }
 
-    // The bytes stay where they are: `mdat` keeps its offset, so every sample offset the index
-    // states is the one the payload already has. Only the box's own length is corrected — the
-    // muxer left a placeholder there — and the index is appended behind it.
+    // `mdat` keeps its offset; only the box length (a muxer placeholder) is corrected, the index appended.
     broken.copyTo(out, overwrite = false)
     RandomAccessFile(out, "rw").use { file ->
-        // Nach der Form des Headers, den die Datei WIRKLICH traegt: blind den 64-Bit-Patch zu
-        // schreiben ueberschrieb bei 8 Byte die `mdat`-Fourcc gleich mit, und kein Demuxer findet
-        // die Nutzlast danach wieder — lautlos, auf Aufnahmen, die es nur einmal gibt.
+        // Nach der Form des Headers, den die Datei WIRKLICH traegt: blind 64 Bit zu patchen ueberschrieb bei 8 Byte
+        // die `mdat`-Fourcc — lautlos, auf Aufnahmen, die es nur einmal gibt.
         val boxLength = out.length() - (payloadStart - mdat.header)
         if (mdat.header == MDAT_HEADER_64) {
             file.seek(payloadStart - Long.SIZE_BYTES)
@@ -95,12 +75,7 @@ private data class ReferenceStream(
     val size: Pair<Int, Int>,
 )
 
-/**
- * SPS/PPS, frame rate and picture size from a recording that closed properly.
- *
- * FFmpeg hands the `avcC` box back as the stream's extradata, so the conversion to the Annex-B
- * form a raw stream needs is a matter of reading its length-prefixed parameter sets.
- */
+/** FFmpeg hands the `avcC` box back as the stream's extradata. */
 private fun referenceStream(reference: File): ReferenceStream =
     FFmpegFrameGrabber(reference).use { grabber ->
         grabber.start()
@@ -116,19 +91,11 @@ private fun referenceStream(reference: File): ReferenceStream =
                 .extradata_size()
         require(length >= AVCC_MIN) { "${reference.name} carries no avcC to copy the parameter sets from" }
         val avcc = ByteArray(length).also { extradata.get(it, 0, length) }
-        // Verbatim: `avcC` is what an MP4 sample entry carries, and it is the reference's own —
-        // same app, same phone, same resolution and profile, so it describes these frames too.
         ReferenceStream(avcc, grabber.frameRate, grabber.imageWidth to grabber.imageHeight)
     }
 
-/**
- * Every sample in `mdat`, by walking its length prefixes.
- *
- * The walk is its own proof: a length that runs past the end of the file, or a chain that does not
- * land exactly on it, means these are not the samples they claim to be — and a repair that guesses
- * is worse than a broken file, because it looks fine. Measured on `20260813-124512`: 1 337 NALs,
- * 45 of them IDR, ending on the last byte.
- */
+/** The walk is its own proof: a chain that does not land exactly on the file's end means these are not the
+ *  samples they claim — a guessing repair looks fine. `20260813-124512`: 1 337 NALs, last byte. */
 internal fun walkSamples(
     broken: File,
     payloadStart: Long,
@@ -154,8 +121,7 @@ internal fun walkSamples(
     return samples
 }
 
-/** Wo die `mdat`-Nutzlast beginnt, und wie breit ihr Header ist (8 oder 16 Byte).
- *  Ihre eigene Groesse ist der Platzhalter, den der Muxer nie gepatcht hat. */
+/** Header 8 oder 16 Byte; ihre eigene Groesse ist der Platzhalter, den der Muxer nie gepatcht hat. */
 internal data class MdatBox(
     val payloadStart: Long,
     val header: Long,

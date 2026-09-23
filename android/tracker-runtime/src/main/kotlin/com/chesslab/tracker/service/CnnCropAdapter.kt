@@ -14,16 +14,8 @@ import com.chesslab.tracker.cnn.CnnFrameSource
 import com.chesslab.tracker.pipeline.CropFrameStore
 import java.util.concurrent.CompletableFuture
 
-/**
- * 05b's `CropFrameStore` as 05c's `CnnFrameSource`.
- *
- * `take()` runs on the OBSERVER thread, so cutting 64 crops out of the bordered warp costs the
- * analyzer nothing; the pipeline only produced the warp because [CropFrameStore.wantsFrame] said
- * so. When there is nothing pending the adapter asks for one and returns null — that request is
- * what makes the next frame do the expensive full-resolution warp, once.
- *
- * The warp is released here: ownership transfers out of the store with `take()`.
- */
+/** `take()` runs on the OBSERVER thread, so the 64 crops cost the analyzer nothing. With nothing pending it
+ *  requests one and returns null: that makes the next frame do the full warp, once. It releases the warp. */
 fun cropFrameSource(
     store: CropFrameStore,
     parallel: Boolean = false,
@@ -36,8 +28,7 @@ fun cropFrameSource(
             store.request()
             null
         } else {
-            // Release when the LAST reader is done: the grid read may still run on the warp
-            // after the cut returned; a failed cut releases at once (both warps are native).
+            // Release when the LAST reader is done: the grid read may still run on the warp after the cut.
             val frame =
                 try {
                     cropFrame(pending, parallel, runGridOcclusion, clahe)
@@ -85,9 +76,7 @@ private fun cropFrame(
                 crop.release()
             }
         }
-        // The grid read needs only the warp, never the crops: it runs beside the cut and the
-        // inference on both paths. Only the CUT stays sequential under CLAHE, whose scratch
-        // Mats and handle have one owner (2026-09-12).
+        // Beside the cut and inference; only the CUT stays sequential under CLAHE, whose scratch has one owner.
         val grid =
             if (runGridOcclusion) {
                 CompletableFuture.supplyAsync {
@@ -98,8 +87,7 @@ private fun cropFrame(
             }
         val crops =
             if (parallel && clahe == null) {
-                // The ordered stream collector keeps a1..h8 byte-for-byte aligned with the
-                // phone even though independent squares are resized on separate PC cores.
+                // The ordered collector keeps a1..h8 byte-for-byte aligned with the phone.
                 squares.parallelStream().map(cropOne).toList()
             } else {
                 SquareCropper().use { cropper ->
@@ -111,9 +99,7 @@ private fun cropFrame(
                 }
             }
         WorkProfiler.bytes(WorkOperation.CNN_CROP, crops.sumOf { it.data.size }.toLong(), pending.seq)
-        // Models without a coverage output still receive the model-free hand read from
-        // this full-resolution warp. Coverage models skip that complete second analysis.
-        // The release rides on the future itself, so whoever joins it sees the warps released.
+        // Coverage models skip this second analysis. The release rides on the future itself.
         val released = grid?.whenComplete { _, _ -> pending.release() }
         CnnFrame(crops, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, gridOccludedAsync = released)
     }

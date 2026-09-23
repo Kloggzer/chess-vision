@@ -4,54 +4,19 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-// Finding ONE groove in ONE collapsed intensity profile. Port of `alignment.py _notch_centre`
-// and `:105 _profile_lines`.
-//
-// Kept apart from `Alignment.kt`, which is about where the board's lines are: this file knows
-// nothing about boards, only about a dark notch in a 1-D signal, and it is the part that had to be
-// argued from measurements rather than from first principles.
+// Knows nothing about boards, only a dark notch in a 1-D signal — the part argued from measurements.
 
-/** A groove must be this many grey levels below its local background to count as found. */
 internal const val MIN_DEPTH: Double = 6.0
 
-/** Below this a window cannot hold a groove and its shoulders. */
 private const val MIN_WINDOW: Int = 7
 
-/** Fewest samples in a centroid run. */
 private const val MIN_RUN: Int = 3
 
-/** Denominators below this are treated as zero. */
 private const val EPS: Double = 1e-9
 
-/**
- * Sub-pixel centre of the groove notch in [win], as `(offset, depth)`, or null.
- *
- * **The centre of the groove, not the peak of its gradient.** A groove is a dark band with an edge
- * on EACH side, so `|Sobel|` has two peaks and `argmax` picks whichever the current lighting makes
- * stronger — left on one frame, right on the next. That flip is worth half a groove width and was
- * the measurement's whole noise floor: 2.56 px median on the real corpus against 1.32 px for a
- * centroid, with the p90 falling from 3.70 to 1.74.
- *
- * **The background is removed as a straight line first.** The profile between two grooves is not
- * flat — a light square on one side and a dark one on the other tilts it by tens of grey levels,
- * and a centroid of `constant - profile` then drifts toward the dark side. Fitting a line through
- * the window's shoulders and keeping only what falls below it leaves the notch itself.
- *
- * Be honest about what that second part bought: **nothing measurable**. On the real corpus it reads
- * 4.49 px where the old constant-baseline centroid reads 4.45, and every other estimator tried
- * (plain centroid, 3-point parabola, half-depth parabola) lands inside the same 0.15 px. It is here
- * because it is the one that does not depend on the neighbouring squares' brightness, not because
- * it won anything. The win in this module is the BANDS, not the estimator.
- *
- * That local baseline is also the whole answer to an illumination gradient: the 2026-08-02 phone
- * footage reads per-square mean luma 25 on one side of the board and 168 on the other, and a global
- * threshold cannot serve both. A window a third of a cell wide sees none of that spread.
- *
- * **A groove is NARROW, and that is what tells it from a piece.** [halfDepthCentroid] refuses a dark
- * run that is still going at both ends of the centroid window: a 3D piece leaning over the line
- * behind it is wide and dark, and accepting those tilted the fitted line by 36 mrad and cost 16.3 px
- * on a frame whose quad was in fact correct. Reporting the line as UNREAD is the honest answer.
- */
+/** The groove's CENTRE, not its gradient peak: `|Sobel|` has two and `argmax` flips between them (2.56 px
+ *  median against 1.32 for a centroid). A local shoulder baseline serves an illumination gradient (luma 25 to
+ *  168) — it bought nothing else measurable. NARROW only: a wide dark run is a leaning piece (it cost 16.3 px). */
 internal fun notchCentre(
     win: DoubleArray,
     csp: Int,
@@ -66,7 +31,6 @@ internal fun notchCentre(
     return halfDepthCentroid(resid, peak, csp)
 }
 
-/** How far each sample falls below the line through the window's shoulders, or null. */
 private fun shoulderResidual(win: DoubleArray): DoubleArray? {
     val n = win.size
     if (n < MIN_WINDOW) return null
@@ -93,13 +57,8 @@ private fun shoulderResidual(win: DoubleArray): DoubleArray? {
     return DoubleArray(n) { a * it + b - win[it] }
 }
 
-/**
- * Centre of mass of the connected run above half depth around [peak], as `(offset, depth)`.
- *
- * Running over the connected run rather than the whole window is what keeps the shoulders out of
- * the sum entirely, so a long shallow shadow on one side cannot drag the centre of mass out of the
- * notch. [csp] caps the run at about one and a half groove widths for the same reason.
- */
+/** The connected run keeps the shoulders out, so a long shallow shadow cannot drag the centre; [csp] caps it at
+ *  about one and a half groove widths. */
 private fun halfDepthCentroid(
     resid: DoubleArray,
     peak: Int,
@@ -111,7 +70,7 @@ private fun halfDepthCentroid(
     var hi = peak
     while (lo > max(0, peak - csp) && resid[lo - 1] > half) lo--
     while (hi < min(resid.size - 1, peak + csp) && resid[hi + 1] > half) hi++
-    // Still dark at BOTH ends: this is an object, not a groove. See the KDoc above.
+    // Still dark at BOTH ends: an object, not a groove.
     if (resid[max(0, lo - 1)] > half && resid[min(resid.size - 1, hi + 1)] > half) return null
     val len = hi - lo + 1
     var total = 0.0
@@ -124,20 +83,8 @@ private fun halfDepthCentroid(
     return if (len < MIN_RUN || total <= 0.0) null else doubleArrayOf(lo + weighted / total, depth)
 }
 
-/**
- * The 9 groove positions in one collapsed profile, `NaN` where none was found.
- *
- * A groove that cannot be told from its neighbourhood comes back as `NaN` rather than as a guess:
- * pieces sit ON the grooves and legitimately hide some, and a caller needs to see which boundary is
- * unmeasured.
- *
- * [pad] is where nominal line 0 sits in [prof], so index 0 and 8 can be MEASURED in a padded warp
- * instead of pinned at 0 and `boardSize` — the values the warp puts there by construction, whose
- * presence made a uniform scale error read 25 % short. [outerSpan] is deliberately tighter than
- * [span]: the reference board carries a printed rank/file border whose own boundary runs about a
- * third of a cell outside the playing field, and a window that reaches it locks onto the wrong line.
- * [outerSpan] `<= 0` measures the interior lines only.
- */
+/** `NaN` where none was found, never a guess: pieces hide grooves. [pad] lets lines 0 and 8 be MEASURED (pinned,
+ *  a scale error read 25 % short). [outerSpan] is tighter: the printed border sits a third of a cell outside. */
 internal fun profileLines(
     prof: DoubleArray,
     cell: Double,
@@ -156,14 +103,12 @@ internal fun profileLines(
         val lo = window.first
         val hi = window.last + 1
         val found = if (hi - lo >= MIN_WINDOW) notchCentre(prof.copyOfRange(lo, hi), csp) else null
-        // Beyond the search window the estimate has locked onto the NEIGHBOURING groove, which
-        // would report a small offset for a board that is off by a whole square.
+        // Beyond the window the estimate locked onto the NEIGHBOURING groove: a whole square off reads as a small offset.
         if (found != null && abs(lo + found[0] - centre) <= w) pos[k] = lo + found[0]
     }
     return pos
 }
 
-/** Only these profile samples can affect a groove verdict. Unused medians need not be computed. */
 internal fun profileSamples(
     size: Int,
     cell: Double,

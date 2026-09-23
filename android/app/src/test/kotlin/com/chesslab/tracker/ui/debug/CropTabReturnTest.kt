@@ -22,7 +22,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** One observation that never advances — a paused tracker, or a CNN between glances. */
 private class FixedCropSession : DebugSession {
     override val status = MutableStateFlow<TrackerStatus?>(null)
     override val cnnState = MutableStateFlow<CnnState>(CnnState.Off)
@@ -46,17 +45,15 @@ private class FixedCropSession : DebugSession {
     override fun retryCnnAttach() = Unit
 }
 
-/**
- * Leaving the Crops tab throws the tiles away but keeps the sequence number they were decoded from,
- * so coming back renders nothing until the CNN glances again — on a paused tracker, never.
- */
+/** Tiles dropped but their sequence kept: coming back rendered nothing until the next glance — on a paused
+ *  tracker, never. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class)
 class CropTabReturnTest {
     private val store = ViewModelStore()
 
-    /** Real time, not virtual: the poll loop never ends, and `runTest` walks such a loop forever. */
+    /** Real time: the poll loop never ends, and `runTest` walks such a loop forever. */
     @Before
     fun setUp() = Dispatchers.setMain(Dispatchers.Default)
 
@@ -82,7 +79,7 @@ class CropTabReturnTest {
     }
 }
 
-/** Two poll periods, checked ten times a period, so a slow machine is patience and not a failure. */
+/** Two poll periods, checked ten times each, so a slow machine is patience and not a failure. */
 private fun DebugViewModel.tiles(): Int {
     repeat(TILE_TRIES) {
         if (crops.value.isNotEmpty()) return crops.value.size

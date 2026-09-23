@@ -7,54 +7,29 @@ import com.chesslab.tracker.record.SessionCaptureController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * How long a rolled-back position must stand before the record accepts it as a take-back.
- *
- * Several times `STATUS_SAMPLE_MS` (100 ms): long enough that a status delivered late is overtaken
- * by the current one first, short enough that a real take-back is honoured before the player has
- * finished putting the piece down.
- */
+/** Long enough that a late status is overtaken, short enough that a real take-back is honoured quickly. */
 private const val UNDO_CONFIRM_MS = 500L
 
 data class GameSessionState(
     val moveCount: Int = 0,
-    /**
-     * The running game, as the ONE review surface reads it — the tracking screen's move list, the
-     * review screen and the LAN spectator all take their score sheet from here.
-     *
-     * Before this existed each of those three accumulated its own list off the event stream, and
-     * only this one handled an undo (`LiveGame.onFen`): the tracking screen kept showing a move the
-     * engine had taken back, and the spectator never dropped one at all.
-     */
+    /** The ONE score sheet: tracking screen, review and LAN spectator. Separate lists kept showing a taken-back move. */
     val game: GameView = GameView.NONE,
     val lastSavedId: String? = null,
     val recordingSessionId: String? = null,
-    /**
-     * Frames the RUNNING session has written. A session id alone made a recorder that had written
-     * nothing for ten minutes look exactly like one that was working.
-     */
+    /** A session id alone made a recorder that wrote nothing for ten minutes look like one that worked. */
     val recordedFrames: Int = 0,
     val recordingReason: String? = null,
 )
 
-/**
- * Turns the tracker's event stream into a saved game and, when recording is on, into labeled
- * frames — the two things phase 08a exists for, driven by the same three signals.
- *
- * It listens rather than asks: the engine is single-threaded and owns its state, so a game is
- * reconstructed from what it publishes (`MoveCommitted`, `ReAnchored`, the FEN) and never by
- * reaching into it.
- */
+/** Listens rather than asks: the engine owns its state, so a game is reconstructed from what it publishes. */
 class GameSessionController(
     private val store: GameStore,
     private val capture: SessionCaptureController,
     private val now: () -> Long,
     private val idFor: (Long) -> String,
-    /** Null means tips were not watched for, and the stored game then says exactly that — see
-     *  [HintRecord]. The app passes the one ledger `HintController` writes into. */
+    /** Null means tips were not watched for, and the stored game says exactly that. */
     private val hints: HintLedger? = null,
-    /** Alles Weitere, das mit der Partie endet — im `:app` das Tipp-Kontingent. Es haengt an
-     *  DIESER Grenze, weil ein Matt die Partie ohne jeden Schirm beendet ([GameBoundary]). */
+    /** Haengt an DIESER Grenze, weil ein Matt die Partie ohne jeden Schirm beendet. */
     private val alsoEnds: List<GameBoundary> = emptyList(),
 ) {
     private val mutable = MutableStateFlow(GameSessionState())
@@ -62,16 +37,13 @@ class GameSessionController(
     private var startFen: String = STARTPOS
     private var profile: String = "default"
 
-    /** The rolled-back position waiting to prove it is a take-back, and since when — [onStatus]. */
     private var undoFen: String? = null
     private var undoSince: Long = 0L
 
-    /** Die Aufnahme einer Partie, deren Speichern noch aussteht — siehe [endAndSave]. */
     private var pendingSession: String? = null
 
     val state: StateFlow<GameSessionState> = mutable
 
-    /** The position the tracker is on before the first move — a game may be seeded with any FEN. */
     fun onIdle(
         fen: String,
         profileName: String,
@@ -79,9 +51,8 @@ class GameSessionController(
         if (live == null) {
             startFen = fen
             profile = profileName
-            // No `capture.start()` here any more: the session directory opens with the first
-            // committed ply (`SessionCaptureController.queue`), never with the first frame — a
-            // run that only aims, tapes markers or calibrates must leave nothing on disk.
+            // The session directory opens with the first committed ply, never the first frame: a run that only
+            // aims or calibrates must leave nothing on disk.
         }
     }
 
@@ -92,38 +63,19 @@ class GameSessionController(
         when (event) {
             is TrackerEvent.MoveCommitted ->
                 onCommitted(listOf(event.uci), listOf(event.san), event.fenAfter, status, event.decider, event.priorUsed)
-            // Fast play (`Commit.kt:165`) and CNN recovery (`CnnTick.kt:252`) commit real plies
-            // through THIS event, and the engine queues a session photo for it exactly as it does
-            // for a single move. Dropping it lost those moves from the game and their frames from
-            // the recording, while the move list and the notification counted them.
+            // Fast play and CNN recovery commit real plies through THIS event; dropping it lost them from the game.
             is TrackerEvent.SequenceCommitted ->
                 onCommitted(event.ucis, event.sans, event.fenAfter, status, event.decider, priorUsed = false)
-            // The tracker's own proof that nothing is moving — Python flushes the deferred session
-            // photo here, but ONLY with an empty occlusion set (`tracker.py`). A re-anchor is
-            // emitted unconditionally (`TrackerEngine.kt:414`), so the check belongs here: without
-            // it the photo is taken with a hand still over the board.
+            // Python flushes the deferred photo only with an empty occlusion set; a re-anchor is emitted
+            // unconditionally, so without the check the photo shows a hand.
             is TrackerEvent.ReAnchored -> if (isClean(status)) capture.flush()
             else -> Unit
         }
         publish()
     }
 
-    /**
-     * An undo is only visible as a position that went backwards ([LiveGame.wouldUndo]) — and it has
-     * to STAY there before the record believes it.
-     *
-     * A commit event and a status update are two collectors on two flows, and the status is sampled
-     * (`STATUS_SAMPLE_MS`). A status captured a moment before a commit and delivered a moment after
-     * it carries exactly the position the record has just moved on from — indistinguishable from a
-     * take-back, and the record deleted the ply it had just written. Measured on the game of
-     * 2026-08-10: the engine committed and announced 69 plies, the record kept 39. Every one of its
-     * eleven seams is a ply deleted this way and the commit after it no longer fitting the line.
-     *
-     * A real take-back stays: the pieces are back on the board and every following status says so.
-     * A late sample is a single blip, overtaken by the current position within one interval. So the
-     * rolled-back position must survive [UNDO_CONFIRM_MS] before it counts, which costs a genuine
-     * undo a fraction of a second of latency and costs the record nothing.
-     */
+    /** A status sampled before a commit and delivered after it looks exactly like a take-back: the record kept 39
+     *  of 69 plies once. A real take-back STAYS, so it must survive [UNDO_CONFIRM_MS]. */
     fun onStatus(status: TrackerStatus) {
         val recordingChanged = capture.syncEnabled()
         if (recordingChanged || mutable.value.recordingReason != capture.reason) publish()
@@ -144,49 +96,35 @@ class GameSessionController(
         }
     }
 
-    /**
-     * Ends the running game and stores it. Returns `null` for an empty game — starting and
-     * stopping the tracker must not fill the library with zero-move rows.
-     */
+    /** Null for an empty game: starting and stopping must not fill the library with zero-move rows. */
     fun endAndSave(
         white: String = UNKNOWN,
         black: String = UNKNOWN,
-        /** Null = read it off the board. The service's own auto-save never states one. */
+        /** Null = read it off the board. */
         result: GameResult? = null,
     ): GameSummary? {
-        // Ein zweiter Anlauf findet den Recorder schon gestoppt — die Aufnahme-Id gehoert zur
-        // Partie und darf nicht daran haengen, ob das Speichern beim ERSTEN Mal durchkam.
+        // Ein zweiter Anlauf findet den Recorder schon gestoppt.
         val session = capture.stop()?.sessionId ?: pendingSession
         pendingSession = session
         val game = live
         if (game == null) {
-            // Auch eine Partie ohne Ply endet hier: ein Tipp, den kein Zug mehr abholt, darf
-            // nicht auf den ersten Ply der NAECHSTEN Partie fallen.
+            // Ein Tipp, den kein Zug mehr abholt, darf nicht auf die NAECHSTE Partie fallen.
             closeGame()
             mutable.value = GameSessionState(recordingReason = capture.reason)
             return null
         }
-        // Die Bestaetigung VOR der Aufgabe: `GameStore.save` schreibt drei Artefakte, jedes fuer
-        // sich atomar, die Partie als Ganzes aber nicht. Scheitert das PGN oder der Index, ist
-        // `live` die einzige verbliebene Kopie — wirf hier, und sie steht noch.
+        // Die Bestaetigung VOR der Aufgabe: `GameStore.save` ist als Ganzes nicht atomar, und `live` ist dann die
+        // einzige verbliebene Kopie.
         val saved = store.save(game.finish(idFor(now()), now(), session, white, black, result, hints?.log()))
         live = null
         pendingSession = null
-        // The ledger is read HERE and cleared HERE, because this is the record boundary. Reading
-        // it in `HintController.endGame` would depend on which of the two the screen calls first.
+        // Read and cleared HERE, the record boundary — not dependent on which screen call comes first.
         closeGame()
         mutable.value = GameSessionState(lastSavedId = saved?.id, recordingReason = capture.reason)
         return saved
     }
 
-    /**
-     * Drops the running game without storing it — the "Discard" half of the end-game dialog.
-     *
-     * That half had no counterpart here at all: discarding reset the ENGINE and left this record
-     * standing, so the next committed ply was illegal from it and opened a SEAM inside a game the
-     * user had already thrown away. Invisible while nothing else read the record; the moment the
-     * live game became the one score sheet on screen it was a discarded game still being shown.
-     */
+    /** Without it the next ply was illegal from the discarded record and opened a SEAM in a thrown-away game. */
     fun discard() {
         capture.stop()
         live = null
@@ -195,8 +133,7 @@ class GameSessionController(
         mutable.value = GameSessionState(recordingReason = capture.reason)
     }
 
-    /** Die eine Partiegrenze. Ledger und Tipp-Kontingent fallen hier gemeinsam, denn das
-     *  automatische Ende nach einem Matt laeuft durch [onCommitted] und ruft keinen Schirm. */
+    /** Die eine Partiegrenze: das automatische Ende nach einem Matt laeuft durch [onCommitted] und ruft keinen Schirm. */
     private fun closeGame() {
         hints?.endGame()
         alsoEnds.forEach { it.endGame() }
@@ -210,26 +147,9 @@ class GameSessionController(
         decider: String,
         priorUsed: Boolean,
     ) {
-        // A line the engine already left is not a game — see `LiveGame.continues`. It opens a new
-        // SEGMENT, anchored at the position the engine actually reached, so every line the record
-        // holds stays legal from its own start.
-        //
-        // It does NOT close the record. Closing it was the first fix and it cost the user the game:
-        // one played game came off the device as three files three minutes apart, and "eine Naht in
-        // der Game-Historie ist für mich als Nutzer unverständlich". One played game, one record.
-        //
-        // The jumping plies land in no move list: they are illegal from the previous line's last
-        // position (that is what a seam IS) and they precede the new segment's start. That was
-        // silent, and it hid real losses — Qxd4, Qe5+ and Be7 are in none of the three files from
-        // 2026-07-28. They are recorded on the segment they opened instead.
-        //
-        // Still NO `capture.queue` here, and deliberately: a seam is the moment the engine's own
-        // FEN is least trustworthy, so a frame labelled with it is the poisoned-data case the
-        // recording gates exist to prevent. A gap in the training set beats a wrong label in it.
-        //
-        // A gap the plies THEMSELVES explain is not a seam at all — `closeGapBefore` appends the one
-        // legal sequence that reaches the position the engine committed from, and the commit below
-        // then continues the line normally. Only a gap nothing explains opens a segment.
+        // A line the engine left opens a new SEGMENT, never a new record (one game once came off the device as
+        // three files). The jumping plies are recorded on the segment; still NO `capture.queue`: a seam is where
+        // the FEN is least trustworthy. A gap the plies THEMSELVES explain is closed by `closeGapBefore`.
         live?.takeUnless { it.continues(ucis) || it.closeGapBefore(ucis, fenAfter, now(), decider) }?.let { game ->
             game.openSegment(
                 fenAfter,
@@ -240,11 +160,7 @@ class GameSessionController(
         val game = live ?: LiveGame(startFen, now(), profile, hints != null).also { live = it }
         // Read BEFORE the commit: the tip was bound to the position this ply is played out of.
         val hint = ucis.firstOrNull()?.let { hints?.markFor(game.currentFen, it) }
-        // The engine states the decider ON the event, so it is always known. The debug payload adds
-        // the evidence behind it and is off by default — reading the decider from THERE meant every
-        // game stored `provenance: null`, including the ones recorded with debug on, because its
-        // rows are matched by `accepted && uci` and that second source can simply fail to line up.
-        // Measured: null on all 77 recorded plies across five sessions.
+        // The decider comes from the event: read from the debug payload, all 77 recorded plies stored null.
         val decision =
             status
                 ?.debug
@@ -257,24 +173,10 @@ class GameSessionController(
         if (resultFromFen(fenAfter) != GameResult.UNFINISHED) endAndSave()
     }
 
-    /**
-     * Python's "clean board" — no occlusion vetoes and no tainted squares. `tainted` rides on the
-     * debug payload only (D03d-9), so with debug off the occlusion set is what we have.
-     *
-     * The alarm is part of it, and deliberately so. While the latch is up the app's board and the
-     * physical board disagree, so a frame taken now would be stored against a FEN that does not
-     * describe it — poisoned training data that is indistinguishable from good data afterwards,
-     * exactly the failure the geometry gate exists to prevent.
-     *
-     * Python reaches the same end without a gate of its own: while alarmed it blocks every commit
-     * AND every re-anchor (`tracker.py`), and those two are the only things that drive the
-     * recorder. `TrackerEngine.kt:406` blocks re-anchor identically. But that leaves this consumer
-     * depending on an engine internal it cannot see; naming the condition here makes the guarantee
-     * local, and it costs nothing while the engine keeps its half of the bargain.
-     */
+    /** No occlusion vetoes, no tainted squares, and no alarm: while the latch is up a frame would be stored
+     *  against a FEN that does not describe it. Local on purpose, not trusting the engine's own re-anchor block. */
     private fun isClean(status: TrackerStatus?): Boolean {
-        // Ohne Status ist nichts ausgeschlossen. Mit `status?.x == null` sagten alle drei Terme ja,
-        // also las "wir wissen nichts" als "sauber" — und der Fluss startet auf `null`.
+        // Ohne Status ist nichts ausgeschlossen: `status?.x == null` las "wir wissen nichts" als "sauber".
         val known = status ?: return false
         return known.alarm == null && known.occlusionVetoed.isNullOrEmpty() && known.debug?.tainted.isNullOrEmpty()
     }

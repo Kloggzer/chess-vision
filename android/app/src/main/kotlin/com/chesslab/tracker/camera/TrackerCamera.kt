@@ -29,21 +29,9 @@ import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-/**
- * The ONLY class in the app that binds a camera — constructed exactly once, by `TrackerService`.
- * No screen, no ViewModel, no composable may bind its own: CameraX hands the device to the last
- * binder, and a second `ProcessCameraProvider` binding from the calibration screen froze the
- * analyzer feed dead on tab switch. Two owners is a coin flip, not a race that can be fixed.
- *
- * `ImageAnalysis` is the single camera stream. What the user sees and the optional QHD encoder
- * both consume those analyzer frames; no second camera use case or owner is introduced.
- * `STRATEGY_KEEP_ONLY_LATEST` is the Android `LatestFrame` (`chesslab/camera.py`,
- * "Latest frame, but NEVER the same frame twice"): CameraX keeps only the newest frame and never
- * re-delivers one, because a repeated frame diffs to zero and reads as "board stable" while a
- * hand is moving (entry.md invariant 14).
- *
- * Nothing here converts, warps or scales anything; `camera/` hands out a raw [ImageProxy].
- */
+/** The ONLY class that binds a camera: CameraX hands the device to the last binder, and a second binding
+ *  froze the analyzer feed on tab switch. `STRATEGY_KEEP_ONLY_LATEST` never re-delivers a frame — a
+ *  repeat diffs to zero and reads as "board stable" while a hand moves (entry.md invariant 14). */
 @Suppress("TooManyFunctions")
 class TrackerCamera(
     private val context: Context,
@@ -62,29 +50,22 @@ class TrackerCamera(
     private val lamp = TorchLamp()
     private val video = CameraVideo()
 
-    /** Camera-down is a status, not a freeze. 06c maps this into `TrackerStatus.note`. */
     val cameraState: StateFlow<CameraHealth> = health.asStateFlow()
 
-    /** The camera's lamp. Its own owner, like [OpticsLock] — see `TorchLamp`. */
     val torch: TorchLamp get() = lamp
 
-    /** Brightness and illuminant, steering the automatic. See [CameraLookControl]. */
     val look: CameraLookPort get() = optics.looks
 
-    /** Was die Geraete-Automatik zuletzt gewaehlt hat — der Startpunkt fuer die eigene. */
     val observedExposure: ExposureSetting? get() = optics.observedExposure
 
     private var target: CameraRequest = request
 
-    // Analyzer thread only — see [noteSensorRate].
     private var lastSensorNs = 0L
     private var lastSensorLogMs = 0L
     private var sensorGapMs = 0.0
 
-    /** What was ASKED for. Never conflated with [deliveredSize]. */
     val requestedSize: Size get() = Size(target.width, target.height)
 
-    /** What the device actually delivers, read off the ImageProxy. Null until the first frame. */
     @Volatile
     var deliveredSize: DeliveredSize? = null
         private set
@@ -97,14 +78,12 @@ class TrackerCamera(
     @Volatile
     private var videoEnabled = false
 
-    /** The request a capture profile displaced, so [restoreCaptureProfile] can put it back. */
     @Volatile
     private var restoreTo: CameraRequest? = null
 
     @Volatile
     private var requestedProfile: CaptureProfile? = null
 
-    /** The AE range [pinFrameRate] actually pinned — null means the device advertised none. */
     @Volatile
     var pinnedFpsRange: String? = null
         private set
@@ -112,23 +91,16 @@ class TrackerCamera(
     override val videoFailure: String? get() = video.failure
     override val videoResolution: DeliveredSize? get() = video.resolution
 
-    /** Files this recording is spread over — see `CameraVideo.SEGMENT_SECONDS`. */
     override val videoSegments: Int get() = video.segments
 
-    /** The pre-roll the last recording actually carried — see `CameraVideo.preRollUs`. */
     override val videoPreRollNs: Long get() = video.preRollUs * 1000L
 
     override val videoBitRateRequested: Int get() = video.requestedBitRate
 
     override val videoBitRate: Int get() = video.acceptedBitRate
 
-    /**
-     * Set by [stop] and cleared only by [resume].
-     *
-     * Every path that could put the device back — the queued rebind, the error-recovery rebind, the
-     * provider future arriving late — checks it, so "the user stopped the camera" cannot be undone
-     * by a timer that was already in flight.
-     */
+    /** Set by [stop], cleared only by [resume]: every in-flight rebind path checks it, so a timer cannot
+     *  undo "the user stopped the camera". */
     @Volatile
     private var stopped = false
 
@@ -153,27 +125,15 @@ class TrackerCamera(
         }, context.mainExecutor)
     }
 
-    /**
-     * Ask the device for a different mode.
-     *
-     * It rebinds the ONE analysis use case; it does not create a second [ProcessCameraProvider]
-     * binding, and it does not create a second camera owner — a tracker restart keeps this object
-     * alive for exactly that reason (MEMORY `android-single-camera-owner`). What changes is the
-     * request; what the device delivers still decides everything downstream.
-     */
+    /** Rebinds the ONE analysis use case — no second provider binding, no second owner. */
     fun retarget(request: CameraRequest) {
         if (request == target) return
         target = request
         mainHandler.post(::bindAnalysis)
     }
 
-    /**
-     * The capture profile goes on: encoder down FIRST, then the retarget.
-     *
-     * An armed encoder is configured for the size it was armed at, and `copyImage` would overrun
-     * that buffer with 4K rows. Stopping drops `RecordingBundleHost.videoStarted`; the arm comes
-     * back by itself when the first frame of the new size publishes an availability.
-     */
+    /** Encoder down FIRST: an armed encoder is sized for its arm size, and `copyImage` would overrun it with
+     *  4K rows. The arm comes back when the first frame of the new size publishes an availability. */
     override fun applyCaptureProfile(profile: CaptureProfile) {
         restoreTo = restoreTo ?: target
         requestedProfile = profile
@@ -181,7 +141,6 @@ class TrackerCamera(
         retarget(CameraRequest(profile.width, profile.height, target.lensFacing, profile.fps))
     }
 
-    /** The game path's own request back. The rate follows the picture, so it returns with it. */
     override fun restoreCaptureProfile() {
         val previous = restoreTo ?: return
         restoreTo = null
@@ -196,7 +155,6 @@ class TrackerCamera(
                 CaptureObserved(it, deliveredSize, pinnedFpsRange, video.acceptedBitRate, video.profileNotes)
             }
 
-    /** Enable/disable encoding of the one analyzer stream. No camera rebind is needed. */
     fun setVideoEnabled(enabled: Boolean) {
         if (videoEnabled == enabled) return
         videoEnabled = enabled
@@ -204,25 +162,17 @@ class TrackerCamera(
         if (!enabled) onVideoAvailability(null, null)
     }
 
-    /** Arms the encoder: samples buffer in memory until [keepVideo] — see `CameraVideo`. */
     override fun startVideo(
         maxBytes: Long,
         onProgress: (VideoProgress) -> Unit,
     ): Boolean = video.start(maxBytes, onProgress)
 
-    /** The first committed move: the pre-roll becomes [file] and the recording goes live. */
     override fun keepVideo(file: File) = video.keep(file)
 
     override fun stopVideo() = video.stop()
 
-    /**
-     * Release the DEVICE, keep the object.
-     *
-     * The privacy switch: after this the green camera indicator goes out, because the analysis use
-     * case is unbound and nothing holds the camera. What survives is this instance — the app-wide
-     * single owner (MEMORY `android-single-camera-owner`) — and the analyzer thread, so the engine's
-     * latched thread ownership still holds when [resume] rebinds.
-     */
+    /** Releases the DEVICE (the camera indicator goes out), keeps this single owner and the analyzer thread,
+     *  so the engine's latched thread ownership still holds when [resume] rebinds. */
     fun stop() {
         if (stopped) return
         stopped = true
@@ -236,38 +186,25 @@ class TrackerCamera(
         health.value = CameraHealth.Off
     }
 
-    /** Rebinds the ONE analysis use case. No second provider, no second owner — see [stop]. */
     fun resume() {
         if (!stopped) return
         stopped = false
         health.value = CameraHealth.Up
         mainHandler.post(::bindAnalysis)
-        // [stop] took the encoder down with the device, and the recorder no longer re-arms off a
-        // stop's own callback (double "armed" 2026-08-14). The size has not changed, so no frame
-        // will publish it again either — the pre-roll would stay dead for the rest of the run
-        // unless the return of the device is itself stated as an availability.
+        // [stop] took the encoder down, and an unchanged size publishes no new availability — without this the
+        // pre-roll stayed dead for the rest of the run.
         if (videoEnabled) onVideoAvailability(video.resolution, video.failure)
     }
 
-    /**
-     * Run [block] on the analyzer thread, serialized against [deliver].
-     *
-     * The tracker restart uses it: the pipeline, the engine and the ONNX observer may only be torn
-     * down when no frame is inside them, and "the analyzer thread is not currently delivering" is
-     * exactly what running on its single-thread executor guarantees.
-     */
+    /** Serialized against [deliver]: the restart may tear down pipeline, engine and observer only while no
+     *  frame is inside them, which the single-thread executor guarantees. */
     fun runOnAnalyzer(block: () -> Unit) {
         runCatching { analyzerExecutor.execute(block) }
             .onFailure { Log.w(TAG, "analyzer thread is gone, skipped a queued task", it) }
     }
 
-    /**
-     * Waits for the analyzer to leave the pipeline, because the caller closes it next.
-     *
-     * `shutdownNow` only interrupts, and an in-progress `warpPerspective` ignores that — so without
-     * the wait `TrackerService.onDestroy` released the pipeline's Mats and the recording out from
-     * under a frame that was still being processed.
-     */
+    /** Waits for the analyzer: `shutdownNow` only interrupts, and a running `warpPerspective` ignores that —
+     *  `onDestroy` released the Mats under a frame still in flight. */
     override fun close() {
         stopped = true
         mainHandler.removeCallbacksAndMessages(null)
@@ -287,8 +224,6 @@ class TrackerCamera(
     @OptIn(ExperimentalCamera2Interop::class)
     @Suppress("ReturnCount")
     private fun bindAnalysis() {
-        // `takeUnless` rather than a fourth guard clause: a stopped camera and a camera with no
-        // provider yet are the same answer here — do not bind.
         val cameraProvider = provider.takeUnless { stopped } ?: return
         val lifecycleOwner = owner ?: return
         val selector = CameraSelector.Builder().requireLensFacing(target.lensFacing).build()
@@ -298,9 +233,7 @@ class TrackerCamera(
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .setResolutionSelector(resolutionSelector(requestedSize))
-        // ONE extender for the whole request: a second `Camera2Interop.Extender` over the same
-        // builder is a second view of one config, and splitting the options across two reads as if
-        // they were independent.
+        // ONE extender for the whole request: a second one over the same builder is a second view of one config.
         val extender = Camera2Interop.Extender(builder)
         val bound = cameraProvider.availableCameraInfos.firstOrNull { selector.filter(listOf(it)).isNotEmpty() }
         pinFrameRate(extender, bound)
@@ -325,30 +258,9 @@ class TrackerCamera(
         lamp.attach(camera)
     }
 
-    /**
-     * Ask auto-exposure to keep the frame rate up.
-     *
-     * `CameraRequest.targetFps` was dead code until now: nothing pinned
-     * `CONTROL_AE_TARGET_FPS_RANGE`, so in room light AE was free to pick a long exposure and
-     * hand us 14 fps. Measured, that is what it did — the analyzer did 52 ms of work inside a
-     * 71 ms frame and then sat idle, so the sensor was the cap and no pipeline work could have
-     * bought a single frame.
-     *
-     * The range is chosen from what the device ADVERTISES, never invented: an unsupported range
-     * is a binding failure, and a dead camera is worse than a slow one.
-     *
-     * Genommen wird die ENGSTE Spanne, deren Obergrenze [CameraRequest.targetFps] ist — ein
-     * gepinntes `[30,30]` haelt AE davon ab, die Periode zu strecken, wo `[15,30]` ihr dieselbe
-     * Freiheit liesse wie vorher.
-     *
-     * Eine breitere Spanne zu waehlen, damit AE laenger belichtet statt das ISO zu heben, wurde
-     * am 2026-08-30 versucht und gemessen verworfen: bei `[15,15]` sind 66,7 ms erlaubt, und das
-     * Geraet fuhr trotzdem 10,0 ms. Die Aufteilung ist hier nicht zu holen
-     * (`docs/camera.md`, "Die 10,0 ms sind nicht verhandelbar").
-     *
-     * The trade is real and belongs in the log: a pinned rate caps exposure time, so the frame
-     * gets darker, and `darkLumaThr = 18` is a gate that can then start firing.
-     */
+    /** Pins `CONTROL_AE_TARGET_FPS_RANGE`: unpinned, AE took long exposures in room light and delivered 14 fps.
+     *  Only an ADVERTISED range (an unsupported one fails the bind), the NARROWEST topping at the target; a
+     *  wider one for longer exposure was measured useless (`docs/camera.md`). A pinned rate darkens the frame. */
     @OptIn(ExperimentalCamera2Interop::class)
     private fun pinFrameRate(
         extender: Camera2Interop.Extender<*>,
@@ -358,10 +270,8 @@ class TrackerCamera(
         val picked = chooseAeRange(available.orEmpty().map { it.lower to it.upper }, target.targetFps)
         val range = picked?.let { (lo, hi) -> available?.firstOrNull { it.lower == lo && it.upper == hi } }
         if (range == null) {
-            // Loud, because the setting then reads 15 while the sensor runs at 30: the back camera
-            // of a 24117RK2CG advertises no locked range below 15, and one it does not advertise
-            // is a binding failure rather than a slower camera. `null` carries that all the way
-            // into `capture.json`, where a capture states what it really ran at.
+            // Loud: the setting then reads 15 while the sensor runs at 30 — the 24117RK2CG's back camera advertises no
+            // locked range below 15. `null` carries that into `capture.json`.
             pinnedFpsRange = null
             Log.w(TAG, "no ${target.targetFps} fps AE range advertised (${available?.joinToString()}) — leaving auto-exposure alone")
             return
@@ -371,13 +281,8 @@ class TrackerCamera(
         Log.i(TAG, "AE target fps range pinned to $range (of ${available?.joinToString()})")
     }
 
-    /**
-     * Der Automatik die Belichtungszeit vorgeben und ihr nur noch das ISO ueberlassen.
-     *
-     * Dieses Tuning waehlt sonst 10,0 ms und bezahlt den Rest mit Verstaerkung. Qualcomms
-     * `iso_exp_priority` ist der Weg daran vorbei, der die AE anlaesst — gemessen 2026-08-30:
-     * ISO 404 auf 55, bei gleicher Helligkeit und Bildrate (`docs/camera.md`).
-     */
+    /** Qualcomms `iso_exp_priority` gibt die Zeit vor und laesst der AE das ISO: sonst waehlt dieses Tuning
+     *  10,0 ms und zahlt mit Verstaerkung — gemessen ISO 404 auf 55 bei gleicher Helligkeit (`docs/camera.md`). */
     @OptIn(ExperimentalCamera2Interop::class)
     private fun pinExposureTime(
         extender: Camera2Interop.Extender<*>,
@@ -407,7 +312,6 @@ class TrackerCamera(
                 .newInstance(name, type) as CaptureRequest.Key<T>
         }.getOrNull()
 
-    /** Derselbe Weg fuer die Charakteristik, die den erlaubten Zeitbereich nennt. */
     @OptIn(ExperimentalCamera2Interop::class)
     private fun vendorRange(info: CameraInfo): LongArray? =
         runCatching {
@@ -420,13 +324,8 @@ class TrackerCamera(
             Camera2CameraInfo.from(info).getCameraCharacteristic(key)
         }.getOrNull()?.takeIf { it.size == 2 }
 
-    /**
-     * The requested mode is a wish; [ResolutionStrategy] may hand back anything it likes.
-     *
-     * The aspect ratio is stated explicitly because leaving it out cost 33 % of every source
-     * pixel: asking for 1920x1080 under `FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER` got us
-     * 1920x1440, and that 4:3 frame is the source of the convert and of all three warps.
-     */
+    /** The aspect ratio is stated: without it 1920x1080 under `FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER`
+     *  delivered 1920x1440, and that 4:3 frame fed the convert and all three warps. */
     private fun resolutionSelector(requested: Size): ResolutionSelector =
         ResolutionSelector
             .Builder()
@@ -435,14 +334,8 @@ class TrackerCamera(
                 ResolutionStrategy(requested, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
             ).build()
 
-    /**
-     * The gap between the SENSOR timestamps of two delivered frames, smoothed, once a second.
-     *
-     * This is the one number that separates "the sensor is slow" from "we are too slow and
-     * CameraX is dropping frames for us" — `STRATEGY_KEEP_ONLY_LATEST` makes both look identical
-     * from the analyzer's side. A gap near the sensor period means we see every frame; a gap at a
-     * multiple of it means frames are being dropped and the pipeline is the bottleneck.
-     */
+    /** The smoothed SENSOR timestamp gap separates "the sensor is slow" from "CameraX drops frames for us",
+     *  which `STRATEGY_KEEP_ONLY_LATEST` makes identical: a multiple of the period means we are the bottleneck. */
     private fun noteSensorRate(image: ImageProxy) {
         val now = image.imageInfo.timestamp
         val previous = lastSensorNs
@@ -470,8 +363,7 @@ class TrackerCamera(
             mismatch.report(target.width, target.height, delivered)
             policy.onFrameDelivered(System.currentTimeMillis())
             if (health.value !is CameraHealth.Up) health.value = CameraHealth.Up
-            // An unhandled throw here would kill the analyzer thread and with it the whole feed —
-            // `_loop` treats a throwing read the same way: dropped frame, not a crash.
+            // An unhandled throw here would kill the analyzer thread and the whole feed: dropped frame, not a crash.
             runCatching { sink.onFrame(image, delivered) }
                 .onFailure { Log.w(TAG, "frame sink threw, frame dropped", it) }
         } finally {
@@ -517,7 +409,6 @@ class TrackerCamera(
         const val EXPOSURE_TIME_RANGE = "org.codeaurora.qcamera3.iso_exp_priority.exposure_time_range"
         const val EXP_PRIORITY = 1
 
-        /** Halbe Sekunde in ns — geteilt durch die Bildrate ergibt die halbe Bildperiode. */
         const val HALF_SECOND_NS = 500_000_000L
         const val MS_PER_S = 1000.0
         const val NANOS_PER_MS = 1_000_000.0
@@ -526,7 +417,6 @@ class TrackerCamera(
         /** One frame's work is tens of milliseconds; 2 s is a hang, and a teardown may not block on one. */
         const val ANALYZER_DRAIN_MS = 2000L
 
-        /** `CameraRate`'s weights, so every rate in the app settles the same way. */
         const val EMA_OLD = 0.9
         const val EMA_NEW = 0.1
 

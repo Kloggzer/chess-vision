@@ -1,6 +1,6 @@
 package com.chesslab.engine.api
 
-/** Kept outside the host so engines do not depend on `:tracker-runtime`. */
+/** Outside the host, so engines do not depend on `:tracker-runtime`. */
 interface EngineOps {
     fun onFrame(input: FrameInput): List<TrackerEvent>
 
@@ -12,17 +12,16 @@ interface EngineOps {
 
     fun fen(): String
 
-    /** False skips needless inference, reducing a game from thousands of reads to hundreds. */
+    /** False skips needless inference: a game drops from thousands of reads to hundreds. */
     fun wantsCnnRead(): Boolean = true
 
-    /** A candidate is waiting for an observation at or after its frame. */
     fun verifyWaiting(): Boolean = false
 
-    /** Declared once at startup so the host can skip unused per-frame measurements. */
+    /** Declared once at startup, so the host can skip unused per-frame measurements. */
     val reads: FrameReads get() = FrameReads()
 }
 
-/** [gridCoverage] costs a measured 7–20 ms per phone frame (`GridLines.kt`). */
+/** [gridCoverage] costs a measured 7–20 ms per phone frame. */
 data class FrameReads(
     val gridCoverage: Boolean = true,
     val roiMotion: Boolean = true,

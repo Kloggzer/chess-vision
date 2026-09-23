@@ -8,9 +8,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/** Nur was ZUGESTELLT wurde, ist vorgesagt. Jede Absage — verfallene Stellung, gesperrtes Gate,
- *  leeres Kontingent — ist auch eine Absage an den Record, sonst traegt die Partie hinterher eine
- *  Herkunft, die es nie gab. */
+/** Nur was ZUGESTELLT wurde, ist vorgesagt: jede Absage ist auch eine an den Record. */
 class HintLedgerBindingTest {
     @Test
     fun aDeliveredTipIsFiledUnderThePositionItWasComputedFrom() =
@@ -24,7 +22,6 @@ class HintLedgerBindingTest {
             assertEquals(MoveHint("e5", "e7e5", followed = true), ledger.markFor(FEN, "e7e5"))
         }
 
-    /** `aResultFromAnotherPositionExpires`, eine Ebene tiefer: der verfallene Tipp faellt nirgends an. */
     @Test
     fun anExpiredTipIsFiledNowhere() =
         runTest {
@@ -37,7 +34,6 @@ class HintLedgerBindingTest {
             assertNull(ledger.markFor(OTHER_FEN, "e7e5"))
         }
 
-    /** Der teure Fall: die Stellung wandert, WAEHREND die Mattlinie gerechnet wird. */
     @Test
     fun aTipOvertakenWhileTheLineIsResolvedIsFiledNowhere() =
         runTest {
@@ -69,7 +65,6 @@ class HintLedgerBindingTest {
             assertEquals(1, ledger.log().delivered, "nur der eine zugestellte Tipp zaehlt")
         }
 
-    /** Der Plan steht im Log, damit die Partie ihr Handicap kennt — und nur der der LAUFENDEN. */
     @Test
     fun thePlanOfTheRunningGameIsWhatTheLogCarries() {
         val ledger = HintLedger()

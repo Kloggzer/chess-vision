@@ -21,7 +21,6 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import kotlin.math.abs
 
-/** Why the bar is greyed, in the user's words. */
 internal fun blockText(block: GateBlock?): String? =
     when (block) {
         null -> null
@@ -32,12 +31,6 @@ internal fun blockText(block: GateBlock?): String? =
         GateBlock.FRAME_BUDGET -> "paused — tracking below 15 fps"
     }
 
-/**
- * One line's score, always WHITE-POV and in the same unit as the bar above it.
- *
- * It read pawns (`+0.35`) until specs/47, which made this the third place in one app to state one
- * quantity in a unit of its own.
- */
 internal fun lineScore(line: AnalysisLine): String {
     val mate = line.mate
     val cp = line.cp
@@ -48,7 +41,6 @@ internal fun lineScore(line: AnalysisLine): String {
     }
 }
 
-/** The engine's top lines. Read-only: tapping one changes nothing about the game. */
 @Composable
 fun AnalysisPanel(
     result: AnalysisResult?,

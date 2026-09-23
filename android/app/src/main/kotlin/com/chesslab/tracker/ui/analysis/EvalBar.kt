@@ -43,29 +43,14 @@ private const val NO_EVAL = "–"
 
 internal val BAR_WIDTH = 18.dp
 
-/** Its own radius, not `Radius.sm`: 8 dp on an 18 dp column is a pill, not a rounded bar. */
+/** Not `Radius.sm`: 8 dp on an 18 dp column is a pill. */
 private val BAR_CORNER = 3.dp
 
-/**
- * The slot is wider than the bar so `100 %` and `-M3` fit on ONE line — at bar width the label
- * wrapped, which is not a number anybody can read at arm's length.
- *
- * It grew from 40 dp with specs/48: one quantity gets one PRESENTATION as well as one unit, and the
- * app writes a percentage `53 %`. The space is a character and the widest label has to fit it.
- *
- * The width does not change when analysis is off: a 6dp hairline beside the board read as a
- * rendering artifact rather than a control.
- */
+/** Wider than the bar so `100 %` and `-M3` fit on ONE line. Unchanged when analysis is off: a hairline
+ *  beside the board read as a rendering artifact. */
 internal val SLOT_WIDTH = 52.dp
 
-/**
- * White's win expectancy as a percentage, or `M3` for a mate. Pure, so the convention is testable.
- *
- * It read PAWNS (`+0.3`) until specs/47 while the review screen's bar — the same drawing, the same
- * slot — read `61 %`. specs/44 removed centipawns from the review because they have to be taught;
- * they survived here, one screen over. A mate keeps its own words: a distance is not an evaluation,
- * and `100%` would throw the distance away.
- */
+/** A mate keeps its own words: `100 %` would throw the distance away. */
 internal fun evalLabel(result: AnalysisResult?): String {
     val mate = result?.mate
     val winWhite = result?.winWhite
@@ -77,8 +62,7 @@ internal fun evalLabel(result: AnalysisResult?): String {
     }
 }
 
-/** Der laufende Analyse-Host: EINER je Schirm, denn zwei waeren zwei Stockfish-Prozesse. [demand]
- *  haelt ihn am Leben, wenn die Leiste aus ist und nur die Hilfe die Engine braucht. */
+/** EINER je Schirm, denn zwei waeren zwei Stockfish-Prozesse. [demand] haelt ihn fuer die Hilfe am Leben. */
 @Composable
 fun rememberRunningAnalysis(demand: () -> Boolean): AnalysisHost {
     val host = rememberAnalysisHost(demand)
@@ -89,14 +73,7 @@ fun rememberRunningAnalysis(demand: () -> Boolean): AnalysisHost {
     return host
 }
 
-/**
- * The tracking screen's single analysis insertion: the bar and the engine's top lines. It renders
- * nothing at all when no engine binary shipped for this ABI. The knobs live in Settings › Analysis
- * and nowhere else.
- *
- * It reads the tracker's status itself rather than taking it as a parameter — the eval bar must not
- * become a reason for the tracking screen to carry analysis plumbing.
- */
+/** Reads the status itself, so the tracking screen carries no analysis plumbing. Nothing without an engine binary. */
 @Composable
 fun EvalBarSlot(
     host: AnalysisHost,
@@ -110,9 +87,6 @@ fun EvalBarSlot(
 
     var showPanel by remember { mutableStateOf(false) }
     Column(
-        // A tap opens the engine's lines. The LONG PRESS that used to open the analysis settings is
-        // gone with the sheet: it duplicated Settings › Analysis behind a gesture on a 40 dp sliver
-        // that nobody could discover, and it was the stated reason this slot could not shrink.
         // The label is a number that changes, so the description is what an agent taps.
         modifier
             .fillMaxHeight()
@@ -123,8 +97,7 @@ fun EvalBarSlot(
         verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
         Figure(if (settings.enabled) evalLabel(result) else "eval", OnSurfaceMuted)
-        // `weight`, not `fillMaxHeight`: with both children filling, the label and the bar each
-        // claimed the whole column and the bar overflowed past the board it belongs beside.
+        // `weight`, not `fillMaxHeight`: both filling, the bar overflowed past the board.
         EvalFill(
             winWhite = if (settings.enabled) result?.winWhite else null,
             paused = block != null || !settings.enabled,
@@ -135,21 +108,14 @@ fun EvalBarSlot(
     if (showPanel) AnalysisPanel(result = result, block = block, onDismiss = { showPanel = false })
 }
 
-/**
- * White fills from the BOTTOM — the same orientation as the board beside it.
- *
- * Shared with the review screen, which needs the same bar driven by the ply being READ rather than
- * by the tracker's current position. One drawing, so the two can never disagree about which way up
- * white goes.
- */
+/** White fills from the BOTTOM, as on the board beside it. One drawing for tracker and review. */
 @Composable
 internal fun EvalFill(
     winWhite: Double?,
     paused: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    // `null` heisst NICHT bewertet und bleibt LEER: 50 % waeren die haeufigste Luege, die diese
-    // Flaeche erzaehlen kann, und `lastFen` wiederholt die Stellung nie.
+    // `null` heisst NICHT bewertet und bleibt LEER: 50 % waeren die haeufigste Luege dieser Flaeche.
     val target = winWhite?.let { (it / 100.0).toFloat().coerceIn(0f, 1f) }
     val white by animateFloatAsState(target ?: 0f, tween(FILL_MS), label = "evalFill")
     Column(
@@ -172,9 +138,7 @@ internal fun EvalFill(
 /** Nur fuer den Test: ohne ihn ist "kein weisser Anteil" von aussen nicht sagbar. */
 internal const val EVAL_WHITE_TAG = "evalWhite"
 
-/** Lang genug, dass die Bewegung die RICHTUNG zeigt, kurz genug, um dem naechsten Zug nicht
- *  hinterherzulaufen — die Analyse liefert alle paar hundert Millisekunden eine Tiefe nach. */
 private const val FILL_MS = 260
 
-/** A zero weight is not a valid Compose weight, and a mate must still leave the bar visible. */
+/** A zero weight is invalid in Compose, and a mate must still leave the bar visible. */
 private const val MIN_WEIGHT = 0.001f

@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
-/** Pins the value semantics that carry-over and the write check rely on: equal by content, not by array identity. */
 class MeasuredGeometryTest {
     private val corners = floatArrayOf(9f, 9f, 90f, 9f, 90f, 90f, 9f, 90f)
 

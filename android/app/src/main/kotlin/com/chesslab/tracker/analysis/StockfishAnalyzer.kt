@@ -18,10 +18,8 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import kotlin.math.round
 
-/** Idle poll between FEN checks — `analysis.py`'s `time.sleep(0.2)`. */
 private const val POLL_MS = 200L
 
-/** Cool-off after a failed analysis, before the engine is relaunched — `time.sleep(0.5)`. */
 private const val RETRY_MS = 500L
 
 private const val WIN_MATING = 100.0
@@ -30,10 +28,8 @@ private const val WIN_ROUNDING = 10.0
 
 private const val TAG = "chesslab.analysis"
 
-/** The analysis thread's name — asserted by the test that it is not the analyzer/observer thread. */
 const val ANALYSIS_THREAD_NAME = "chesslab-analysis"
 
-/** Verbatim from `analysis.py`'s `StockfishAnalyzer.__init__` — and the ceiling, whatever the SoC has. */
 data class AnalysisOptions(
     val multiPv: Int = 3,
     val movetimeMs: Long = 400,
@@ -60,7 +56,6 @@ data class AnalysisResult(
 )
 
 sealed interface AnalysisState {
-    /** Not analysing: the setting is off or the gate suspended it. The last result stays, greyed. */
     data object Stopped : AnalysisState
 
     data object Running : AnalysisState
@@ -69,14 +64,8 @@ sealed interface AnalysisState {
     data object Unavailable : AnalysisState
 }
 
-/**
- * A single persistent engine on one background coroutine that polls [fenProvider] and re-analyses
- * whenever the position changes — the shape of `analysis.py`, not a request/response call per move.
- *
- * It is deliberately subordinate to tracking: its own single thread at
- * [Process.THREAD_PRIORITY_LOWEST], two engine threads, a hard `movetime` cap, and no path that
- * touches game state. If the binary is missing the whole feature self-disables instead of erroring.
- */
+/** Polls [fenProvider] and re-analyses on change. Subordinate to tracking: own thread at
+ *  [Process.THREAD_PRIORITY_LOWEST], two engine threads, a hard `movetime`, no path into game state. */
 class StockfishAnalyzer(
     private val fenProvider: () -> String?,
     private val engines: EngineService,
@@ -99,7 +88,6 @@ class StockfishAnalyzer(
         job = scope.launch(dispatcher) { loop() }
     }
 
-    /** Cancels the loop; its lease is returned by the loop's own `use`, on its thread. */
     fun stop() {
         job?.cancel()
         job = null
@@ -140,7 +128,6 @@ class StockfishAnalyzer(
         lease: EngineLease,
         fen: String,
     ): AnalysisResult? {
-        // A fresh board per FEN — never a shared mutable one (`analysis.py`: "no shared mutation").
         val board = Board().apply { loadFromFen(fen) }
         val whiteToMove = board.sideToMove == Side.WHITE
         if (board.isMated || board.isStaleMate || board.isDraw) return gameOverResult(fen)
@@ -190,10 +177,7 @@ private fun winWhite(best: AnalysisLine?): Double? {
     return round(win * WIN_ROUNDING) / WIN_ROUNDING
 }
 
-/**
- * Analysis' OWN single thread, distinct from the camera analyzer executor, the frame pipeline and
- * the ONNX observer: the 15 fps tracking budget outranks the eval bar entirely.
- */
+/** Its OWN thread, apart from the camera analyzer and the ONNX observer: the 15 fps budget outranks the bar. */
 fun analysisDispatcher(): CoroutineDispatcher =
     Executors
         .newSingleThreadExecutor { runnable -> Thread(runnable, ANALYSIS_THREAD_NAME).apply { isDaemon = true } }

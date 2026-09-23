@@ -3,13 +3,9 @@ package com.chesslab.desktop
 import java.io.File
 import kotlin.system.exitProcess
 
-/**
- * The tracker on a PC, running the code the phone runs — one object graph, no second pipeline and
- * no second clock. Why it is built this way, and what each decision cost: `docs/desktop-replay.md`.
- */
+/** One object graph with the phone, no second pipeline and no second clock: `docs/desktop-replay.md`. */
 fun main(args: Array<String>) {
-    // Der Fuzzer misst die Bewegung seit 2026-09-20 mit dem ECHTEN `RoiMotion` auf seinen
-    // gerenderten Pixeln und braucht die Natives deshalb auch.
+    // Der Fuzzer misst die Bewegung mit dem ECHTEN `RoiMotion` und braucht die Natives deshalb auch.
     if (args.firstOrNull() == "fuzz") {
         NativeCv.require()
         return when (args.getOrNull(1)) {
@@ -41,8 +37,7 @@ fun main(args: Array<String>) {
     }
 }
 
-/** Mehrere Aufnahmen in EINEM Prozess: JVM-Start und JIT kosten zusammen ~17 s und fielen bisher
- *  je Aufnahme an. Namen loesen nach `data/recordings/<name>/video.mp4` auf. */
+/** Mehrere Aufnahmen in EINEM Prozess: JVM-Start und JIT kosten ~17 s je Aufnahme. */
 private fun batchReplay(
     names: String,
     rest: List<String>,
@@ -111,10 +106,6 @@ private fun usage(): Nothing {
     exitProcess(2)
 }
 
-/**
- * The verbs that take a FILE and write files — grouped so `main` stays under detekt's complexity
- * cap as they grow. They share a shape the camera verbs do not: no window, no engine, no clock.
- */
 private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
     mapOf(
         "undistort" to ::undistortVideo,

@@ -19,8 +19,7 @@ class SettingsExportTest {
     fun aPristineConfigReportsNoDeviations() {
         val json = sections(TrackerConfig())
         assertTrue(json.getValue("nonDefault").jsonObject.isEmpty())
-        // KNOBS, not KNOB_CATALOG: a bug report carries the whole config, including the knobs the
-        // screen withholds because they are not decisions.
+        // KNOBS, not KNOB_CATALOG: a bug report carries the knobs the screen withholds too.
         assertEquals(KNOBS.size, json.getValue("config").jsonObject.size)
     }
 
@@ -36,8 +35,7 @@ class SettingsExportTest {
     fun theAppSectionCarriesWhatABugReportNeeds() {
         val app = json(AppSettings(debugEnabled = true))
         assertEquals(
-            // `modelDir` before `modelAsset`: with three bundled models a report that names only the
-            // graph FILE cannot say which model produced the reads it is reporting.
+            // `modelDir` too: with several bundled models the graph FILE alone names none of them.
             setOf("version", "device", "resolutionMode", "frameRate", "orientation", "modelDir", "modelAsset", "epRequest", "debugEnabled"),
             app.keys,
         )

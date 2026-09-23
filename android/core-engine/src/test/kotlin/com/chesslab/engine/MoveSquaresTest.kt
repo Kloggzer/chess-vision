@@ -7,14 +7,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `move_touched_squares` (`tracker.py`) and `move_destination_squares` against the
- * phase-00b golden fixtures (`tierA.moveTouchedSquares` / `tierA.moveDestinationSquares`, both
- * emitted for EVERY legal move of `frame.fen`).
- *
- * The two functions are different on purpose — the rook's from-square and the en-passant
- * captured square are touched but not destinations.
- */
+/** Against the golden fixtures. Different on purpose: the rook's from-square and the en-passant victim are
+ *  touched but not destinations. */
 class MoveSquaresTest {
     @Test
     fun everyFixtureFenRoundTripsThroughTheGameWrapper() {
@@ -75,9 +69,7 @@ class MoveSquaresTest {
         assertConsumed(checked, "moveDestinationSquares comparisons")
     }
 
-    // ---------------------------------------------------------------------------------------
     // Hand-written cases for the branches the quiet clips never reach.
-    // ---------------------------------------------------------------------------------------
 
     @Test
     fun whiteKingsideCastlingTouchesBothRookSquaresButGainsOnlyTwo() {
@@ -163,9 +155,7 @@ class MoveSquaresTest {
         assertEquals(STARTPOS, game.fen(), "push/pop must restore the position")
     }
 
-    // ---------------------------------------------------------------------------------------
-
-    /** Resolves a UCI line against a detached copy, so [game] is never mutated. */
+    /** Against a detached copy, so [game] is never mutated. */
     private fun moveLine(
         game: Game,
         vararg ucis: String,

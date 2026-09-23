@@ -25,7 +25,6 @@ class CameraRateTest {
         assertEquals(1000.0 / 33.0, rate.fps, 1e-6)
     }
 
-    /** The gap across a released camera is minutes long; measured, it would read as ~0 fps. */
     @Test
     fun `a stop resets instead of measuring the pause as a frame time`() {
         repeat(50) {

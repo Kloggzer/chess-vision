@@ -21,40 +21,26 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.atomic.AtomicLong
 
-/** Deep enough to survive a burst of taps; shallow enough that a stalled drain is visible. */
+/** Deep enough for a burst of taps; shallow enough that a stalled drain is visible. */
 private const val ACTION_CAPACITY = 32
 
-/** One observation every few seconds — anything queued behind two is already stale. */
+/** Anything queued behind two observations is already stale. */
 private const val SNAPSHOT_CAPACITY = 4
 
-/**
- * Where an engine's output goes. Three callbacks that are always wired together, so they travel
- * together rather than as three more parameters.
- */
 class EngineHooks(
-    /** Every decision, committed or rejected — and what `replay … score` reads. */
+    /** Committed or rejected — what `replay … score` reads. */
     val onDecision: (DebugDecision) -> Unit,
-    /** Frame-loop state transitions. */
     val onState: (String, String, Double) -> Unit = { _, _, _ -> },
-    /** The frame pipeline's half of live tuning; runs in the same action as the engine's own. */
+    /** Runs in the same action as the engine's own. */
     val onConfigApplied: (TrackerConfig) -> Unit,
 )
 
-/**
- * `TrackerEngine` is named in exactly this file, so "one engine owner" is a grep and not a
- * convention — and with [EngineOps] in `:core-engine` that holds for every engine, not just this
- * one.
- *
- * The real engine plus the `:app`-side half of `app.py::_apply_live_tuning`.
- *
- * [onConfigApplied] is the frame pipeline's `onConfigChanged`, which resets the motion ROI and
- * rebuilds CLAHE. It runs here, on the owning thread, in the same action as the engine's own
- * `updateConfig`, so a frame can never observe half a config change.
- */
+/** `TrackerEngine` is named in exactly this file, so "one engine owner" is a grep. [onConfigApplied] runs on the
+ *  owning thread in the same action as `updateConfig`: no frame observes half a config change. */
 class TrackerEngineOps(
     private val engine: TrackerEngine,
     private val onConfigApplied: (TrackerConfig) -> Unit,
-    /** Was [EngineAction.CnnAvailability] wieder anhaengt, wenn ein Retry-Attach doch greift. */
+    /** Wieder angehaengt, wenn ein Retry-Attach doch greift. */
     private val cnn: CnnEvaluator? = null,
 ) : EngineOps {
     override fun onFrame(input: FrameInput): List<TrackerEvent> = engine.onFrame(input)
@@ -65,7 +51,7 @@ class TrackerEngineOps(
 
     override fun fen(): String = engine.fen()
 
-    /** The diff engine takes every reading it can get; `evaluationDue` sorts them out afterwards. */
+    /** `evaluationDue` sorts the readings out afterwards. */
     override fun wantsCnnRead(): Boolean = true
 
     override fun verifyWaiting(): Boolean = engine.verifyWaiting()
@@ -95,14 +81,8 @@ class TrackerEngineOps(
         }
 }
 
-/**
- * Single-thread ownership of the engine.
- *
- * The owning thread is whichever one touches the engine first — the camera creates the analyzer
- * thread itself, so it cannot be named at construction — and every later touch must be the same
- * one. The `check` is the point of this class: without it a second thread corrupts a lock-free
- * state machine quietly, and the symptom surfaces frames later as an impossible detection.
- */
+/** The owning thread is whichever touches the engine first. The `check` is the point: a second thread corrupts
+ *  the lock-free state machine quietly, and the symptom surfaces frames later. */
 class EngineHost(
     private val ops: EngineOps,
 ) {
@@ -115,29 +95,22 @@ class EngineHost(
     private val droppedActions = AtomicLong()
     private val droppedSnapshots = AtomicLong()
 
-    /** Oldest entries displaced from the action queue since start — dropped, and now COUNTED. */
     val actionsDropped: Long get() = droppedActions.get()
 
-    /** Snapshots displaced from the depth-4 queue — each one an observation the engine never saw. */
+    /** Each one an observation the engine never saw. */
     val snapshotsDropped: Long get() = droppedSnapshots.get()
 
-    /** From any thread. Never blocks: a full queue drops its OLDEST entry, it does not wait. */
+    /** Never blocks: a full queue drops its OLDEST entry. */
     fun submit(action: EngineAction) {
         if (offerDroppingOldest(actions, action)) droppedActions.incrementAndGet()
     }
 
-    /** From the CNN observer thread. Same contract — a stale observation is worthless anyway. */
+    /** A stale observation is worthless anyway. */
     fun submit(snap: CnnSnapshot) {
         if (offerDroppingOldest(snapshots, snap)) droppedSnapshots.incrementAndGet()
     }
 
-    /**
-     * One tick: queued actions, then queued observations, then the frame.
-     *
-     * The order is behaviour, not tidiness — Python drains both under `self.lock` at the top of
-     * the detection section, so a user correction and a CNN verdict are visible to the very frame
-     * that follows them, never landing in the middle of a detection.
-     */
+    /** The order is behaviour: a user correction and a CNN verdict are visible to the very next frame. */
     fun tick(input: FrameInput?): List<TrackerEvent> =
         WorkProfiler.span(WorkOperation.ENGINE_TICK, input?.seq ?: UNKNOWN_INPUT) {
             claim()
@@ -161,30 +134,20 @@ class EngineHost(
         return ops.status()
     }
 
-    /**
-     * The game FEN alone.
-     *
-     * The CNN observer needs it on EVERY frame as its discard-on-change guard, which is the one
-     * part of [status] that cannot be sampled — and building the whole `TrackerStatus` for it was
-     * four 64-entry maps and four sorted square-name sets per frame.
-     */
+    /** Needed EVERY frame as the observer's discard-on-change guard; a whole `TrackerStatus` for it was four maps
+     *  and four sorted sets per frame. */
 
     fun fen(): String {
         claim()
         return ops.fen()
     }
 
-    /**
-     * Whether the engine wants a reading now — the observer's question, answered on this thread.
-     *
-     * Deliberately NOT `claim()`ed: it is asked from the same per-frame call that already owns the
-     * engine, and a wrong answer costs one skipped inference, never state.
-     */
+    /** NOT `claim()`ed: asked from the per-frame call that owns the engine; a wrong answer costs one inference. */
     fun wantsCnnRead(): Boolean = ops.wantsCnnRead()
 
     fun verifyWaiting(): Boolean = ops.verifyWaiting()
 
-    /** Constant for the life of this host — the engine is chosen at restart, like every seed value. */
+    /** Constant for the life of this host. */
     val reads: FrameReads get() = ops.reads
 
     private fun claim() {
@@ -198,19 +161,8 @@ class EngineHost(
     }
 }
 
-/**
- * Builds the app's ONE LIVE engine, arms it with the CNN evaluator and locks it behind a host.
- *
- * It happens here so no other file names `TrackerEngine` at all: a reference is all it takes for
- * some future screen to call it from the main thread. `attachCnn` is part of construction because
- * it also arms `cnnRun` — an engine without it commits straight from the diff and never queues a
- * candidate for verification.
- *
- * A tracker restart builds a NEW host, and that is deliberate: [EngineHost.owner] starts unset, so
- * the rebuilt engine re-latches onto whichever thread drives it first instead of inheriting a
- * claim from the stack that is being thrown away. Nothing here claims the engine, so construction
- * itself may happen anywhere. [startFen] is how the game survives the restart.
- */
+/** No other file names `TrackerEngine`. `attachCnn` also arms `cnnRun`: without it the engine commits straight
+ *  from the diff. A restart builds a NEW host, which re-latches onto its first thread; [startFen] carries the game. */
 fun engineHost(
     config: TrackerConfig,
     cnn: CnnEvaluator?,
@@ -221,13 +173,8 @@ fun engineHost(
     val onDecision = hooks.onDecision
     val onState = hooks.onState
     val onConfigApplied = hooks.onConfigApplied
-    // Not gated on the debug switch. A decision row is written at most once per committed or
-    // rejected move — not per frame — and the one session where it is needed is always the one
-    // nobody armed a debug flag for beforehand.
-    //
-    // Two consumers, one sink. The engine hands out the row as structure; the prose is rendered
-    // HERE, so a second consumer does not have to re-parse a sentence to count rejections. logcat
-    // stays because it is what makes a live look possible over adb, with nothing to export first.
+    // Not gated on debug: at most one row per decision, and the session that needs it is never pre-armed. The
+    // prose is rendered HERE, so a second consumer need not re-parse a sentence.
     val engine =
         TrackerEngine(
             config,
@@ -236,15 +183,13 @@ fun engineHost(
                 log.info(it.toLogLine())
                 onDecision(it)
             },
-            // Unlogged here, unlike the rows above: the caller owns this one, because its channel
-            // is not `chesslabDecision` — that name is move provenance and nothing else, by contract.
+            // Its channel is not `chesslabDecision` — that name is move provenance and nothing else, by contract.
             stateSink = onState,
         )
     engine.attachCnn(cnn)
     return EngineHost(TrackerEngineOps(engine, onConfigApplied, cnn))
 }
 
-/** True when at least one older entry had to be displaced to make room. */
 private fun <T> offerDroppingOldest(
     queue: BlockingQueue<T>,
     item: T,

@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** In-memory stand-in for the DataStore backing (see D06a-3). */
 internal class FakeProfileBacking(
     initial: String? = null,
 ) : ProfileBacking {
@@ -38,7 +37,7 @@ class CalibrationStoreTest {
             boardSize = 1200,
             margin = margins4(0.09),
             markerDict = "DICT_5X5_50",
-            // hand-set by the user: resetting this transposes every label of the next game
+            // Hand-set by the user: resetting it transposes every label of the next game.
             whitePov = false,
             sourceWidth = 640,
             sourceHeight = 480,
@@ -49,7 +48,7 @@ class CalibrationStoreTest {
     private val measured =
         MeasuredGeometry(floatArrayOf(9f, 9f, 90f, 9f, 90f, 90f, 9f, 90f), sourceWidth = 1920, sourceHeight = 1080)
 
-    /** `boardSize` is a measurement: carrying it over rectified a 630 px board to 1600 on the phone. */
+    /** `boardSize` is a measurement: carrying it over rectified a 630 px board to 1600. */
     @Test
     fun recalibrationCarriesOverWhitePovMarginAndCrop_butMeasuresTheBoardSize() =
         runTest {
@@ -97,17 +96,15 @@ class CalibrationStoreTest {
         runTest {
             val backing = FakeProfileBacking("{not json")
             assertNull((CalibrationStore(backing).load() as? ProfileLoad.Ok)?.profile)
-            // Defaults for everything except the size, which is measured either way.
             assertEquals(measuredBoardSize(measured.corners), CalibrationStore(backing).saveRecalibrated(measured).boardSize)
         }
 
-    /** A multiple of 16, so halving it for the detection warp and eighthing THAT both stay whole. */
+    /** A multiple of 16, so halving for the detection warp and eighthing THAT both stay whole. */
     @Test
     fun theMeasuredSizeTracksTheBoardAndStaysDivisible() {
         val square = { side: Float -> floatArrayOf(0f, 0f, side, 0f, side, side, 0f, side) }
         assertEquals(848, measuredBoardSize(square(840f)))
         assertEquals(640, measuredBoardSize(square(636f)))
-        // Clamped at both ends: a smudge and a board that fills the frame are equally suspect.
         assertEquals(320, measuredBoardSize(square(40f)))
         assertEquals(1280, measuredBoardSize(square(4000f)))
         assertEquals(0, measuredBoardSize(square(840f)) % 16)
@@ -122,13 +119,11 @@ class CalibrationStoreTest {
             store.saveRecalibrated(measured, marginOverride = tuned)
             assertEquals(tuned, store.geometry.margin, "the adjusted corners reach the live geometry")
 
-            // A later recalibration that does NOT touch the margins must keep them.
             val next = store.saveRecalibrated(measured)
             assertEquals(tuned, next.margin, "an untouched recalibration carries them over")
         }
 
-    // 07a's `AppSettings.orientation` (STATUS D07a-11) lives IN the profile: only the profile
-    // survives a recalibration, and a wrong a8 silently transposes every label of the session.
+    // Orientation lives IN the profile: only the profile survives a recalibration.
     private val stored =
         CalibrationProfile(
             name = "default",
@@ -172,7 +167,7 @@ class CalibrationStoreTest {
             val backing = FakeProfileBacking()
             val store = CalibrationStore(backing)
             assertFalse(store.applyOrientation(whitePov = false).whitePov)
-            // Nothing invented on disk: D06a's "a bad profile is discarded, not repaired" stays intact.
+            // Nothing invented on disk: a bad profile is discarded, not repaired.
             assertEquals(0, backing.writes)
             assertFalse(store.saveRecalibrated(measured, whitePovOverride = false).whitePov)
         }

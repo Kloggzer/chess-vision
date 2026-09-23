@@ -7,10 +7,7 @@ import org.junit.jupiter.api.Test
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/**
- * Colour gamut and Cucchiara shadow branches the clip fixtures never reach, including the
- * extended-box arm, which Python always calls with `extend_up = 0`.
- */
+/** Branches the clips never reach, including the extended-box arm (Python always passes `extend_up = 0`). */
 class GamutUnitTest {
     @Test
     fun fewerThanEightUsableSquaresYieldsNoGamut() {
@@ -35,7 +32,6 @@ class GamutUnitTest {
                 )
             }
         }
-        // A square of the very same colour matches its own reference feature exactly.
         val cur = planes(uniform(), BOARD, BOARD)
         assertEquals(0L, occlusionColorSquares(cur, geom, gamut, ofSquares("e4"), THR))
     }
@@ -56,11 +52,10 @@ class GamutUnitTest {
         val gamut = requireNotNull(boardColorGamut(planes(checkerboard(1.0), BOARD, BOARD), geometry()))
         val painted = checkerboard(1.0)
         paint(painted, "e4")
-        // Base box only (Python's production call).
         val base = PlaneGeometry(BOARD, BOARD, BOARD, true, 0.0)
         assertEquals(ofSquares("e4"), occlusionColorSquares(planes(painted, BOARD, BOARD), base, gamut, ofSquares("e4"), THR))
 
-        // The extended-box arm: paint only the strip ABOVE e4, so the base box stays clean.
+        // Paint only the strip ABOVE e4, so the base box stays clean.
         val above = checkerboard(1.0)
         paintStrip(above, "e4")
         val extended = PlaneGeometry(BOARD, BOARD, BOARD, true, OVERHANG)
@@ -93,7 +88,7 @@ class GamutUnitTest {
             hsvShadowSquares(refHsv, bgrToHsv(brighter, BOARD, BOARD, ByteArray(ref.size)), geom, candidates),
         )
 
-        // Same darkening, but the channels rotated: V ratio is in range, the hue is not.
+        // Same darkening, channels rotated: the V ratio is in range, the hue is not.
         val recoloured = checkerboard(SHADOW_GAIN)
         rotateChannels(recoloured)
         assertEquals(
@@ -103,8 +98,6 @@ class GamutUnitTest {
 
         assertEquals(0L, hsvShadowSquares(refHsv, refHsv, geom, 0L))
     }
-
-    // -----------------------------------------------------------------------------------
 
     private fun geometry() = PlaneGeometry(BOARD, BOARD, BOARD, true, 0.0)
 
@@ -119,7 +112,6 @@ class GamutUnitTest {
 
     private fun uniform(): ByteArray = ByteArray(BOARD * BOARD * CHANNELS) { GREY }
 
-    /** A light/dark board with a slight per-square colour drift, so the covariance is non-trivial. */
     private fun checkerboard(gain: Double): ByteArray {
         val data = ByteArray(BOARD * BOARD * CHANNELS)
         val cell = BOARD / Squares.N
@@ -138,7 +130,6 @@ class GamutUnitTest {
         return data
     }
 
-    /** Fills [square]'s base box with the skin-toned occluder colour. */
     private fun paint(
         data: ByteArray,
         square: String,
@@ -146,7 +137,6 @@ class GamutUnitTest {
         fill(data, requireNotNull(geometry().region(Squares.index(square), 0.0)))
     }
 
-    /** Fills only the band the `extendUp` overhang adds above [square]'s base box. */
     private fun paintStrip(
         data: ByteArray,
         square: String,
@@ -210,7 +200,6 @@ class GamutUnitTest {
         const val SKIN_B: Byte = 0
         const val SKIN_G: Byte = 120
 
-        /** 245 as a signed byte. */
         const val SKIN_R: Byte = -11
     }
 }

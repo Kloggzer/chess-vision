@@ -33,7 +33,7 @@ private class NoStore : ConfigStore {
     ) = Unit
 }
 
-/** A SAF export cannot be renamed into place, so an abandoned one must not stay behind looking finished. */
+/** A SAF export cannot be renamed into place: an abandoned one must not stay behind looking finished. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingExportAbortTest {
     @TempDir
@@ -126,7 +126,6 @@ class RecordingExportAbortTest {
         }
 }
 
-/** Runs [leave] once [limit] bytes have passed: the user navigating away, or the disk filling up. */
 private class LeaveAfter(
     out: OutputStream,
     private val limit: Int,

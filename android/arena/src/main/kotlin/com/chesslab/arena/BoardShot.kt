@@ -8,13 +8,7 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 
-/**
- * The board as the arena hands it over, with the square grid drawn on top.
- *
- * Written because a coordinate system described in prose is a coordinate system half the readers
- * get backwards: whether `a1` sits bottom-left or top-left decides every index in a tracker, and
- * one look at the picture settles it.
- */
+/** Whether `a1` sits bottom-left or top-left decides every index in a tracker; one look settles it. */
 fun annotate(
     board: Mat,
     geom: BoardGeometry,
@@ -33,7 +27,6 @@ fun annotate(
     return shot
 }
 
-/** The four corners plus one middle square — enough to fix the orientation without hiding the board. */
 private val LABELLED = setOf("a1", "h1", "a8", "h8", "e4")
 
 private val GRID = Scalar(0.0, 255.0, 0.0)

@@ -35,7 +35,6 @@ class SpectatorRoutesTest {
                 spectatorModule { SNAPSHOT }
                 routes = leaves(plugin(RoutingRoot))
             }
-            // Forces the application to build before the assertion.
             client.get("/")
             assertEquals(2, routes.size, "route table: $routes")
             assertTrue(routes.all { it.contains("method:GET") }, "a non-GET route exists: $routes")

@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.IOException
 
-/** Records what `onConfigChanged` was handed; the ROI reset and CLAHE rebuild are 05b's and tested there. */
 private class FakePipeline {
     val applied = mutableListOf<TrackerConfig>()
 }
@@ -32,7 +31,6 @@ class SettingsRepositoryTest {
             assertEquals(1, store.writes)
             assertEquals(NOTE_TUNED_LIVE, result.note)
             assertEquals(41.0, repo.config.value.censusThr)
-            // And it survives a restart: a fresh repository over the same store reads it back.
             val reloaded = repository(store, FakePipeline())
             reloaded.load()
             assertEquals(41.0, reloaded.config.value.censusThr)
@@ -74,7 +72,7 @@ class SettingsRepositoryTest {
     @Test
     fun aConfigWrittenByAnOlderBuildKeepsThePythonDefaultForMissingKeys() =
         runTest {
-            // The fallback is the Python default, never a zero, never a crash that costs every setting.
+            // The fallback is the default, never a zero, never a crash that costs every setting.
             val store = MemoryStore("""{"version":$CONFIG_SCHEMA_VERSION,"values":{"censusThr":55.0}}""")
             val repo = repository(store, FakePipeline())
             repo.load()
@@ -101,7 +99,7 @@ class SettingsRepositoryTest {
             assertEquals(AppSettings(), broken.appSettings.value)
         }
 
-    /** Two taps in a burst are two coroutines on a thread POOL, and DataStore keeps the last one. */
+    /** Two taps are two coroutines on a thread POOL, and DataStore keeps the last one. */
     @Test
     fun aSlowFirstWriteCannotOverwriteTheNewerSetting() =
         runTest {
@@ -124,8 +122,7 @@ class SettingsRepositoryTest {
             assertTrue(repo.note.value != null)
         }
 
-    /** DataStore throws `IOException` on a broken file; before, `load` threw and `SettingsHost`
-     *  never published the repository. */
+    /** DataStore throws `IOException` on a broken file; `load` threw and `SettingsHost` never published. */
     @Test
     fun aStoreThatCannotBeReadStillLoadsAndSaysSo() =
         runTest {
@@ -136,7 +133,6 @@ class SettingsRepositoryTest {
             assertTrue(repo.note.value != null, "a store that could not be read must not read as defaults")
         }
 
-    /** The screen and the engine take the value at once; a write that then fails must say so. */
     @Test
     fun aFailedWriteIsPublishedAndTheNextGoodOneClearsIt() =
         runTest {
@@ -172,16 +168,11 @@ private class BrokenStore(
     }
 }
 
-/**
- * The submit sink stands in for `EngineAction.UpdateConfig` -> `EngineHost` -> the engine thread
- * -> `FramePipeline.onConfigChanged`; that hop is covered by `EngineActionQueueTest`.
- */
 private fun TestScope.repository(
     store: ConfigStore,
     pipeline: FakePipeline,
 ): SettingsRepository = SettingsRepository(store, this) { pipeline.applied += it }
 
-/** The IO pool reordering two writes, made deterministic: the FIRST write is the slow one. */
 private class SlowFirstStore : ConfigStore {
     val slots = mutableMapOf<String, String>()
     private var calls = 0

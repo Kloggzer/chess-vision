@@ -17,20 +17,14 @@ private const val PROBE_TIMEOUT_MS = 1500
 private const val CALL_TIMEOUT_MS = 15_000
 private const val CHUNK_TIMEOUT_MS = 120_000
 
-/** A connect attempt gets a tenth of the call's budget: a host that is not there says so at once. */
+/** A host that is not there says so at once. */
 private const val CONNECT_SHARE = 10
 
-/** Enough of a non-JSON answer to recognise what answered (a router's login page, usually). */
+/** Enough to recognise what answered (usually a router's login page). */
 private const val ERROR_EXCERPT = 120
 
-/**
- * `HttpURLConnection`, not a client library.
- *
- * The whole protocol is three verbs and a byte range, and the app already carries a Ktor SERVER for
- * the spectator page — adding a client stack for this would be a second HTTP implementation in the
- * APK for no behaviour. `setFixedLengthStreamingMode` is the load-bearing call: without it the JDK
- * buffers the whole body, which for a QHD recording means the chunk size decides the heap.
- */
+/** A client library would be a second HTTP stack in the APK. `setFixedLengthStreamingMode` is load-bearing:
+ *  without it the JDK buffers the whole body, so the chunk size would decide the heap. */
 class HttpIngestClient(
     private val token: String,
 ) : IngestClient {
@@ -101,9 +95,8 @@ class HttpIngestClient(
         name: String,
     ): String {
         val json = call("$base/api/ingest/session/$name/complete", "POST", CALL_TIMEOUT_MS, ByteArray(0))
-        // Wie `declare` und `putChunk`: wer den Status nicht nennt, hat ihn nicht gesagt. Erfunden
-        // wurde hier ausgerechnet `landed`, und darauf loescht `sweepSentRecordings` die einzige
-        // Kopie vom Telefon — eine 200 ohne Feld (Proxy, alter Server, `{}`) kostete eine Aufnahme.
+        // Wer den Status nicht nennt, hat ihn nicht gesagt: auf `landed` loescht `sweepSentRecordings` die einzige
+        // Kopie vom Telefon, und eine 200 ohne Feld kostete eine Aufnahme.
         return json["status"]?.jsonPrimitive?.content ?: error("no status in complete answer")
     }
 

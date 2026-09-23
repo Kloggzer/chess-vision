@@ -9,17 +9,13 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `_verify_pair_tick`. Python reference: `tests/test_move_tracker.py::TestPipelineRegressions`
- * (the five pair scenarios) plus the three properties the 2026-07-21 rework turns on.
- */
+/** Python: `TestPipelineRegressions` (five pair scenarios) plus three properties of the 2026-07-21 rework. */
 class VerifyPairTest {
     @Test
     fun pairVerifyCommitsOnAfterMatch() {
         val state = pairState()
         val moves = pairMoves(state, listOf("e2e4", "e7e5"))
         val cnn = PairRecovery(matchFen = afterFen(state, moves))
-        // One glance: the CONFIRM rung concurs with the diff (COMMIT_VOTES).
         pairTick(state, cnn, moves, PairObs())
         assertEquals(listOf("e4", "e5"), state.history)
         assertNull(state.pending)
@@ -27,7 +23,6 @@ class VerifyPairTest {
         assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
     }
 
-    /** Inside the motion hold a pair needs all four squares seen settled; without sights it waits. */
     @Test
     fun anEarlyPairWaitsForItsSquaresSeenSettled() {
         val early =
@@ -72,8 +67,7 @@ class VerifyPairTest {
     fun pairTouchedSquaresFastAccept() {
         val state = pairState()
         val moves = pairMoves(state, listOf("e2e4", "e7e5"))
-        // A chronic confident misread on c6 keeps the whole-board match false forever; the four
-        // squares the pair physically changed read correctly.
+        // A chronic misread on c6 keeps the whole-board match false forever; the four touched squares read right.
         val cnn = PairRecovery(conflicts = listOf("c6"))
         val obs =
             PairObs(
@@ -100,9 +94,8 @@ class VerifyPairTest {
 
     @Test
     fun pairSecondHalfTouchedOnMidBoard() {
-        // Nb1c3 followed by b4xc3: on the MID board c3 is occupied, so the reply is an ordinary
-        // capture. Read on the pre-move board it would look like en passant and drag in c4 —
-        // the one square this observation misreads.
+        // On the MID board c3 is occupied: an ordinary capture. On the pre-move board it would look like en passant
+        // and drag in c4 — the one square this observation misreads.
         val state =
             pairState(
                 fen = "4k3/8/8/8/1pP5/8/8/1N2K3 w - - 0 1",
@@ -133,7 +126,6 @@ class VerifyPairTest {
         assertTrue(state.note!!.contains("pre-existed"), state.note!!)
     }
 
-    /** One sure square of the four the pair touches: under the full-mask rule that is an occlusion timeout. */
     @Test
     fun pairWindowEndNeedsEveryTouchedSquareWhenBothEndsAreRequired() {
         val state = pairState(verifyWindow = 3, bothEnds = true)
@@ -173,8 +165,7 @@ class VerifyPairTest {
 
     @Test
     fun pairTerminalsThatContradictTheDiffNeedTwoGlances() {
-        // The shadow rung DISCARDS the pair, so it still votes on `verifyObsVotes`; only the
-        // confirm rung acts on one glance (COMMIT_VOTES).
+        // The shadow rung DISCARDS the pair, so it votes on `verifyObsVotes`; only confirm acts on one glance.
         val state = pairState(cur = grayFrame())
         val moves = pairMoves(state, listOf("e2e4", "e7e5"))
         val cnn = PairRecovery(match = true)
@@ -187,10 +178,7 @@ class VerifyPairTest {
         assertEquals("shadow", state.verifyState)
     }
 
-    /**
-     * `VerifySingle.reject` schreibt jede Ablehnung ins Protokoll, die Paar-Leiter loeschte
-     * `pending` still — eine verworfene Hypothese war von einer nie gesehenen nicht zu unterscheiden.
-     */
+    /** Die Paar-Leiter loeschte `pending` still: eine verworfene Hypothese war von einer nie gesehenen nicht zu unterscheiden. */
     @Test
     fun aRejectedPairReachesTheDecisionLog() {
         val state = pairState(verifyWindow = 1)
@@ -204,7 +192,6 @@ class VerifyPairTest {
         assertFalse(row.accepted)
     }
 
-    /** Und der Schatten-Ausgang ist genauso eine Ablehnung wie jeder andere. */
     @Test
     fun anAcceptedShadowReachesTheDecisionLog() {
         val state = pairState(cur = grayFrame())
@@ -218,7 +205,7 @@ class VerifyPairTest {
         assertFalse(row.accepted)
     }
 
-    /** `Commit.recordDecision`: genau EINE Zeile erbt den Spruch der Leiter, nicht jede Ebene. */
+    /** Genau EINE Zeile erbt den Spruch der Leiter, nicht jede Ebene. */
     @Test
     fun onlyTheFirstRowOfACommittedPairCarriesTheVerdict() {
         val state = pairState()
@@ -231,7 +218,7 @@ class VerifyPairTest {
         assertNull(rows[1].verifyOutcome, "genau eine Zeile erbt ihn")
     }
 
-    /** Dieselbe Luecke in der Paar-Leiter: das letzte `else` liess die Stimme stehen. */
+    /** Das letzte `else` der Paar-Leiter liess die Stimme stehen. */
     @Test
     fun aNeutralGlanceRestartsThePairVote() {
         val state = pairState(cur = grayFrame())

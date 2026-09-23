@@ -9,8 +9,6 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Wer fragen darf, wie oft noch, und ob der Tipp zu der Stellung gehoert, aus der er kam. Nichts
  *  hier passiert von selbst: das Telefon bietet nichts an, es beantwortet einen Druck. */
 class HintController(
-    /** Wohin eine AUSGELIEFERTE Ansage faellt, damit der Record sie spaeter belegen kann. Null
-     *  heisst: nicht aufgezeichnet — und eine Partie ohne Vermerk behauptet dann nichts. */
     private val ledger: HintLedger? = null,
 ) : GameBoundary {
     private val lock = Any()
@@ -21,14 +19,12 @@ class HintController(
     private var used = 0
     private var inFlight = false
 
-    /** Beginnt die Partie mit diesem Plan. Das Kontingent steht damit frisch auf [HintPlan.quota]. */
     fun startGame(plan: HintPlan) {
         adopt(plan)
         ledger?.startGame(plan.side?.name, plan.quota)
     }
 
-    /** Ende oder Verwurf: ohne laufende Partie gibt es keine Hilfe und kein Kontingent. Der Ledger
-     *  bleibt stehen — ihn raeumt `GameSessionController`, wenn der Record geschrieben ist. */
+    /** Der Ledger bleibt stehen — ihn raeumt `GameSessionController`, wenn der Record geschrieben ist. */
     override fun endGame() = adopt(HintPlan(side = null, quota = 0))
 
     private fun adopt(plan: HintPlan) {
@@ -40,8 +36,8 @@ class HintController(
         publish(null)
     }
 
-    /** Ob der Knopf ueberhaupt erscheint. Gate und Alarm stehen bewusst NICHT darin — die Absage
-     *  muss erreichbar bleiben, sonst verschwindet der Knopf wortlos unter der Hand des Nutzers. */
+    /** Gate und Alarm stehen bewusst NICHT darin: die Absage muss erreichbar bleiben, sonst verschwindet der
+     *  Knopf wortlos unter der Hand des Nutzers. */
     fun offered(fen: String): Boolean =
         synchronized(lock) {
             val side = plan.side ?: return false
@@ -50,10 +46,8 @@ class HintController(
 
     fun dismiss() = publish(outcome = null)
 
-    /**
-     * Ein Druck. [moment] wird ZWEIMAL gelesen — vor und nach dem Rechnen der Mattlinie —, und nur
-     * wenn dieselbe Stellung immer noch gilt, wird zugestellt und genau einmal verbraucht.
-     */
+    /** [moment] wird ZWEIMAL gelesen, vor und nach der Mattlinie: nur wenn dieselbe Stellung noch gilt, wird
+     *  zugestellt und genau einmal verbraucht. */
     suspend fun request(
         moment: () -> HintMoment,
         resolveLine: suspend (String, String) -> HintLine = { _, _ -> HintLine(emptyList()) },
@@ -86,8 +80,6 @@ class HintController(
         return publish(commit(opened.fen, san, best.uci.orEmpty(), mateIn, line, moment, side))
     }
 
-    /** Der Riegel: derselbe kritische Abschnitt prueft die Stellung ein zweites Mal UND bucht ab,
-     *  damit ein zweiter Druck oder ein spaet eintreffendes Ergebnis nicht doppelt verbraucht. */
     private fun commit(
         fen: String,
         san: String,

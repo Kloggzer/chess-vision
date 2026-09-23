@@ -10,7 +10,6 @@ import kotlin.math.abs
 import kotlin.math.exp
 
 class FocusSweepTest {
-    /** Eine Fokuskurve, wie sie ein Objektiv liefert: ein Gipfel, zu beiden Seiten abfallend. */
     private fun sharpnessAt(
         focus: Float,
         peak: Float = 0.3f,
@@ -51,7 +50,7 @@ class FocusSweepTest {
 
     @Test
     fun `the fine pass beats the coarse grid`() {
-        // Der Gipfel liegt bewusst zwischen zwei Grobstufen — ohne Feinlauf waere 0,04 der Rest.
+        // Bewusst zwischen zwei Grobstufen.
         val best = run(FocusSweep(), { sharpnessAt(it, peak = 0.29f) }).best
         assertTrue(abs(best!!.focus - 0.29f) < 0.02f) { "gefunden bei ${best.focus}" }
     }
@@ -65,7 +64,7 @@ class FocusSweepTest {
 
     @Test
     fun `a dark board is refused even where it varies`() {
-        // Verhaeltnis 2, aber Rauschen: unter der absoluten Schranke ist kein Gipfel ein Gipfel.
+        // Verhaeltnis 2, aber unter der absoluten Schranke ist kein Gipfel ein Gipfel.
         assertNull(run(FocusSweep(), { if (it > 0.5f) 0.8f else 0.4f }).best)
     }
 

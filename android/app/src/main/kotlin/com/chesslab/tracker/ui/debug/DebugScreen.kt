@@ -23,11 +23,7 @@ import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 
-/**
- * The debug route. 07a wires it behind the settings screen under `ROUTE_DEBUG` — it is deliberately
- * NOT on the tracking flow: `TrackerStatus.debug` is only assembled while this screen is composed,
- * and a tab on the main flow would make that cost permanent.
- */
+/** Behind Settings, NOT on the tracking flow: `TrackerStatus.debug` is only assembled while this is composed. */
 @Composable
 fun DebugRoute(
     onBack: () -> Unit,
@@ -49,8 +45,7 @@ private fun DebugScreen(
 
     ChesslabScaffold("Debug", onBack) { bars ->
         Column(Modifier.fillMaxSize().padding(bars)) {
-            // The attach banner rides above the tabs on every tab, not only on the CNN one: a
-            // silent attach failure once survived a whole session (MEMORY android-live-bringup-2607).
+            // Above the tabs on every tab: a silent attach failure once survived a whole session.
             CnnAttachBanner(cnn)
             SourceWorkProfileControls(viewModel)
             ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 0.dp) {
@@ -100,7 +95,6 @@ private val DebugTab.title: String
             DebugTab.CNN -> "CNN state"
         }
 
-/** A small labelled row; every panel is a table and they should all read the same. */
 @Composable
 internal fun StatRow(
     label: String,
@@ -109,7 +103,6 @@ internal fun StatRow(
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
-        // The value is a figure — every panel here is a table read down its right-hand column.
         Figure(value, tone)
     }
 }

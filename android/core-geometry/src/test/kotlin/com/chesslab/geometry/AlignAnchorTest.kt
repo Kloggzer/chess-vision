@@ -6,8 +6,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import kotlin.math.hypot
 
-/** Tier C — the quad an INCOMPLETE marker set may produce. The points are the measured
- *  `[a8, h8, h1, a1]` of `2026-09-19-16-26-22`, whose h8 the detector reads on 8 of 100 frames. */
+/** The measured `[a8, h8, h1, a1]` of `2026-09-19-16-26-22`, whose h8 the detector reads on 8 of 100 frames. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class AlignAnchorTest {
     private val geom = BoardGeometry(boardSize = 928)
@@ -45,8 +44,7 @@ class AlignAnchorTest {
         assertTrue(worst <= CORNER_JUMP_PX, "the quad moved %.1f px when h8 arrived".format(worst))
     }
 
-    /** The counter-test: `MarkerTracker` already holds a vanished marker's last point, so a drop-out
-     *  AFTER the corner was measured never moved the quad — with or without an anchor. */
+    /** `MarkerTracker` holds a vanished marker's last point, so a drop-out AFTER measurement never moved the quad. */
     @Test
     fun `losing a marker that was already measured does not move the quad`() {
         val tracker = MarkerTracker()
@@ -58,7 +56,6 @@ class AlignAnchorTest {
         }
     }
 
-    /** Four known markers resolve exactly onto their own points, so an anchor changes nothing. */
     @Test
     fun `a full marker set is untouched by the anchor`() {
         val plain = requireNotNull(boardCornersFromMarkers(markers, geom, MarkerTracker()))
@@ -73,7 +70,6 @@ class AlignAnchorTest {
         /** `TrackerConfig.cornerJumpPx`, the threshold that fired 36 s before the first move. */
         const val CORNER_JUMP_PX = 6.0
 
-        /** An anchor nowhere near the board: it must not reach the result when all four are read. */
         val FAR = List(4) { doubleArrayOf(it * 10.0, it * 10.0) }
     }
 }

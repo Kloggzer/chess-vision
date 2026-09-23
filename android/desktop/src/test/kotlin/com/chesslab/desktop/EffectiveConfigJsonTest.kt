@@ -11,8 +11,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The hand-kept key list this replaced was five short, `handTolerantCells` among them —
- *  a dump that drifts from the knob catalog is provenance that lies by omission. */
+/** A dump that drifts from the knob catalog is provenance that lies by omission. */
 class EffectiveConfigJsonTest {
     @Test
     fun `the dump carries every knob plus the resolved and derived keys`() {
@@ -23,7 +22,6 @@ class EffectiveConfigJsonTest {
 
     @Test
     fun `each knob keeps its native JSON type`() {
-        // Die Werte stehen HIER, weil der Test den JSON-Typ prueft und nicht die Vorgabe.
         val config =
             TrackerConfig().copy(
                 motionThr = 0.25,

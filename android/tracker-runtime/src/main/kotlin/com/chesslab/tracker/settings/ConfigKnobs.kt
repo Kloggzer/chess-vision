@@ -6,21 +6,12 @@ import com.chesslab.tracker.settings.KnobKind.DOUBLE
 import com.chesslab.tracker.settings.KnobKind.INT
 import com.chesslab.tracker.settings.KnobKind.OPTIONAL_INT
 
-// The knob catalog: one row per settable `TrackerConfig` field. It is the single table that
-// serialization (ConfigCodec), the live-tunable classification and 07a's settings UI all read,
-// so a knob added to the seam is added in exactly one place here.
-//
-// Every value travels as a Double. Ints and Booleans lose nothing at these magnitudes, and a
-// uniform numeric channel is what lets the codec, the change diff and the UI stay field-agnostic
-// instead of growing a 46-branch `when`.
+// The one table that codec, live classification and settings UI read. Every value travels as a Double: Ints and
+// Booleans lose nothing at these magnitudes, and the codec stays field-agnostic.
 
-/** How a knob's Double is rendered and re-read. */
 enum class KnobKind { DOUBLE, INT, BOOL, OPTIONAL_INT }
 
-/**
- * The twelve knobs `app.py::_live_tuning_kwargs` accepts, verbatim and in its order. Everything
- * else needs a tracker restart, and the repository says so rather than pretending otherwise.
- */
+/** `app.py::_live_tuning_kwargs` verbatim and in order. Everything else needs a restart, and the repository says so. */
 val LIVE_TUNABLE_KEYS: Set<String> =
     linkedSetOf(
         "motionThr",
@@ -42,31 +33,22 @@ class Knob(
     val kind: KnobKind,
     val get: (TrackerConfig) -> Double,
     val set: (TrackerConfig, Double) -> TrackerConfig,
-    // Frueher geschriebene Namen desselben Knopfes. Ein gespeichertes Telefon-Setting und eine
-    // Replay-Config tragen den Schluessel als Zeichenkette; still fallen lassen hiesse, eine
-    // gesetzte Einstellung kommt nicht mehr an und niemand erfaehrt es.
+    // Ein gespeichertes Setting traegt den Altnamen als Zeichenkette; still fallen lassen hiesse, es kommt nie an.
     val aliases: List<String> = emptyList(),
 ) {
     val live: Boolean get() = key in LIVE_TUNABLE_KEYS
 
-    /** Dieser Knopf unter jedem Namen, den ein Leser antreffen kann. */
     val keys: List<String> get() = listOf(key) + aliases
 }
 
-/** Der Knopf zu [key] oder einem seiner Altnamen. */
 fun knobFor(key: String): Knob? = KNOBS.firstOrNull { key in it.keys }
 
-/**
- * This config with only the twelve LIVE knobs taken from [live] — what a RUNNING stack obeys.
- *
- * The repository is not every host's run config: a replay leaves it at `ConfigCodec.defaults`, so
- * a restart-only knob read off it is a DEFAULT served over the value the stack was built with
- * (2026-08-14: `set:cnnVerify=false` still emitted 882 observations).
- */
+/** A replay's repository holds `ConfigCodec.defaults`, so a restart-only knob read off it is a DEFAULT served over
+ *  the run's value (`set:cnnVerify=false` still emitted 882 observations). */
 fun TrackerConfig.withLiveKnobsOf(live: TrackerConfig): TrackerConfig =
     KNOBS.filter { it.live }.fold(this) { config, knob -> knob.set(config, knob.get(live)) }
 
-/** `null` travels as NaN: a numeric map has no null slot, and NaN cannot collide with a real value. */
+/** NaN cannot collide with a real value. */
 private fun optInt(v: Double): Int? = if (v.isNaN()) null else v.toInt()
 
 private fun opt(v: Int?): Double = v?.toDouble() ?: Double.NaN
@@ -115,8 +97,7 @@ val KNOBS: List<Knob> =
         Knob("alignScale", DOUBLE, { it.alignScale }, { c, v -> c.copy(alignScale = v) }),
         Knob("cornerJumpPx", DOUBLE, { it.cornerJumpPx }, { c, v -> c.copy(cornerJumpPx = v) }),
         Knob("motionHoldS", DOUBLE, { it.motionHoldS }, { c, v -> c.copy(motionHoldS = v) }),
-        // NOT in LIVE_TUNABLE_KEYS: that list is `app.py::_live_tuning_kwargs` verbatim and this
-        // knob has no Python counterpart. It takes a tracker restart, and the catalog says so.
+        // NOT in LIVE_TUNABLE_KEYS: no Python counterpart, so it takes a restart.
         Knob("occluderHoldS", DOUBLE, { it.occluderHoldS }, { c, v -> c.copy(occluderHoldS = v) }),
         Knob("verifyObserveNow", BOOL, { bool(it.verifyObserveNow) }, { c, v -> c.copy(verifyObserveNow = v != 0.0) }),
         Knob("sightCoverageMax", DOUBLE, { it.sightCoverageMax }, { c, v -> c.copy(sightCoverageMax = v) }),

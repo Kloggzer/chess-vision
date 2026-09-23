@@ -14,11 +14,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-// Two sources: `tests/data/testclips/<clip>.labels.json` is GROUND TRUTH plus the rendered corners;
-// `parity/<clip>/meta.json` is the `effectiveConfig` Python ACTUALLY ran (Kotlin's defaults disagree,
-// e.g. `occlusionColorThr` 3.0 vs 1.5, which would fake a port bug).
+// `labels.json` is GROUND TRUTH; `parity/<clip>/meta.json` is the config Python ACTUALLY ran — Kotlin's
+// defaults disagree (`occlusionColorThr` 3.0 vs 1.5) and would fake a port bug.
 
-/** Walks up from the working directory to the repository root (the one holding `tests/data`). */
 internal fun repoRoot(): File {
     var dir = File(System.getProperty("user.dir")!!).absoluteFile
     while (!File(dir, "tests/data/testclips").isDirectory) {
@@ -29,8 +27,7 @@ internal fun repoRoot(): File {
 
 private const val DEFAULT_CLIP_DIR = "tests/data/testclips"
 
-/** `-Pchesslab.sim.clips`: a re-render goes into its OWN directory, never over the fixtures that
- *  produced `parity/`; names and `effectiveConfig` still come from `parity/index.json`. */
+/** A re-render goes into its OWN directory, never over the fixtures that produced `parity/`. */
 internal fun simClipDir(root: File): File {
     val spec = clipDirProperty().ifEmpty { DEFAULT_CLIP_DIR }
     val dir = File(spec).let { if (it.isAbsolute) it else File(root, spec) }
@@ -38,11 +35,9 @@ internal fun simClipDir(root: File): File {
     return dir
 }
 
-/** True when the run reads the committed fixture clips — the only set with a proven Python baseline. */
 internal fun usingDefaultClips(): Boolean = clipDirProperty().isEmpty()
 
-/** `-Pchesslab.sim.defaults=true`: the SHIPPED `TrackerConfig()` — "are our values any good" rather
- *  than "does the port run like Python". A MEASUREMENT, reported, not a gate. */
+/** The SHIPPED `TrackerConfig()`: "are our values any good", not "does the port run like Python". Reported, not a gate. */
 internal fun usingShippedDefaults(): Boolean =
     System
         .getProperty("chesslab.sim.defaults")
@@ -55,14 +50,12 @@ private fun clipDirProperty(): String =
         .orEmpty()
         .trim()
 
-/** One model under comparison: a directory holding `model.onnx` + `config.json`. */
 internal class SimModel(
     val name: String,
     val dir: File,
 )
 
-/** `-Pchesslab.sim.models=<dir>[,<dir>…]`, empty = what ships; swapping assets would make the APK
- *  depend on the last experiment. */
+/** Empty = what ships; swapping assets would make the APK depend on the last experiment. */
 internal fun simModels(): List<SimModel> {
     val spec = System.getProperty("chesslab.sim.models").orEmpty().trim()
     val dirs =
@@ -81,22 +74,17 @@ internal fun simModels(): List<SimModel> {
 /** A bundled model, not the asset root: the root holds no `model.onnx`. */
 private const val ASSET_MODEL_DIR = "android/app/src/main/assets/cnn_model/p4full-128"
 
-/** What the Blender scene rendered — the answer every run is scored against. */
 internal class SimTruth(
     val sans: List<String>,
     val startFen: String,
-    /** The answer the promotion dialog would get; `q` when the clip promotes nothing. */
     val promotionPiece: Char,
-    /** Per rendered frame: the true FEN, or null while the label marks the board occluded. */
     val fenPerFrame: List<String?>,
 )
 
-/** One simulated clip: the video, its geometry, its fixture config and its ground truth. */
 internal class SimClip(
     val name: String,
     override val video: File,
     override val corners: List<DoubleArray>,
-    /** Board size AND margin, one thing to `computeHomography`; see `SimClipMarginTest`. */
     override val geometry: BoardGeometry,
     override val fps: Double,
     override val config: TrackerConfig,
@@ -107,7 +95,7 @@ internal class SimClip(
     override val truthFens: List<String?> get() = truth.fenPerFrame
 }
 
-/** Every clip with a committed parity fixture; `blender-italian`/`-opera` have no `effectiveConfig`. */
+/** `blender-italian`/`-opera` have no `effectiveConfig`. */
 internal fun simClips(): List<SimClip> {
     val root = repoRoot()
     val clipDir = simClipDir(root)
@@ -128,7 +116,6 @@ internal fun simClips(): List<SimClip> {
             geometry =
                 BoardGeometry(
                     boardSize = boardSize,
-                    // A Blender clip has no `margin` key and must keep reading 0.0.
                     margin = margins4(labels["margin"]?.jsonPrimitive?.double ?: 0.0),
                 ),
             fps = meta.getValue("fps").jsonPrimitive.double,
@@ -150,10 +137,7 @@ internal fun simClips(): List<SimClip> {
     }
 }
 
-/**
- * `frame_labels` are KEYFRAMES with a `hold` count (`sum(hold)` = frame count for all 20 clips,
- * 2026-07-25). Occluded frames are `null`: under a hand, disagreeing with the position is CORRECT.
- */
+/** KEYFRAMES with a `hold` count. Occluded frames are `null`: under a hand, disagreeing is CORRECT. */
 private fun truthFenOf(labels: JsonObject): List<String?> =
     labels.getValue("frame_labels").jsonArray.flatMap { entry ->
         val row = entry.jsonObject
@@ -177,10 +161,7 @@ private fun JsonObject.i(key: String): Int = getValue(key).jsonPrimitive.int
 
 private fun JsonObject.b(key: String): Boolean = getValue(key).jsonPrimitive.boolean
 
-/**
- * EVERY field from the fixture (a port-parity instrument, not a tuning one). The frame counts are
- * OVERRIDES like `ParityFixtures.toTrackerConfig`: attaching a CNN would drop them from 4/3/2 to 3/2/1.
- */
+/** EVERY field from the fixture. Frame counts are OVERRIDES: attaching a CNN would drop them from 4/3/2 to 3/2/1. */
 internal fun trackerConfigOf(cfg: JsonObject): TrackerConfig =
     TrackerConfig(
         motionThr = cfg.d("motionThr"),

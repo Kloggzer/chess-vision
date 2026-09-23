@@ -37,8 +37,6 @@ class BoardExposureGovernorTest {
 
     @Test
     fun `an unquiet frame holds the regulation off`() {
-        // Die Pixel-Referenz danach zu verwerfen hiesse, dem Entscheidungspfad genau die Grundlage
-        // wegzuziehen, auf der er rechnet — und die Sperre haelt noch eine Weile nach.
         val port = FakeLookPort(able)
         val gov = BoardExposureGovernor(port, everyFrames = 1, holdFrames = 10)
         assertFalse(gov.onBoard(1, quiet = false) { board(10) })
@@ -48,7 +46,6 @@ class BoardExposureGovernorTest {
 
     @Test
     fun `the users own correction is the starting point`() {
-        // Sonst spraenge der erste Schritt an einer von Hand gesetzten Korrektur vorbei.
         val port = FakeLookPort(able)
         port.setLook(port.look.value.copy(evIndex = 12))
         port.sets = 0
@@ -58,8 +55,7 @@ class BoardExposureGovernorTest {
 
     @Test
     fun `a bright board with blown highlights is not dimmed`() {
-        // Der gemeldete Fehler: die Klinke faellt bei Saettigung, und ein Brett ohne ein einziges
-        // zu dunkles Feld wurde so Schritt fuer Schritt abgeblendet.
+        // Die Klinke fiel bei Saettigung, und ein Brett ohne ein zu dunkles Feld wurde Schritt fuer Schritt abgeblendet.
         val port = FakeLookPort(able)
         assertFalse(governor(port).onBoard(1, true) { board(255) })
         assertEquals(0, port.sets) { "abgeblendet, obwohl nichts zu dunkel war" }
@@ -67,8 +63,6 @@ class BoardExposureGovernorTest {
 
     @Test
     fun `the player is told once per brightening episode`() {
-        // Jeder Schritt derselben Aufhellung ist dasselbe Ereignis — sonst redet die App bei
-        // jedem Tick, und das Fenster ist zwei Sekunden breit.
         val port = FakeLookPort(able)
         val said = mutableListOf<ExposureNotice>()
         val gov = BoardExposureGovernor(port, everyFrames = 1, holdFrames = 0, onBrighten = { said += it })
@@ -97,8 +91,7 @@ class BoardExposureGovernorTest {
 
     @Test
     fun `the closed loop settles`() {
-        // Ein Brett, das auf die Verstellung REAGIERT. Mit einem starren Testbild misst man eine
-        // Physik, die es nicht gibt: die Regelung saehe ihre eigene Korrektur nie ankommen.
+        // Ein Brett, das auf die Verstellung REAGIERT: ein starres Testbild misst eine Physik, die es nicht gibt.
         val port = FakeLookPort(able)
         val gov = governor(port)
         var changes = 0
@@ -106,10 +99,7 @@ class BoardExposureGovernorTest {
         assertTrue(changes in 1..SETTLE_STEPS) { "$changes Verstellungen — sollte nach wenigen stehen" }
     }
 
-    /**
-     * Das Brett bei der aktuellen Korrektur, linear belichtet, dann sRGB: zwei helle Reihen ueber sechs
-     * dunklen. Ein per-Pixel gemischtes Bild hebt jeden Feldmittelwert ueber die Schwelle.
-     */
+    /** Zwei helle Reihen ueber sechs dunklen: ein per-Pixel gemischtes Bild hebt jeden Feldmittelwert ueber die Schwelle. */
     private fun rendered(port: FakeLookPort): BgrImage {
         val light = lightOf(port.look.value.evIndex * range.stepEv.toDouble())
         val cell = BOARD_PX / 8

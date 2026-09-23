@@ -5,32 +5,14 @@ import com.chesslab.geometry.Undistorter
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 
-/**
- * `undistort <video> <outDir> [every=N]` — write a recording's frames with the barrel taken out.
- *
- * The optics are fitted FROM THIS RECORDING, by the same path `replay lens=true` uses: the board's
- * own grooves are straight in the world, so their bow is the objective, and a fit that does not
- * flatten it by a real margin is refused rather than saved. That is why this lives here and not in
- * Python — `data/lens/calib.npz` is a stale artefact (fitted at 2560x1440 with RMS 5.46 px, while
- * this camera delivers 1920x1080), and a model fitted at the wrong resolution injects error.
- *
- * A refused fit writes NOTHING and says so. Silently emitting raw frames from a verb called
- * `undistort` would put undistorted-looking frames in a session nobody would question again.
- *
- * The frames land as `NNNNNN.png` under [outDir], numbered by SOURCE index, so a consumer that
- * planned a frame set against the video can find exactly the frames it planned.
- *
- * `lens.json` carries the WHOLE model — k1, k2, focal and centre. A consumer that folds the optics
- * into its own map (Python's board warp) cannot reconstruct the last three: the centre moves when
- * the fit has evidence for it, and then a guessed one puts the correction somewhere else.
- */
+/** `undistort <video> <outDir> [every=N]`. Fitted FROM THIS RECORDING; a refused fit writes NOTHING and says so —
+ *  raw frames from a verb called `undistort` would never be questioned. Frames are numbered by SOURCE index.
+ *  `lens.json` carries k1, k2, focal AND centre: a consumer cannot reconstruct the centre the fit moved. */
 fun undistortVideo(args: List<String>) {
     val video = File(args.getOrNull(0) ?: error("usage: undistort <video> <outDir> [every=N]"))
     val outDir = File(args.getOrNull(1) ?: error("usage: undistort <video> <outDir> [every=N]"))
     val every = args.drop(2).intOption("every", DEFAULT_EVERY)
-    // `frames=<file>` — one source index per line, which is how a consumer that already PLANNED a
-    // frame set asks for exactly it. Undistorting a whole video at every=3 to serve a session that
-    // wants 1 700 of its frames costs gigabytes of PNG for nothing.
+    // `frames=<file>` — exactly the planned frame set: every=3 for 1 700 wanted frames costs gigabytes of PNG.
     val wanted = frameList(args.drop(2))
     check(video.isFile) { "no such video: ${video.absolutePath}" }
     require(every >= 1) { "every= must be at least 1, got $every" }
@@ -44,10 +26,8 @@ fun undistortVideo(args: List<String>) {
     outDir.mkdirs()
 
     val (index, written) = writeFrames(video, outDir, model, every, wanted)
-    // The receipt. Downstream, a frames directory is just PNGs — nothing in a pixel says whether
-    // the barrel was taken out, so a consumer that adds one raw frame to this set would create a
-    // silently mixed session. `chesslab realgames export-session` refuses to decode into a
-    // directory carrying this file, and points back at this verb instead.
+    // Nothing in a pixel says the barrel was taken out: `chesslab realgames export-session` refuses to decode into
+    // a directory carrying this file, so no raw frame silently joins the set.
     File(outDir, MARKER).writeText(
         """
         {
@@ -68,13 +48,11 @@ fun undistortVideo(args: List<String>) {
     println("undistorted $written of $index frames (every $every) -> ${outDir.absolutePath}")
 }
 
-/** Written beside the frames so a later step can tell an undistorted set from a raw one. */
 const val MARKER = "lens.json"
 
 private const val DEFAULT_EVERY = 3
 internal const val STEM_DIGITS = 6
 
-/** Every [every]th frame, undistorted, as `NNNNNN.png`. Returns frames read and frames written. */
 private fun writeFrames(
     video: File,
     outDir: File,
@@ -82,9 +60,7 @@ private fun writeFrames(
     every: Int,
     wanted: Set<Int>?,
 ): Pair<Int, Int> =
-    // `use` on BOTH, nested: an earlier revision of this function unrolled them into try/finally to
-    // flatten the nesting detekt complains about, and thereby leaked the video source whenever the
-    // Undistorter's constructor threw. The loop is what moves out, not the closing.
+    // `use` on BOTH, nested: an unrolled try/finally leaked the source whenever the Undistorter's constructor threw.
     openRecording(video).use { source ->
         val size = source.delivered
         Undistorter(model, size.width, size.height).use { undistorter ->
@@ -92,7 +68,6 @@ private fun writeFrames(
         }
     }
 
-/** The loop alone, so both `use` blocks above stay one statement each. */
 private fun writeEach(
     source: FrameSource,
     undistorter: Undistorter,
@@ -115,7 +90,6 @@ private fun writeEach(
     return index to written
 }
 
-/** `frames=<file>`: the source indices to write, one per line. Null when the option is absent. */
 internal fun frameList(args: List<String>): Set<Int>? {
     val path = args.stringOption("frames") ?: return null
     val file = File(path)

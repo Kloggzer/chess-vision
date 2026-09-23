@@ -13,10 +13,7 @@ import org.junit.jupiter.api.Test
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 
-/**
- * `take()` transfers ownership, so the source owes the release even when a stage throws — der
- * Observer faengt und macht weiter, also leckte jeder Fehlschlag beide nativen Warps.
- */
+/** The observer catches and carries on, so every failed stage leaked both native warps. */
 class CropSourceReleaseTest {
     private val geometry = BoardGeometry(boardSize = 1000, outW = 80, padSide = 0.05)
 
@@ -32,8 +29,7 @@ class CropSourceReleaseTest {
     @Test
     fun theCropWarpIsReleasedWhenTheGridReadThrows() {
         val cropWarp = Mat(720, 720, CvType.CV_8UC3)
-        // Zweikanalig: der Rillen-Sensor graut BGR ein und wirft darauf — jetzt neben dem Schnitt,
-        // also erst beim Join sichtbar, und der Release haengt an demselben Future.
+        // Zweikanalig: der Rillen-Sensor wirft beim Eingrauen, sichtbar erst beim Join desselben Futures.
         val store = CropFrameStore()
         store.update(pending(cropWarp, Mat(600, 600, CvType.CV_8UC2)))
         val frame = cropFrameSource(store).take()

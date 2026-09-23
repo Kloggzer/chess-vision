@@ -2,7 +2,6 @@ package com.chesslab.engine
 
 import kotlin.math.max
 
-/** Default inset as a fraction of one cell. */
 internal const val SQUARE_REGION_INSET: Double = 0.16
 
 private const val X0 = 0

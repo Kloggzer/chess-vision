@@ -20,17 +20,13 @@ import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.tan
 
-/** Mirrors `tests/test_alignment.py`. The 3x3 helpers duplicate `Alignment.kt`'s ON PURPOSE: the
- *  tilt-blind version was self-consistent, reported 0.01 px for a 3.05 px shear and certified 302
- *  wrong frames. Bars: 0.5 px on the bare board, 1 px once pieces drag the groove centroids. */
+/** The 3x3 helpers duplicate `Alignment.kt`'s ON PURPOSE: the tilt-blind version was self-consistent and
+ *  certified 302 wrong frames. Bars: 0.5 px bare, 1 px with pieces. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class AlignmentTruthTest {
-    // --- the frame the board is seen through ---------------------------------------------------
-
     private fun geometry() = BoardGeometry(boardSize = BS, margin = margins4(0.0))
 
-    /** A rectified board with a [BORDER] px surround: since 2026-08-03 `gridLines` MEASURES the outer
-     *  lines instead of pinning them at 0 and `boardSize`, and without a surround no real path runs. */
+    /** A surround, because `gridLines` MEASURES the outer lines; without one no real path runs. */
     private fun board(): Mat {
         val n = BS + 2 * BORDER
         val img = Mat(n, n, CvType.CV_8UC3, Scalar(SURROUND, SURROUND, SURROUND))
@@ -52,7 +48,7 @@ class AlignmentTruthTest {
         return img
     }
 
-    /** [m] stays in RECTIFIED coordinates: conjugated by the pad shift, as `trueWorst` assumes. */
+    /** [m] stays in RECTIFIED coordinates, conjugated by the pad shift, as `trueWorst` assumes. */
     private fun displaced(m: DoubleArray): Mat {
         val n = BS + 2 * BORDER
         val out = Mat()
@@ -72,7 +68,6 @@ class AlignmentTruthTest {
 
     private fun padShift(px: Int) = doubleArrayOf(1.0, 0.0, px.toDouble(), 0.0, 1.0, px.toDouble(), 0.0, 0.0, 1.0)
 
-    /** The synthetic board, border and all, seen through [quad] in a camera frame. */
     private fun frame(quad: List<DoubleArray> = TRUTH): Mat {
         val h = homography(quad)
         val inv = inv3(h)!!
@@ -83,7 +78,6 @@ class AlignmentTruthTest {
         return out
     }
 
-    /** The quad whose warp shows the board displaced by the rectified-space transform [m]. */
     private fun bend(
         quad: List<DoubleArray>,
         m: DoubleArray,
@@ -106,9 +100,6 @@ class AlignmentTruthTest {
         return out
     }
 
-    // --- what the metric OWES, from geometry alone ---------------------------------------------
-
-    /** Where the image of nominal line [k] of [axis] under [h] crosses [coord] on the other axis. */
     private fun lineAt(
         h: DoubleArray,
         k: Int,
@@ -126,8 +117,7 @@ class AlignmentTruthTest {
         }
     }
 
-    /** What `squareOffsets` owes for [h]: its DEFINITION (largest square-edge displacement where the
-     *  edge passes the square), sharing none of its code — a calibration, not a restatement. */
+    /** Its DEFINITION, sharing none of the production code — a calibration, not a restatement. */
     private fun trueWorst(h: DoubleArray): Double {
         var worst = 0.0
         for (f in 0 until 8) {
@@ -148,7 +138,7 @@ class AlignmentTruthTest {
         return worst
     }
 
-    /** Dark discs centred on cells. They overlap the grooves, which is the whole difficulty. */
+    /** They overlap the grooves, which is the whole difficulty. */
     private fun withPieces(img: Mat): Mat {
         val out = img.clone()
         val cells = listOf(0 to 0, 1 to 0, 3 to 1, 5 to 0, 7 to 1, 2 to 6, 4 to 7, 6 to 6, 3 to 3, 4 to 4)
@@ -176,9 +166,7 @@ class AlignmentTruthTest {
         return out
     }
 
-    // --- the measurement -----------------------------------------------------------------------
-
-    /** The whole point of the padded warp: index 0 and 8 are MEASURED, not put there. */
+    /** Index 0 and 8 are MEASURED, not put there. */
     @Test
     fun gridLinesMeasuresAllEighteenIncludingTheOuterOnes() {
         val grid = gridLines(board(), BS, pad = BORDER)
@@ -195,7 +183,6 @@ class AlignmentTruthTest {
         }
     }
 
-    /** No surrounding board, no window to search in — reported missing, never assumed. */
     @Test
     fun gridLinesRefusesTheOuterOnesWithoutAPad() {
         val full = board()
@@ -220,9 +207,8 @@ class AlignmentTruthTest {
         assertTrue(result.worst < 1.5, "truth board reads ${result.worst}")
     }
 
-    /** A directional test passes a metric that reports a third of the error — the whole-board
-     *  collapse was exact on translation, silent on rotation and shear. Scale is largest at the
-     *  outer edges, which `linePositions` once pinned and reported at 0.75 x truth. */
+    /** A directional test passes a metric that reports a third of the error: the collapse was silent on rotation
+     *  and shear, and pinned outer lines read scale at 0.75 x truth. */
     @Test
     fun theReportedNumberIsTheTrueNumber() {
         assertTrue(trueWorst(scale(1.005)) > 1.9, "the scale case must carry a real error, not a rounding one")
@@ -272,7 +258,7 @@ class AlignmentTruthTest {
         assertTrue(abs(abs(slope) - expected) < 0.004, "slope $slope against $expected")
     }
 
-    /** The verdict is absolute: `quadSpread` scored a CONSISTENTLY bent quad at p90 0.93 px. */
+    /** Absolute: `quadSpread` scored a CONSISTENTLY bent quad at p90 0.93 px. */
     @Test
     fun theVerdictPassesTheTruthAndFailsABentQuad() {
         val geom = geometry()
@@ -294,8 +280,7 @@ class AlignmentTruthTest {
         assertTrue(!verdict.ok, "a featureless frame must never pass")
     }
 
-    /** PARTIALLY unread is the case that matters: a blank frame trips the empty-offsets rung,
-     *  while a sleeve over two files left 48 healthy squares reading `ok`. */
+    /** PARTIALLY unread matters: a sleeve over two files left 48 healthy squares reading `ok`. */
     @Test
     fun theVerdictFailsWhenOnlySomeLinesCouldNotBeFound() {
         val geom = geometry()
@@ -307,8 +292,6 @@ class AlignmentTruthTest {
         assertTrue(!verdict.ok, "nicht gemessen ist nicht bestanden: ${verdict.reason}")
     }
 
-    // --- through a camera frame ----------------------------------------------------------------
-
     @Test
     fun aShiftIsReportedAtItsTrueSizeThroughTheFrame() {
         val geom = geometry()
@@ -319,7 +302,7 @@ class AlignmentTruthTest {
         assertTrue(loud in 5.5..8.5, "a 7 px shift read as $loud")
     }
 
-    /** The whole point of measuring band by band: a collapsed profile cannot see this. */
+    /** Measured band by band: a collapsed profile cannot see this. */
     @Test
     fun aShearIsVisibleAtAll() {
         val geom = geometry()
@@ -329,8 +312,6 @@ class AlignmentTruthTest {
         f.release()
         assertTrue(loud - quiet > 2.5, "shear moved the number only from $quiet to $loud")
     }
-
-    // --- the correction ------------------------------------------------------------------------
 
     @Test
     fun correctQuadWalksABentQuadBack() {
@@ -356,7 +337,6 @@ class AlignmentTruthTest {
         f.release()
     }
 
-    /** The contract the callers rely on: write the result unconditionally, stay safe. */
     @Test
     fun improveQuadNeverHandsBackAWorseQuad() {
         val geom = geometry()
@@ -370,8 +350,7 @@ class AlignmentTruthTest {
         assertTrue(drift < 1.0, "an already-correct quad was moved $drift px")
     }
 
-    /** `boardCornersForFrame` re-derives the quad from ArUco every three frames, overwriting a
-     *  refinement within ~0.2 s; re-applying is four points through a 3x3, re-measuring is not. */
+    /** Re-applying is four points through a 3x3, re-measuring at the ArUco cadence is not. */
     @Test
     fun theCorrectionReappliedReproducesTheRefinement() {
         val geom = geometry()
@@ -391,7 +370,6 @@ class AlignmentTruthTest {
         f.release()
     }
 
-    /** The live case: markers move between aligns, and the residual belongs to board and lens. */
     @Test
     fun theCorrectionTransfersToAQuadItWasNotMeasuredOn() {
         val geom = geometry()
@@ -399,7 +377,6 @@ class AlignmentTruthTest {
         val bent = bend(TRUTH, shear(0.6))
         val correction = gridCorrection(bent, correctQuad(f, bent, geom)!!, geom)!!
 
-        // The same board seen through a quad nudged the way a marker re-detection nudges it.
         val nudged = bent.map { doubleArrayOf(it[0] + 1.5, it[1] - 1.0) }
         val corrected = applyGridCorrection(correction, nudged, geom)
         assertNotNull(corrected)
@@ -419,7 +396,7 @@ class AlignmentTruthTest {
         blank.release()
     }
 
-    // --- test-local 3x3 arithmetic, deliberately not the production one ------------------------
+    // Test-local 3x3 arithmetic, deliberately not the production one.
 
     private fun shift(
         dx: Double,
@@ -438,8 +415,7 @@ class AlignmentTruthTest {
 
     private fun scale(s: Double) = centred(doubleArrayOf(s, 0.0, 0.0, 0.0, s, 0.0, 0.0, 0.0, 1.0))
 
-    /** A pure PROJECTIVE displacement: the error of a three-marker affine quad, and why
-     *  `ProjectiveFit.kt` replaced the affine fit. */
+    /** A pure PROJECTIVE displacement: the error of a three-marker affine quad. */
     private fun persp(
         kx: Double,
         ky: Double,
@@ -450,7 +426,6 @@ class AlignmentTruthTest {
         return DoubleArray(9) { m[it] / m[8] }
     }
 
-    /** The same linear part, about the board's centre instead of its origin. */
     private fun centred(m: DoubleArray): DoubleArray {
         val c = BS / 2.0
         val out = m.copyOf()
@@ -511,17 +486,16 @@ class AlignmentTruthTest {
         const val DARK = 70.0
         const val SURROUND = 175.0
 
-        /** Cells of board rendered outside the playing field, wider than `GRID_PAD_CELLS`. */
         val BORDER = (0.8 * CELL).toInt()
         const val GROOVE_V = 20.0
         const val PIECE = 35.0
 
-        /** Half-width of a drawn groove: 2 mm on the reference board is ~5.5 px of a 100 px cell. */
+        /** 2 mm on the reference board is ~5.5 px of a 100 px cell. */
         const val GROOVE = 2
 
         const val NOISE_SIGMA = 4.0
 
-        /** a8, h8, h1, a1 — deliberately not a rectangle, so the frame carries real perspective. */
+        /** Deliberately not a rectangle, so the frame carries real perspective. */
         val TRUTH: List<DoubleArray> =
             listOf(
                 doubleArrayOf(240.0, 180.0),

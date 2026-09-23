@@ -6,12 +6,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
-/** White to move with a pawn one step from promoting — the only position this bug can be read on. */
 private const val PROMOTION_FEN = "4k3/P7/8/8/8/8/8/4K3 w - - 0 1"
 
-/** Bug-Audit E1: `choosePromotion` geht direkt in `commitMove` und sieht weder LL-Boden noch
- *  Bewegungs- noch Hand-Gatter. Lasttragend — jede Replay-Bilanz entstand mit diesem Weg offen,
- *  also erst nach dem A/B am Regressionssatz (`docs/bug-audit-2026-09-13.md`). */
+/** `choosePromotion` sieht weder LL-Boden noch Bewegungs- noch Hand-Gatter. Lasttragend — jede Replay-Bilanz
+ *  entstand mit diesem Weg offen, also erst nach dem A/B am Regressionssatz (E1). */
 @Disabled("BUG: E1 — the promotion answer commits without the LL floor, motion and hand gates")
 class PromotionSkipsCommitGatesBugTest {
     @Test

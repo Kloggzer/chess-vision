@@ -21,16 +21,12 @@ import com.chesslab.tracker.ui.theme.PieceBlack
 import com.chesslab.tracker.ui.theme.PieceWhite
 import com.chesslab.tracker.ui.theme.Space
 
-/** Q / R / B / N, in that order. Lowercase is what `choosePromotion` expects. */
 private val PROMOTION_CHOICES = listOf('q', 'r', 'b', 'n')
 
-/** Four glyphs a thumb has to hit mid-game, so this is a size and not a touch minimum. */
 private val PIECE_BUTTON = 76.dp
 
-/** `w` in the FEN's side-to-move field — the promoting side, so the buttons show its colour. */
 internal fun whiteToMove(fen: String): Boolean = fenWhiteToMove(fen) != false
 
-/** Filled glyphs throughout — the button's content colour carries the side, not the glyph outline. */
 private fun glyphOf(piece: Char): String =
     when (piece) {
         'q' -> "♛"
@@ -47,8 +43,7 @@ fun PromotionDialog(
 ) {
     val white = whiteToMove(fen)
     AlertDialog(
-        // The engine holds the move until a piece is chosen, so back and outside-tap must not
-        // dismiss: a dismissed dialog would strand the tracker on a pending promotion for good.
+        // The engine holds the move until a piece is chosen: a dismissed dialog would strand it for good.
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
         title = { Text("Promotion", style = MaterialTheme.typography.titleLarge) },

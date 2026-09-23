@@ -20,7 +20,6 @@ import java.io.File
 
 private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-/** The mate explorer's real path, view model to caption: an engine that never answered is named, not drawn as a line. */
 class MateLineFailureTest {
     @TempDir
     lateinit var dir: File

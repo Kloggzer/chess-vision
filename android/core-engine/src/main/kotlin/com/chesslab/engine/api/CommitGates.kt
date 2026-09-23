@@ -7,7 +7,7 @@ import com.chesslab.engine.pyFixed
 import com.chesslab.engine.recordRejection
 import com.chesslab.engine.uciOf
 
-/** A refusal resets confirmation so rejected evidence cannot contribute to a later commit. */
+/** A refusal resets confirmation, so rejected evidence cannot contribute to a later commit. */
 internal fun EngineState.commitGates(cand: Candidate): Boolean {
     val sans = board.sanSequence(cand.moves).joinToString(" + ")
     val key = cand.moves.joinToString(" ") { uciOf(it) }
@@ -20,7 +20,7 @@ internal fun EngineState.commitGates(cand: Candidate): Boolean {
     return true
 }
 
-/** This gate precedes confirmation so a hand cannot burn votes. */
+/** Before confirmation, so a hand cannot burn votes. */
 private fun EngineState.cleanHandGate(
     sans: String,
     key: String,
@@ -32,7 +32,7 @@ private fun EngineState.cleanHandGate(
     return false
 }
 
-/** The absolute floor blocks sole-candidate phantoms; `f6h5 @ 0.44` swallowed a live castle. */
+/** Blocks sole-candidate phantoms; `f6h5 @ 0.44` swallowed a live castle. */
 private fun EngineState.llFloorGate(
     cand: Candidate,
     sans: String,
@@ -40,7 +40,6 @@ private fun EngineState.llFloorGate(
 ): Boolean {
     if (!cand.vote || config.commitLlFloor <= 0 || bestScore >= config.commitLlFloor) return true
     confirmer.reset()
-    // Wiederholte Ablehnungen holen die CNN dazu; siehe `docs/tracker-flow.md`.
     refusedStreak = if (key == refusedKey) refusedStreak + 1 else 1
     refusedKey = key
     note =
@@ -50,14 +49,14 @@ private fun EngineState.llFloorGate(
     return false
 }
 
-/** Motion must be recent because one wobble spike otherwise arms the gate forever. */
+/** Recent motion: one wobble spike would otherwise arm the gate forever. */
 private fun EngineState.motionGate(
     sans: String,
     key: String,
 ): Boolean {
     if (!config.requireMotionForMove) return true
     val age = nowS - lastMotionTs
-    // `motionRecencyS <= 0` means no limit; treating 0 literally blocked every move on 2026-08-01.
+    // `<= 0` means no limit; taken literally, 0 blocked every move.
     val stale = config.motionRecencyS > 0.0 && age > config.motionRecencyS
     if (motionSinceRef && !stale) return true
     confirmer.reset()

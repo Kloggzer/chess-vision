@@ -22,10 +22,7 @@ private class FakeLamp(
     }
 }
 
-/**
- * The lamp is not the content — the BASELINE is: under the old light every square reads as changed.
- * No optics re-measure in between since `OpticsLock` went; a pinned EV must not be undone behind the user's back.
- */
+/** The BASELINE is the content: under the old light every square reads changed. A pinned EV must not be undone. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TorchSwitchTest {
     private fun switch(
@@ -49,7 +46,6 @@ class TorchSwitchTest {
             assertEquals(listOf("baseline"), log, "the lamp changed, so the reference must too")
         }
 
-    /** Switching OFF invalidates the reference just as completely. Both directions, or neither. */
     @Test
     fun switchingOffDoesTheSameSequence() =
         runTest {
@@ -64,7 +60,7 @@ class TorchSwitchTest {
             assertEquals(listOf("baseline"), log)
         }
 
-    /** Re-anchoring for a lamp that never came on is a free way to break a running game. */
+    /** Re-anchoring for a lamp that never came on breaks a running game for free. */
     @Test
     fun aLampThatCannotEngageChangesNothingElse() =
         runTest {
@@ -85,7 +81,7 @@ class TorchSwitchTest {
             assertEquals(false, torch.torchOn.value, "a lamp that never engaged must not read as on")
         }
 
-    /** The UI hides the control on `false`; asserted through the production `get()`, never the fake's own flag. */
+    /** Through the production `get()`, never the fake's own flag. */
     @Test
     fun hasTorchIsReportedFromTheDevice() =
         runTest {

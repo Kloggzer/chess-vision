@@ -6,7 +6,7 @@ import com.chesslab.engine.api.GrayImage
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Detection eligibility only: no inference, native libraries, or claim of move correctness. */
+/** Detection eligibility only: no inference, natives or claim of move correctness. */
 class CommitLatencyProbeTest {
     @Test
     fun compareHoldsAtPhoneFrameRates() {

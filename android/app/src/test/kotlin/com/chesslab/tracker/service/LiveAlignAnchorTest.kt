@@ -12,10 +12,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import kotlin.math.hypot
 
-/**
- * The calibrated quad reaches the resolve. `2026-09-19-16-26-22` starts with h8 unread for 42 align
- * ticks, so the live path emitted an affine guess and `cornersJumped` fired 36 s before ply 1.
- */
+/** With h8 unread for 42 align ticks the live path emitted an affine guess, and `cornersJumped` fired
+ *  36 s before ply 1. */
 @EnabledIf(OpenCvGate.REF)
 class LiveAlignAnchorTest {
     @Test
@@ -52,7 +50,6 @@ class LiveAlignAnchorTest {
         const val BOARD_PX = 928
         const val CORNER_JUMP_PX = 6.0
 
-        /** `[a8, h8, h1, a1]` as `2026-09-19-16-26-22` measured them. */
         val MARKERS =
             mapOf(
                 0 to doubleArrayOf(795.88, 1291.08),

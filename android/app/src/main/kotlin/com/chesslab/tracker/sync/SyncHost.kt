@@ -9,19 +9,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.net.Inet4Address
 
-/**
- * One [SyncSettings] per process, for the same reason recording has one: the worker and the screen
- * would otherwise each cache their own copy and the toggle would write the one the worker cannot see.
- */
+/** One per process: otherwise the toggle writes the copy the worker cannot see. */
 object SyncHost {
     private var settings: SyncSettings? = null
     private val last = MutableStateFlow<SyncReport?>(null)
     private val busy = MutableStateFlow<String?>(null)
 
-    /** The last run's own words. Null until one has run in this process. */
     val report: StateFlow<SyncReport?> = last
 
-    /** What is being sent right now, for the row that would otherwise just say "working". */
     val progress: StateFlow<String?> = busy
 
     @Synchronized
@@ -38,14 +33,8 @@ object SyncHost {
     }
 }
 
-/**
- * The phone's own address on the Wi-Fi, and how wide that network is.
- *
- * Read from the ACTIVE network rather than from `WifiManager`: the deprecated API answers with the
- * Wi-Fi address even while the traffic is on mobile data, which would send the scan into a subnet
- * the phone cannot reach. `null` means "not on a local network", and the run says so instead of
- * sweeping anything.
- */
+/** From the ACTIVE network, not `WifiManager`: the deprecated API answers with the Wi-Fi address even on
+ *  mobile data, sending the scan into an unreachable subnet. `null`: not on a local network. */
 fun lanAddressOf(context: Context): LanAddress? {
     val manager = context.getSystemService(ConnectivityManager::class.java) ?: return null
     val link: LinkAddress? =
@@ -57,7 +46,7 @@ fun lanAddressOf(context: Context): LanAddress? {
     return link?.address?.hostAddress?.let { LanAddress(it, link.prefixLength) }
 }
 
-/** Wi-Fi or Ethernet. Mobile data has no subnet the PC could be on, and a gigabyte on it is a bill. */
+/** Mobile data has no subnet the PC could be on, and a gigabyte on it is a bill. */
 private fun local(capabilities: NetworkCapabilities?): Boolean =
     capabilities != null &&
         (

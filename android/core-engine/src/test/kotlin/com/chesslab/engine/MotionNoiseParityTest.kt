@@ -12,15 +12,13 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// Parity of phase 01d's three primitives. Configs come from `meta.effectiveConfig`: Kotlin defaults
-// diverge (`occlusionColorThr` 1.5, `detSize` 320, `overhang` 0.0) in a way that looks like a port bug.
+// Configs from `meta.effectiveConfig`: Kotlin defaults diverge (`occlusionColorThr` 1.5, `detSize` 320) like a port bug.
 
 private class BaselineInputs(
     val refGray: GrayImage,
     val gamutFrames: List<Int>,
 )
 
-/** Coverage counters of [MotionNoiseParityTest.baselineOcclusionMatchesPython]. */
 private class BaselineCounts {
     var checked = 0
     var withCore = 0
@@ -28,7 +26,7 @@ private class BaselineCounts {
 }
 
 class MotionNoiseParityTest {
-    /** `tierB.motionScore` is `max(motion_score(prev, cur), motionRoi)`; the first frame diffs against itself. */
+    /** `max(motion_score(prev, cur), motionRoi)`; the first frame diffs against itself. */
     @Test
     fun motionScoreMatchesPython() {
         var checked = 0
@@ -58,10 +56,8 @@ class MotionNoiseParityTest {
         assertTrue(checked >= MIN_MOTION_FRAMES, "only $checked motion frames asserted")
     }
 
-    /**
-     * `noiseZ` is `z()` BEFORE the frame's update, `noiseMean`/`noiseStd` the model AFTER it. On the 3
-     * frames with `censusNoiseZ == null` the guard learned the census at FULL alpha, no exclusion.
-     */
+    /** `noiseZ` is BEFORE the frame's update, `noiseMean`/`noiseStd` AFTER. Where `censusNoiseZ == null` the
+     *  guard learned the census at FULL alpha, no exclusion. */
     @Test
     fun squareNoiseTraceMatchesPython() {
         var checked = 0
@@ -103,17 +99,15 @@ class MotionNoiseParityTest {
         assertTrue(fullLearnFrames > 0, "the census full-learning guard was never exercised")
     }
 
-    /**
-     * `_set_ref` only runs inside `_try_detect`, so the reference at a block frame is `refFrames` of the
-     * NEXT tier-A frame, its gamut that frame's `activeGamutFrames` (verified in Python on all 173 blocks).
-     */
+    /** `_set_ref` runs only inside `_try_detect`, so a block frame's reference is the NEXT tier-A frame's
+     *  `refFrames` (verified in Python on all 173 blocks). */
     @Test
     fun baselineOcclusionMatchesPython() {
         val counts = BaselineCounts()
         for (name in ParityFixtures.clips()) {
             val clip = ParityFixtures.load(name)
             checkClipBaselines(clip, counts)
-            // `absThr` is the caller's `motionPxThr * 4`, never derived inside the function.
+            // `absThr` is the caller's `motionPxThr * 4`, never derived inside.
             val anyBlock = clip.frames.firstNotNullOfOrNull { it.baseline }
             val pxThr =
                 clip.meta.effectiveConfig

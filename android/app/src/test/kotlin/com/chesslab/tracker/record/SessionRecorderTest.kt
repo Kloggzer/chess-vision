@@ -13,7 +13,6 @@ import java.io.File
 
 private const val FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 
-/** `[a8, h8, h1, a1]`, source pixels — entry.md invariant 11. */
 val CORNERS = floatArrayOf(10f, 20f, 110f, 22f, 112f, 122f, 12f, 120f)
 
 fun fakeFrame(bytes: Int = 1000) =
@@ -100,12 +99,12 @@ class SessionRecorderTest {
         assertTrue(yaml.contains("video_duration_ns: 12000000000"))
         // Nothing downstream can measure the pre-roll from the frames, so the session states it.
         assertTrue(yaml.contains("video_pre_roll_ns: 19000000000"))
-        // No rate at all rather than 0 — "recorded at zero" is the silence that hid a factor of 2,4.
+        // No rate rather than 0: "recorded at zero" is the silence that hid a factor of 2.4.
         assertTrue(!yaml.contains("video_bit_rate"), yaml)
         assertEquals("", File(rec.dir, "log.jsonl").readText())
     }
 
-    /** Both numbers, because a clamped encoder is the case the archive could never show. */
+    /** Both numbers: a clamped encoder is the case the archive could never show. */
     @Test
     fun theBitRateAskedForAndTheOneTakenBothReachTheYaml() {
         val rec = recorder()

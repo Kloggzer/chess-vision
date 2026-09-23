@@ -10,7 +10,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.system.measureNanoTime
 
-/** Raw ArUco detections calculated ahead; smoothing and correction remain ordered in LiveAlign. */
 internal class AlignmentMarkerPrepass private constructor(
     private val rows: Map<Long, Map<Int, DoubleArray>>,
 ) {
@@ -41,10 +40,8 @@ internal class AlignmentMarkerPrepass private constructor(
                 try {
                     measureNanoTime {
                         val selector = PublishedFrameSelector(skipDecoded, stride)
-                        // The WHOLE recording, exactly what the replay drives. Opened as a single
-                        // `VideoFileSource` this stopped at `video.mp4` and every replay of a
-                        // segmented recording died at the first swap: "marker prepass has no frame
-                        // 1596" on 2026-08-14, 265 detected frames for a 68 s video.
+                        // The WHOLE recording: a single `VideoFileSource` stopped at `video.mp4`, and
+                        // every replay of a segmented recording died at the first swap.
                         openRecording(video, selector::keep).use { source ->
                             while (true) {
                                 val frame = source.next() ?: break
@@ -120,12 +117,8 @@ private data class DetectedMarkers(
     val markers: Map<Int, DoubleArray>,
 )
 
-/**
- * Exact copy of CameraFrameBus's publish gate, without materializing skipped frames. It runs on
- * each frame's own PTS (`FrameClock`), NOT `frames x 1000/fps`: against VFR footage the counted
- * model publishes on other frames than the bus does, and LiveAlign then asks for one the prepass
- * never detected — "marker prepass has no frame 9", labelling 143233 on 2026-08-14.
- */
+/** Exact copy of CameraFrameBus's publish gate, on each frame's own PTS (`FrameClock`), NOT `frames x 1000/fps`:
+ *  on VFR footage the counted model publishes other frames than the bus, and LiveAlign asks for one never detected. */
 internal class PublishedFrameSelector(
     private val skipDecoded: Long,
     private val stride: Int,

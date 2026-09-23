@@ -10,31 +10,26 @@ import kotlin.math.abs
 
 internal const val ALARM_ILLEGAL_MOVE = "illegal_move"
 
-/** Kind of the latch [refuseIllegalMove] raises — distinct so a log row says WHO was wrong. */
+/** Distinct, so a log row says WHO was wrong. */
 internal const val ALARM_MOVE_REFUSED = "illegal_move_refused"
 
-/** [TrackerEvent.AlarmCleared] reason of a VERIFIED restore (no user correction, no log row). */
+/** A VERIFIED restore: no user correction, no log row. */
 internal const val ALARM_BOARD_RESTORED = "board_restored"
 
-/** The notes list at most four squares. */
 private const val CONFLICTS_SHOWN = 4
 
 private const val UCI_SQUARES_LEN = 4
 
-/**
- * The illegal-move latch. An undetected desync is silent and permanent — once game state and physical
- * board disagree, every diff-vs-reference reading is fiction — so it is deliberately hard to trip
- * (three DISTINCT observations, stable conflict set, OCCUPANCY only) and released only by `clearAlarm`.
- */
+/** An undetected desync is silent and permanent, so the latch is deliberately hard to trip (three DISTINCT
+ *  observations, stable conflict set, OCCUPANCY only) and released only by `clearAlarm`. */
 internal fun EngineState.onStableMismatch(
     cnn: CnnEvaluator,
     obs: CnnObservation,
     snap: CnnSnapshot,
     conflicts: List<String>,
 ): List<TrackerEvent> {
-    // The discipline lives in the two predicates below, and both read whichever axis the observation
-    // carries: an occupancy-only run used to zero the streak here and never alarm, silently disarming
-    // the whole desync response on every model this app ships.
+    // Both predicates read whichever axis the observation carries: an occupancy-only run zeroed the streak here
+    // and silently disarmed the desync response on every shipped model.
     advanceDesyncStreak(snap.seq, conflicts)
     val events = raiseAlarmIfDue(cnn, obs, conflicts)
     val latched = alarm
@@ -47,28 +42,19 @@ internal fun EngineState.onStableMismatch(
     return events
 }
 
-/**
- * May the board be declared lost at all? Not before the first commit: until a ply is on the record the
- * engine has no reference of its own, only the position it was handed. The latch has no automatic way
- * out — `2026-08-15-22-48-04` alarmed at video t=0.8 s and replayed 0 of 19 plies.
- */
+/** Not before the first commit: the engine has no reference of its own yet, and the latch has no automatic
+ *  way out (`2026-08-15-22-48-04` alarmed at t=0.8 s and replayed 0 of 19 plies). */
 private val EngineState.alarmable: Boolean get() = alarm == null && history.isNotEmpty()
 
-/**
- * Haelt das Einrasten an, solange eine Hand im Bild ist; die Serie laeuft weiter (Blitz braucht das),
- * nur der Latch wartet. Der Alarmpfad war die einzige Stelle, die `handInFrame` nie gefragt hat: eine
- * Hand ueberm Brett loeste den Alarm aus, den sie erklaert (User, 2026-08-24).
- */
+/** Solange eine Hand im Bild ist, wartet nur der Latch; die Serie laeuft weiter (Blitz braucht das). Eine
+ *  Hand ueberm Brett loeste sonst den Alarm aus, den sie erklaert. */
 private fun EngineState.alarmDeferred(): Boolean =
     handInFrame() ||
         desyncObs < config.desyncObsN + config.alarmDeferObs ||
         nowS - desyncSince < config.alarmMinS
 
-/**
- * The quiet-re-anchor veto fired — bound it: recovery only ends the standoff when a LEGAL move explains
- * the observation, and when the CNN is simply WRONG (S17-SIM-2: the king on g1 read empty every time)
- * none does. Escalation still needs a MOVE-SHAPED contradiction, and the only escape is the USER.
- */
+/** Recovery only ends a standoff when a LEGAL move explains it; when the CNN is simply WRONG (a king read
+ *  empty every time) none does. Escalation needs a MOVE-SHAPED contradiction; the only escape is the user. */
 internal fun EngineState.desyncEvidence(
     cnn: CnnEvaluator?,
     snap: CnnSnapshot,
@@ -82,9 +68,8 @@ internal fun EngineState.desyncEvidence(
         note = alarmNote(raised)
         return listOf(raised)
     }
-    // The standoff bound: a conflict set surviving `desyncStandoffObsN` distinct observations is a
-    // board the engine can neither reconcile nor escalate, because castling (2-and-2) or a single
-    // disagreeing square (1-and-0) never has the move shape `guessIllegalMove` needs.
+    // Castling (2-and-2) or a single disagreeing square (1-and-0) never has the move shape `guessIllegalMove`
+    // needs: a conflict set surviving `desyncStandoffObsN` observations can be neither reconciled nor escalated.
     val standoffDue =
         alarmable &&
             config.desyncStandoffObsN > 0 &&
@@ -102,37 +87,24 @@ internal fun EngineState.desyncEvidence(
     return emptyList()
 }
 
-/**
- * The line the player reads while a game is running, so the REASON comes first and short — leading
- * with the squares hid it in brackets the eye never reached (User, 2026-08-26). Where the engine does
- * not know why, the conflict list and what to do about it are the most useful thing it has.
- */
+/** The REASON first and short: leading with the squares hid it in brackets the eye never reached. */
 private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
     board.alarmReason(latched.guess)?.let { return "Illegal move — ${it.text()}" }
     val what = board.alarmGuessSan(latched.guess) ?: latched.conflicts.shown()
     return "ILLEGAL MOVE? $what — take it back, or resync to accept"
 }
 
-/**
- * Drop the streak whole — count, conflict set and seq dedup are one fact ("the observations so far
- * disagreed about THESE squares"), so zeroing the count alone leaves the set behind for the next
- * observation to be compared against.
- */
+/** Count, conflict set and seq dedup are one fact: zeroing the count alone leaves the set to be compared against. */
 internal fun EngineState.clearDesyncStreak() {
     desyncObs = 0
     desyncConflicts = 0L
     desyncLastSeq = null
-    // The resync candidate rides the same fact: a matching or inconclusive observation is
-    // evidence the board is NOT consistently elsewhere, so the consecutive-looks streak restarts.
+    // A matching or inconclusive look is evidence the board is NOT consistently elsewhere: the resync streak restarts.
     resetResyncVotes()
 }
 
-/**
- * Count DISTINCT observations, not evaluations — `desyncObsN` means "persistent over seconds", not
- * "evaluated three times". The streak carries a running CORE, the squares every look so far disagreed
- * on: subset-or-superset let `{a}→{a,b}→{b}` count three without one square holding. An empty core
- * restarts at ONE, never at zero — this observation is itself evidence.
- */
+/** DISTINCT observations, not evaluations. A running CORE of squares every look disagreed on:
+ *  subset-or-superset let `{a}→{a,b}→{b}` count three. An empty core restarts at ONE, never zero. */
 private fun EngineState.advanceDesyncStreak(
     seq: Long,
     conflicts: List<String>,
@@ -146,11 +118,8 @@ private fun EngineState.advanceDesyncStreak(
     desyncLastSeq = seq
 }
 
-/**
- * **Identity-only conflicts never alarm.** An illegal move virtually always changes OCCUPANCY
- * somewhere; a stable wrong-piece-type reading is the known N/B/R gap (0.818 across Q/R/N/B) and rang
- * the alarm on regular boards. A false alarm declares the board lost, so the bar stays occupancy.
- */
+/** **Identity-only conflicts never alarm**: an illegal move changes OCCUPANCY; a stable wrong type is the
+ *  known N/B/R gap, and a false alarm declares the board lost. */
 private fun EngineState.raiseAlarmIfDue(
     cnn: CnnEvaluator,
     obs: CnnObservation,
@@ -161,15 +130,11 @@ private fun EngineState.raiseAlarmIfDue(
     return listOf(latchAlarm(desyncConflicts.squareNames(), cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
 }
 
-/**
- * [IllegalMoveException] came back out of a tick: report it, do not drop it. Same latch as a desync —
- * a move source that produced an impossible move has no claim on the position — and the offending UCI
- * rides in `guess`, so card, speech and timeline row all name it.
- */
+/** Reported, not dropped: a source that produced an impossible move has no claim on the position. The
+ *  offending UCI rides in `guess`. */
 internal fun EngineState.refuseIllegalMove(cause: IllegalMoveException): List<TrackerEvent> {
     val squares = listOf(cause.uci.take(2), cause.uci.drop(2).take(2)).filter { Squares.index(it) >= 0 }
-    // Rendered against the position it was attempted IN, which is not always the live board: a
-    // probe or a copy is just as capable of being handed a fabrication.
+    // Against the position it was attempted IN, which is not always the live board.
     val san = runCatching { Game(cause.fen).alarmGuessSan(cause.uci) }.getOrNull()
     val raised = TrackerEvent.Alarm(ALARM_MOVE_REFUSED, squares, cause.uci, san, AlarmReason.ENGINE_REFUSED)
     alarm = raised
@@ -179,7 +144,7 @@ internal fun EngineState.refuseIllegalMove(cause: IllegalMoveException): List<Tr
     return listOf(raised)
 }
 
-/** Latch the alarm. Released only by [clearAlarm] — nothing in the pipeline may heal it silently. */
+/** Released only by [clearAlarm] — nothing in the pipeline may heal it silently. */
 private fun EngineState.latchAlarm(
     conflicts: List<String>,
     guess: String?,
@@ -191,15 +156,11 @@ private fun EngineState.latchAlarm(
     val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess), reason)
     alarm = raised
     alarmSince = nowS
-    // Provenance for the moment the board is declared lost — the most consequential thing here.
     recordRejection(guess ?: "", "ALARM latched on ${conflicts.joinToString(",")}")
     return raised
 }
 
-/**
- * The human-readable suspicion the alarm card renders; re-derived here because `:core-engine` may not
- * depend on `:core-cnn` (module cycle).
- */
+/** Re-derived here because `:core-engine` may not depend on `:core-cnn` (module cycle). */
 internal fun Game.alarmGuessSan(guess: String?): String? {
     if (guess == null || guess.length < UCI_SQUARES_LEN) return null
     val from = Squares.index(guess.substring(0, 2).lowercase())
@@ -215,11 +176,7 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
     }
 }
 
-/**
- * Why the suspected move cannot be legal, or null when the engine only knows THAT it is not. Ordered
- * by what the player must do: who is to move outranks being in check, else the wrong person starts
- * looking for their king (User, 2026-08-24).
- */
+/** Ordered by what the player must do: who is to move outranks being in check. */
 internal fun Game.alarmReason(guess: String?): AlarmReason? {
     if (guess == null || guess.length < UCI_SQUARES_LEN) return null
     val from = Squares.index(guess.substring(0, 2).lowercase())
@@ -239,7 +196,6 @@ internal fun Game.alarmReason(guess: String?): AlarmReason? {
     }
 }
 
-/** Die englische Prosa fuer Note und Karte; die Sprachansage formuliert selbst ([AlarmReason]). */
 internal fun AlarmReason.text(): String =
     when (this) {
         AlarmReason.NO_CASTLING -> "castling not available"

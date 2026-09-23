@@ -10,10 +10,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `ClasspathPurityTest` keeps `:core-geometry` off this module's classpath, so the region boxes
- * exist twice — this copy is pinned to the same golden file, not to hand-written numbers.
- */
+/** `ClasspathPurityTest` keeps `:core-geometry` off this classpath, so the boxes exist twice — pinned to the
+ *  same golden file. */
 class SquareRegionParityTest {
     private val cases =
         Json

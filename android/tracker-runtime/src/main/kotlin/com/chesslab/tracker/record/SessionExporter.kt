@@ -6,13 +6,7 @@ import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-/**
- * A recorded session as a ZIP, laid out so it can be dropped straight into `data/sessions/` on the
- * desktop: `<sessionId>/session.yaml`, `<sessionId>/log.jsonl` and the `<sessionId>/frames` directory.
- *
- * The destination stream comes from `ACTION_CREATE_DOCUMENT` — the user picks the file, so no
- * storage permission is involved on either side.
- */
+/** Laid out to drop into `data/sessions/`. `ACTION_CREATE_DOCUMENT`: no storage permission on either side. */
 fun zipSession(
     dir: File,
     out: OutputStream,
@@ -20,8 +14,7 @@ fun zipSession(
     var entries = 0
     ZipOutputStream(out.buffered()).use { zip ->
         dir.walkTopDown().filter(File::isFile).forEach { file ->
-            // MP4 is already compressed. Deflating multi-gigabyte video again buys essentially
-            // nothing and turns an otherwise streaming export into minutes of hot CPU time.
+            // MP4 is already compressed: deflating gigabytes again buys nothing and costs minutes of CPU.
             zip.setLevel(if (file.extension.equals("mp4", ignoreCase = true)) Deflater.NO_COMPRESSION else Deflater.DEFAULT_COMPRESSION)
             zip.putNextEntry(ZipEntry("${dir.name}/${file.relativeTo(dir).invariantSeparatorsPath}"))
             file.inputStream().use { it.copyTo(zip) }

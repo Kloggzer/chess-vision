@@ -2,13 +2,9 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.GrayImage
 
-/** Int values avoid signed-byte widening when census popcounts are summed. */
 internal val POPCOUNT8: IntArray = IntArray(CENSUS_CODES) { Integer.bitCount(it) }
 
-/**
- * Must stay 0 (entry.md invariant 7): any deadband breaks monotone-brightness invariance because
- * pixels in `[eps, eps/ratio)` flip under multiplicative darkening.
- */
+/** Must stay 0 (entry.md invariant 7): a deadband breaks monotone-brightness invariance under darkening. */
 internal const val CENSUS_EPS: Int = 0
 
 internal fun censusBuffer(
@@ -20,10 +16,7 @@ internal fun censusBuffer(
     return if (reuse != null && reuse.size == size) reuse else ByteArray(size)
 }
 
-/**
- * 3x3 census, row-major around the centre, using unsigned bytes and strict `centre > neighbour`.
- * Padding is `BORDER_REPLICATE`; band transforms replicate at [yLo]/[yHi], matching NumPy slicing.
- */
+/** Strict `centre > neighbour` on unsigned bytes; `BORDER_REPLICATE`, band edges replicate — NumPy slicing. */
 internal fun censusTransform(
     gray: GrayImage,
     yLo: Int = 0,
@@ -51,10 +44,7 @@ internal fun censusTransform(
     return out
 }
 
-/**
- * Writes only square boxes at plane offsets; values outside are undefined.
- * Inset boxes make their codes bit-identical to [censusTransform] while avoiding ~37% unused work.
- */
+/** Only the square boxes: bit-identical to [censusTransform] there, ~37 % less work. */
 internal fun censusCodesInBoxes(
     gray: GrayImage,
     boxes: SquareBoxes,
@@ -69,11 +59,8 @@ internal fun censusCodesInBoxes(
     return out
 }
 
-/**
- * Mean Hamming distance scaled by 255/8; the raw result feeds `censusThr` (entry.md invariant 8).
- * Band edges use a +/-1 px halo; squares outside the safe band score 0.0 and must not be consulted.
- * [codesOut] preserves current codes when the frame becomes the next reference.
- */
+/** Mean Hamming distance scaled by 255/8 (entry.md invariant 8). Squares outside the safe band score 0.0
+ *  and must not be consulted. [codesOut] keeps the codes for the next reference. */
 internal fun perSquareCensusChange(
     refCodes: ByteArray,
     curGray: GrayImage,
@@ -92,7 +79,6 @@ internal fun perSquareCensusChange(
     if (rows != null) {
         val yLo = rows[0].coerceIn(0, height)
         val yHi = rows[1].coerceIn(yLo, height)
-        // NumPy slicing semantics: an empty band scores nothing.
         if (yHi == yLo) {
             out.fill(0.0, 0, Squares.COUNT)
             return out
@@ -138,10 +124,7 @@ private fun boxCodes(
     return sum
 }
 
-/**
- * The caller owns edge replication because bands replicate at band edges and boxes at plane edges.
- * Sliding three neighbour columns costs 3 plane reads per pixel rather than 9.
- */
+/** The caller owns edge replication: bands replicate at band edges, boxes at plane edges. */
 private inline fun rowCodes(
     data: ByteArray,
     width: Int,

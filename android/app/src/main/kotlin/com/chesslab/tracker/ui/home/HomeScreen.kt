@@ -57,21 +57,8 @@ import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Surface
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/** The screen renders before the service is bound; an unbound live game is simply an empty one. */
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
 
-/**
- * The landing screen: **a launcher, not a dashboard.**
- *
- * Until specs/47 the app opened on the tracker, and since specs/43 it launches with no camera — so
- * the first thing a user saw was a tracker that was not tracking, over a start-position board of a
- * board nobody was looking at, above an empty move list.
- *
- * It then did two jobs and the second badly (specs/48): four stat tiles reading `0`, `0 of 1`, `1`
- * on a fresh install, and a "Games" disclosure row sitting beside a "Games" tile counting the same
- * thing. **The statistics are on Games now**, beside the data they describe, and the duplication
- * went with them. What is left is the one action, what was played last, and two doors.
- */
 @Composable
 fun HomeRoute(
     onStartGame: () -> Unit,
@@ -90,17 +77,14 @@ fun HomeRoute(
     val running by TrackerRun.running.collectAsStateWithLifecycle()
     val controller by GameSessionHost.controller.collectAsStateWithLifecycle()
     val live by (controller?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
-    // Refreshed when the tracker stops too: that is the moment a game joins the library.
+    // Refreshed when the tracker stops: that is when a game joins the library.
     LaunchedEffect(running) { model.refresh() }
 
     ChesslabScaffold(
         "chesslab",
         onBack = null,
         titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
-        // No `contentDescription`: the word "chesslab" is right beside it, and a screen reader
-        // announcing "chesslab logo, chesslab" is noise. Tinted `OnSurface` — an identity is not
-        // an accent (specs/48 rule 2). Restored 2026-08-14: the nav restructure of `7927fff`
-        // dropped it without mention, and losing the mark was never a decision anyone made.
+        // No `contentDescription`: "chesslab" is beside it, and "chesslab logo, chesslab" is noise.
         titleIcon = {
             Icon(
                 painter = painterResource(R.drawable.ic_logo),
@@ -114,9 +98,6 @@ fun HomeRoute(
                 Icon(Icons.Filled.Settings, contentDescription = "Settings")
             }
         },
-        // Settings is a destination people go to on purpose and rarely, which is exactly what the
-        // bar's action slot is for. As a row at the bottom of Home it took a full-width seat below
-        // the games — the thing the screen is actually about — for the least frequent act on it.
     ) { bars ->
         Box(Modifier.fillMaxSize().padding(bars)) {
             Watermark()
@@ -142,23 +123,9 @@ fun HomeRoute(
     }
 }
 
-/**
- * The pawn alone, centred in the content area and almost invisible.
- *
- * **The piece, not the mark:** the viewfinder brackets are a frame, and a frame drawn behind
- * framed content (cards, rules) fights it. `ic_pawn` is the same geometry with the brackets
- * dropped and the viewport cropped to the piece, so the height requested here is the height that
- * appears.
- *
- * Decoration is allowed exactly here: Home is where the app is entered and the one screen whose
- * job is identity rather than a task. It never appears on the board — a brand mark over a
- * position is what specs/48 spent a pack removing.
- *
- * **The alpha is per scheme, and it has to be.** The same cream is 236/255 bright on an ink
- * ground and 18/255 from a paper one; measured 23-24/255 keeps the two sides reading alike. The
- * scheme is read off the ground itself rather than `isSystemInDarkTheme()`, because what matters
- * is the colour actually behind the piece, which is `Background`.
- */
+/** The piece without the viewfinder brackets (a frame fights framed content). Decoration only here, never
+ *  on the board. The alpha is per scheme, read off `Background` itself: the same cream is 236/255 on ink
+ *  and 18/255 from paper. */
 @Composable
 private fun BoxScope.Watermark() {
     val onInk = Background.luminance() < DARK_GROUND
@@ -187,11 +154,7 @@ private fun StartCard(onStart: () -> Unit) {
             color = OnSurfaceMuted,
         )
         Spacer(Modifier.height(NEW_GAME_TEXT_SPACER))
-        // The ONE control on this screen that needs the camera, and the screen's one filled button.
-        // It opens the tracker; the camera and its permission belong to the tracker's own switch.
-        //
-        // The label does NOT change with the library's state — the greeting above it carries that.
-        // A control whose wording moves is a control no agent and no smoke test can tap by text.
+        // The label never changes with the library: a control whose wording moves cannot be tapped by text.
         FilledAction("Start a game", onStart, Modifier.fillMaxWidth().height(NEW_GAME_BUTTON_HEIGHT))
     }
 }
@@ -208,7 +171,6 @@ private val NEW_GAME_BUTTON_HEIGHT = 52.dp
 
 private val HOME_EXTRA_SIDE_INSET = 8.dp
 
-// The brand geometry of `9c136ec` ("chesslab has a face"), unchanged.
 private val LOGO_SIZE = 28.dp
 private val WATERMARK_HEIGHT = 260.dp
 private val WATERMARK_WIDTH = 172.dp
@@ -246,14 +208,12 @@ private fun ResumeCard(
             color = OnSurface,
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            // One filled button, and it is the one the screen is for. Ending a game is not.
             FilledAction("Resume", onResume, Modifier.weight(1f))
             if (live.moveCount > 0) OutlineAction("End & save", onEnd, Modifier.weight(1f))
         }
     }
 }
 
-/** One sentence naming what will appear. The button that makes it appear is the card above. */
 @Composable
 private fun NoGamesYet() {
     EmptyState("No games yet", "Track a game and it appears here with its review.")

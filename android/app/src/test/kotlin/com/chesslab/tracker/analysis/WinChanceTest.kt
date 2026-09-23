@@ -3,7 +3,7 @@ package com.chesslab.tracker.analysis
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** Expected values produced by `analysis.py`'s own `win_chance_white` on this machine. */
+/** Expected values from `analysis.py`'s own `win_chance_white`. */
 class WinChanceTest {
     @Test
     fun winChanceMatchesPythonSamples() {

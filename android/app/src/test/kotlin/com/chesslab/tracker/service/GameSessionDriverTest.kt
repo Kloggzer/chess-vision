@@ -40,8 +40,7 @@ private class NoFrames : CaptureSource {
     override fun geometryNote(): String? = null
 }
 
-/** D08a-4: the SERVICE drives the game session — a composable would stop recording exactly when the
- *  user put the phone down. The driver ignores UI teardown and a restart, and ends with the service. */
+/** The SERVICE drives the game session: a composable would stop recording when the phone is put down. */
 class GameSessionDriverTest {
     @TempDir
     lateinit var dir: File
@@ -49,7 +48,7 @@ class GameSessionDriverTest {
     private val events = MutableSharedFlow<TrackerEvent>(extraBufferCapacity = 8)
     private val status = MutableStateFlow<TrackerStatus?>(null)
 
-    /** Defaults to the shipped recording OFF: driving the session must not start writing. */
+    /** Recording OFF, as shipped: driving the session must not start writing. */
     private fun controller(
         prefs: RecordingPrefs = RecordingPrefs(),
         open: (CaptureFrame) -> SessionRecorder? = { null },
@@ -79,7 +78,6 @@ class GameSessionDriverTest {
             attachGameSession(service, session, events, status) { "board-a" }
             GameSessionHost.publish(session)
 
-            // A composition that observed the controller, and is then destroyed with the UI.
             val ui = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + SupervisorJob())
             var seen: GameSessionController? = null
             GameSessionHost.controller.onEach { seen = it }.launchIn(ui)
@@ -96,10 +94,7 @@ class GameSessionDriverTest {
             service.cancel()
         }
 
-    /**
-     * A restart rebuilds the pipeline, the engine and their scope ([TrackerStack.scope]); the game
-     * is not a config knob, so it is attached to the SERVICE scope and outlives the swap.
-     */
+    /** The game is not a config knob: attached to the SERVICE scope, it outlives the stack swap. */
     @Test
     fun aTrackerRestartDoesNotInterruptTheSession() =
         runTest {
@@ -107,7 +102,6 @@ class GameSessionDriverTest {
             val session = controller()
             attachGameSession(service, session, events, status) { "board-a" }
             status.value = idleTrackerStatus(STARTPOS)
-            // Exactly what `TrackerStack` owns and `StackSwitch.restart` cancels.
             val stack = CoroutineScope(service.coroutineContext + SupervisorJob())
             var stackSaw = 0
             events.onEach { stackSaw += 1 }.launchIn(stack)
@@ -121,8 +115,7 @@ class GameSessionDriverTest {
             service.cancel()
         }
 
-    /** A session directory that cannot be written (disk full) used to throw out of the event
-     *  collector: the game went on being tracked, but no later move reached the record. */
+    /** An unwritable session directory threw out of the event collector: no later move reached the record. */
     @Test
     fun aRecorderThatCannotOpenIsReportedAndTheGameGoesOn() =
         runTest {

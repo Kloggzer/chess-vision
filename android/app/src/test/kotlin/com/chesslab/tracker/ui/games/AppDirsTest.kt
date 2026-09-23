@@ -10,7 +10,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.File
 
-/** The phone's two data roots are `AppPaths`' names under `filesDir` — the PC's `slice` reads them. */
+/** `AppPaths`' names under `filesDir`: the PC's `slice` reads them. */
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class)
 class AppDirsTest {

@@ -10,7 +10,6 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.util.Locale
 
-/** What `SessionRecorder.capture` leaves in `frames/` and `log.jsonl` for `chesslab slice`. */
 class SessionRecorderLogTest {
     @TempDir
     lateinit var root: File
@@ -19,7 +18,7 @@ class SessionRecorderLogTest {
 
     private fun recorder() = SessionRecorder(dir, SessionMeta("s1", "default", 640, 480))
 
-    /** Die LOGZEILE ist der Commit, nicht das JPEG (Codex, 2026-09-15): sonst ein Frame, den keine Zeile erklaert. */
+    /** Die LOGZEILE ist der Commit, nicht das JPEG: sonst ein Frame, den keine Zeile erklaert. */
     @Test
     fun `a frame whose log line cannot be written is not a capture`() {
         val recorder = recorder()
@@ -36,7 +35,7 @@ class SessionRecorderLogTest {
         assertFalse(File(dir, "frames/0000.jpg").exists(), "das verwaiste JPEG muss weg sein")
     }
 
-    /** B4: ein Anhang, der nur ein PRAEFIX schrieb, liess den halben Satz stehen, und der naechste klebte daran. */
+    /** Ein Anhang, der nur ein PRAEFIX schrieb, liess den halben Satz stehen, und der naechste klebte daran. */
     @Test
     fun `nach einem abgerissenen Anhang bleibt das Log lesbar und vollstaendig`() {
         val recorder = recorder()
@@ -52,7 +51,7 @@ class SessionRecorderLogTest {
         assertEquals(3, recorder.count)
     }
 
-    /** `"frames/%04d.jpg".format(n)` used the default locale: Arabic-Indic digits on an `ar-EG` phone. */
+    /** The default locale gave Arabic-Indic digits on an `ar-EG` phone. */
     @Test
     fun `frame names are ASCII whatever the phone's locale is`() {
         val original = Locale.getDefault()

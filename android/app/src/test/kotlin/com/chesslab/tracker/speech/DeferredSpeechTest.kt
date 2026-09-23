@@ -8,11 +8,7 @@ import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
-/**
- * `ready` was written by the TTS init callback (main) and read by the announcer
- * (`Dispatchers.Default`), and `deferred` was touched from both. The pair has to flip TOGETHER, or
- * the held utterance falls between them — and that utterance is the first move of the session.
- */
+/** Written by the TTS init callback (main), read by the announcer (`Default`): the pair must flip TOGETHER. */
 class DeferredSpeechTest {
     @Test
     fun `the held utterance survives an init that reports mid-submit`() {

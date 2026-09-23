@@ -2,7 +2,7 @@ package com.chesslab.engine.api
 
 enum class AlarmFault { PLAY, ENGINE }
 
-/** Codes verhindern, dass die Ansage englische Prosa aus `guessSan` vorliest (User, 2026-08-28). */
+/** Codes verhindern, dass die Ansage englische Prosa aus `guessSan` vorliest. */
 enum class AlarmReason(
     val fault: AlarmFault,
 ) {

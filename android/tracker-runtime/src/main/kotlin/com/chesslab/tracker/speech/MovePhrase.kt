@@ -1,6 +1,6 @@
 package com.chesslab.tracker.speech
 
-/** How much of a move is spoken. Persisted in `AppSettings`, so the names are part of the format. */
+/** Persisted, so the names are part of the format. */
 enum class SpeechVerbosity(
     val label: String,
 ) {
@@ -9,13 +9,9 @@ enum class SpeechVerbosity(
     WORDS_WITH_SIDE("Words with side"),
 }
 
-/** Everything a spoken move needs beyond the piece names. `MORE` carries an `%s` for the count. */
+/** `MORE` carries an `%s` for the count. */
 private enum class Term { TAKES, PLAYS, CHECK, MATE, PROMOTES, PROMOTES_TO, KINGSIDE, QUEENSIDE, WHITE, BLACK, MORE, AND }
 
-/**
- * The vocabulary of one language: a table, because the only thing that varies between languages is
- * the words — the parse of SAN is identical everywhere.
- */
 private class Words(
     val pieces: Map<Char, String>,
     private val terms: Map<Term, String>,
@@ -61,13 +57,7 @@ private val GERMAN =
         ),
     )
 
-/**
- * SAN in, spoken text out.
- *
- * SAN carries no colour, so the side comes from the ply index (1-based, odd = White). Everything
- * else is read straight off the notation: this never touches a board, because the engine already
- * decided what was played and re-deriving it would be a second, disagreeing opinion.
- */
+/** The side comes from the ply index. Never touches a board: re-deriving the move would be a second opinion. */
 object MovePhrase {
     fun of(
         san: String,
@@ -92,14 +82,12 @@ object MovePhrase {
         val body = castle ?: move(core, verbosity, w)
         if (verbosity != SpeechVerbosity.WORDS_WITH_SIDE) return body + suffix
         val side = if (ply % 2 == 1) w[Term.WHITE] else w[Term.BLACK]
-        // "White castles kingside", not "White plays castles kingside".
         return if (castle != null) "$side $body$suffix" else "$side ${w[Term.PLAYS]} $body$suffix"
     }
 
-    /** Was zwei Zuege einer Sequenz verbindet — ein Bruecken-Commit spricht sie in einem Satz. */
+    /** Ein Bruecken-Commit spricht zwei Zuege in einem Satz. */
     fun and(language: String): String = table(language)[Term.AND]
 
-    /** The overflow announcement, in the speaking language — see `UtteranceQueue`. */
     fun moreMoves(
         dropped: Int,
         language: String,
@@ -115,8 +103,7 @@ object MovePhrase {
         val piece = notation.firstOrNull()?.takeIf { it.isUpperCase() }
         val rest = if (piece != null) notation.drop(1) else notation
         val target = rest.takeLast(2)
-        // Whatever is left in front of the target square is the disambiguator ("Nbd2", "R1e2",
-        // "Qh4xe1") — or, for a pawn, its file. Swallowing it makes two legal moves sound alike.
+        // The disambiguator ("Nbd2", "R1e2") or a pawn's file: swallowing it makes two legal moves sound alike.
         val disambiguation = rest.dropLast(2).filter { it != 'x' }
         return listOfNotNull(
             piece?.let { pieceWord(it, verbosity, w) },
@@ -146,18 +133,16 @@ object MovePhrase {
         w: Words,
     ): String {
         val name = w.pieces[letter.uppercaseChar()] ?: letter.toString()
-        // Deliberate: LETTERS spells the moving piece but says the promotion piece as a word. A
-        // promotion is rare and naming it outright is what the user wants to hear ("promotes queen").
+        // Deliberate: a promotion is rare, and the user wants to hear the piece named outright.
         val verb = if (verbosity == SpeechVerbosity.LETTERS) w[Term.PROMOTES] else w[Term.PROMOTES_TO]
         return "$verb $name"
     }
 
-    /** In LETTERS mode a square is read out character by character: "d5" -> "d 5". */
     private fun spell(
         text: String,
         verbosity: SpeechVerbosity,
     ): String = if (verbosity == SpeechVerbosity.LETTERS) text.toCharArray().joinToString(" ") else text
 
-    /** An unsupported language keeps the English words rather than going silent or crashing. */
+    /** An unsupported language keeps the English words rather than going silent. */
     private fun table(language: String): Words = if (language.substringBefore('-').lowercase() == "de") GERMAN else ENGLISH
 }

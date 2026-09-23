@@ -13,7 +13,6 @@ class ReviewStoreTest {
 
     private fun store() = ReviewStore(File(dir, "games"))
 
-    /** A PARTIAL run is the normal case now, so a run with holes in it has to survive the round trip. */
     @Test
     fun aPartialRunIsStoredAndReloadedWithItsHoles() {
         val store = store()
@@ -32,7 +31,6 @@ class ReviewStoreTest {
         assertEquals(1, store.load("g1", ReviewBudget(nodes = 200_000), positions = 1)?.size)
     }
 
-    /** A game that grew or shrank under the same id is a different game, not a longer analysis. */
     @Test
     fun aLengthThatNoLongerMatchesTheGameIsAMiss() {
         val store = store()
@@ -40,7 +38,6 @@ class ReviewStoreTest {
         assertNull(store.load("g1", ReviewBudget(), positions = 5))
     }
 
-    /** Else `ignoreUnknownKeys` plus a defaulted field hands back an analysis missing the advice on every ply. */
     @Test
     fun aFileFromAnOlderStoreFormatIsAMiss() {
         val store = store()
@@ -50,8 +47,7 @@ class ReviewStoreTest {
         assertNull(store.load("g1", ReviewBudget(), positions = 1))
     }
 
-    /** On the device `depth`/`movetimeMs` became `nodes`/`capMs`, both defaulted, and a depth-30
-     *  analysis compared equal to a node-budget one. */
+    /** `depth`/`movetimeMs` became `nodes`/`capMs`, both defaulted: a depth-30 analysis compared equal. */
     @Test
     fun aBudgetWrittenWithDifferentFIELDNAMESIsAMiss() {
         val store = store()

@@ -3,8 +3,7 @@ package com.chesslab.desktop
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** Python resolves the hook key against the WHOLE recording; a replay-relative one put every
- *  label of 2026-08-16-20-41-33 29 s ahead of its picture. */
+/** A replay-relative hook key put every label of 2026-08-16-20-41-33 29 s ahead of its picture. */
 class HookIndexTest {
     @Test
     fun `a replay names its frames after the recording, not after its own start`() {

@@ -5,10 +5,8 @@ import com.chesslab.engine.api.CnnSnapshot
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * [REFERENCE] was read off the `CnnSnapshot` path BEFORE the map overload existed — a value taken
- * afterwards would only restate whatever the new code does.
- */
+/** [REFERENCE] was read off the `CnnSnapshot` path BEFORE the map overload existed — taken afterwards it would
+ *  only restate the new code. */
 class ReadingFenTest {
     @Test
     fun aPartialMapFillsTheRestWithEmptySquares() {
@@ -36,7 +34,6 @@ private const val REFERENCE = "4k1n1/8/8/4p3/3P4/8/8/R3K3 w - - 0 1"
 private val PROBE_BOARD =
     mapOf("a1" to "wR", "e1" to "wK", "d4" to "wP", "e5" to "bP", "g8" to "bN", "e8" to "bK")
 
-/** One class per label, all mass on the square's own — the reading is then the map, unrounded. */
 private class ProbeObs(
     private val labels: Map<String, String>,
 ) : CnnObservation {

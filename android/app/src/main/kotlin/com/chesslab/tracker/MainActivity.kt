@@ -20,15 +20,7 @@ import com.chesslab.tracker.ui.ChesslabNavHost
 import com.chesslab.tracker.ui.OpenTracker
 import com.chesslab.tracker.ui.theme.ChesslabTheme
 
-/**
- * The single activity. It owns the theme and the nav host — nothing else. The camera belongs to the
- * service (05a/06c): exactly one owner, or the feed freezes on a tab switch (MEMORY
- * `android-single-camera-owner`).
- *
- * It asks for no permission and starts no service. Reviewing a stored game, reading the settings or
- * watching the spectator board needs neither, and the camera permission is now asked for by the one
- * control that opens a camera (`TrackingSwitch`).
- */
+/** The camera belongs to the service: exactly one owner, or the feed freezes on a tab switch. */
 class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         // `FLAG_ACTIVITY_SINGLE_TOP` means a second tap on the notification arrives here instead of
@@ -40,21 +32,15 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // targetSdk 35 means Android 15+ forces edge-to-edge, and Android 16 dropped the opt-out:
-        // the window ALWAYS extends under the status and navigation bars. Declaring it here (rather
-        // than pretending otherwise) is what lets `safeDrawingPadding` below be the single, correct
-        // fix. `auto` follows the system light/dark setting, which is also what the palette does —
-        // hardcoding `dark` painted white system icons onto the light paper theme.
+        // Android 15+ forces edge-to-edge (16 dropped the opt-out), so declaring it makes `safeDrawingPadding`
+        // the one fix. `auto`: a hardcoded `dark` painted white system icons onto the light theme.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
-        // The settings repository belongs to the PROCESS, and this is the process starting. Until
-        // specs/43 the only caller of `get` was `TrackerService`, which used to start on launch;
-        // once it stopped, nothing loaded the store and `SettingsHost.repository` stayed null
-        // forever — Settings, Spoken moves and the camera controls sat on "Reading the stored
-        // settings…" with no error and no crash. `get` is idempotent and returns the one instance.
+        // Loaded by the PROCESS, not by the service: once the service stopped starting on launch, nothing
+        // loaded the store and every settings screen hung on "Reading the stored settings…".
         SettingsHost.get(this)
         if (intent.getBooleanExtra(EXTRA_OPEN_TRACKER, false)) OpenTracker.request()
         setContent {

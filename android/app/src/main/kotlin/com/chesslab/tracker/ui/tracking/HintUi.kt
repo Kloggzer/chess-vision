@@ -42,17 +42,13 @@ import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
 
-/** Hoechstens so viele Hilfen sind einstellbar — darueber ist es kein Handicap mehr. */
 private const val MAX_HINT_QUOTA = 9
 
 private const val CARD_TINT = 0.12f
 
-/** Was ein Nutzer, der den Knopf nicht sieht, ueber ihn sagen kann — `tap-description` findet ihn
- *  darueber, waehrend die Beschriftung mit dem Restkontingent staendig wechselt. */
+/** `tap-description` findet den Knopf hierueber; die Beschriftung wechselt mit dem Restkontingent. */
 const val HINT_BUTTON_DESCRIPTION = "Ask for help"
 
-/** Die Startauswahl: EINE Seite darf Hilfe anfordern, und wie oft. Bewusst neutral von "Hilfe" und
- *  nicht von einem Kindermodus — das Feature gilt allen Spielern, die die Hilfe anhaben. */
 @Composable
 fun HintSetupDialog(
     onStart: (HintPlan) -> Unit,
@@ -105,7 +101,6 @@ private val HINT_SIDES =
         HintSide.BLACK to "Black",
     )
 
-/** Das Kontingent gilt pro PARTIE, nicht pro Phase — deshalb steht hier eine Zahl und kein Takt. */
 @Composable
 private fun HintQuotaStepper(
     quota: Int,
@@ -122,8 +117,7 @@ private fun HintQuotaStepper(
     }
 }
 
-/** Der Knopf erscheint nur fuer die unterstuetzte Seite, an ihrem Zug und mit Kontingent — und
- *  nie unter stehendem Alarm, wo die Alarmkarte der Job des Schirms ist (Regel 3). */
+/** Nie unter stehendem Alarm: dort ist die Alarmkarte der Job des Schirms. */
 @Composable
 fun HintSlot(
     controller: HintController,
@@ -137,7 +131,6 @@ fun HintSlot(
     HintButton(state.remaining, onHint)
 }
 
-/** Der einzige Ausloeser: von sich aus bietet das Telefon nie einen Tipp an. */
 @Composable
 fun HintButton(
     remaining: Int,
@@ -151,8 +144,8 @@ fun HintButton(
     )
 }
 
-/** Tipp UND Absage stehen hier, weil `AndroidSilence.silenced()` die Stimme bei Klingelton-aus
- *  abschaltet — ein nur gesprochener Tipp verschwaende das Kontingent wortlos. */
+/** Auch auf der Karte: `AndroidSilence.silenced()` schaltet die Stimme bei Klingelton-aus ab, und ein nur
+ *  gesprochener Tipp verschwaende das Kontingent wortlos. */
 @Composable
 fun HintCard(
     outcome: HintOutcome,
@@ -182,5 +175,4 @@ fun HintCard(
     }
 }
 
-/** Genug fuer "Du hast Matt in 3" und den Weg dorthin, ohne dem Brett die Hoehe zu nehmen. */
 private const val HINT_CARD_LINES = 4

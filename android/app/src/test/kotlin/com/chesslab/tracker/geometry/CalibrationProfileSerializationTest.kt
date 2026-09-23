@@ -29,7 +29,7 @@ class CalibrationProfileSerializationTest {
         assertTrue(decoded is ProfileLoad.Ok)
         val p = (decoded as ProfileLoad.Ok).profile
         assertEquals(profile(), p)
-        // [a8, h8, h1, a1] — order, not just content. Sorting these transposes the board.
+        // Order, not just content: sorting these transposes the board.
         assertArrayEquals(corners, p.corners, 0f)
         assertEquals(10f, p.corners[0])
         assertEquals(41f, p.corners[7])

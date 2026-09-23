@@ -12,36 +12,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * Where the grading run lives, and the reason it is not the screen.
- *
- * The review screen used to build its [ReviewViewModel] on `rememberCoroutineScope()`, so the job
- * died with the composition: switching tabs was safe, and **leaving the screen killed a pass that
- * takes minutes** — silently, in a way that then looked like a finished review with a partial
- * answer. "also changing view stop the analysis?" (2026-08-04). It did.
- *
- * The scope is the process instead. What that buys is exactly the user's instinct: leaving a screen
- * does not destroy work. What it costs is an engine that keeps two threads busy after the screen is
- * gone, and that cost is the reason for the two rules below.
- *
- * - **One review at a time.** [of] hands out ONE model for the process; opening a different game
- *   cancels the run in flight ([ReviewViewModel.load]) rather than starting a second Stockfish.
- * - **It must be visible and stoppable from outside.** [model] is what the app bar's analysis banner
- *   reads, on every screen, and that banner carries the only Stop control there is.
- * - **Not under `gateBlock`.** Heat, battery and frame budget never reach it, deliberately: it is
- *   started by the user, visible and stoppable (`docs/game-review.md`).
- *
- * There is deliberately no foreground service. specs/43 needed one for the tracker because the
- * tracker owns the camera and must survive the app being backgrounded for a whole game; a review is
- * minutes, is restartable, and — crucially — [com.chesslab.tracker.analysis.GameReviewer] persists
- * after EVERY position, so the worst a kill can cost is one search.
- */
+/** Process-scoped: a pass takes minutes, and leaving the screen once killed it silently. ONE review at a
+ *  time ([of] cancels the old run); visible and stoppable from every screen via [model]; not under
+ *  `gateBlock`. No foreground service: the reviewer persists after EVERY position. */
 object ReviewHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val current = MutableStateFlow<ReviewViewModel?>(null)
 
-    /** Null until a review screen has been opened once; never cleared, so the banner keeps reading it. */
+    /** Never cleared, so the banner keeps reading it. */
     val model: StateFlow<ReviewViewModel?> = current
 
     @Synchronized

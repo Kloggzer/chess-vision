@@ -38,24 +38,12 @@ import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Touch
 import kotlinx.coroutines.delay
 
-/**
- * How long a drag has to stand still before the camera is told.
- *
- * The first version had none: `Slider(onValueChange = …)` fires on every pixel of a drag and each
- * call rebuilt the whole repeating capture request. Measured on the phone, a handful of short drags
- * issued **165 capture-request reconfigurations in nine seconds** — around sixty a second — and the
- * picture lagged the finger visibly. A full 900 ms drag now issues one.
- */
+/** `Slider.onValueChange` fires per pixel, and each call rebuilt the repeating request: 165 reconfigurations
+ *  in nine seconds, the picture lagging the finger. A 900 ms drag now issues one. */
 private const val LIVE_APPLY_MS = 120L
 
-/**
- * One axis of the picture, as the deck offers it: a tile you tap to open ONE slider.
- *
- * The torch is deliberately not a member. It is a switch, not a value, and it has no panel to open
- * — folding it in here would give it a slider it cannot use.
- */
+/** The torch is not a member: a switch has no slider to open. */
 enum class CameraAxis(
-    /** Short enough to survive a fifth of a phone's width at arm's length. */
     val label: String,
 ) {
     FOCUS("Focus"),
@@ -64,7 +52,7 @@ enum class CameraAxis(
     WHITE_BALANCE("Colour"),
 }
 
-/** Whether this device offers the axis at all — an absent control beats a dead one. */
+/** An absent control beats a dead one. */
 fun CameraAxis.availableOn(abilities: CameraAbilities): Boolean =
     when (this) {
         CameraAxis.FOCUS -> abilities.canFocus
@@ -73,7 +61,6 @@ fun CameraAxis.availableOn(abilities: CameraAbilities): Boolean =
         CameraAxis.WHITE_BALANCE -> abilities.canWhiteBalance
     }
 
-/** Whether the axis has been moved off the device's automatic — what the tile highlights. */
 fun CameraAxis.isSet(look: CameraLook): Boolean =
     when (this) {
         CameraAxis.FOCUS -> look.focus != null
@@ -82,13 +69,6 @@ fun CameraAxis.isSet(look: CameraLook): Boolean =
         CameraAxis.WHITE_BALANCE -> look.whiteBalance != WhiteBalance.AUTO
     }
 
-/**
- * The value the tile carries, in the axis's own units.
- *
- * On the tile and not in a labelled row beneath the picture: the whole reason to look at a camera
- * setting is the picture next to it, and a reading you have to scroll to is a reading you compare
- * from memory.
- */
 fun CameraAxis.reading(
     look: CameraLook,
     abilities: CameraAbilities,
@@ -100,16 +80,9 @@ fun CameraAxis.reading(
         CameraAxis.WHITE_BALANCE -> look.whiteBalance.label
     }
 
-/** "Daylight · 5500 K" where the illuminant has a nominal temperature, the bare name where not. */
 fun WhiteBalance.kelvinLabel(): String = kelvin?.let { "$label · $it K" } ?: label
 
-/**
- * One tile of the deck: what the axis is called, and what it is set to.
- *
- * Sized by the caller (`weight`), so the row divides the width evenly and every tile is the same
- * thumb-sized target wherever it sits. [open] is the tile whose slider is showing — exactly one,
- * ever, which is the rule the stacked-slider version broke.
- */
+/** [open] is the tile whose slider shows — exactly one, ever. */
 @Composable
 fun CameraTile(
     label: String,
@@ -147,16 +120,8 @@ fun CameraTile(
     }
 }
 
-/**
- * One continuous control, the shape every slider on the camera screen uses.
- *
- * Two values are kept apart here, and the version this replaces conflated them: the one under the
- * FINGER and the one the CAMERA holds. The finger drives the thumb every frame so the control feels
- * alive; the camera is told once the finger has stood still for [LIVE_APPLY_MS], and once more when
- * it lifts. Without the second, the last position of a fast drag would never be applied; without the
- * first, the picture would only move after the drag ended — and watching the picture while you drag
- * is the entire point of the screen.
- */
+/** FINGER and CAMERA values are kept apart: the thumb follows every frame; the camera is told after
+ *  [LIVE_APPLY_MS] of stillness and once more on lift, or a fast drag's last position is never applied. */
 @Composable
 fun CameraDial(
     caption: String,
@@ -174,14 +139,9 @@ fun CameraDial(
         onValue(next)
     }
     Column(Modifier.fillMaxWidth()) {
-        // The reading sits ABOVE the slider and away from the tiles, because the finger dragging
-        // the slider is over the bottom of the screen: a number under the thumb is a number you
-        // lift your hand to read, on the one screen where the picture must not be let go of.
+        // ABOVE the slider: the dragging finger covers the bottom of the screen.
         DialReading(caption, reading)
-        // Inset from the screen edge. A slider whose track runs to the bezel puts its end stops
-        // where the palm rests and where an edge-swipe gesture lives, so the last part of the
-        // travel is the part you cannot reach comfortably — on a phone that is being held over a
-        // board with one hand, that is most of the time.
+        // Inset: a track to the bezel puts its end stops under the palm and on the edge-swipe gesture.
         Row(
             Modifier.fillMaxWidth().padding(horizontal = SLIDER_INSET),
             verticalAlignment = Alignment.CenterVertically,
@@ -209,7 +169,6 @@ fun CameraDial(
     }
 }
 
-/** Snap both dragging and button nudges to meaningful camera increments. */
 internal fun snapDialValue(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
@@ -249,12 +208,6 @@ internal fun DialReading(
     }
 }
 
-/**
- * A row of named choices, scrolled rather than wrapped.
- *
- * Wrapping was the old shape and it cost four rows of the screen for seven illuminants. One line
- * that scrolls keeps the deck a strip, which is the whole point of the rebuild.
- */
 @Composable
 fun <T> CameraChoice(
     options: List<Pair<String, T>>,
@@ -286,14 +239,7 @@ private fun chromeChipColors() =
         selectedLabelColor = Chrome.accent,
     )
 
-/**
- * A line of explanation over the viewfinder — the consequence of the control, not its name.
- *
- * It carries the same scrim `ChromeBanner` does, and for the same reason. This screen is dark in
- * BOTH themes (`Chrome = InkPalette`); over the pale letterbox of a portrait clip in the light
- * scheme, muted ink on cream was measured unreadable — `screenshots/light/02-camera.png`, bottom
- * line. A note the eye cannot find is a note that is not there.
- */
+/** The same scrim as `ChromeBanner`: muted ink over the pale letterbox of a portrait clip was measured unreadable. */
 @Composable
 fun CameraNote(text: String) {
     Text(
@@ -313,7 +259,6 @@ private val NOTE_CORNER = 8.dp
 private const val PERCENT = 100f
 private const val AUTO = "Auto"
 
-/** Distance from the screen edge to a slider's end stop — see the comment at its use site. */
 private val SLIDER_INSET = 20.dp
 
 private const val TILE_MIN = 56

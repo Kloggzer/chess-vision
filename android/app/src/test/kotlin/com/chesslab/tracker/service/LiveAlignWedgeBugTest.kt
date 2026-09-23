@@ -11,9 +11,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Bug-Audit C7: ein Wurf hinter der Detection verkeilt das Alignment fuer den Rest der Sitzung.
- *  Ein `finally` um Release und `inFlight` reicht NICHT — der Wurf bricht den Scope ab
- *  (gemessen 2026-09-16, `docs/bug-audit-2026-09-13.md`). */
+/** Ein Wurf hinter der Detection verkeilte das Alignment: ein `finally` reicht NICHT, der Wurf bricht den
+ *  Scope ab (`docs/bug-audit-2026-09-13.md`). */
 @EnabledIf(OpenCvGate.REF)
 class LiveAlignWedgeBugTest {
     @Test

@@ -5,11 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/**
- * The button has to say what it will take back, because since `TrackerEngine.undo` unwinds the last
- * COMMIT one press is no longer one ply. A user who learned the old behaviour and presses four
- * times after a four-ply recovery unwinds sixteen.
- */
+/** One press is one COMMIT, not one ply: four presses after a four-ply recovery unwind sixteen. */
 class UndoLabelTest {
     @Test
     fun anOrdinaryCommitCountsAsOne() {
@@ -25,7 +21,6 @@ class UndoLabelTest {
         assertEquals(bridge, undoDetail(bridge), "SAN is never translated — the moves travel as moves")
     }
 
-    /** What the label counts. Deliberately not a score sheet — that is `GameSessionState.game`. */
     @Test
     fun onlyCommitsCarrySans() {
         assertEquals(

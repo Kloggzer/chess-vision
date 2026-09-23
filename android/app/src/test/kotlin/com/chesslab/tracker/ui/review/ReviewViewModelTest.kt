@@ -32,7 +32,6 @@ import java.util.concurrent.CountDownLatch
 private const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 private const val SCORE_LINE = "info depth 18 multipv 1 score cp 20 pv e2e4"
 
-/** After 1. e4 the book names the opening and offers two replies, so the warm has positions to fill. */
 private fun kingsPawnBook(): OpeningBook {
     val afterE4 = openingPositionKey(Board().apply { doMove(Move("e2e4", Side.WHITE)) }.fen)
     val openings = tsv(listOf("position", "eco", "name", "canonicalPlies"), listOf(afterE4, "B00", "King's Pawn", "1"))
@@ -111,7 +110,6 @@ class ReviewViewModelTest {
             assertEquals("Engine unavailable: UCI engine terminated — nearby book positions were not cached.", note)
         }
 
-    /** The game itself reviews on a working engine; [later] is what the library warm gets afterwards. */
     private suspend fun warmWith(later: () -> UciEngine?): String? {
         val gameStore = GameStore(dir)
         gameStore.save(game("a", "1. e4"))

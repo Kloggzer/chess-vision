@@ -11,12 +11,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-/**
- * The board as the RECORDING describes it: `boardGeometryFor` knows only the quad and stamps
- * white POV and `margins4(0.045)` over the rest, so a black-side game was cut 180 degrees around.
- * `candidate.json` carries the margin, `settings.json` the orientation; where neither is stored
- * the printed line says the POV is assumed rather than measured.
- */
+/** `boardGeometryFor` stamps white POV and `margins4(0.045)`, so a black-side game was cut 180 degrees
+ *  around. Where neither file stores it, the printed line says the POV is assumed. */
 internal fun replayBoardGeometry(
     quad: FloatArray,
     dir: File?,
@@ -46,7 +42,6 @@ private fun marginFromCandidate(candidate: File): Double? =
             .jsonPrimitive.double
     }.getOrNull()
 
-/** `AppSettings.orientation` out of a session's `settings.json`, or null where none was written. */
 private fun recordedWhitePov(file: File?): Boolean? {
     val name =
         runCatching {

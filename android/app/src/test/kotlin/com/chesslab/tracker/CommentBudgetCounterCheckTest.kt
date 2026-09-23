@@ -3,10 +3,7 @@ package com.chesslab.tracker
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * Die eingepflanzte Gegenprobe zu [commentBlocks]: je ein Verstoss, der gezaehlt werden MUSS, und
- * ein erlaubter Fall, der es nicht darf. Die Proben stehen in rohen Strings, zaehlen also nicht mit.
- */
+/** Planted counter-checks for [commentBlocks]; the samples sit in raw strings, so they do not count. */
 class CommentBudgetCounterCheckTest {
     @Test
     fun einLangerKommentarblockWirdGezaehlt() {
@@ -31,7 +28,6 @@ class CommentBudgetCounterCheckTest {
         assertEquals(0, commentBlocks(text))
     }
 
-    /** Derselbe Fehler, den der TS-Zwilling mit einem Blockkommentar-Zeichen im String trug. */
     @Test
     fun einKommentarZeichenImRohenStringIstKeinKommentar() {
         val text = "val muster =\n" + "\"\"\"\n" + "// eins\n// zwei\n// drei\n// vier\n// fuenf\n// sechs\n" + "\"\"\"\n"

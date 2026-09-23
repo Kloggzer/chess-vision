@@ -23,7 +23,6 @@ import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 
-/** ATTACHED | ATTACHING | FAILED(reason) | DISABLED, plus the reason verbatim. */
 internal fun attachLabel(state: CnnState): String =
     when (state) {
         is CnnState.Off -> "DISABLED"
@@ -41,37 +40,17 @@ internal fun attachTone(state: CnnState): Color =
         is CnnState.Failed -> Danger
     }
 
-/**
- * `QNN (requested) -> NNAPI (actual)`, amber when they differ.
- *
- * A silent fall-through from the NPU to the CPU keeps the same fps and multiplies the latency;
- * showing only the provider the settings asked for is how that goes unnoticed for a session.
- */
+/** A silent NPU to CPU fall-through keeps the fps and multiplies the latency. */
 internal fun epLine(runtime: CnnRuntimeInfo): String {
     val requested = runtime.requestedEp ?: "-"
     val actual = runtime.actualEp ?: "-"
     return if (requested == actual) actual else "$requested (requested) → $actual (actual)"
 }
 
-/**
- * True when the CNN silently landed on a provider other than the one asked for.
- *
- * Split out of [epTone] so the decision stays a pure function: the colour now comes from the
- * theme's palette and can only be read inside a composition, but *this* is what a test cares about.
- */
 internal fun epFellBack(runtime: CnnRuntimeInfo): Boolean = runtime.actualEp != null && runtime.requestedEp != runtime.actualEp
 
-/**
- * `real14-80 @ 80x80 · crop side=0.050` — which bundled model attached, the size it is fed,
- * and the box those pixels were cut out of.
- *
- * All three are what the app MEASURED, never what the settings asked for: the name is the
- * directory that was really staged, the size is the tensor built from that model's own
- * `config.json`, and the crop is the live geometry's. An A/B on a real board is worth nothing if
- * the panel cannot attribute what was just seen to a model — and since specs/45 that attribution
- * includes the box, because a model served pads it never declared is being shown a different
- * photograph of every square (the crop then reads `(LEGACY: the model declares no crop)`).
- */
+/** What was MEASURED, never what settings asked: the staged directory, the tensor size from its own
+ *  `config.json`, and the live crop box — a model served pads it never declared sees other photographs. */
 internal fun modelLine(runtime: CnnRuntimeInfo): String {
     val name = runtime.modelDir ?: "-"
     val size =
@@ -86,22 +65,13 @@ internal fun modelLine(runtime: CnnRuntimeInfo): String {
 @androidx.compose.runtime.Composable
 internal fun epTone(runtime: CnnRuntimeInfo): Color = if (epFellBack(runtime)) Busy else Accent
 
-/**
- * `lastRunMs` encodes "never ran" as 0.0, so a DISABLED or FAILED attach reported an inference
- * nobody paid for, beside neighbours that honestly say "-". Only ATTACHED has been timed.
- */
+/** `lastRunMs` encodes "never ran" as 0.0; only ATTACHED has been timed. */
 internal fun inferLine(
     state: CnnState,
     runtime: CnnRuntimeInfo,
 ): String = if (state is CnnState.Ready) fmt(runtime.lastRunMs, 1) else "-"
 
-/**
- * The banner text, or null.
- *
- * It is a PURE function of the attach state and takes no "dismissed" input, so dismissal is not
- * representable: the recorded bug is that a silent CNN failure survived an entire session, and
- * anything the user can wave away reproduces it.
- */
+/** Takes no "dismissed" input: a silent CNN failure once survived a whole session. */
 internal fun attachBannerText(state: CnnState): String? =
     if (state is CnnState.Failed) "CNN attach FAILED: ${state.reason} — tracking is diff-only" else null
 
@@ -125,8 +95,7 @@ fun CnnStatePanel(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         Text(attachLabel(state), style = MaterialTheme.typography.titleLarge, color = attachTone(state))
         StatRow("execution provider", epLine(runtime), epTone(runtime))
-        // The model FIRST, and in its own row: three are bundled and switchable, so every other
-        // number on this screen is meaningless until this one is read.
+        // The model FIRST: several are switchable, and every other number is meaningless until this one is read.
         StatRow("model", modelLine(runtime), Accent)
         StatRow("graph", runtime.model ?: "-", OnSurface)
         StatRow("input shape", runtime.inputShape ?: "-", OnSurface)

@@ -61,42 +61,20 @@ import com.chesslab.tracker.ui.theme.SurfaceRaised
 import com.chesslab.tracker.ui.tracking.speechLanguage
 import kotlin.math.abs
 
-/** 94 dp until specs/50, when the number moved out of the bar and needed a column of its own. */
 private val POSITION_COLUMN_WIDTH = 104.dp
 
-/** What is left of the column beside the label: enough fill to read a share at a glance. */
 private val POSITION_BAR_WIDTH = 48.dp
 private val MOVE_ROW_HEIGHT = 52.dp
 private val MOVE_NUMBER_WIDTH = 34.dp
 
-/** Level, as the win-expectancy curve means it. */
 private const val EVEN = 50.0
 
-/** Below this the cost rounds to zero, and `−0 %` is not a cost anybody should read. */
+/** Below this the cost rounds to zero, and `−0 %` is not a cost. */
 private const val HALF_A_POINT = 0.5
 
-/**
- * The score sheet — live or archived, and the same list either way.
- *
- * It is ROWS IN THE SCREEN'S OWN LazyColumn rather than a list of its own. It used to be a nested
- * `LazyColumn` in a fixed-height box, and on a phone that box lost the fight: the board is square
- * and takes a screen width of height, and once the verdict was added above it the list measured to
- * one and a half rows while the accuracy card was clipped off the bottom. One scrolling list has no
- * such fight, and it is what both products this screen was measured against do.
- *
- * The only thing that differs between live and archived is what is written beside each ply: the
- * tracker's decider while the game runs, the engine's grade once it has been reviewed. [grade] null
- * means "not reviewed", never "clean".
- *
- * It takes the whole [game] rather than a flat ply list because a game can hold SEAMS, and the
- * moves after one do not follow the moves before it. A flat list says they do.
- *
- * [selected] is a ply number, 0 for the start position. [onSelect] null makes the list read-only,
- * which is what the live surface wants: there the board follows the game, not the finger.
- *
- * The standalone [MoveList] above is for the TRACKING screen, which has no lazy list of its own and
- * wants the score sheet in a fixed box that follows the game to the bottom.
- */
+/** ROWS IN THE SCREEN'S OWN LazyColumn: a nested list in a fixed box measured to one and a half rows under
+ *  the square board. [grade] null means "not reviewed", never "clean"; the whole [game] because moves
+ *  after a SEAM do not follow those before. [onSelect] null is read-only (live). */
 @Composable
 fun MoveList(
     game: GameView,
@@ -105,8 +83,7 @@ fun MoveList(
     val listState = rememberLazyListState()
     val plyCount = game.plies.size
     LaunchedEffect(plyCount) {
-        // Off the ply count, not off `layoutInfo.totalItemsCount`: that is one PAST the last index
-        // and it reads empty on the first composition. The list clamps an index past its end.
+        // Off the ply count, not `layoutInfo.totalItemsCount`: that is one PAST the last index and empty at first.
         if (plyCount > 0) listState.animateScrollToItem(plyCount)
     }
     Box(
@@ -147,7 +124,6 @@ fun LazyListScope.moveListSection(
     hintLegend(game)
 }
 
-/** Was die Zeichen heissen, und nur wenn welche dastehen — eine Partie ohne Tipps erklaert keine. */
 private fun LazyListScope.hintLegend(game: GameView) {
     if (!game.hintsRecorded || game.plies.none { it.hint != null }) return
     item(key = "hint-legend") {
@@ -210,15 +186,8 @@ private fun LazyListScope.segmentRows(
     }
 }
 
-/**
- * A GAP in the record, in plain words.
- *
- * This is the one thing about how the game was captured that a player genuinely needs told. Which
- * path committed an individual move is not — a recovered move is normally the move that was played,
- * and the decider says how the app found out, not whether it happened. A seam is different: the moves
- * on the two sides of it are not one continuous record, so the review says so and refuses to grade
- * across it.
- */
+/** The one capture fact a player needs: the moves on either side of a seam are not one record, so the
+ *  review says so and does not grade across it. */
 @Composable
 private fun SeamRow(seam: SeamOrigin) {
     Column(Modifier.fillMaxWidth().padding(vertical = Space.sm)) {
@@ -246,7 +215,6 @@ private fun MoveRowLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
-        // A move number is a figure and the column only works if they line up.
         Figure("${row.number}.", OnSurfaceMuted, Modifier.width(MOVE_NUMBER_WIDTH))
         MoveCell(row.white, grade, selected, onSelect, hintsRecorded, Modifier.weight(1f))
         MoveCell(row.black, grade, selected, onSelect, hintsRecorded, Modifier.weight(1f))
@@ -273,14 +241,10 @@ private fun PositionCell(
         horizontalArrangement = Arrangement.spacedBy(Space.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // The number sits BESIDE the bar, never on it. Drawn inside, the fill's own boundary ran
-        // straight through it — rows 6-8 of the shipped screen read `73| %`, `68| %`, `67| %`.
-        // Right-aligned, so `4 %` and `52 %` line up on the unit and neither drifts off the bar.
+        // BESIDE the bar, never on it: drawn inside, the fill's edge cut through it (`73| %`). Right-aligned on the unit.
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
             Figure(positionLeadLabel(winWhite, mate), trendColor)
         }
-        // A forced mate takes the whole cell: the bar is a share out of 100 and it has nothing left
-        // to say once the game is decided, while "Mate in 6" needs every pixel of the column.
         if (mate == null) {
             Box(Modifier.width(POSITION_BAR_WIDTH).fillMaxHeight().clip(RoundedCornerShape(Radius.sm))) {
                 HorizontalPositionBackground(winWhite)
@@ -317,19 +281,10 @@ private fun HorizontalPositionBackground(winWhite: Double?) {
     }
 }
 
-/** "4." for White's 7th ply, "4…" for Black's 8th — the score sheet's numbering, once. PGN keeps its
- *  own ASCII "..." (`PgnBuilder`), and so does [openingTheoryLabel]. */
+/** PGN keeps its own ASCII "..." (`PgnBuilder`), and so does [openingTheoryLabel]. */
 internal fun moveNumberLabel(ply: Int): String = "${(ply + 1) / 2}${if (ply % 2 == 1) "." else "…"}"
 
-/**
- * The position after the row's last ply, as WHITE's win expectancy — the same quantity the bar
- * behind it draws and the same one the `−10%` beside the SAN is a delta of.
- *
- * It printed `White +1.2` until specs/47: a pawn count, in a column whose background was already
- * drawn from the percentage, one tab away from a screen that had centipawns removed from it
- * deliberately (specs/44). "Mate in 6" and "Checkmate" keep their words — a distance is not an
- * evaluation, and the percentage has nothing left to say once a mate is forced.
- */
+/** WHITE's win expectancy, the quantity the bar draws. "Mate in 6" keeps its words: a distance is no evaluation. */
 internal fun positionLeadLabel(
     winWhite: Double?,
     mate: Int?,
@@ -363,12 +318,8 @@ private fun MoveCell(
         Text(
             text = ply.san,
             style = MaterialTheme.typography.bodyLarge,
-            // The SAN and its grade, and nothing else. `cnn_occupancy` used to sit here beside every
-            // move: the tracker's own vocabulary, competing with the move for the reader's eye and
-            // saying nothing a player can act on. It is in Details now.
             color = MaterialTheme.colorScheme.onSurface,
-            // The selected ply is the one the board is showing. Without it the board and the list
-            // disagree about where you are the moment you scroll away from the end.
+            // Without it board and list disagree about where you are once you scroll away from the end.
             fontWeight = if (ply.ply == selected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
         )
@@ -381,9 +332,7 @@ private fun MoveCell(
                         Text(
                             text = badge,
                             style = MaterialTheme.typography.labelMedium,
-                            // Not `quality?.let(::badgeColor)`: the palette is read through
-                            // composable getters, and a @Composable function reference cannot be
-                            // passed to `let`.
+                            // Not `quality?.let(::badgeColor)`: a @Composable function reference cannot be passed to `let`.
                             color = badgeColor(it),
                             maxLines = 1,
                         )
@@ -395,9 +344,8 @@ private fun MoveCell(
     }
 }
 
-/** Der Herkunftsvermerk an der Zugzeile — und NUR der Vermerk. Ob ein vorgesagter Zug anders
- *  benotet oder aus der Statistik genommen wird, ist eine Produktentscheidung
- *  (`docs/game-review.md`); die Benotung bleibt bis dahin, wie sie ist. */
+/** NUR der Vermerk: ob ein vorgesagter Zug anders benotet wird, ist eine offene Produktentscheidung
+ *  (`docs/game-review.md`). */
 @Composable
 private fun HintSign(status: HintStatus) {
     val sign = HintMark.sign(status)
@@ -412,14 +360,7 @@ private fun HintSign(status: HintStatus) {
     )
 }
 
-/**
- * Winning-chance cost of this move, from the mover's perspective.
- *
- * This is the same loss that determines the quality badge. It is deliberately capped at zero: an
- * engine comparison can wobble slightly in the mover's favour between searches, but that does not
- * mean the move created winning chances from nowhere. Most importantly, a blunder can never appear
- * beside a positive number merely because the opponent blundered even harder elsewhere.
- */
+/** Capped at zero: a wobble between searches must never put a blunder beside a positive number. */
 internal fun moveImpactLabel(grade: PlyGrade?): String? {
     if (grade == null) return null
     if (grade.quality == MoveQuality.BEST) return percent(0.0)
@@ -427,7 +368,6 @@ internal fun moveImpactLabel(grade: PlyGrade?): String? {
     return if (lost < HALF_A_POINT) percent(0.0) else "−${percent(lost)}"
 }
 
-/** Short enough to sit beside a SAN on a phone; the verdict above the list spells the band out. */
 private fun badge(quality: MoveQuality): String =
     when (quality) {
         MoveQuality.BEST -> "best"

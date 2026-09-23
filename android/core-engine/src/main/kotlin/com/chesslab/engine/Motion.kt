@@ -3,7 +3,6 @@ package com.chesslab.engine
 import kotlin.math.abs
 import kotlin.math.floor
 
-/** Per-pixel brightness threshold in 8-bit gray levels. */
 internal const val MOTION_PX_THR_DEFAULT: Double = 20.0
 
 private const val PERCENT: Double = 100.0
@@ -12,11 +11,8 @@ private const val MOTION_U8_MASK: Int = 0xFF
 /** No absdiff of two bytes can exceed this, so no threshold at or above it can be beaten. */
 private const val MOTION_U8_MAX: Int = 255
 
-/**
- * Percent (0..100) of unsigned-byte diffs strictly above [pxThr], matching NumPy `d > px_thr`.
- * Strong compact hand motion survives; widespread tiny warp jitter stays below threshold.
- * The 0.25 motion threshold is percent, not a fraction.
- */
+/** Strictly above [pxThr], as NumPy `d > px_thr`. Compact hand motion survives, tiny warp jitter does not.
+ *  The 0.25 threshold is PERCENT, not a fraction. */
 internal fun motionScore(
     prev: ByteArray,
     cur: ByteArray,
@@ -34,7 +30,6 @@ internal fun motionScore(
     return hits.toDouble() / n * PERCENT
 }
 
-/** For integer d in 0..255, strict `d > pxThr` is `d >= floor(pxThr)+1`; NaN counts nothing. */
 private fun leastCountingDiff(pxThr: Double): Int? =
     when {
         pxThr.isNaN() || pxThr >= MOTION_U8_MAX -> null

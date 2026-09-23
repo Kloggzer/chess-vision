@@ -9,37 +9,19 @@ import android.graphics.drawable.Icon
 import com.chesslab.tracker.MainActivity
 import com.chesslab.tracker.R
 
-/** Created by `ChesslabApp`; the service only posts into it. */
 const val NOTIFICATION_CHANNEL_ID = "chesslab-tracking"
 
 const val NOTIFICATION_ID = 1
 
-/** Handled by [TrackerService.onStartCommand]: end the service and release the camera. */
 const val ACTION_STOP_TRACKING = "com.chesslab.tracker.STOP_TRACKING"
 
 private const val REQUEST_STOP = 1
 
-/**
- * Tells [MainActivity] to open the TRACKER rather than Home.
- *
- * The app's start destination is the dashboard, so without this the notification landed a user who
- * tapped "chesslab is tracking" on a screen that is not the game. specs/47 §3.1a: a running game is
- * never more than one deliberate tap away, from anywhere — and from outside the app the
- * notification is that tap.
- */
+/** The start destination is Home, so without this the notification did not open the game. */
 const val EXTRA_OPEN_TRACKER = "com.chesslab.tracker.OPEN_TRACKER"
 
-/**
- * The ongoing foreground notification.
- *
- * Android 14 requires `startForeground` with type `camera` BEFORE the camera binds, so this must
- * be buildable without any tracker state — hence the plain state string and move count rather
- * than a `TrackerStatus`.
- *
- * It carries the app's only off switch that is reachable without opening the app. A camera-type
- * foreground service with no way to end it from the shade leaves force-stop as the user's only
- * option, which is not an off switch, it is a workaround.
- */
+/** Android 14 requires `startForeground` BEFORE the camera binds, so this builds without tracker state.
+ *  It carries the only off switch outside the app — without it force-stop would be the user's option. */
 class TrackerNotification(
     private val context: Context,
 ) {
@@ -53,9 +35,8 @@ class TrackerNotification(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    // `getForegroundService`, not `getService`: the shade delivers this while the app is in the
-    // background, where starting a plain service is not allowed. The service is already foreground,
-    // so the 5-second `startForeground` obligation is met the moment the intent lands.
+    // `getForegroundService`, not `getService`: the shade delivers this in the background, where a plain
+    // service start is refused. The service is already foreground, so the 5 s obligation is met.
     private val stopTracking: PendingIntent =
         PendingIntent.getForegroundService(
             context,
@@ -64,10 +45,7 @@ class TrackerNotification(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    /**
-     * Re-post with the current state. The shade must say whether the camera is live — a frozen
-     * "waiting" over a released camera implies the device is still being watched.
-     */
+    /** The shade must say whether the camera is live: a frozen "waiting" over a released camera implies watching. */
     fun post(
         state: String?,
         moves: Int,

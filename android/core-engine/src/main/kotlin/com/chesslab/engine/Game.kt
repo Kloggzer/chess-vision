@@ -30,7 +30,7 @@ internal class Game(
         board.loadFromFen(fen)
     }
 
-    /** En-passant target is emitted only when legally capturable, matching standard FEN consumers. */
+    /** En-passant target only when legally capturable, as standard FEN consumers expect. */
     fun fen(): String =
         WorkProfiler.span(WorkOperation.FEN_SERIALIZE, input = board::getIncrementalHashKey) {
             cachedFen?.let {
@@ -53,7 +53,7 @@ internal class Game(
             MoveGenerator.generateLegalMoves(board).toList().also { cachedLegalMoves = it }
         }
 
-    /** `doMove` does not fully validate geometry, so only generator-approved moves reach the board. */
+    /** `doMove` does not fully validate geometry: only generator-approved moves reach the board. */
     fun push(move: Move) {
         if (legalMoves().none { it == move }) throw IllegalMoveException(uciOf(move), fen())
         val previous = CachedPosition(cachedFen, cachedLegalMoves)
@@ -63,7 +63,7 @@ internal class Game(
         cachedLegalMoves = null
     }
 
-    /** Returns the reverted move because SAN is position-relative and cannot key rejected lines. */
+    /** Returns the move: SAN is position-relative and cannot key rejected lines. */
     fun pop(): Move? {
         val move = board.undoMove() ?: return null
         val previous = cacheHistory.pollLast()
@@ -94,7 +94,6 @@ internal class Game(
             over = board.isMated || board.isDraw,
         )
 
-    /** Cached values stay in lockstep with chesslib's move stack. */
     private data class CachedPosition(
         val fen: String?,
         val legalMoves: List<Move>?,
@@ -117,7 +116,7 @@ internal fun Game.labelAt(square: String): String {
 
 internal fun Game.san(move: Move): String = sanSequence(listOf(move)).first()
 
-/** A detached FEN copy intentionally excludes the move stack. */
+/** Excludes the move stack on purpose. */
 internal fun Game.copy(): Game = Game(fen())
 
 internal fun uciOf(move: Move): String {
@@ -127,7 +126,7 @@ internal fun uciOf(move: Move): String {
     return Squares.ALL[move.from.ordinal] + Squares.ALL[move.to.ordinal] + suffix
 }
 
-/** [Squares.ALL] index equals chesslib `Square.ordinal` (engine invariant 11). */
+/** [Squares.ALL] index equals chesslib `Square.ordinal` (invariant 11). */
 private fun indexOf(name: String): Int {
     val index = Squares.index(name.trim().lowercase())
     require(index >= 0) { "invalid square: '$name'" }

@@ -1,13 +1,7 @@
 package com.chesslab.tracker.camera
 
-/**
- * Reports a requested-vs-delivered resolution mismatch once per distinct pair, mirroring the rate
- * limit of `tracker.py::_note_frame_size` (it logs only when the size actually changes; per frame
- * it would be 30 identical WARN lines a second and nobody reads those).
- *
- * It only REPORTS. Reacting to a size change — regenerating the calibration profile — is 05b's
- * `FrameSizeGuard`; nothing in `camera/` scales geometry, because that is exactly `a7dab73`.
- */
+/** Once per distinct pair: per frame it would be 30 identical WARN lines a second. It only REPORTS —
+ *  `FrameSizeGuard` reacts; nothing in `camera/` scales geometry (that was `a7dab73`). */
 class ResolutionMismatchLogger(
     private val warn: (String) -> Unit,
 ) {

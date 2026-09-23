@@ -5,10 +5,7 @@ import com.chesslab.tracker.cnn.bundledModelOrDefault
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * Die zwei Sonderzweige in `decodeAppSettings` sind wirkungslos, solange beide Mengen disjunkt zu
- * `BUNDLED_MODELS` sind; gepinnt, weil ein kuenftiges APK sie wieder scharf machen kann.
- */
+/** Wirkungslos, solange beide Mengen disjunkt zu `BUNDLED_MODELS` sind; ein kuenftiges APK kann sie scharf machen. */
 class RetiredModelBranchesTest {
     @Test
     fun `no retired or legacy-default name is bundled, so every branch answers the same`() {

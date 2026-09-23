@@ -35,10 +35,7 @@ import kotlinx.coroutines.launch
 import org.opencv.core.Mat
 import java.util.concurrent.atomic.AtomicReference
 
-/**
- * The analyzer-thread loop — nothing here blocks, and the parameter list IS the seam rather than a
- * smell. What each decision cost when it was made differently: `docs/tracker-runtime-service.md`.
- */
+/** Nothing here blocks. What each decision cost: `docs/tracker-runtime-service.md`. */
 @Suppress("LongParameterList")
 class TrackerCoordinator<T>(
     private val pipeline: FramePipeline<T>,
@@ -48,81 +45,57 @@ class TrackerCoordinator<T>(
     private val observer: CnnObserver,
     private val align: LiveAlign,
     private val timings: StageTimings,
-    /**
-     * The engine's clock, and a parameter because several gates are AGES against it: the wall clock
-     * makes a replay's windows 1.6x too short and two runs disagree (`docs/tracker-runtime-service.md`).
-     */
+    /** A parameter because several gates are AGES against it: the wall clock made a replay's windows 1.6x too short. */
     private val nowMs: () -> Long = System::currentTimeMillis,
-    /**
-     * Belichtung nach dem Brett statt nach dem Rahmen. Vorgabe [ExposureGovernor.NONE]: ein Replay
-     * stellt keine Kamera (`docs/tracker-runtime-service.md`).
-     */
+    /** Vorgabe [ExposureGovernor.NONE]: ein Replay stellt keine Kamera. */
     private val exposure: ExposureGovernor = ExposureGovernor.NONE,
-    /**
-     * Der Fokus-Sweep beim Aufsetzen und die Schaerfe-Aufsicht danach. Vorgabe [FocusGovernor.NONE]
-     * aus demselben Grund wie [exposure]: ein Replay stellt keine Linse.
-     */
+    /** Vorgabe [FocusGovernor.NONE]: ein Replay stellt keine Linse. */
     private val focus: FocusGovernor = FocusGovernor.NONE,
-    /** Jede Notiz-/Stuck-Aenderung der Engine, eine Zeile: der Replay hat sonst nur Entscheidungszeilen. */
+    /** Der Replay hat sonst nur Entscheidungszeilen. */
     private val onNote: (String) -> Unit = {},
 ) {
     private var sourceSeq = 0L
 
     private val notes = NoteThrottle(nowMs)
 
-    /** Das Grundrauschen im Zellmittel fuer die Perf-Zeile — misst zwei Frames je Sekunde. */
     private val noise = NoiseFloor()
 
-    /**
-     * The frame clock spans this WHOLE method. Narrower, it left three stages measured by nothing
-     * and read ~65 ms against an observed ~90 ms frame period (`docs/tracker-runtime-service.md`).
-     */
+    /** The frame clock spans this WHOLE method: narrower, three stages were measured by nothing. */
     fun onFrame(
         image: T,
         delivered: DeliveredSize,
     ) = WorkProfiler.span(WorkOperation.COORDINATOR_FRAME, ++sourceSeq) {
         timings.begin()
         drainCalibration()
-        // Display-only, and it has to come from the delivered frame — see `previewRotation`.
+        // Display-only, and from the delivered frame.
         bus.noteRotation(delivered.rotationDegrees)
-        // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
-        // frame the convert already produced — see `CameraFrameBus.offer`.
         val result = pipeline.onFrame(image, delivered.width, delivered.height, nowMs())
         val events = host.tick((result as? FrameResult.Ready)?.input).toMutableList()
         noteEvents(events)
-        // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
         timings.mark(Stage.ENGINE)
         publisher.sizeMismatch = pipeline.sizeMismatch
-        // The corners this frame was warped with — the overlay's board quad (D06b-4).
         publisher.corners = pipeline.corners
-        // A PROVIDER: the publisher samples at 10 Hz and only builds the status when it will use it.
+        // A PROVIDER: the status is built only when the 10 Hz sampler will use it.
         publisher.publish(host::status, host.fen(), events, (result as? FrameResult.Skipped)?.note)
-        // The observer's warp comes after the decision; a fresh candidate gets one on this frame too.
         pipeline.cropWarpAfterTick(host.verifyWaiting())
         observer.onFrameAvailable()
-        // An observation already back (inline in a replay, a fast phone) is judged NOW rather than
-        // at the top of the next tick: same state, same clock, one frame earlier.
+        // An observation already back (inline replay, fast phone) is judged NOW, one frame earlier.
         val late = host.tick(null)
         if (late.isNotEmpty()) {
             events += late
             noteEvents(late)
             publisher.publish(host::status, host.fen(), late, null)
         }
-        // Nach dem Frame, nicht davor: die Messung liest den Warp, den dieser Frame schon bezahlt
-        // hat, und eine Verstellung nimmt die Pixel-Referenz mit (`docs/tracker-runtime-service.md`).
+        // Nach dem Frame: die Messung liest den bezahlten Warp, und eine Verstellung nimmt die Pixel-Referenz mit.
         val ready = result as? FrameResult.Ready
-        // Vor der Regelung, damit kein Paar ueber eine Verstellung hinweg gemessen wird. Denselben
-        // 160er-Warp wie die Belichtung, und der ist je Frame memoisiert — also hoechstens einer.
+        // Vor der Regelung, damit kein Paar ueber eine Verstellung hinweg gemessen wird.
         if (ready != null) noise.observe(ready.input.seq, ready.input.corners) { ready.input.board?.invoke(it) }
-        // `quiet`: dieser Frame hat die Engine NICHT beschaeftigt. Ein Ereignis heisst Commit,
-        // Alarm oder Re-Anchor — alles Momente, in denen die Pixel-Referenz gerade entsteht.
+        // Ein Ereignis heisst Commit, Alarm oder Re-Anchor — Momente, in denen die Pixel-Referenz entsteht.
         val quiet = events.isEmpty()
         if (ready != null) {
-            // Waehrend eines Sweeps stellt die Belichtung nicht, und zwar als UNRUHIGER Frame
-            // statt als uebersprungener Aufruf (`docs/tracker-runtime-service.md`).
+            // Waehrend eines Sweeps als UNRUHIGER Frame, nicht als uebersprungener Aufruf.
             val settled = quiet && !focus.sweeping
-            // Normalisiert gegen den GELIEFERTEN Frame: `corners` sind Quellpixel, der Warp misst
-            // boardSize * detectScale, und das Geraet misst in Frame-Koordinaten.
+            // Gegen den GELIEFERTEN Frame: das Geraet misst in Frame-Koordinaten.
             val where = focusRegion(ready.input.corners, delivered.width, delivered.height)
             val moved = focus.onBoard(ready.input.seq, quiet, where) { ready.input.board?.invoke(FOCUS_BOARD_PX) }
             val lit = exposure.onBoard(ready.input.seq, settled) { ready.input.board?.invoke(METER_BOARD_PX) }
@@ -146,10 +119,7 @@ class TrackerCoordinator<T>(
         }
     }
 
-    /**
-     * 06a's calibration result. Queued, not applied: written inline, a frame warped with the NEW
-     * corners under the OLD board size (`docs/tracker-runtime-service.md`).
-     */
+    /** Queued, not applied: inline, a frame was warped with the NEW corners under the OLD board size. */
     fun applyCalibration(
         geometry: BoardGeometry,
         corners: FloatArray,
@@ -159,7 +129,7 @@ class TrackerCoordinator<T>(
         pending.set(PendingCalibration(geometry, corners, profileName, delivered))
     }
 
-    /** Newest wins: a second calibration before the next frame supersedes the first outright. */
+    /** Newest wins. */
     private fun drainCalibration() {
         val next = pending.getAndSet(null) ?: return
         pipeline.onGeometryChanged(next.geometry)
@@ -170,7 +140,7 @@ class TrackerCoordinator<T>(
 
     private val pending = AtomicReference<PendingCalibration?>(null)
 
-    /** Not a data class: it carries a [FloatArray], whose generated `equals` compares identity. */
+    /** Not a data class: a [FloatArray]'s generated `equals` compares identity. */
     private class PendingCalibration(
         val geometry: BoardGeometry,
         val corners: FloatArray,
@@ -179,10 +149,7 @@ class TrackerCoordinator<T>(
     )
 }
 
-/**
- * Die Drossel vor dem Notiz-Log: Notizen tragen Zaehlerstaende, wechseln also im Stillstand auf
- * fast jedem Frame. Ein Stuck ist ein Zustandswechsel und geht immer durch (`docs/tracker-runtime-service.md`).
- */
+/** Notizen tragen Zaehlerstaende und wechseln im Stillstand fast jeden Frame. Ein Stuck geht immer durch. */
 internal class NoteThrottle(
     private val nowMs: () -> Long,
 ) {
@@ -200,13 +167,10 @@ internal class NoteThrottle(
     }
 }
 
-/** Wie dicht zwei VERSCHIEDENE Notizen aufeinander folgen duerfen — auf der Uhr der Engine. */
+/** Auf der Uhr der Engine. */
 internal const val MIN_NOTE_GAP_MS = 250L
 
-/**
- * ArUco re-detection, off the frame thread — 44-87 ms every 300 ms on the analyzer thread before
- * (commit 4a7609e). Why [dispatcher] is a parameter: `docs/tracker-runtime-service.md`.
- */
+/** Off the frame thread: 44-87 ms every 300 ms on the analyzer before (commit 4a7609e). */
 @Suppress("LongParameterList")
 class LiveAlign(
     private val scope: CoroutineScope,
@@ -215,26 +179,18 @@ class LiveAlign(
     private val onCorners: (FloatArray) -> Unit,
     private val log: TrackerLog = NoopTrackerLog,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
-    /** Complete offline stream: when present, absence at a frame means no alignment update. */
+    /** When present, absence at a frame means no alignment update. */
     private val cachedCorners: ((Long) -> FloatArray?)? = null,
-    /** Offline build hook; successful corrected corners only, keyed by processed frame count. */
     private val cornerSink: ((Long, FloatArray) -> Unit)? = null,
-    /** Offline cold path: independent raw detections calculated in parallel before replay. */
     private val cachedMarkers: ((Long) -> Map<Int, DoubleArray>)? = null,
-    /**
-     * Die Rektifizierung ist gewechselt — dieselbe Lage wie bei der Belichtung, siehe [onFrame].
-     * Vorgabe leer; live haengt daran die Pixel-Referenz (`docs/tracker-flow.md`).
-     */
+    /** Live haengt daran die Pixel-Referenz (`docs/tracker-flow.md`). */
     private val onRectificationChanged: () -> Unit = {},
-    /** The calibrated quad this run starts on — the only corner values measured with every marker. */
+    /** The only corner values measured with every marker. */
     calibrated: FloatArray? = null,
 ) {
     private var tracker = MarkerTracker()
 
-    /**
-     * Where a corner stays while its marker has never been read. Seeded from the calibration and
-     * carried forward by every accepted align — `boardCornersFromMarkers`.
-     */
+    /** Seeded from the calibration and carried forward by every accepted align. */
     @Volatile
     private var anchor: List<DoubleArray>? = calibrated?.let(::cornersFromFlat)
 
@@ -242,32 +198,25 @@ class LiveAlign(
     private var frames = 0L
     private var size: DeliveredSize? = null
 
-    /** Rectified-space grid correction; null until measured, and null forever if unmeasurable. */
+    /** Null forever if unmeasurable. */
     @Volatile
     private var correction: DoubleArray? = null
 
-    /** Measured at most once per POSE — a failed measurement must not retry every align. */
+    /** Once per POSE: a failed measurement must not retry every align. */
     @Volatile
     private var correctionTried = false
 
-    /**
-     * The quad [correction] was fitted against — it is a constant OF THAT SETUP, and without this
-     * it outlived its own premise for the rest of a session (`docs/tracker-runtime-service.md`).
-     */
+    /** A constant OF THAT SETUP: without this it outlived its own premise for the rest of a session. */
     @Volatile
     private var fittedAt: FloatArray? = null
 
     @Volatile
     private var inFlight = false
 
-    /**
-     * Which calibration the in-flight job belongs to; [reset] moves it on. A job landing after a
-     * recalibration overwrote the corners the user had just measured (`docs/tracker-runtime-service.md`).
-     */
+    /** A job landing after a recalibration overwrote the corners the user had just measured. */
     @Volatile
     private var generation = 0
 
-    /** Last bus image actually submitted to the alignment worker. */
     private var lastFrameVersion: Long? = null
 
     @Suppress("ReturnCount")
@@ -311,9 +260,8 @@ class LiveAlign(
         val current = tracker
         val startedAt = generation
         scope.launch(dispatcher) {
-            // Die Verbraucher liegen MIT im `runCatching`: der Scope ist kein `SupervisorJob`, ein
-            // Wurf aus `onCorners` risse ihn ab und kein spaeterer `launch` startete je wieder
-            // (C7, `LiveAlignWedgeBugTest`). Release und Flag stehen im `finally`.
+            // Die Verbraucher liegen MIT im `runCatching`: der Scope ist kein `SupervisorJob`, ein Wurf aus
+            // `onCorners` risse ihn ab und kein spaeterer `launch` startete je wieder.
             try {
                 runCatching {
                     val corners =
@@ -340,10 +288,7 @@ class LiveAlign(
         }
     }
 
-    /**
-     * The ArUco quad pulled back onto the board's own grooves — MEASURED once per pose at ~500 ms
-     * (2026-08-07, never on device), then re-applied free. `docs/tracker-runtime-service.md`.
-     */
+    /** MEASURED once per pose (~500 ms, never measured on device), then re-applied free. */
     private fun onGrid(
         frame: Mat,
         corners: List<DoubleArray>,
@@ -367,10 +312,7 @@ class LiveAlign(
         return applyGridCorrection(fix, corners, geom) ?: corners
     }
 
-    /**
-     * Drop the correction when the board is no longer where it was fitted. Logged both ways round:
-     * a silent vanish debugs as badly as a silent persist (`docs/tracker-flow.md`).
-     */
+    /** Logged both ways round: a silent vanish debugs as badly as a silent persist. */
     private fun expireCorrection(
         current: FloatArray,
         geom: BoardGeometry,
@@ -385,17 +327,14 @@ class LiveAlign(
         onRectificationChanged()
     }
 
-    /**
-     * A new calibration invalidates the smoothed markers and the grid correction with them — that
-     * correction is a property of THIS board under THIS lens.
-     */
+    /** That correction is a property of THIS board under THIS lens. */
     fun reset(
         delivered: DeliveredSize,
         corners: FloatArray? = null,
     ) {
         generation += 1
         tracker = MarkerTracker()
-        // A recalibration is a fresh measurement of every corner; keep the old anchor only without one.
+        // Keep the old anchor only without a fresh measurement of every corner.
         corners?.let { anchor = cornersFromFlat(it) }
         size = delivered
         correction = null
@@ -405,22 +344,13 @@ class LiveAlign(
     }
 }
 
-/**
- * How far the board may move before the grid correction is thrown away, in cells. **A starting
- * value, not a measurement** — measure it before quoting it as derived (`docs/tracker-runtime-service.md`).
- */
+/** In cells. **A starting value, not a measurement.** */
 private const val DRIFT_REFIT_CELLS = 0.25
 
-/**
- * Woraus die Belichtung gemessen wird: 160 px sind 20 px je Feld — reichlich fuer einen
- * Mittelwert, und die Groesse, die die Stillstands-Engine ohnehin schon warpt.
- */
+/** 20 px je Feld reicht fuer einen Mittelwert, und die Stillstands-Engine warpt die Groesse ohnehin. */
 private const val METER_BOARD_PX = 160
 
-/**
- * Das Brett-Quad als normalisierte Region fuer den Geraete-Autofokus. `size` ist die groessere der
- * beiden Kanten, damit die Region nie kleiner ist als das, worauf scharfgestellt werden soll.
- */
+/** `size` ist die groessere Kante, damit die Region nie kleiner ist als das, worauf scharfgestellt wird. */
 internal fun focusRegion(
     corners: FloatArray,
     width: Int,
@@ -436,8 +366,5 @@ internal fun focusRegion(
     return FocusRegion(cx.coerceIn(0f, 1f), cy.coerceIn(0f, 1f), size.coerceIn(0f, 1f))
 }
 
-/**
- * Woraus die Schaerfe gemessen wird: 1024 px sind 128 px je Feld — nicht die 160 der Belichtung,
- * die genau die Frequenzen wegrechnen, an denen Unschaerfe sichtbar waere (`docs/tracker-runtime-service.md`).
- */
+/** 128 px je Feld: die 160 der Belichtung rechnen genau die Frequenzen weg, an denen Unschaerfe sichtbar waere. */
 private const val FOCUS_BOARD_PX = 1024

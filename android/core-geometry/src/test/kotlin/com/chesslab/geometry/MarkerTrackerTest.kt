@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.math.abs
 
-/** Tier A — pure math, no OpenCV. Port checks for `calibration.py MarkerTracker`. */
 class MarkerTrackerTest {
     private fun pt(
         x: Double,
@@ -36,7 +35,6 @@ class MarkerTrackerTest {
         assertEquals(MarkerStatus.LIVE, t.status(0))
     }
 
-    /** "at or below this freezes": exactly on the threshold the corner still stands. */
     @Test
     fun `a move exactly on the threshold still freezes`() {
         val t = MarkerTracker()
@@ -45,7 +43,7 @@ class MarkerTrackerTest {
         assertEquals(100.0, t.points().getValue(0)[0], 1e-9, "4,0 ist die Totzone, nicht ihr Ende")
     }
 
-    /** L1, not euclidean: (2,5 | 2,5) is 5,0 in L1 but 3,54 euclidean — swapping freezes real motion. */
+    /** L1, not Euclidean: (2.5 | 2.5) is 5.0 in L1 but 3.54 Euclidean — swapping freezes real motion. */
     @Test
     fun `the dead zone is measured in L1, not euclidean`() {
         val t = MarkerTracker()
@@ -70,7 +68,7 @@ class MarkerTrackerTest {
         assertEquals(MarkerStatus.SEED, t.status(0))
         assertEquals(0, t.nLive())
         live(t, 130.0, 100.0)
-        // EXACTLY the detection - an EMA'd seed leaves the corner 65 % at the seed.
+        // EXACTLY the detection — an EMA'd seed leaves the corner 65 % at the seed.
         assertEquals(listOf(130.0, 100.0), t.points().getValue(0).toList())
         assertEquals(MarkerStatus.LIVE, t.status(0))
     }
@@ -97,8 +95,7 @@ class MarkerTrackerTest {
         assertTrue(t.points().getValue(0)[0] > 100.0)
     }
 
-    /** `pending` is only cleared by `accept`, so a candidate from before an occlusion must not count
-     *  as the first of `jumpConfirmFrames` CONSECUTIVE frames. */
+    /** A candidate from before an occlusion must not count as the first of the CONSECUTIVE frames. */
     @Test
     fun `a gap without any detection invalidates the pending jump candidate`() {
         val t = MarkerTracker()

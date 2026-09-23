@@ -1,20 +1,15 @@
 package com.chesslab.tracker.pipeline
 
-// The rate CameraX actually delivers, measured in `:app` for the same reason `StageTimings` is:
-// `:core-engine` is under a wall-clock ban (its only notion of time is `FrameInput.timestampMs`),
-// and it cannot count frames it never received anyway.
+// Measured here: `:core-engine` has no wall clock and cannot count frames it never received.
 
 private const val NANOS_PER_S = 1_000_000_000.0
 
-/** The engine's `_fps` EMA weights, so both numbers on the header settle the same way. */
+/** The engine's `_fps` EMA weights, so both numbers settle the same way. */
 private const val EMA_OLD = 0.9
 
 private const val EMA_NEW = 0.1
 
-/**
- * An EMA over the gaps between delivered frames. Single-writer (the analyzer thread), read by the
- * status publisher; [nowNs] is injected so the smoothing is testable without a device.
- */
+/** [nowNs] is injected so the smoothing is testable without a device. */
 class CameraRate(
     private val nowNs: () -> Long = System::nanoTime,
 ) {
@@ -24,7 +19,7 @@ class CameraRate(
 
     private var previousNs = 0L
 
-    /** Once per `ImageProxy`, before anything can decide to drop it. */
+    /** Before anything can decide to drop it. */
     fun onFrame() {
         val now = nowNs()
         val previous = previousNs

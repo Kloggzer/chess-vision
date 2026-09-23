@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Der Wortlaut ist Teil der Zusicherung: eine Absage muss sagen, dass sie nichts gekostet hat. */
 class HintPhraseTest {
     @Test
     fun aPlainTipNamesTheMoveAndNothingElse() {
@@ -36,7 +35,6 @@ class HintPhraseTest {
         assertTrue(HintPhrase.of(tip, "de-DE").endsWith("Engine nicht verfuegbar: UCI engine terminated"))
     }
 
-    /** Jede Absage ausser "kein Kontingent mehr" sagt ausdruecklich, dass nichts verbraucht wurde. */
     @Test
     fun everyFreeRefusalSaysThatNothingWasUsedUp() {
         FREE.forEach { reason ->

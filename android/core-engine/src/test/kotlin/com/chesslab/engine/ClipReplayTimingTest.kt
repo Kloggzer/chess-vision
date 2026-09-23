@@ -9,16 +9,14 @@ import com.chesslab.engine.parity.toTrackerConfig
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty
 
-/**
- * Timing of `onFrame` over the 969 clip frames — a microbenchmark can flatter work that is not on the
- * frame path. Asserts nothing; `-Pchesslab.profile=true`. Desktop JVM at `detSize` 320, not the phone's 800.
- */
+/** Over the 969 clip frames: a microbenchmark can flatter work that is not on the frame path. Asserts
+ *  nothing; `-Pchesslab.profile=true`. Desktop JVM at `detSize` 320, not the phone's 800. */
 @EnabledIfSystemProperty(named = "chesslab.profile", matches = "true")
 class ClipReplayTimingTest {
     @Test
     fun timeEveryClipReplay() {
         val clips = ParityFixtures.clips().map { ParityFixtures.load(it) }
-        // Decode and warm the JIT first: timing the gzipped delta chains would drown the engine.
+        // Warm the JIT first: timing the gzipped delta chains would drown the engine.
         repeat(WARMUP) { clips.forEach { replay(it) } }
         var frames = 0
         var best = Long.MAX_VALUE

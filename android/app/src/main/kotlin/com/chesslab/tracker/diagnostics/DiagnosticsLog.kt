@@ -14,27 +14,19 @@ import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
-/** File name shape: `diag-0.ndjson`, `diag-1.ndjson`, … The index only ever grows within a run. */
 private const val FILE_PREFIX = "diag-"
 
 private const val FILE_SUFFIX = ".ndjson"
 
-/**
- * A decision row is ~700 bytes of text, so 512 kB is roughly 700 rows and four files are a long
- * evening. The whole point is a file somebody can attach to a message; a cap that produced tens of
- * megabytes would be a file nobody sends.
- */
+/** ~700 rows per file, four files a long evening: the point is a file somebody can attach to a message. */
 private const val MAX_FILE_BYTES = 512L * 1024L
 
 private const val MAX_FILES = 4
 
-/**
- * Deep enough that a burst of stuck-reason transitions cannot reach it, shallow enough that a
- * stalled consumer shows up as a seq gap within seconds rather than as unbounded memory.
- */
+/** Deep enough for a burst of transitions, shallow enough that a stalled consumer shows as a seq gap. */
 private const val QUEUE_CAPACITY = 256
 
-/** What crossed the queue. The analyzer thread must not build JSON, so the record travels raw. */
+/** The analyzer thread must not build JSON, so the record travels raw. */
 private sealed interface Entry {
     class Start(
         val row: RunStart,
@@ -50,25 +42,9 @@ private sealed interface Entry {
     ) : Entry
 }
 
-/**
- * The decision rows and the run header, as rotating NDJSON in `filesDir/diagnostics/`.
- *
- * **Rotation, not a spool.** The predecessor design was `append` / `readBatch` / `truncatePrefix`,
- * a hand-written durable queue whose prefix truncation rewrites the file its own appender is
- * writing to — which is why that design then had to tolerate torn last lines. A rotating file is
- * either whole or being appended to, and deleting one is a single atomic call.
- *
- * **Nothing here runs on the analyzer thread.** [offer] is called from the engine's sink, on a
- * thread whose measured budget is 23.1 ms median / 32.4 p90 / 89.1 max for a whole frame at
- * 26–28 fps. It takes one atomic increment and one non-blocking channel send; the file handle, the
- * serialisation and the rotation all live on the consumer. `:app` may use `Atomic*` — the purity
- * rule that forbids it binds `:core-engine` only.
- *
- * **[seq] is assigned at OFFER time, deliberately.** The queue drops its oldest entry rather than
- * blocking the analyzer thread, and a counter assigned by the consumer would make that drop
- * invisible. Assigned here, a dropped row leaves a hole in the numbering, which is the difference
- * between "nothing happened" and "the log could not keep up".
- */
+/** Rotation, not a spool: prefix truncation rewrote the file its own appender wrote to. [offer] runs on
+ *  the analyzer thread (23 ms median frame budget): one increment, one non-blocking send. [seq] is
+ *  assigned at OFFER time, so a row dropped by the queue leaves a visible hole in the numbering. */
 class DiagnosticsLog(
     private val dir: File,
     scope: CoroutineScope,
@@ -80,7 +56,6 @@ class DiagnosticsLog(
 
     private val queue = Channel<Entry>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST)
 
-    /** Consumer-thread state: the file being appended to and the header to repeat into the next. */
     private var current: File? = null
 
     private var header: RunStart? = null
@@ -95,15 +70,10 @@ class DiagnosticsLog(
         }
     }
 
-    /** From the engine's sink, on the analyzer thread. Allocates one small wrapper and returns. */
     fun offer(decision: DebugDecision) {
         queue.trySend(Entry.Row(seq.getAndIncrement(), decision))
     }
 
-    /**
-     * A frame-loop state transition, from the engine's sink on the analyzer thread. Same contract
-     * as [offer]: one increment, one non-blocking send, no JSON here.
-     */
     fun state(
         from: String,
         to: String,
@@ -112,7 +82,6 @@ class DiagnosticsLog(
         queue.trySend(Entry.State(StateRow(seq.getAndIncrement(), tsS, from, to)))
     }
 
-    /** Once per built tracker stack, from whichever thread learns the execution provider. */
     fun runStart(row: RunStart) {
         val stamped = row.copy(seq = seq.getAndIncrement())
         announced = stamped
@@ -150,13 +119,7 @@ class DiagnosticsLog(
         header = start
     }
 
-    /**
-     * The file to append to, rotating when the current one is full.
-     *
-     * A fresh process always starts a new file rather than topping up the newest existing one, so
-     * a file never straddles two runs with two different configs — which is the one thing this log
-     * exists to make legible.
-     */
+    /** A fresh process always starts a new file: a file never straddles two runs with two configs. */
     private fun target(): File {
         val open = current
         if (open != null && open.length() < maxFileBytes) return open
@@ -165,11 +128,8 @@ class DiagnosticsLog(
         current = next
         // `next` is about to exist, so the survivors may occupy at most one slot less.
         files().dropLast(maxFiles - 1).forEach { it.delete() }
-        // Every file repeats the header, because rotation deletes the OLDEST — i.e. exactly the
-        // file that carried the run header — and an export whose config block just aged out is an
-        // export of anonymous numbers. The repeat keeps the ORIGINAL `seq`: it is the same record
-        // written twice, not a second event, and a fresh number would break the one property the
-        // counter has, that the decision rows read in file order only ever count up.
+        // Every file repeats the header, because rotation deletes the OLDEST — the one that carried it. The
+        // repeat keeps the ORIGINAL `seq`: the same record twice, and decision rows only ever count up.
         header?.let { Jsonl.appendEncoded(next, DIAGNOSTICS_JSON.encodeToString(RunStart.serializer(), it)) }
         return next
     }
@@ -183,16 +143,9 @@ class DiagnosticsLog(
 
 private fun File.index(): Int = name.removePrefix(FILE_PREFIX).removeSuffix(FILE_SUFFIX).toIntOrNull() ?: 0
 
-/** The one place the directory is named, so the writer and the export button cannot disagree. */
 fun diagnosticsDir(filesDir: File): File = File(filesDir, "diagnostics")
 
-/**
- * The whole directory as a ZIP, for the `ACTION_CREATE_DOCUMENT` picker.
- *
- * Rotation means the log is several files, and the interesting one is rarely the newest — a run
- * header sits at the top of each, so the set is what answers "what was running". [zipSession] is
- * a plain directory-to-zip despite its name; the session export is simply its first caller.
- */
+/** The whole directory: the interesting file is rarely the newest, and each starts with a run header. */
 fun zipDiagnostics(
     filesDir: File,
     out: OutputStream,

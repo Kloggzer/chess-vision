@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.PIECES13_CLASSES
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.engine.api.BgrImage
@@ -11,6 +12,7 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.cnn.Attached
+import com.chesslab.tracker.log.NoTrackerLogs
 import com.chesslab.tracker.pipeline.OpenCvStages
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.service.CameraFrameBus
@@ -36,8 +38,8 @@ import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
 import java.util.concurrent.atomic.AtomicLong
 
-/** B1: ab dem zweiten Zusatzarm bekam keine Engine einen Crop; bei sechs reichten die geteilten
- *  Graustufen-Ringe nicht mehr. Echter Weg ueber [ExtraEngines]. */
+/** Ab dem zweiten Zusatzarm bekam keine Engine einen Crop; bei sechs reichten die geteilten Graustufen-Ringe
+ *  nicht mehr. Echter Weg ueber [ExtraEngines]. */
 class MultiReplayArmsTest {
     @Test
     fun `sechs gleiche Zusatzarme sehen und entscheiden jeder wie der Einzellauf`() = armsMatchSingleRun(6)
@@ -49,22 +51,50 @@ class MultiReplayArmsTest {
                 assertThrows(IllegalArgumentException::class.java) {
                     ExtraEngines.open(
                         listOf("a" to CONFIG, "b" to CONFIG.copy(diffClaheClip = CONFIG.diffClaheClip + 1.0)),
-                        GEOMETRY,
-                        null,
-                        h.bus,
-                        h.publisher,
-                        { attached() },
-                        h.scope,
-                        h.settings,
-                        { h.clock },
-                        { h.clock },
-                        START,
-                        null,
+                        h.rig(),
                     )
                 }
             assertTrue("diffClaheClip" in err.message.orEmpty())
         }
     }
+
+    @Test
+    fun `configs= lehnt einen Live-Lauf ab, weil die Arme dort nicht inline beobachten`() {
+        Harness().use { h ->
+            assertThrows(IllegalArgumentException::class.java) { ExtraEngines.open(listOf("k" to CONFIG), h.rig(live = true)) }
+        }
+    }
+
+    @Test
+    fun `ein Zusatzarm mit der Konfig des Hauptlaufs entscheidet wie er, auch mit prior= und prior-mode=old`() {
+        val runs = listOf(0.0, PRIOR).associateWith { mainBesideArm(it, CONFIG) }
+        runs.forEach { (prior, pair) -> assertEquals(pair.first, pair.second, "prior=$prior: Hauptlauf gegen Zusatzarm") }
+        assertTrue(runs.getValue(0.0).first != runs.getValue(PRIOR).first, "der Prior muss hier etwas entscheiden")
+    }
+
+    /** Hauptlauf und ein Arm aus DEMSELBEN [ReplayRig], im selben Durchgang wie `drive`. */
+    private fun mainBesideArm(
+        prior: Double,
+        arm: TrackerConfig,
+    ): Pair<List<String>, List<String>> =
+        Harness().use { h ->
+            val rig = h.rig(prior, priorSafety = false, classifier = Zweifler)
+            val extras = requireNotNull(ExtraEngines.open(listOf("k" to arm), rig))
+            val collector = DecisionCollector(1000.0 / FRAME_MS, { null }, indexNow = { h.clock.toInt() })
+            val main = rig.mainStack(CONFIG, collector)
+            extras.calibrate(GEOMETRY, QUAD, DELIVERED)
+            main.coordinator.applyCalibration(GEOMETRY, QUAD, "desktop", DELIVERED)
+            play(h) {
+                extras.onFrame(it, DELIVERED)
+                main.coordinator.onFrame(it, DELIVERED)
+            }
+            val out =
+                collector.plies.map { "${it.san}@${it.frame}/${it.decider}" } to
+                    extras.plies[0].map { "${it.san}@${it.frame}/${it.decider}" }
+            main.close()
+            extras.close()
+            out
+        }
 
     private fun armsMatchSingleRun(arms: Int) {
         val reference = single()
@@ -99,6 +129,28 @@ class MultiReplayArmsTest {
         val publisher = StatusPublisher(scope)
         val settings = SettingsRepository(NoStore, scope)
         val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage, nowMs = { clock }, publishPreviews = false)
+
+        fun rig(
+            prior: Double = 0.0,
+            priorSafety: Boolean = true,
+            classifier: SquareClassifier = ColourClassifier,
+            live: Boolean = false,
+        ) = ReplayRig(
+            GEOMETRY,
+            { clock },
+            null,
+            bus,
+            publisher,
+            { Attached(classifier, "CPU", "farben") },
+            NoTrackerLogs,
+            scope,
+            settings,
+            indexNow = { clock },
+            live = live,
+            priorLambda = prior,
+            priorSafety = priorSafety,
+            startFen = START,
+        )
 
         override fun close() = scope.cancel()
     }
@@ -142,23 +194,7 @@ class MultiReplayArmsTest {
 
     private fun multi(arms: Int): Pair<List<Run>, Long> =
         Harness().use { h ->
-            val extras =
-                requireNotNull(
-                    ExtraEngines.open(
-                        List(arms) { "k${it + 1}" to CONFIG },
-                        GEOMETRY,
-                        null,
-                        h.bus,
-                        h.publisher,
-                        { attached() },
-                        h.scope,
-                        h.settings,
-                        { h.clock },
-                        { h.clock },
-                        START,
-                        null,
-                    ),
-                )
+            val extras = requireNotNull(ExtraEngines.open(List(arms) { "k${it + 1}" to CONFIG }, h.rig(TRACKER_SEED_PRIOR)))
             extras.calibrate(GEOMETRY, QUAD, DELIVERED)
             val cuts = countingCuts { play(h) { extras.onFrame(it, DELIVERED) } }
             val runs =
@@ -174,7 +210,6 @@ class MultiReplayArmsTest {
             runs to cuts
         }
 
-    /** `CROP_FRAME_COPY` laeuft genau einmal je Warp in `OpenCvStages.updateCropFrame`. */
     private fun countingCuts(body: () -> Unit): Long {
         val cuts = AtomicLong()
         val probe =
@@ -205,7 +240,6 @@ class MultiReplayArmsTest {
         return cuts.get()
     }
 
-    /** Grundstellung, dann e2-e4 und e7-e5, jeweils mit einer Hand, die kommt und geht. */
     private fun play(
         h: Harness,
         onFrame: (Mat) -> Unit,
@@ -231,7 +265,21 @@ class MultiReplayArmsTest {
 
     private fun attached() = Attached(ColourClassifier, "CPU", "farben")
 
-    /** Jede Klasse hat ihre Farbe; die Mitte des Crops entscheidet. Kein Modell, aber ein echter Weg. */
+    /** Je Feld zu 90 % ein Koenig, der dort nicht stehen kann: den Zweifel loest nur der Legalitaets-Prior. */
+    private object Zweifler : SquareClassifier {
+        override val classes: List<String> = PIECES13_CLASSES
+
+        override fun classify(crops: List<BgrImage>): Array<FloatArray> =
+            ColourClassifier.classify(crops).also { rows ->
+                rows.forEachIndexed { i, row ->
+                    val decoy = PIECES13_CLASSES.indexOf(if (ALL_SQUARES[i][1] <= '4') "bK" else "wK")
+                    val best = row.indices.maxBy { row[it] }
+                    row[decoy] = row[best] * DOUBT
+                    row[best] -= row[decoy]
+                }
+            }
+    }
+
     private object ColourClassifier : SquareClassifier {
         override val classes: List<String> = PIECES13_CLASSES
 
@@ -266,6 +314,11 @@ class MultiReplayArmsTest {
         private const val QUIET_FRAMES = 45
         private const val HAND_FRAMES = 15
         private const val SURE = 0.97f
+        private const val PRIOR = 8.0
+        private const val DOUBT = 0.9f
+
+        /** `TrackerSeed.priorLambda`, mit dem [single] baut. */
+        private const val TRACKER_SEED_PRIOR = 4.0
         private const val START_PLACEMENT = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
         private const val START = "$START_PLACEMENT w KQkq - 0 1"
         private val LIGHT = doubleArrayOf(170.0, 170.0, 170.0)
@@ -296,7 +349,6 @@ class MultiReplayArmsTest {
         @BeforeAll
         fun natives() = NativeCv.require()
 
-        /** Leere Felder: die naehere der beiden Feldfarben. */
         private fun colourOf(
             cls: String,
             seen: DoubleArray,

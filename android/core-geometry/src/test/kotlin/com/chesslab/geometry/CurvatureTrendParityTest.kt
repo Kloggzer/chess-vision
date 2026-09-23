@@ -4,8 +4,7 @@ import com.chesslab.geometry.testutil.GeometryFixtures
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Test
 
-/** The REAL poisoned mesh of rg-2026-08-15-22-57-06 (pawn feet fake cy[2] = -0.070, a +11.6 px
- *  arch), healed identically here and in `calibration.smooth_mesh_curvature` (`tests/test_mesh_crop.py`). */
+/** The REAL poisoned mesh (pawn feet fake cy[2] = -0.070, a +11.6 px arch), healed identically here and in Python. */
 class CurvatureTrendParityTest {
     private val fixture = GeometryFixtures.jsonl("_geometry/curvature_trend_parity.json").single()
 

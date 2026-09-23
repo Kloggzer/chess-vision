@@ -7,10 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/**
- * `adoptableCnnFen` read `cnnSnap` raw while every other reader in the module goes through
- * `freshSnapshot()` — so a glance from minutes ago could overwrite the user's position.
- */
+/** `adoptableCnnFen` read `cnnSnap` raw: a glance from minutes ago could overwrite the user's position. */
 class AdoptedFenFreshnessTest {
     private fun state(): EngineState =
         EngineState(TrackerConfig(), STARTPOS, whitePov = true).also {
@@ -45,7 +42,6 @@ class AdoptedFenFreshnessTest {
         assertEquals(NOTE_CNN_STALE, state.note)
     }
 
-    /** Reads the start position, every square label-confident — an adoption that must succeed. */
     private object StartposObs : CnnObservation {
         private val board = Game(STARTPOS)
 

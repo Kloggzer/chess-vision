@@ -50,32 +50,11 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 
-/**
- * The camera screen: a viewfinder with the camera's own controls ON it.
- *
- * A camera app, not a settings page — the PICTURE is the screen. Everything else floats over it in
- * the letterbox the frame leaves, one control opens at a time, and a tap on the image clears the
- * lot. The version this replaces stacked five sliders and three full-width buttons under a 288 dp
- * preview: three quarters of the screen was the form, and the thing every one of those controls is
- * judged by was the quarter left over.
- *
- * The board's GEOMETRY is the screen's other MODE (`CameraMode.BOARD`), not another screen: it is
- * judged through the same viewfinder, so it shares the picture and swaps only the overlay and the
- * deck. Nothing in look mode changes where the squares are, except zoom, which says so.
- *
- * **No camera is bound here.** The viewfinder is the analyzer's own frames, the same ones the
- * calibration screen renders (`TrackerSession.rawPreview`). `TrackerCamera` is the app's single
- * camera owner and a second `Preview` use case fighting for the stream is the bug class that once
- * froze the analyzer feed dead on every tab switch (MEMORY `android-single-camera-owner`).
- *
- * **Nothing here edits pixels.** Every control configures the SENSOR through CameraX or, where
- * CameraX has no API, a capture-request key. A brightness or white balance faked in software would
- * change the frames the tracker diffs against its own reference, which is a different bug wearing
- * this feature's clothes.
- */
+/** The PICTURE is the screen; controls float over the letterbox, one open at a time. No camera is bound
+ *  here — the analyzer's own frames, since a second `Preview` froze the feed. Nothing edits pixels: a
+ *  software brightness would change the frames the tracker diffs against its reference. */
 @Composable
 fun CameraRoute(onBack: () -> Unit) {
-    // The aiming screen calibrates from the same host the wizard uses, so the two cannot drift.
     val host = LocalCalibrationHost.current
     val port by CameraLookHost.port.collectAsStateWithLifecycle()
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
@@ -109,12 +88,7 @@ fun CameraRoute(onBack: () -> Unit) {
     )
 }
 
-/**
- * The board quad the tracker is currently working to, for the aiming overlay.
- *
- * Read-only, and read here rather than taken off the session: the profile is geometry the
- * calibration screen owns, and this screen only ever draws it. Nothing on this screen can write it.
- */
+/** Read-only: the profile is the calibration screen's geometry, this one only draws it. */
 @Composable
 private fun savedProfile(): CalibrationProfile? {
     val context = LocalContext.current
@@ -123,7 +97,6 @@ private fun savedProfile(): CalibrationProfile? {
     return (load as? ProfileLoad.Ok)?.profile
 }
 
-/** No service, so no picture and no controls — the one state that keeps the ordinary app frame. */
 @Composable
 private fun CameraUnbound(onBack: () -> Unit) {
     ChesslabScaffold("Camera", onBack) { bars ->
@@ -156,25 +129,19 @@ private fun CameraScreen(
     val board = rememberBoardModel(host, scope)
     board.onAdopted = { p -> host.onCalibrated(p.geometry(), p.corners, p.name) }
     val boardState by board.state.collectAsStateWithLifecycle()
-    // Off the host rather than through the parameter list: it is a property of the frames, and the
-    // host is already this screen's handle on them.
     val rotation by host.previewRotation.collectAsStateWithLifecycle()
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
             .clipToBounds()
-            // The camera-app gesture, and the only way back from an empty screen. An open panel is
-            // closed first: one tap should never both put a control away AND blank the screen.
+            // The only way back from an empty screen. An open panel closes first: one tap never does both.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                 if (open != null) open = null else chrome = !chrome
             },
     ) {
-        // Focusing is judged from detail, not from whether the whole board fits. Give it the same
-        // magnified view as the explicit Fill mode while the focus panel is open.
+        // Focus is judged from detail: magnify while the focus panel is open.
         Viewfinder(preview, rotation, fill = fill || focusPreview, magnification = if (focusPreview) FOCUS_PREVIEW_ZOOM else 1f) {
-            // The live outline is the aiming instrument; the saved quad answers a different question
-            // ("has it drifted since last time") and only shows with the rest of the chrome.
             BoardOutline(boardState)
             if (chrome) FramingOverlay(profile, preview?.width ?: 0, preview?.height ?: 0, Modifier.fillMaxSize())
         }
@@ -200,7 +167,6 @@ private fun CameraScreen(
     }
 }
 
-/** Look mode's own deck, split out so [CameraScreen] stays a layout and not a parameter list. */
 @Composable
 private fun LookDeck(
     look: CameraLook,
@@ -230,23 +196,9 @@ private fun LookDeck(
     )
 }
 
-/**
- * The analyzer's frames, as large as the frame's own shape allows, centred in the black.
- *
- * `FillBounds` inside a box carrying the source's exact aspect ratio, the same contract the
- * calibration screen's preview keeps: the overlay maps source pixels onto the whole box, so any
- * letterboxing INSIDE the box would put every drawn line off the board.
- *
- * The letterboxing therefore happens outside, and it is not waste — it is where the chrome lives.
- * A 16:9 frame on a 20:9 phone leaves a band at each end deep enough for the whole deck, so the
- * controls cost the picture nothing at all.
- *
- * [fill] trades the bands for magnification: the same box, sized by HEIGHT instead of width, so it
- * runs off both sides and the parent clips it. Deliberately the same box — the image and the
- * overlay scale together, and the quad stays on the board in both modes. It is not the default,
- * because the judgement this screen exists for is whether the board fits the FRAME, and a picture
- * whose edges are off-screen cannot answer that.
- */
+/** `FillBounds` in a box of the source's exact ratio: the overlay maps source pixels onto the whole box,
+ *  so letterboxing happens OUTSIDE — where the chrome lives. [fill] sizes the same box by HEIGHT, so
+ *  image and overlay scale together; not default, because a clipped picture cannot show the fit. */
 @Composable
 private fun BoxScope.Viewfinder(
     preview: Bitmap?,
@@ -268,13 +220,6 @@ private fun BoxScope.Viewfinder(
     )
 }
 
-/**
- * The strip along the bottom: one row of tiles, and above it the ONE control that is open.
- *
- * Bottom, because that is where a thumb is and because the hand that adjusts a phone on an overhead
- * mount comes in at the sides and the top. Nothing here is taller than it has to be — a closed deck
- * is a single row of tiles.
- */
 @Composable
 private fun CameraDeck(
     look: CameraLook,
@@ -294,12 +239,10 @@ private fun CameraDeck(
         verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         if (unsaved) UnsavedHint()
-        // A magnified picture cannot be aimed by, and there is nothing on screen to notice that
-        // from — both edges simply run off. So it says so, for exactly as long as it is true.
+        // A magnified picture cannot be aimed by, and nothing else on screen says so.
         if (cropped) ChromeBanner("Magnified — the frame reaches past both edges. Tap Fit to aim.")
         if (abilities == null) {
-            // Not "this camera has nothing": nothing has answered yet. The tiles appear as the
-            // device reports them, and none of them is rendered dead in the meantime.
+            // Nothing has answered yet — not "this camera has nothing"; no tile is rendered dead meanwhile.
             CameraNote("Waiting for the camera…")
         } else {
             open?.let { AxisPanel(it, look, abilities, focus, onLook) }
@@ -330,8 +273,7 @@ private fun TileRow(
             )
         }
         if (hasTorch) {
-            // The lamp is not just a lamp: the service re-baselines the tracker around it, because
-            // the reference was taken under the old light. See `TorchControl`. No panel, no value.
+            // The service re-baselines the tracker around the lamp: the reference was taken under the old light.
             CameraTile(
                 label = "Light",
                 value = if (torchOn) "On" else "Off",
@@ -344,7 +286,6 @@ private fun TileRow(
     }
 }
 
-/** The open control, on its own scrim so it reads wherever the picture happens to reach. */
 @Composable
 private fun AxisPanel(
     axis: CameraAxis,
@@ -370,14 +311,8 @@ private fun AxisPanel(
     }
 }
 
-/**
- * "Auto" oder eine feste Distanz, und die Distanz selbst.
- *
- * **Auto ist seit 2026-09-09 nicht mehr die Automatik des Geraets.** Die lief mitten in der
- * Aufnahme los und hat Bretter unbrauchbar gemacht; ein Schalter, der sie anbietet, ist eine Falle.
- * Auto misst jetzt einmal und HAELT: Geraete-AF als Startpunkt, Gegenprobe, sonst voller Sweep.
- * Die Prozentzahl statt Dioptrien, weil danach niemand zielt.
- */
+/** Auto ist NICHT die Automatik des Geraets: die lief mitten in der Aufnahme los und machte Bretter
+ *  unbrauchbar. Auto misst einmal und HAELT (Geraete-AF als Start, Gegenprobe, sonst voller Sweep). */
 @Composable
 private fun FocusPanel(
     look: CameraLook,
@@ -386,8 +321,7 @@ private fun FocusPanel(
     onLook: (CameraLook) -> Unit,
 ) {
     val state by focus.state.collectAsStateWithLifecycle()
-    // Wer den Fokus fuehrt, sagt der Zustand — nicht `look.focus`: nach dem Messen steht dort eine
-    // feste Distanz, und die Auswahl waere sonst auf "Manual" gesprungen.
+    // Der Zustand sagt, wer fuehrt, nicht `look.focus`: nach dem Messen steht dort eine feste Distanz.
     val measured = state !is FocusState.Idle && state !is FocusState.Failed
     CameraChoice(
         options = listOf("Auto" to false, "Manual" to true),
@@ -415,12 +349,7 @@ private fun FocusPanel(
     FocusReadingRow(focus)
 }
 
-/**
- * Was das Brett gerade an Schaerfe hergibt — die Zahl, an der ein Mensch den Regler ausrichten kann.
- *
- * Nur solange dieser Schirm offen ist: die Messung kostet einen 1024er Warp, und ohne Zuschauer
- * misst sie niemand.
- */
+/** Nur solange dieser Schirm offen ist: die Messung kostet einen 1024er Warp. */
 @Composable
 private fun FocusReadingRow(tuner: FocusTuner) {
     DisposableEffect(tuner) {
@@ -435,12 +364,7 @@ private fun FocusReadingRow(tuner: FocusTuner) {
     )
 }
 
-/**
- * Was die Messung gerade tut, und der Abbruch dazu.
- *
- * Ausgeloest wird sie ueber "Auto" — auf Tastendruck und nie von selbst: die automatische
- * Konvergenz flog 2026-08-02, weil sie sich auf ein Brett einstellte, das noch nicht stand.
- */
+/** Nur auf Tastendruck, nie von selbst: eine automatische Konvergenz stellte sich auf ein Brett ein, das noch nicht stand. */
 @Composable
 private fun FocusSweepRow(
     tuner: FocusTuner,
@@ -452,7 +376,6 @@ private fun FocusSweepRow(
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // "Auto" ist der schnelle Weg; dieser Knopf ist die Zweifelsfrage — jede Stufe messen.
         FilledTonalButton(onClick = { if (running) tuner.cancel() else tuner.sweep() }) {
             Text(if (running) "Stop" else "Sweep")
         }
@@ -474,7 +397,6 @@ private fun focusStatus(state: FocusState): String =
         FocusState.Failed -> "Could not confirm a sharp focus — previous focus restored."
     }
 
-/** Zoom, from the device's own advertised range. It moves the board, so it says so. */
 @Composable
 private fun ZoomPanel(
     look: CameraLook,
@@ -495,7 +417,6 @@ private fun ZoomPanel(
     }
 }
 
-/** Exposure compensation, in the device's own EV steps. */
 @Composable
 private fun ExposurePanel(
     look: CameraLook,
@@ -513,7 +434,6 @@ private fun ExposurePanel(
     )
 }
 
-/** The illuminant, as the presets this device advertises — see `CameraLook` for why not kelvin. */
 @Composable
 private fun WhiteBalancePanel(
     look: CameraLook,
@@ -533,5 +453,4 @@ private const val FOCUS_PREVIEW_ZOOM = 2.5f
 
 private const val PERCENT = 100f
 
-/** Manual focus opens at the far end: a board is metres away, not centimetres. */
 private const val DEFAULT_FOCUS = 0f

@@ -25,15 +25,13 @@ import kotlinx.coroutines.withContext
 
 private const val FALLBACK_LANGUAGE = "en-US"
 
-/** Die Ansagesprache, dieselbe, die der Zugansager benutzt. */
 fun speechLanguage(): String =
     SettingsHost.repository.value
         ?.appSettings
         ?.value
         ?.speechLanguage ?: FALLBACK_LANGUAGE
 
-/** Der Druck auf den Hilfe-Knopf, verdrahtet: Stellung, Gate, Alarm und Rueckzieher-Fenster
- *  kommen LIVE aus den Fluessen, nie aus einem Wert, den die Zusammensetzung festgehalten hat. */
+/** Stellung, Gate, Alarm und Rueckzieher-Fenster LIVE aus den Fluessen, nie aus einem festgehaltenen Wert. */
 @Composable
 internal fun rememberHintRequest(
     viewModel: TrackingViewModel,
@@ -43,8 +41,7 @@ internal fun rememberHintRequest(
 ): () -> Unit {
     val scope = rememberCoroutineScope()
     val clock = remember { FenClock() }
-    // Der Stempel muss LAUFEN und nicht erst beim Druck gesetzt werden, sonst gilt jede Stellung
-    // im Moment der Frage als frisch gewechselt und jeder Tipp fiele als "nicht gefestigt" aus.
+    // Der Stempel muss LAUFEN: gesetzt erst beim Druck gilt jede Stellung als frisch gewechselt.
     LaunchedEffect(fen) { clock.steadyMs(fen) }
     return remember(viewModel, games, analysis) {
         {
@@ -60,8 +57,7 @@ internal fun rememberHintRequest(
     }
 }
 
-/** Die Mattlinie sucht auf dem LIVE-Prozess der Leiste und damit unter demselben `gateBlock`:
- *  schlaegt es zu, bricht der Dienst die laufende Suche ab. Threads und Hash folgen der Leiste. */
+/** Auf dem LIVE-Prozess der Leiste, also unter demselben `gateBlock`: schlaegt es zu, bricht die Suche ab. */
 internal fun liveLineResolver(
     engines: EngineService,
     options: () -> AnalysisOptions,
@@ -74,7 +70,6 @@ internal fun liveLineResolver(
         }
     }
 
-/** Gesprochen wird BEIDES — Tipp und Absage. Die Karte kommt aus `HintController.state`. */
 private fun announce(outcome: HintOutcome) {
     if (outcome is HintOutcome.Ignored) return
     HintPhrase.of(outcome, speechLanguage()).takeIf { it.isNotBlank() }?.let {

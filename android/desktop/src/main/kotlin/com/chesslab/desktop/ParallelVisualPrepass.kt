@@ -19,21 +19,9 @@ import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
 import kotlin.system.measureNanoTime
 
-/**
- * Bounded, cross-frame visual work for an offline replay.
- *
- * One FFmpeg producer decodes in order. Only frames that the established synchronous observer
- * actually consumed are cloned into a bounded queue; independent workers perform the crop warp,
- * 64 crops, grid-occlusion read and ONNX call. The tracker later consumes the resulting rows in
- * sequence, so no engine state is speculated and native frame memory is bounded by [QUEUE_FACTOR]
- * times the worker count rather than by the length of the video.
- *
- * This first integration deliberately requires an existing visual cache: its alignment stream is
- * the exact ordered corner schedule, and its observation keys and values are the oracle that lets
- * the experiment refuse a result which differs by even one probability bit. Once the speedup is
- * measured, alignment production can be separated from visual production without changing this
- * worker stage.
- */
+/** One FFmpeg producer, bounded workers for crop warp, crops, grid read and ONNX; the tracker consumes rows in
+ *  order, so no engine state is speculated. Needs an existing visual cache as the oracle that refuses a result
+ *  differing by one probability bit. */
 internal class ParallelVisualPrepass private constructor(
     rows: Map<Long, CropFrameStore.CachedVisual>,
 ) {
@@ -70,8 +58,7 @@ internal class ParallelVisualPrepass private constructor(
             val elapsed =
                 try {
                     measureNanoTime {
-                        // The whole recording, like the replay — a bare `VideoFileSource` sees only
-                        // its first segment and comes back short of the expected sequences.
+                        // The whole recording: a bare `VideoFileSource` sees only its first segment.
                         openRecording(video) { index, _ -> selector.keep(index) }.use { source ->
                             while (true) {
                                 val frame = source.next() ?: break

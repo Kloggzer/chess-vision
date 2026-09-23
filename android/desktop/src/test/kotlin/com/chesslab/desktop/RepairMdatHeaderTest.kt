@@ -12,8 +12,7 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
 
-/** With a plain 8-byte `mdat` header the patch seeked to the box START and overwrote size AND
- *  fourcc — on recordings that are the only copies. */
+/** With a plain 8-byte `mdat` header the patch overwrote size AND fourcc — on recordings that are the only copies. */
 class RepairMdatHeaderTest {
     @TempDir
     lateinit var dir: File
@@ -40,7 +39,6 @@ class RepairMdatHeaderTest {
         return file
     }
 
-    /** `ftyp` + an `mdat` with a plain 32-bit header, the form `mdatPayloadStart` also accepts. */
     private fun brokenWithShortHeader(nals: Int): File {
         val out = ByteArrayOutputStream()
         val payload = nals * (NAL_PREFIX + NAL_BYTES)

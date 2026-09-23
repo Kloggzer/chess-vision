@@ -39,7 +39,6 @@ class SessionTimelineTest {
             assertEquals("1000000", rows[2].getValue("durationNs").jsonPrimitive.content)
         }
 
-    /** `DROP_OLDEST` evicts silently; the file must say that it did, and how much is missing. */
     @Test
     fun evictedRowsLeaveACountInTheFile() =
         runTest {
@@ -55,7 +54,6 @@ class SessionTimelineTest {
             assertEquals("1 rows evicted", rows[2].getValue("reason").jsonPrimitive.content)
         }
 
-    /** What `RecordingBundleHost.opened` does with a decision buffered before the session opened. */
     @Test
     fun aBufferedDecisionReachesTheTimeline() =
         runTest {

@@ -6,12 +6,7 @@ import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
-/**
- * BGR `Mat` -> `Bitmap`, downscaled so the UI never uploads a QHD texture at 5 fps.
- *
- * Runs off the analyzer thread (see [CameraFrameBus.publishPreview]); it is the one place that
- * touches Android graphics, which is also why it is untestable on the desktop JVM.
- */
+/** Downscaled so the UI never uploads a QHD texture at 5 fps. Off the analyzer thread. */
 fun bgrToBitmap(
     bgr: Mat,
     maxSide: Int,

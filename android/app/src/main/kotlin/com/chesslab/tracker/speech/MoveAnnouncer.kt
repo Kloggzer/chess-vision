@@ -9,26 +9,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
-/**
- * Turns tracker events into speech.
- *
- * It collects on [Dispatchers.Default], never on the analyzer, pipeline or ONNX observer thread:
- * the 15 fps budget outranks speech, and `TextToSpeech.speak` is an IPC call into another process.
- *
- * The rule that matters is the alarm. While the illegal-move alarm is latched the engine itself no
- * longer believes the board, so narrating moves would be actively misleading — the alarm is the
- * only thing spoken, and anything queued behind it is dropped rather than delivered late.
- */
+/** Never on the analyzer, pipeline or observer thread: `TextToSpeech.speak` is IPC. While the alarm is
+ *  latched only the alarm is spoken — the engine no longer believes the board — and the queue is dropped. */
 class MoveAnnouncer(
     private val scope: CoroutineScope,
     private val speaker: Speaker,
     private val settings: SettingsRepository,
-    /**
-     * How long the commit waited here before it was handed to the speaker, in ms — the app's own
-     * share of "move played -> move heard". The engine's share is the frame loop's state timeline
-     * (`chesslabState`) and the speech engine's share is the utterance's synthesis latency; this is
-     * the piece in between, and without it the three could not be added up.
-     */
+    /** The app's own share of "move played -> move heard", between the engine's state timeline and the synthesis. */
     private val onQueued: (String, Long) -> Unit = { _, _ -> },
 ) {
     private var latched: String? = null
@@ -46,20 +33,18 @@ class MoveAnnouncer(
 
     private fun onEvent(event: TrackerEvent) {
         val app = settings.appSettings.value
-        // Die Stimme folgt der Einstellung. Ohne das sprach eine en-US-Stimme deutsche Wörter.
+        // Ohne das sprach eine en-US-Stimme deutsche Woerter.
         if (app.speechEnabled && app.speechLanguage != spoken) {
             spoken = app.speechLanguage
             speaker.setLanguage(app.speechLanguage)
         }
-        // Der Latch läuft AUCH bei stummer Stimme: ein hier verschlucktes AlarmCleared liess ihn
-        // für den Rest des Prozesses stehen und verwarf jeden späteren Zug lautlos. Gesprochen wird
-        // deshalb in den Handlern, geschaltet immer.
+        // Der Latch laeuft AUCH bei stummer Stimme: ein verschlucktes AlarmCleared liess ihn fuer den Rest des
+        // Prozesses stehen und verwarf jeden spaeteren Zug lautlos.
         when (event) {
             is TrackerEvent.Alarm -> onAlarm(event, app)
             is TrackerEvent.AlarmCleared -> onCleared(app)
             is TrackerEvent.MoveCommitted -> if (app.speechEnabled && latched == null) announce(event, app)
             is TrackerEvent.SequenceCommitted -> if (app.speechEnabled) onSequence(event, app)
-            // Stuck, Note, ReAnchored and PromotionPending are screen business, not speech.
             else -> Unit
         }
     }
@@ -78,16 +63,14 @@ class MoveAnnouncer(
         app: AppSettings,
     ) {
         speaker.dropPending()
-        // Derselbe Grund ohne zwischenzeitliches Clear ist dieselbe Nachricht zweimal; ein anderer
-        // Grund ist neue Nachricht, auch wenn dieselbe Sperre hält.
+        // Derselbe Grund ohne zwischenzeitliches Clear ist dieselbe Nachricht zweimal.
         val news = "${alarm.kind}/${alarm.reason}"
         if (latched == news || !app.speechAnnounceAlarms || !app.speechEnabled) {
             latched = news
             return
         }
         latched = news
-        // Nur der Grund. Der geratene Zug lief hier durch den SAN-Ansager und kam als
-        // "king e1->f1 illegal move suspec ted" heraus — er steht auf der Karte (User, 2026-08-28).
+        // Nur der Grund: der geratene Zug kam durch den SAN-Ansager als "king e1->f1 illegal move suspec ted" heraus.
         speaker.say(AlarmPhrase.of(alarm.reason, app.speechLanguage), flush = true)
     }
 

@@ -12,23 +12,16 @@ data class CaptureUi(
     val loading: Boolean = false,
     val plan: CapturePlan? = null,
     val coverage: CaptureCoverage? = null,
-    /** The one thing that went wrong, whichever screen is showing. Cleared when a shot opens. */
     val message: String? = null,
-    /** Which shot is being taken, and how far the turning has got. */
     val shotIndex: Int = -1,
     val ply: Int = 0,
     val recording: Boolean = false,
-    /** What the camera really does under the capture profile — measured, never assumed. */
     val observed: CaptureObserved? = null,
     /** Festgehaltene Felder; null heisst, die Messung darf sie noch verschieben. */
     val frozen: List<Target>? = null,
 )
 
-/**
- * The three screens are one flow across three back-stack entries, so its state cannot live in any
- * one of them — the same reason `GameSessionHost` exists. The run itself is the service's; this
- * only holds which shot is open and which turn is due.
- */
+/** One flow across three back-stack entries, so its state cannot live in any of them (like `GameSessionHost`). */
 object CaptureHost {
     private val ui = MutableStateFlow(CaptureUi())
 
@@ -36,29 +29,21 @@ object CaptureHost {
 
     private var active: CaptureRun? = null
 
-    /** The schema's `elapsed_ns` for the step now being asked for. */
     private var stepStartedNs = 0L
 
-    /** Die Belegung, wie der Aufbau-Schirm sie gemessen hat. */
     private var placed: List<Target> = emptyList()
 
-    /** Der Aufbau-Schirm meldet, was seine Messung ergeben hat. */
     fun place(targets: List<Target>) {
         placed = targets
     }
 
-    /**
-     * Die Felder festhalten, bevor der Mensch baut — ab hier nur noch [refit].
-     *
-     * Ohne das wuerfelt die erste hingestellte Figur die Belegung neu: sie verschiebt den
-     * Crop-Mittelwert ihres Feldes um bis zu 61 Grauwerte, ein ganzes Band.
-     */
+    /** Festhalten, bevor der Mensch baut: eine Figur verschiebt den Crop-Mittelwert ihres Feldes um bis zu
+     *  61 Grauwerte und wuerfelte die Belegung sonst neu. Ab hier nur [refit]. */
     fun freeze(targets: List<Target>) {
         placed = targets
         ui.value = ui.value.copy(frozen = targets)
     }
 
-    /** Zurueck ans Licht-Stellen: die Felder duerfen wieder wandern. */
     fun thaw() {
         ui.value = ui.value.copy(frozen = null)
     }
@@ -88,32 +73,23 @@ object CaptureHost {
         ui.value = ui.value.copy(shotIndex = index, ply = 0, message = null, frozen = null)
     }
 
-    /**
-     * The setup screen's own job besides showing the order: put the capture profile on early enough
-     * that the camera has rebound and the encoder re-armed before the first turn is taken.
-     */
+    /** Early, so the camera has rebound and the encoder re-armed before the first turn is taken. */
     fun prepare(recorder: CaptureRecorder?) {
         recorder?.prepare()
         refresh(recorder)
     }
 
-    /**
-     * Leaving the setup screen WITHOUT starting puts the capture profile back. The forward path
-     * leaves the same composition, so a run that has BEGUN keeps it — `capture.json` must state
-     * the profile its frames were taken under.
-     */
+    /** Leaving WITHOUT starting restores the profile; a BEGUN run keeps it — `capture.json` states its profile. */
     fun releaseIfIdle(recorder: CaptureRecorder?) {
         if (ui.value.recording) return
         recorder?.release()
         ui.value = ui.value.copy(observed = null)
     }
 
-    /** Poll what the device settled on — the screen calls this while the human is still building. */
     fun refresh(recorder: CaptureRecorder?) {
         ui.value = ui.value.copy(observed = recorder?.observed())
     }
 
-    /** "Aufbau steht": the bundle opens here, and step 0's clock starts with it. */
     fun begin(
         index: Int,
         recorder: CaptureRecorder?,
@@ -135,10 +111,7 @@ object CaptureHost {
         return started != null
     }
 
-    /**
-     * "Aufgenommen": one still, one `steps` row, and the next step's clock starts immediately.
-     * A lost frame does NOT advance the turn — the step is still open and keeps its own start.
-     */
+    /** A lost frame does NOT advance the turn: the step stays open and keeps its own start. */
     fun record(
         index: Int,
         clock: () -> Long = SystemClock::elapsedRealtimeNanos,

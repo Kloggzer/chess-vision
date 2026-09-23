@@ -16,7 +16,6 @@ class TruthTest {
         assertEquals(listOf(TruthPly("e4", 234), TruthPly("e5", 310)), truthOf(dir))
     }
 
-    /** A PGN has moves but no frames, so lag cannot be scored against it — -1 says so. */
     @org.junit.jupiter.api.Test
     fun `a pgn falls back to move order`(
         @TempDir dir: File,

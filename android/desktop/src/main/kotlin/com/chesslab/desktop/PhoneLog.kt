@@ -20,43 +20,32 @@ private const val DEFAULT_AFTER_MOVE_MS = 250.0
 private const val DEFAULT_BEFORE_MOVE_MS = 2000.0
 private const val NS_PER_MS = 1_000_000.0
 
-/** One committed ply as the phone wrote it down, at the video time its own clock puts it at. */
 internal data class PlyMark(
     val ply: Int,
     val san: String,
     val uci: String,
     val fen: String,
     val videoMs: Double,
-    /** The phone's quad when it wrote the row, source pixels `[a8, h8, h1, a1]`; null when the row has none. */
     val corners: FloatArray? = null,
 ) {
     val placement: String get() = fen.substringBefore(' ')
 }
 
-/** `[[x, y], …]` or flat `[x, y, …]` — the photo log writes pairs, the timeline writes eight numbers. */
 internal fun cornersOf(element: JsonElement?): FloatArray? {
     val array = (element as? JsonArray) ?: return null
     val flat = array.flatMap { item -> (item as? JsonArray)?.map { it.jsonPrimitive.float } ?: listOf(item.jsonPrimitive.float) }
     return flat.takeIf { it.size == 8 }?.toFloatArray()
 }
 
-/**
- * The played game on the video's own time axis: the game record says WHICH position was on the board,
- * so a replay that re-derives the game and loses it can no longer mislabel anything (2026-08-15:
- * one missed opening move cost all 851 frames of a session). Ply 1 sits at the pre-roll, where the
- * phone flushed its ring, and every later ply follows by its own timestamp difference.
- */
+/** The game record says WHICH position was on the board, so a replay that loses the game cannot mislabel
+ *  (one missed opening move once cost all 851 frames). Ply 1 sits at the pre-roll. */
 internal class PlyTimeline(
     val marks: List<PlyMark>,
     private val afterMs: Double = DEFAULT_AFTER_MOVE_MS,
     private val beforeMs: Double = DEFAULT_BEFORE_MOVE_MS,
 ) {
-    /**
-     * The ply on the board at [videoMs], or null while a move is being made.
-     *
-     * A timestamp is the COMMIT, i.e. the board had already settled — so the band after it is
-     * short, while the band before the next commit has to cover the reaching hand and the move.
-     */
+    /** Null while a move is being made. A timestamp is the COMMIT: the band after it is short, the band before
+     *  the next commit covers the reaching hand. */
     fun plyAt(videoMs: Double): Int? {
         val index = marks.indexOfLast { it.videoMs <= videoMs }
         val next = marks.getOrNull(index + 1)
@@ -66,26 +55,20 @@ internal class PlyTimeline(
         return marks[index].ply
     }
 
-    /** The marks whose time has passed between [fromMs] (exclusive) and [toMs] (inclusive). */
     fun crossed(
         fromMs: Double,
         toMs: Double,
     ): List<PlyMark> = marks.filter { it.videoMs > fromMs && it.videoMs <= toMs }
 }
 
-/**
- * The phone's own record of a run: `log.jsonl` beside the video says which ply was on the board
- * when, `session.yaml` says where the first one sits. Null for a camera-roll video — then the
- * tracker's own FEN is still the only source there is.
- */
+/** Null for a camera-roll video — then the tracker's own FEN is the only source. */
 internal fun sessionTimeline(
     video: File,
     options: List<String>,
 ): PlyTimeline? {
     val dir = video.parentFile ?: return null
     val preRoll = options.doubleOption("preroll") ?: preRollMs(File(dir, "session.yaml")) ?: return null
-    // Decisions before the photo log: the log drops a ply whose photo was still pending when the next
-    // move committed (six of 79 on 2026-08-24-22-43-46), the decisions never do.
+    // Decisions before the photo log: the log drops a ply whose photo was still pending (six of 79).
     val marks =
         gameMarks(gameRecordFor(dir, options), preRoll)
             ?: decisionMarks(File(dir, "timeline.jsonl"))
@@ -98,10 +81,6 @@ internal fun sessionTimeline(
     )
 }
 
-/**
- * The game record this recording produced: `files/games/<id>.json` beside `files/sessions/<id>/`,
- * the one whose `sessionId` names this session.
- */
 internal fun gameRecordFor(
     sessionDir: File,
     options: List<String>,
@@ -115,20 +94,15 @@ internal fun gameRecordFor(
 
 private fun File.sessionId(): String? = (Json.parseToJsonElement(readText()) as JsonObject)["sessionId"]?.jsonPrimitive?.contentOrNull
 
-/**
- * The move list as the phone committed it, on the video's clock — the game record, NOT `log.jsonl`.
- * That one is the move-PHOTO log and drops a ply whose photo was still pending when the next move
- * committed (`SessionCapture.supersededFrames`, on four sessions). Its hole is not a missing row
- * but a stretch of video labeled with the position before the move.
- */
+/** The game record, NOT `log.jsonl`: the photo log drops a ply whose photo was pending when the next move
+ *  committed, and its hole is a stretch of video labeled with the position before. */
 internal fun gameMarks(
     game: File?,
     preRollMs: Double,
 ): List<PlyMark>? {
     if (game == null || !game.isFile) return null
     val root = Json.parseToJsonElement(game.readText()) as JsonObject
-    // Segment by segment: after a seam the record restarts from a rebuilt position, and walking
-    // its moves onto the previous board refused every phone recording with a seam (16-20-19).
+    // Segment by segment: walking a restarted record onto the previous board refused every recording with a seam.
     val segments =
         (root["segments"] as? JsonArray)?.map { it.jsonObject }?.takeIf { it.isNotEmpty() }
             ?: listOf(root)
@@ -145,8 +119,7 @@ internal fun gameMarks(
         val board = Board().apply { loadFromFen(segment.getValue("startFen").jsonPrimitive.content) }
         segment.getValue("moves").jsonArray.map { it.jsonObject }.map { row ->
             val uci = row.text("uci")
-            // See TrainingVideoPack: `doMove`'s return value is not a legality check at any
-            // validation level, so the generator has to be asked.
+            // `doMove`'s return value is no legality check at any validation level.
             val move = Move(uci, board.sideToMove)
             val before = board.fen
             require(MoveGenerator.generateLegalMoves(board).any { it.toString() == move.toString() }) {
@@ -164,11 +137,7 @@ internal fun gameMarks(
     }
 }
 
-/**
- * `log.jsonl` on the video's time axis — the FALLBACK, for a recording whose game record is gone.
- * Rows carry the ply, the FEN it produced and the commit's wall clock, and the file may be missing
- * plies ([gameMarks]); a hole costs the frames between the lost move and the next commit.
- */
+/** The FALLBACK for a recording whose game record is gone; a hole costs the frames up to the next commit. */
 internal fun logMarks(
     log: File,
     preRollMs: Double,
@@ -189,11 +158,7 @@ internal fun logMarks(
     }
 }
 
-/**
- * The move that turns this board into [placement], played. `log.jsonl` carries the SAN but not the
- * UCI a candidate needs, and one legal move produces a given placement — no move at all means the
- * log does not describe a legal game, which is worth stopping for.
- */
+/** `log.jsonl` carries the SAN, not the UCI; no matching move means the log is not a legal game. */
 internal fun Board.moveTo(placement: String): String {
     val move =
         legalMoves().firstOrNull { candidate ->
@@ -207,7 +172,6 @@ internal fun Board.moveTo(placement: String): String {
     return move.toString()
 }
 
-/** The recording's own answer to where its first commit sits — written by `SessionRecorder`. */
 internal fun preRollMs(sessionYaml: File): Double? =
     sessionYaml
         .takeIf { it.isFile }

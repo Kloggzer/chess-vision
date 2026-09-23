@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.net.InetSocketAddress
 
-/**
- * `complete` is the one call in [HttpIngestClient] that invents a field instead of throwing — and
- * `landed` is the status `sweepSentRecordings` deletes the phone's only copy on.
- */
+/** `landed` is the status `sweepSentRecordings` deletes the phone's only copy on. */
 class CompleteWithoutStatusTest {
     @Test
     fun `a seal answer without a status is refused, not read as landed`() {

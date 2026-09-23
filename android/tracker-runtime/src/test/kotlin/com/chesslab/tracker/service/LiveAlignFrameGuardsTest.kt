@@ -23,15 +23,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Which bus images `maybeAlign` lets through -- the two refusals `LiveAlignDispatchTest` never
- * reaches. Both guards stand in front of ArUco, which costs 44-87 ms a run.
- */
+/** Both guards stand in front of ArUco, which costs 44-87 ms a run. */
 class LiveAlignFrameGuardsTest {
-    /**
-     * `afterVersion` is a HINT a source may ignore, and the same sample twice ran ArUco twice and
-     * smoothed one measurement in as though it were two.
-     */
+    /** `afterVersion` is a HINT: the same sample twice ran ArUco twice and smoothed one measurement in as two. */
     @Test
     fun `a bus image that arrives twice is aligned once, and its clone is released`() {
         val source = UnfilteredFrames(version = 7L)
@@ -46,10 +40,7 @@ class LiveAlignFrameGuardsTest {
         assertTrue(source.frames.all { it.empty() }, "the refused clone was never released")
     }
 
-    /**
-     * One align at a time. `MarkerTracker` is plain mutable state that both jobs would smooth into
-     * at once, and the second job takes a second bus frame while the first still holds one.
-     */
+    /** `MarkerTracker` is plain mutable state both jobs would smooth into at once. */
     @Test
     fun `no second align starts while one is still in flight`() {
         val pool = Executors.newSingleThreadExecutor()
@@ -75,7 +66,7 @@ class LiveAlignFrameGuardsTest {
         }
     }
 
-    /** [onAlign] runs INSIDE the coroutine — `geometry()` is the first thing the job evaluates. */
+    /** `geometry()` is the first thing the job evaluates. */
     private fun liveAlign(
         aligns: AtomicInteger,
         dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
@@ -93,10 +84,7 @@ class LiveAlignFrameGuardsTest {
             dispatcher = dispatcher,
         )
 
-    /**
-     * Stamps a version but does NOT filter on `afterVersion` — the documented unversioned
-     * behaviour. Blank on purpose: ArUco finds nothing, which is enough to see WHETHER it looked.
-     */
+    /** Blank on purpose: ArUco finds nothing, which is enough to see WHETHER it looked. */
     private class UnfilteredFrames(
         private val version: Long?,
     ) : CalibrationFrames<Unit> {
@@ -120,7 +108,6 @@ class LiveAlignFrameGuardsTest {
         const val TIMEOUT_S = 10L
         val DELIVERED = DeliveredSize(FRAME_SIDE, FRAME_SIDE, 0)
 
-        /** `alignEvery = 1` so every call aligns; the default of 3 would need three. */
         val CONFIG = TrackerConfig().copy(alignEvery = 1)
 
         @BeforeAll

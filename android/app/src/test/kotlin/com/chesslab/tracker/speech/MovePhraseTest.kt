@@ -6,12 +6,11 @@ import com.chesslab.tracker.speech.SpeechVerbosity.WORDS_WITH_SIDE
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** SAN is the only input the announcer gets; everything a listener hears is decided here. */
 class MovePhraseTest {
     @Test
     fun phraseWordsMode() {
         assertEquals("Knight f3", MovePhrase.of("Nf3", 1, WORDS))
-        // The pawn is not named: "e takes d5" is how a player says it, "pawn e takes d5" is not.
+        // The pawn is not named: "e takes d5" is how a player says it.
         assertEquals("e takes d5", MovePhrase.of("exd5", 2, WORDS))
         assertEquals("e4", MovePhrase.of("e4", 1, WORDS))
     }
@@ -28,7 +27,6 @@ class MovePhraseTest {
         assertEquals("castles kingside", MovePhrase.of("0-0", 1, LETTERS))
         assertEquals("castles queenside", MovePhrase.of("O-O-O", 2, WORDS))
         assertEquals("castles queenside", MovePhrase.of("0-0-0", 2, WORDS))
-        // No "plays" in front of a castle.
         assertEquals("White castles kingside", MovePhrase.of("O-O", 1, WORDS_WITH_SIDE))
     }
 

@@ -11,7 +11,6 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 
-/** Tier C — golden rows from `_geometry/meta.json -> homographies[]` and `resolve_corners.jsonl`. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class HomographyTest {
     @Test

@@ -1,14 +1,8 @@
 package com.chesslab.tracker.analysis
 
-/** How much of the engine's line is kept. Enough to read an idea; short enough to store per position. */
 private const val PV_PLIES = 6
 
-/**
- * One `multipv` line. [cp]/[mate] are the engine's own SIDE-TO-MOVE point of view until flipped.
- *
- * [pv] is the recommended CONTINUATION, first move first — the review shows it as "what would have
- * been better", which is the one thing the search already paid for and specs/42 discarded.
- */
+/** [cp]/[mate] are the engine's SIDE-TO-MOVE point of view until flipped ([toWhitePov]). */
 data class PvLine(
     val cp: Int?,
     val mate: Int?,
@@ -18,7 +12,6 @@ data class PvLine(
     val uci: String? get() = pv.firstOrNull()
 }
 
-/** A parsed `info` line: the [PvLine] plus the `multipv` slot it belongs to (1-based). */
 internal data class UciInfo(
     val multiPv: Int,
     val line: PvLine,
@@ -26,12 +19,7 @@ internal data class UciInfo(
 
 private val WHITESPACE = Regex("\\s+")
 
-/**
- * Parse `info depth 20 multipv 1 score cp 35 … pv e2e4 e7e5`.
- *
- * Returns null for anything without a score — `info string …`, `currmove` traffic and the bare
- * `info depth 1 nodes …` preamble carry nothing the bar can show.
- */
+/** Null for anything without a score — `info string`, `currmove` and the bare `info depth 1` preamble. */
 internal fun parseUciInfo(raw: String): UciInfo? {
     val tokens = raw.trim().split(WHITESPACE)
     if (tokens.firstOrNull() != "info" || "string" in tokens) return null
@@ -43,7 +31,6 @@ internal fun parseUciInfo(raw: String): UciInfo? {
                 cp = cp,
                 mate = mate,
                 depth = intAfter(tokens, "depth") ?: 0,
-                // `pv` is always last, so everything after it is the line.
                 pv = pvOf(tokens),
             ),
     )
@@ -55,7 +42,6 @@ private fun pvOf(tokens: List<String>): List<String> {
     return tokens.drop(at + 1).take(PV_PLIES)
 }
 
-/** `(cp, mate)`, exactly one of them set; null when the line carries no score at all. */
 private fun scoreOf(tokens: List<String>): Pair<Int?, Int?>? {
     val at = tokens.indexOf("score")
     if (at < 0) return null
@@ -75,9 +61,6 @@ private fun intAfter(
 /** True for `bestmove …`, including `bestmove (none)` — either way the search is over. */
 internal fun isBestMoveLine(raw: String): Boolean = raw.trimStart().startsWith("bestmove")
 
-/**
- * UCI reports scores for the side to move; the eval bar is always White's (`analysis.py` takes
- * `pv["score"].white()`). Forgetting this flip is the classic eval-bar bug, so it lives alone here.
- */
+/** UCI scores the side to move; the bar is always White's. The classic eval-bar bug, so it lives alone. */
 internal fun PvLine.toWhitePov(whiteToMove: Boolean): PvLine =
     if (whiteToMove) this else copy(cp = cp?.let { -it }, mate = mate?.let { -it })

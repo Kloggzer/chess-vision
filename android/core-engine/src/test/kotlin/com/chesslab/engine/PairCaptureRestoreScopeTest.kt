@@ -5,13 +5,8 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
-/**
- * `captureTargetsRestored` liest `freshSnapshot()` ohne FEN-Wache und kombiniert es mit
- * `board.pieceCharAt` — dieselbe Luecke wie beim Occlusion-Filter, nur auf einem Pfad, der
- * Paar-Evidenz HINZUFUEGT statt sie zurueckzuhalten.
- */
+/** `captureTargetsRestored` las `freshSnapshot()` ohne FEN-Wache — auf einem Pfad, der Paar-Evidenz HINZUFUEGT. */
 class PairCaptureRestoreScopeTest {
-    /** Der Normalfall, der die Funktion rechtfertigt: Schnappschuss auf DERSELBEN Stellung. */
     @Test
     fun matchingSnapshotRestoresTheCaptureTarget() {
         val state = armed(AFTER_D5)
@@ -20,7 +15,6 @@ class PairCaptureRestoreScopeTest {
         assertNotNull(state.pairCandidate(coldTarget(), NO_SCORE), "Vorbedingung: der Restore traegt das Paar")
     }
 
-    /** Und derselbe Schnappschuss, nur aus der Stellung DAVOR, darf das Paar nicht tragen. */
     @Test
     fun staleSnapshotMustNotRestoreCaptureEvidence() {
         val state = armed(AFTER_D5)

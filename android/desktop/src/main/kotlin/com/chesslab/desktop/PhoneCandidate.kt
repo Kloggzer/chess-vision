@@ -35,19 +35,15 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.system.exitProcess
 
-// `phone-candidate`: the record's plies on the video's clock, without replaying anything.
-//
-// A replay of a transferred bundle labels it from the game record anyway (`PhoneLog.gameMarks`,
-// decider `phone_log`) and spends minutes running the tracker and the CNN to get there. All that
-// is actually missing is the geometry scan and a frame index per ply — this verb keeps those two.
+// `phone-candidate`: the record's plies on the video's clock, without replaying anything — only the geometry
+// scan and a frame index per ply.
 
-/** Measured 2026-09-06 (`docs/phone-transfer.md`); frames, may be negative. */
+/** `docs/phone-transfer.md`; frames, may be negative. */
 internal const val PHONE_FRAME_OFFSET: Int = 0
 
 /** The default the platform never passes — the same one `labelArgs` uses. */
 internal const val PHONE_DEFAULT_MODEL = DEFAULT_MODEL
 
-/** One `frame` row, reduced to what the rules read: when it was, and which position it showed. */
 internal data class FrameRow(
     val elapsedNs: Long,
     val wallTsMs: Long,
@@ -55,7 +51,6 @@ internal data class FrameRow(
     val corners: FloatArray? = null,
 )
 
-/** One ACCEPTED `decision` row: the ply it committed, when, and the move itself. */
 internal data class DecisionRow(
     val ply: Int,
     val elapsedNs: Long,
@@ -65,13 +60,11 @@ internal data class DecisionRow(
     val fenAfter: String? = null,
 )
 
-/** The `timeline.jsonl` rows the three time rules stand on, read in one pass. */
 internal data class TimelineRows(
-    /** (elapsedNs, durationNs) — the shape [RecordedFrames.videoNsAt] takes. */
     val syncs: List<Pair<Long, Long>>,
     val frames: List<FrameRow>,
     val decisions: List<DecisionRow>,
-    /** (elapsedNs, wallTsMs) — an `event` row carries no FEN but does carry both clocks. */
+    /** An `event` row carries no FEN but both clocks. */
     val events: List<Pair<Long, Long>>,
 ) {
     /** The phone's quad at [elapsedNs]: the first frame row from there that carries one, else the last before. */
@@ -109,26 +102,19 @@ internal data class TimelineRows(
     }
 }
 
-/** Which rule placed a ply — goes into `source.rule` and the log line. */
 internal enum class TimeRule {
     FRAME,
     DECISION,
     WALL,
 }
 
-/**
- * The pack's time rule, tried in [order]; Phase 00 measured `frame`, `decision`, `wall` by coverage.
- *
- * The bound is NON-STRICT: a batch commit puts several plies on one instant (8 on 4, 124 on 102),
- * so demanding a strictly later row would refuse the very bundles the verb exists for.
- */
+/** Tried in [order]. The bound is NON-STRICT: a batch commit puts several plies on one instant (8 on 4). */
 internal class PhoneClock(
     private val rows: TimelineRows,
     private val order: List<TimeRule> = listOf(TimeRule.FRAME, TimeRule.DECISION, TimeRule.WALL),
 ) {
     fun cornersAt(elapsedNs: Long): FloatArray? = rows.cornersAt(elapsedNs)
 
-    /** Only rows with `elapsedNs >= afterNs` count; null when every rule fails. */
     fun elapsedNs(
         ply: Int,
         fenAfter: String,
@@ -154,11 +140,11 @@ internal class PhoneClock(
                     .firstOrNull { it.elapsedNs >= afterNs && it.fen != null && placementAndSide(it.fen) == placementAndSide(fenAfter) }
                     ?.elapsedNs
             TimeRule.DECISION -> rows.decisions.firstOrNull { it.elapsedNs >= afterNs && it.ply == ply }?.elapsedNs
-            // A move synthesised from the timeline carries no wall clock (0): the rule cannot apply.
+            // A move synthesised from the timeline carries no wall clock (0).
             TimeRule.WALL -> if (tsEpochMs == 0L) null else wallAt(tsEpochMs, afterNs)
         }
 
-    /** Both clocks are `System.currentTimeMillis()`, so the slope is 1 and only the offset is read. */
+    /** Both clocks are `System.currentTimeMillis()`, so only the offset is read. */
     private fun wallAt(
         tsEpochMs: Long,
         afterNs: Long,
@@ -169,14 +155,12 @@ internal class PhoneClock(
     }
 }
 
-/** Decoded frame index per video time, collected during the scan's own decode pass. */
 internal class PhoneFrameClock(
     private val timestampsMs: List<Double>,
 ) {
     val size: Int get() = timestampsMs.size
 
-    /** First index at or after [videoMs]; the last one within a frame interval past the end (a mate
-     *  0.3 s before the recorder stopped, 2026-09-06-20-57-45); null further out. */
+    /** The last index within one frame interval past the end still counts (a mate 0.3 s before the recorder stopped). */
     fun indexAt(videoMs: Double): Int? {
         val hit = timestampsMs.indexOfFirst { it >= videoMs }
         if (hit >= 0) return hit
@@ -186,11 +170,8 @@ internal class PhoneFrameClock(
     }
 }
 
-/**
- * The move list the phone's accepted `decision` rows describe — the record when the game was never
- * saved. A pair commit writes one row for the second ply only, so a missing ply is the one legal
- * move onto the next row's `fenBefore`; the time is then the next row's. Null without decisions.
- */
+/** A pair commit writes one row for the second ply only: a missing ply is the one legal move onto the next row's
+ *  `fenBefore`, at the next row's time. */
 internal fun decisionMoves(
     rows: TimelineRows,
     startFen: String,
@@ -227,10 +208,9 @@ internal fun decisionMoves(
     return out
 }
 
-/** Ply 1's own `fenBefore` — the frame rows may begin after the first move (a short pre-roll). */
+/** The frame rows may begin after the first move (a short pre-roll). */
 private fun decisionStartFen(rows: TimelineRows): String? = rows.decisions.firstOrNull { it.ply == 1 }?.fenBefore
 
-/** [PlyMark]s from the decisions, on the video clock — the replay's second source before `log.jsonl`. */
 internal fun decisionMarks(timeline: File): List<PlyMark>? {
     if (!timeline.isFile) return null
     val rows = TimelineRows.read(timeline)
@@ -251,7 +231,6 @@ internal fun decisionMarks(timeline: File): List<PlyMark>? {
     }
 }
 
-/** What this verb refuses, in the words entry.md fixes — one stdout line, exit 1. */
 internal class PhoneRefusal(
     message: String,
 ) : RuntimeException(message)
@@ -267,7 +246,7 @@ internal fun phoneCandidate(args: List<String>) {
     }
 }
 
-/** Resolves the video and the model, then scans the geometry in ONE decode pass over the recording. */
+/** Scans the geometry in ONE decode pass over the recording. */
 internal fun buildPhoneCandidate(
     recordingDir: File,
     force: Boolean,
@@ -281,7 +260,7 @@ internal fun buildPhoneCandidate(
         openRecording(video).use { src ->
             val scan = GeometryScan(src.fps) { println("  $it") }
             while (true) {
-                // Owned and reused by the source (`FrameSource.next`) — releasing it kills the run.
+                // Owned and reused by the source — releasing it kills the run.
                 val mat = src.next() ?: break
                 scan.offer(mat, src.timestampMs)
                 samples.offer(mat, stamps.size)
@@ -290,9 +269,8 @@ internal fun buildPhoneCandidate(
             scan
         }
     val clock = PhoneFrameClock(stamps)
-    // The candidate covers the record's FIRST segment, and the board may move at the seam after it
-    // (2026-08-30-16-20-19: nudged a seventh of a cell near frame 5400, 55 % of the video after it —
-    // the whole-video median stood on the moved board). The segment's own frames measure its quad.
+    // Only the FIRST segment's frames measure its quad: the board may move at the seam after it
+    // (2026-08-30-16-20-19, the whole-video median stood on the moved board).
     val last = phonePlan(recordingDir, clock).plies.maxOf { it.frame } + REVIEW_CONTEXT
     val scanned = scan.result(upToFrame = last) ?: throw PhoneRefusal("no sampled frame up to $last aligned to the board's grid")
     println("geometry measured on frames 0..$last of ${stamps.size}: the candidate's segment, not the whole recording")
@@ -303,7 +281,6 @@ internal fun buildPhoneCandidate(
     }
 }
 
-/** A dozen frames spread over the whole recording, kept from the scan's own decode for the quad check. */
 private class QuadSamples(
     private val keep: Int = QUAD_SAMPLES,
 ) {
@@ -325,17 +302,13 @@ private class QuadSamples(
         }
     }
 
-    /** The samples inside the candidate's segment — frame 0 is always one of them. */
     fun upTo(lastFrame: Int): List<Mat> = frames.filter { it.first <= lastFrame }.map { it.second }
 
     fun release() = frames.forEach { it.second.release() }
 }
 
-/**
- * The scan's median against the quad the phone stood on when the game began, both measured on
- * the sampled frames against the board's own grooves; the closer one is the candidate's. The
- * scan gates every sample and never its median, and the phone's live quad drifted with it.
- */
+/** The scan's median against the phone's quad at game start, both measured against the grooves; the scan gates
+ *  every sample and never its median. */
 internal fun chooseQuad(
     scan: ScannedGeometry,
     logged: FloatArray?,
@@ -361,8 +334,7 @@ internal fun chooseQuad(
     return scan.copy(corners = corners) to note
 }
 
-/** The phone's own quad at the session's start — `log.jsonl`'s first photo row carries it. The
- *  replay's third quad source too: measured 6 to 25 plies from the scan's (specs/52). */
+/** The replay's third quad source: measured 6 to 25 plies from the scan's. */
 internal fun loggedQuad(sessionDir: File): FloatArray? {
     val log = File(sessionDir, "log.jsonl").takeIf { it.isFile } ?: return null
     val first = Jsonl.rows(log).firstOrNull() ?: return null
@@ -378,11 +350,8 @@ internal fun loggedQuad(sessionDir: File): FloatArray? {
 private const val QUAD_SAMPLES = 24
 private const val QUAD_SAMPLE_STRIDE = 400
 
-/**
- * A second decode pass for what `/confirm` shows: the rectified board at every ply's frame and
- * REVIEW_CONTEXT around it. The scan pass cannot write them — its quad is a median it does not have
- * until the end — and without them the confirm page showed "Kein Bild" for every phone candidate.
- */
+/** The scan pass cannot write them — its median quad arrives only at the end; without them the confirm page
+ *  showed "Kein Bild" for every phone candidate. */
 private fun writeReviewFrames(
     video: File,
     recordingDir: File,
@@ -409,7 +378,6 @@ private fun writeReviewFrames(
     return review.count
 }
 
-/** What the record and the timeline say before any picture is needed: the first segment, placed on the clock. */
 internal class PhonePlan(
     val sid: String,
     val gameId: String?,
@@ -432,8 +400,7 @@ internal fun phonePlan(
     val game = record?.let { decodeStoredGame(it.readText()) }
     val segments = game?.segmentsOrOne().orEmpty()
     val startFen = segments.firstOrNull()?.startFen ?: decisionStartFen(rows) ?: RecordedFrames.startFen(timeline) ?: STARTPOS
-    // No saved game: the accepted decisions ARE the record (2026-08-24-22-43-46 has 79 of them and
-    // a photo log that skips six plies).
+    // No saved game: the accepted decisions ARE the record (the photo log skips plies).
     val moves =
         segments.firstOrNull()?.moves
             ?: decisionMoves(rows, startFen)?.map { it.first }
@@ -460,7 +427,6 @@ internal fun phonePlan(
     )
 }
 
-/** The record's first segment on the video's clock, written where a replay would have written it. */
 internal fun buildPhoneCandidate(
     recordingDir: File,
     force: Boolean,
@@ -515,10 +481,7 @@ internal fun buildPhoneCandidate(
     return path
 }
 
-/**
- * The segment walked on a chesslib board exactly as `gameMarks` walks it: `doMove` is no legality
- * check at any validation level, so the generator has to be asked.
- */
+/** `doMove` is no legality check at any validation level, so the generator has to be asked. */
 private fun placeSegment(
     startFen: String,
     moves: List<StoredMove>,
@@ -543,8 +506,7 @@ private fun placeSegment(
         afterNs = hit.first
         rulesUsed += hit.second
         val videoMs = clock.videoMs(hit.first)
-        // Past the end the recorder stopped before the game did: the plies from here on have no
-        // frame to be labeled with, and the ones before them are still worth every frame they have.
+        // Past the end the recorder stopped before the game did; earlier plies keep their frames.
         val frame = frames.indexAt(videoMs)?.plus(PHONE_FRAME_OFFSET) ?: break
         if (frame < 0) throw PhoneRefusal("ply ${row.ply} lands before the video")
         plies += PlyMark(row.ply, row.san, row.uci, fenAfter, videoMs, clock.cornersAt(hit.first)).committed(frame, videoMs)
@@ -553,13 +515,12 @@ private fun placeSegment(
     return plies
 }
 
-/** An unbounded search that WOULD have matched says the timeline has the ply, just not after here. */
 private fun refusalFor(
     ply: Int,
     earlierExists: Boolean,
 ): String = if (earlierExists) "ply $ply is out of order" else "ply $ply has no time in the timeline"
 
-/** Exactly one session per bundle — several would leave the record's `sessionId` ambiguous. */
+/** Several would leave the record's `sessionId` ambiguous. */
 private fun sessionDirIn(recordingDir: File): File {
     val dirs = File(recordingDir, "files/sessions").listFiles { f: File -> f.isDirectory }?.sortedBy { it.name }.orEmpty()
     if (dirs.isEmpty()) throw PhoneRefusal("no session directory")
@@ -567,20 +528,15 @@ private fun sessionDirIn(recordingDir: File): File {
     return dirs.first()
 }
 
-/** The session dir FIRST, then the mirrored top level — the order `videoOf` and `videoInput` read. */
+/** The session dir FIRST — the order `videoOf` and `videoInput` read. */
 private fun bundleFile(
     sessionDir: File,
     recordingDir: File,
     name: String,
 ): File? = listOf(File(sessionDir, name), File(recordingDir, name)).firstOrNull { it.isFile }
 
-/**
- * The phone's own knobs in the REPLAY's shape, not the settings file verbatim.
- *
- * `settings.json` is the ConfigCodec envelope the device wrote, and it spells an unset override
- * `NaN` — which `writeCandidate` cannot encode (Phase 03: every measured bundle carries one).
- * `effectiveConfigJson` writes those as null, exactly as a replayed candidate does.
- */
+/** The device spells an unset override `NaN`, which `writeCandidate` cannot encode; `effectiveConfigJson`
+ *  writes it as null, like a replayed candidate. */
 private fun settingsJson(
     sessionDir: File,
     recordingDir: File,
@@ -590,7 +546,7 @@ private fun settingsJson(
     val root = runCatching { json.parseToJsonElement(file.readText()).jsonObject }.getOrNull() ?: return JsonObject(emptyMap())
     val envelope = root["config"] as? JsonObject ?: root
     val decoded = ConfigCodec.decode(json.encodeToString(JsonObject.serializer(), envelope))
-    // Die Notiz heisst: `config` sind VORGABEN, nicht das Geraet. Neun Candidates trugen sie als Messung.
+    // `config` sind VORGABEN, nicht das Geraet: neun Candidates trugen sie als Messung.
     decoded.note?.let {
         println("  settings.json: $it")
         return buildJsonObject { put("unknown", it) }
@@ -598,7 +554,7 @@ private fun settingsJson(
     return effectiveConfigJson(decoded.config, cnnOn = true)
 }
 
-/** Placement and side to move — the first two FEN fields, the only ones a frame row can witness. */
+/** The only FEN fields a frame row can witness. */
 private fun placementAndSide(fen: String): String = fen.split(' ').take(2).joinToString(" ")
 
 private fun JsonObject.long(key: String): Long? = this[key]?.jsonPrimitive?.longOrNull

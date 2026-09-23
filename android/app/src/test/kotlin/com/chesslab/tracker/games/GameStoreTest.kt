@@ -56,7 +56,7 @@ class GameStoreTest {
         store.save(sampleGame())
         val index = File(dir, "games/index.json")
         val before = index.readText()
-        // A directory where the temp file has to go: the write fails BEFORE touching the destination.
+        // A directory where the temp file goes: the write fails BEFORE touching the destination.
         File(dir, "games/index.json.tmp").mkdirs()
         sideFiles = { File(dir, "games/index.json.tmp") }
         runCatching { store.save(sampleGame(id = "g2")) }
@@ -85,7 +85,6 @@ class GameStoreTest {
         assertEquals("Alice", store.list().single().white)
     }
 
-    /** All THREE places a result is kept; this is what makes the end-game dialog's "unfinished" default honest. */
     @Test
     fun aCorrectedResultReachesTheRecordTheIndexAndThePgn() {
         val store = store()
@@ -107,8 +106,7 @@ class GameStoreTest {
         assertEquals(GameResult.BLACK.tag, store.open("split")?.result)
     }
 
-    /** Games from before `closeSeams` are split on disk in three places; `list()` never opens a game, so
-     *  without the write-back the library would call a continuous game "rebuilt 1×". */
+    /** `list()` never opens a game, so without the write-back a continuous game read "rebuilt 1×". */
     @Test
     fun openingAnOldSplitGameClosesItAndWritesItBack() {
         val store = store()
@@ -135,8 +133,7 @@ class GameStoreTest {
         assertTrue(store.list().isEmpty())
     }
 
-    /** Die `<id>.json` ist der EINZIGE Partienachweis: `open` gab bei fehlender wie bei unlesbarer
-     *  Datei dasselbe `null` — beschaedigt sah aus wie nie dagewesen. */
+    /** Die `<id>.json` ist der EINZIGE Nachweis: fehlend und unlesbar gaben dasselbe `null`. */
     @Test
     fun `a missing game is null and a damaged one says so`() {
         val store = store()

@@ -29,10 +29,7 @@ internal class FakeClassifier(
 
 internal fun cnnFrame(seq: Long) = CnnFrame(List(ALL_SQUARES.size) { BgrImage(1, 1, ByteArray(3)) }, seq, seq, null, null)
 
-/**
- * `_observer_due` / `_cnn_worker` on a virtual clock: an observation only ever starts synchronously in
- * [CnnObserver.onFrameAvailable], so the queued dispatcher decides exactly when it runs.
- */
+/** An observation only starts synchronously in [CnnObserver.onFrameAvailable], so the queued dispatcher decides when. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CnnObserverScheduleTest {
     private val scheduler = TestCoroutineScheduler()
@@ -140,7 +137,6 @@ class CnnObserverScheduleTest {
         observer.setIntervalS(2.0)
         now = 5_000
         observer.onFrameAvailable()
-        // Still in flight — the dispatcher has not run the observation yet.
         observer.onFrameAvailable()
         observer.onFrameAvailable()
         scheduler.runCurrent()
@@ -161,7 +157,6 @@ class CnnObserverScheduleTest {
         val observer = observer()
         seq = 42
         observer.onFrameAvailable()
-        // The game moves on while the CNN is still looking at frame 42.
         fen = "after-a-move"
         scheduler.runCurrent()
         val snap = snapshots.single()
@@ -169,7 +164,7 @@ class CnnObserverScheduleTest {
         assertEquals("start", snap.fen)
     }
 
-    /** `gateUnwanted` wurde gezaehlt, aber von niemandem gedruckt — `observations = 0` blieb ununterscheidbar. */
+    /** Ungedruckt blieb `observations = 0` ununterscheidbar. */
     @Test
     fun anEngineRefusalIsReportedLikeEveryOtherGate() {
         val observer = observer()
@@ -185,7 +180,6 @@ class CnnObserverScheduleTest {
         )
     }
 
-    /** `wantsFrame` asks the interval BEFORE `demand()`; the attribution once asked the other way round. */
     @Test
     fun aThrottledFrameIsAttributedToTheThrottle() {
         val observer = observer()
@@ -199,7 +193,7 @@ class CnnObserverScheduleTest {
         assertEquals(0L, observer.gateUnwanted, "the engine was never asked")
     }
 
-    /** `possibleLabels` wirft auf eine kaputte FEN; der Snapshot danach sah wie "kein Prior gewollt" aus. */
+    /** Der Snapshot danach sah wie "kein Prior gewollt" aus. */
     @Test
     fun aPriorThatCouldNotBeBuiltIsCountedAndLogged() {
         fen = "definitely not a fen"

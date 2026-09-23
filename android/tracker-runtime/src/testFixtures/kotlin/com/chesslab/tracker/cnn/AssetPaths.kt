@@ -6,10 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-/**
- * The committed model assets, found from the source tree. A fixture because two modules read them,
- * and a second definition would let one assert against a model the other never ships.
- */
+/** A fixture because two modules read them, and a second definition could assert against an unshipped model. */
 fun androidRoot(): File {
     var dir = File(System.getProperty("user.dir")!!).absoluteFile
     while (!File(dir, "app/src/main/assets/cnn_model").isDirectory) {
@@ -18,13 +15,10 @@ fun androidRoot(): File {
     return dir
 }
 
-/** `app/src/main/assets/cnn_model/<model>` — a committed model directory, read from the source tree. */
 fun assetDirOf(model: String): File = File(androidRoot(), "app/src/main/assets/cnn_model/$model")
 
-/** The model an install runs until the user picks another one. */
 fun assetDir(): File = assetDirOf(DEFAULT_MODEL)
 
-/** The class list the bundled `config.json` literally declares. */
 fun assetClasses(): List<String> =
     Json
         .parseToJsonElement(File(assetDir(), MODEL_CONFIG_FILE).readText())

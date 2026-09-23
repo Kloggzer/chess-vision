@@ -11,101 +11,53 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.File
 
-/**
- * How one run is configured, parsed once: ONE description, so two runs can differ in exactly one
- * field. Order-free words, and an unrecognised one is refused (`docs/desktop-replay.md`).
- */
+/** ONE description, so two runs can differ in exactly one field. Unrecognised words are refused. */
 data class ReplayOptions(
-    /** The board view, which also arms break-on-stuck. Off for a scripted run. */
+    /** Also arms break-on-stuck. */
     val watch: Boolean = true,
-    /** Write the annotated board every N frames, or 0. */
     val dumpEvery: Int = 0,
-    /** Fit the optics from the board in the footage before tracking it. */
     val lens: Boolean = false,
-    /**
-     * Attach the classifier. Off is a real configuration, not a degradation to tolerate: without an
-     * observation the engine is a different tracker (`docs/desktop-replay.md`).
-     */
+    /** Off is a real configuration: without an observation the engine is a different tracker. */
     val cnn: Boolean = true,
-    /** Which bundled graph, when [cnn] is on. */
     val model: String = DEFAULT_MODEL,
-    // EIN Feld, dessen drei Beweiskanaele (`z`, `diffs`, `census`) je Frame in die Trace gehen.
     // Alle 64 waeren 139 200 Zahlen fuer eine Frage, die ein Feld beantwortet.
     val probeSquare: String? = null,
-    /** Experimental legal-placement prior weight; zero is off. */
     val priorLambda: Double = 0.0,
-    /** Was das Modell deklariert, NUR fuers Banner — gesetzt von [withPriorOf]. */
+    /** NUR fuers Banner — gesetzt von [withPriorOf]. */
     val modelPriorLambda: Double? = null,
-    /** New raw/invalid safety, or false to reproduce the historical conditioned-everywhere path. */
+    /** False reproduces the historical conditioned-everywhere path. */
     val priorSafety: Boolean = true,
-    /**
-     * Drop `requireMotionForMove`. It rejects WITHOUT a stuck reason and silenced a whole session
-     * on 2026-08-01, so it has to be switchable to be ruled in or out.
-     */
+    /** It rejects WITHOUT a stuck reason and once silenced a whole session. */
     val motionGate: Boolean = true,
-    /**
-     * `data/recordings/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
-     * `confirmed: false` always; footage that cannot carry a label is refused (specs/52 phase 02).
-     */
+    /** The tracker's PROPOSAL, `confirmed: false` always. */
     val label: Boolean = false,
-    /**
-     * Score against an existing `candidate.json`: found / missed / invented with frame indices,
-     * never one combined accuracy — phantoms are the veto (specs/52 phase 04, measurement only).
-     */
+    /** Never one combined accuracy — phantoms are the veto. */
     val score: Boolean = false,
-    /** The candidate's directory name under `data/recordings/`. Default: the video's stem. */
     val name: String? = null,
-    /**
-     * The DECISIVE frames — every decision row, rejections included, ±2 — as the normalised labeled
-     * board, to `data/recordings/<name>/frames-decisive/`. Never the raw camera frames.
-     */
+    /** Every decision row, rejections included, ±2, as the rectified board. Never raw camera frames. */
     val frames: Boolean = false,
-    /** `cleanCommitsOnly` — the strict-hand experiment arm. See the knob's KDoc. */
     val cleanOnly: Boolean = false,
-    /**
-     * `set:<knob>=<value>` through `ConfigKnobs.KNOBS`, so a one-knob A/B never needs a new CLI
-     * word. Booleans as true/false; recorded in `effective_config` like every other knob.
-     */
+    /** `set:<knob>=<value>`: a one-knob A/B needs no new CLI word. */
     val overrides: Map<String, Double> = emptyMap(),
-    /**
-     * `fps=<n>` — every k-th decoded frame, the DETERMINISTIC form of what CameraX drops live. A
-     * measurement instrument, not a default: what it shifts is in `docs/desktop-replay.md`.
-     */
+    /** `fps=<n>` — every k-th frame, the DETERMINISTIC form of CameraX's drops. An instrument, not a default. */
     val fps: Double? = null,
-    /**
-     * `start=<seconds>` — where tracking begins in the video, instead of the recording's own
-     * pre-roll boundary. `start=0` tracks the pre-roll too, which is what a diagnosis of it wants.
-     */
+    /** `start=0` tracks the pre-roll too. */
     val startSeconds: Double? = null,
-    /**
-     * `config=<file>` — a RECORDED config as the run's base: a session's `settings.json` or a raw
-     * ConfigCodec envelope. Geometry still wins over it (`docs/desktop-replay.md`).
-     */
+    /** `config=<file>` — a RECORDED config as the base. Geometry still wins over it. */
     val configFile: String? = null,
-    /** `motiondump=<file>`: one row per emitted frame with its ROI motion score. See `MotionDump`. */
     val motionDump: String? = null,
-    /** Build this cache when absent; consume it strictly by frame sequence when present. */
     val visualCache: String? = null,
-    /** `configs=<datei>` — je Zeile `<name> <knopf>=<wert> ...`: weitere Engines im SELBEN
-     *  Bilddurchgang. Sie teilen sich eine Pixel-Bahn (`MultiReplay.kt`). */
+    /** `configs=<datei>`: weitere Engines im SELBEN Bilddurchgang (`MultiReplay.kt`). */
     val extraConfigs: String? = null,
-    /** `visualcache-partial` — ein Frame, den der Bau-Lauf nicht sah, wird gerechnet statt zu
-     *  werfen. Der Beobachter sieht hoechstens jeden zweiten Frame, ein Cache kann also gar
-     *  nicht lueckenlos sein (gemessen 200 von 400). */
+    /** Rechnen statt werfen: der Beobachter sieht hoechstens jeden zweiten Frame, kein Cache ist lueckenlos. */
     val visualCachePartial: Boolean = false,
-    /** Benchmark/investigation arm: force the real graph even when identical crop hashes exist. */
     val observationCache: Boolean = true,
-    /** Experimental bounded cross-frame visual prepass; zero keeps the established path. */
     val visualWorkers: Int = 0,
-    /** Exact source-work call graph, semantic repeats, copied bytes and cache hits. */
     val workProfile: Boolean = false,
-    /** Bounded diagnostic replay, counted in decoded frames after initialization. */
     val limitFrames: Int? = null,
-    /** Exact unsampled engine state and operation durations per delivered frame. */
     val trace: String? = null,
 ) {
     companion object {
-        /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
         private val FLAGS: Map<String, (ReplayOptions) -> ReplayOptions> =
             mapOf(
                 "quiet" to { it.copy(watch = false) },
@@ -122,7 +74,6 @@ data class ReplayOptions(
                 "workprofile" to { it.copy(workProfile = true) },
             )
 
-        /** Every word after the verb and its subject. Unknown words are an error, not a shrug. */
         fun parse(words: List<String>): ReplayOptions {
             var options = ReplayOptions()
             for (word in words) {
@@ -204,28 +155,12 @@ data class ReplayOptions(
                             word.removePrefix("visualworkers=").toIntOrNull()?.takeIf { it in 1..MAX_VISUAL_WORKERS }
                                 ?: error("visualworkers= wants 1..$MAX_VISUAL_WORKERS workers, got '$word'"),
                     )
-                word.startsWith("set:") -> options.copy(overrides = options.overrides + knobOverride(word))
+                word.startsWith("set:") -> options.copy(overrides = options.overrides + knobAssignment(word.removePrefix("set:"), "set:"))
                 else -> null
             }
-
-        /** `set:recoveryMaxPlies=6`, `set:cnnVerify=false` — validated against the catalog at apply time. */
-        private fun knobOverride(word: String): Pair<String, Double> {
-            val assignment = word.removePrefix("set:")
-            val key = assignment.substringBefore('=')
-            val raw = assignment.substringAfter('=', missingDelimiterValue = "")
-            val value =
-                when (raw) {
-                    "true" -> 1.0
-                    "false" -> 0.0
-                    else -> raw.toDoubleOrNull() ?: error("set: wants <knob>=<number|true|false>, got '$word'")
-                }
-            return key to value
-        }
     }
 
-    /** `prior_lambda` aus der `config.json` des Modells gewinnt IMMER
-     *  (`CnnObserver.priorFor`: `spec?.priorLambda ?: priorLambda`), auch gegen ein `prior=`.
-     *  Das Banner nennt den wirksamen Wert; [withPriorOf] sagt dazu, was verworfen wurde. */
+    /** `prior_lambda` des Modells gewinnt IMMER, auch gegen `prior=`; das Banner nennt den wirksamen Wert. */
     private val priorBanner: String
         get() =
             when {
@@ -252,8 +187,7 @@ data class ReplayOptions(
             overrides.entries.joinToString("") { " set:${it.key}=${it.value}" }
 }
 
-/** Die Staerke reitet im MODELL (`prior_lambda`), wie `coverage_gate`: ein `prior=` daneben ist
- *  folgenlos, und ungesagt misst ein Sweep an jedem Punkt dasselbe. */
+/** Ein `prior=` neben einem Modell-Prior ist folgenlos, und ungesagt misst ein Sweep an jedem Punkt dasselbe. */
 internal fun ReplayOptions.withPriorOf(
     spec: ModelSpec?,
     warn: (String) -> Unit = { println("warn: $it") },
@@ -263,43 +197,30 @@ internal fun ReplayOptions.withPriorOf(
     return copy(modelPriorLambda = declared)
 }
 
-/**
- * The config a replay runs — measured board size, the CLI's arms, and for files the VIDEO-time
- * observer cadence: on the wall clock the same file committed 54 plies, then 39.
- */
+/** For files the VIDEO-time observer cadence: on the wall clock the same file committed 54 plies, then 39. */
 internal fun ReplayOptions.trackerConfig(
     geometry: BoardGeometry,
     live: Boolean,
-    /** The rate frames actually REACH the engine at; the CLI's `fps=` unless a caller knows better. */
     emulatedFps: Double? = fps.takeIf { !live },
 ): TrackerConfig {
-    // The recorded file FIRST, the geometry copy AFTER: `boardSize` is a measurement of THIS
-    // footage, and a phone's recorded size would poison the warp of any other video.
+    // The recorded file FIRST, the geometry AFTER: a phone's recorded `boardSize` would poison another video's warp.
     val base = configFile?.let(::loadRecordedConfig) ?: TrackerConfig()
     return base
         .copy(
             boardSize = geometry.boardSize,
-            // One-directional: their ABSENCE leaves the recorded value standing, or `config=`
-            // could never reproduce a phone that had one on.
+            // One-directional, or `config=` could never reproduce a phone that had one on.
             requireMotionForMove = base.requireMotionForMove && motionGate,
             cleanCommitsOnly = base.cleanCommitsOnly || cleanOnly,
-            // A file replay keeps the REPLAY's cadence (see REPLAY_OBSERVER_INTERVAL_S); when the
-            // phone's IS the experiment, `set:observerIntervalS=<s>` says so.
+            // A file replay keeps the REPLAY's cadence; `set:observerIntervalS=<s>` for the phone's.
             observerIntervalS = if (live) base.observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
         ).withOverrides(overrides)
         .withMotionThrFor(emulatedFps)
 }
 
-/**
- * `motionThr` skaliert auf die emulierte Rate wie live: der Wert ist ein Prozentsatz gegen den
- * VORIGEN Frame. Nach `set:motionThr=`, weil die Skala zur Bildperiode gehoert.
- */
+/** After `set:motionThr=`: the scale belongs to the frame period. */
 private fun TrackerConfig.withMotionThrFor(rate: Double?): TrackerConfig = if (rate == null) this else atFrameRate(rate)
 
-/**
- * `config=<file>`, loaded and announced. Refuses loudly what it cannot read: ConfigCodec falls back
- * to "defaults with a note", and a replay that ran those would measure nothing under the flag.
- */
+/** Refuses loudly: ConfigCodec falls back to "defaults with a note", which would measure nothing. */
 private fun loadRecordedConfig(path: String): TrackerConfig {
     val json = Json { allowSpecialFloatingPointValues = true }
     val root =
@@ -320,10 +241,22 @@ private fun loadRecordedConfig(path: String): TrackerConfig {
     return decoded.config
 }
 
-/**
- * `set:<knob>=<value>` through the settings catalog. Refusing an unknown key loudly is the point:
- * a typo that silently ran the defaults would be a measurement of nothing.
- */
+/** EIN Leser fuer `set:` und `configs=`. Den Namen prueft erst [withOverrides]. */
+internal fun knobAssignment(
+    assignment: String,
+    form: String,
+): Pair<String, Double> {
+    val key = assignment.substringBefore('=')
+    val value =
+        when (val raw = assignment.substringAfter('=', missingDelimiterValue = "")) {
+            "true" -> 1.0
+            "false" -> 0.0
+            else -> raw.toDoubleOrNull() ?: error("$form wants <knob>=<number|true|false>, got '$assignment'")
+        }
+    return key to value
+}
+
+/** A typo that silently ran the defaults would be a measurement of nothing. */
 internal fun TrackerConfig.withOverrides(overrides: Map<String, Double>): TrackerConfig =
     overrides.entries.fold(this) { config, (key, value) ->
         val knob = knobFor(key) ?: error("set: unknown knob '$key' — see ConfigKnobs.KNOBS")
@@ -331,15 +264,9 @@ internal fun TrackerConfig.withOverrides(overrides: Map<String, Double>): Tracke
         knob.set(config, value)
     }
 
-/**
- * The replay observer's cadence: FREE-RUNNING, which every good measurement on record ran at.
- * Throttling to a "modelled live rate" of 0.15 s took rec-20260808 from 67 plies to 26 (2026-08-08).
- */
+/** FREE-RUNNING: throttling to 0.15 s took rec-20260808 from 67 plies to 26. */
 internal const val REPLAY_OBSERVER_INTERVAL_S = 0.0
 
-/**
- * Frames between dumps: ~5 s at 30 fps, which follows a game and is useless for a move — one run
- * read `e2e4` perfectly at 150 and had six changed squares by 300. `dump=<n>` looks inside that.
- */
+/** ~5 s at 30 fps follows a game and is useless for a move; `dump=<n>` looks inside that. */
 private const val DUMP_EVERY = 150
 private const val MAX_VISUAL_WORKERS = 16

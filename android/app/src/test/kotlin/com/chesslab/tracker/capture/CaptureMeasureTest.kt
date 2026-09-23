@@ -5,17 +5,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Welches PIXEL zu welchem Feld gehoert. Ohne Bitmap geprueft — `Bitmap.createBitmap` ist im
- * JVM-Test nicht gemockt, und die Annahme, um die es geht, steckt allein in der Boxwahl.
- */
+/** Ohne Bitmap: `Bitmap.createBitmap` ist im JVM-Test nicht gemockt, die Annahme steckt in der Boxwahl. */
 class CaptureMeasureTest {
-    /**
-     * Der Warp kennt kein `whitePov` (`Warp.kt`: `computeHomography(corners, boardSize, margin)`),
-     * die Feldzuordnung schon (`squareToColRow`, 180 Grad gedreht). Steht die Orientierung auf
-     * BLACK_BOTTOM, liegt `a8` da, wo bei WHITE_BOTTOM `h1` liegt — eine Messung mit fest
-     * verdrahtetem `whitePov = true` misst dann das gespiegelte Feld und labelt die Figur dorthin.
-     */
+    /** Der Warp kennt kein `whitePov`, `squareToColRow` dreht 180 Grad: bei BLACK_BOTTOM liegt `a8`, wo sonst
+     *  `h1` liegt, und ein fest verdrahtetes `whitePov = true` misst das gespiegelte Feld. */
     @Test
     fun blackBottomPutsA8WhereWhiteBottomHasH1() {
         val white = squareBoxes(SIZE, whitePov = true)

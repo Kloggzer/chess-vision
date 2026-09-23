@@ -2,28 +2,17 @@ package com.chesslab.geometry
 
 import kotlin.math.abs
 
-// Smoothed, occlusion/jitter-resilient marker positions. Port of `calibration.py
-// MarkerTracker`; parameters copied verbatim from `config.TRACKER` (config.py).
-//
-// OpenCV-free ON PURPOSE (see Corners.kt). The detection half lives in `Aruco.kt`.
+// Parameters verbatim from `config.TRACKER`. OpenCV-free ON PURPOSE; the detection half is in `Aruco.kt`.
 
-/** `config.TrackerDefaults` (config.py). All values in pixels or frames. */
 data class MarkerTrackerParams(
-    /** Dead zone: detected movement at or below this freezes the position. */
     val moveThreshold: Double = 4.0,
-    /** EMA weight for real movement (0 = fixed, 1 = raw). */
     val smoothAlpha: Double = 0.35,
-    /** A single-frame jump above this is treated as an outlier ... */
     val jumpRejectPx: Double = 60.0,
-    /** ... unless it is confirmed over this many consecutive frames. */
     val jumpConfirmFrames: Int = 2,
-    /** After this many frames without a live detection a corner counts as `stale`. */
     val maxHeldFrames: Int = 90,
-    /** The box needs at least this many known corners (seed/live/held). */
     val defaultMinMarkers: Int = 2,
 )
 
-/** Per-corner tracker status: `seed`, `live`, `held` or `stale`. */
 object MarkerStatus {
     const val SEED: String = "seed"
     const val LIVE: String = "live"
@@ -31,18 +20,8 @@ object MarkerStatus {
     const val STALE: String = "stale"
 }
 
-/**
- * Tracks one smoothed position per marker id.
- *
- * - **Dead zone**: movement `<= moveThreshold` freezes the position (stable box).
- * - **Smoothing**: real movement is EMA'd with `smoothAlpha` instead of snapped.
- * - **Outlier rejection**: a single-frame jump `> jumpRejectPx` is held until the candidate
- *   repeats within `jumpRejectPx` over `jumpConfirmFrames` consecutive frames.
- * - **Ageing**: every frame ages every known corner; a live detection resets it to 0.
- * - **Seed**: `seed()` pre-populates corners from a profile. The FIRST live detection of a
- *   seeded corner SNAPS — EMA'ing it would leave the corner 65 % at the seed = a permanently
- *   offset grid. That is a named live bug fix in Python; do not "simplify" it.
- */
+/** Dead zone, EMA smoothing, outlier jumps held for `jumpConfirmFrames`. The FIRST live detection of a seeded
+ *  corner SNAPS — EMA'ing it left the corner 65 % at the seed, a permanently offset grid. Do not "simplify". */
 class MarkerTracker(
     val params: MarkerTrackerParams = MarkerTrackerParams(),
 ) {
@@ -51,7 +30,7 @@ class MarkerTracker(
     private val seeded: MutableSet<Int> = LinkedHashSet()
     private val pending: MutableMap<Int, Pair<DoubleArray, Int>> = LinkedHashMap()
 
-    /** Pre-populate from known geometry (e.g. a calibration profile). Never overwrites. */
+    /** Never overwrites. */
     fun seed(pointsById: Map<Int, DoubleArray>) {
         for ((i, q) in pointsById) {
             if (i !in pos) {
@@ -63,12 +42,10 @@ class MarkerTracker(
         }
     }
 
-    /** One detection tick. Returns the resulting points, like Python's `update`. */
     fun update(detected: Map<Int, DoubleArray>): Map<Int, DoubleArray> {
         for (i in pos.keys) {
             age[i] = (age[i] ?: 0) + 1
-            // `jumpConfirmFrames` meint AUFEINANDERFOLGENDE Bilder: ohne das hier ueberlebte ein
-            // Kandidat eine 500-Bild-Luecke und wurde auf ein einziges Wiedersehen bestaetigt.
+            // AUFEINANDERFOLGENDE Bilder: sonst ueberlebte ein Kandidat eine 500-Bild-Luecke.
             if (i !in detected) pending.remove(i)
         }
         for ((i, q) in detected) {
@@ -88,10 +65,10 @@ class MarkerTracker(
         p: DoubleArray,
         prev: DoubleArray,
     ) {
-        // L1 distance to the current position - NOT Euclidean.
+        // L1 distance, NOT Euclidean.
         val d = abs(p[0] - prev[0]) + abs(p[1] - prev[1])
         when {
-            // Dead zone: freeze the position (re-accepting the very same point) but mark it live.
+            // Dead zone: freeze the position (the very same point) but mark it live.
             d <= params.moveThreshold -> accept(i, prev)
             // First real detection replaces the seed: SNAP, never EMA.
             i in seeded -> accept(i, p)
@@ -117,7 +94,6 @@ class MarkerTracker(
         pending.remove(i)
     }
 
-    /** A jump is only accepted once the candidate holds still for `jumpConfirmFrames`. */
     private fun confirmJump(
         i: Int,
         p: DoubleArray,
@@ -133,7 +109,6 @@ class MarkerTracker(
         return next >= params.jumpConfirmFrames
     }
 
-    /** All known corners (live, held, seeded). */
     fun points(): Map<Int, DoubleArray> = pos.mapValues { (_, p) -> doubleArrayOf(p[0], p[1]) }
 
     fun status(): Map<Int, String> =

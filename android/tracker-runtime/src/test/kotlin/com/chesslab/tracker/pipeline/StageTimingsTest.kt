@@ -18,7 +18,6 @@ class StageTimingsTest {
             timings.mark(Stage.TOTAL)
             timings.maybeLog()
         }
-        // 60 frames span 0.96 s: the very first line plus nothing else.
         assertEquals(1, lines.size)
         repeat(60) {
             now += 16_000_000L
@@ -27,7 +26,7 @@ class StageTimingsTest {
         assertEquals(2, lines.size)
     }
 
-    /** `StageTimings` outlives the stack: the pause between two used to land in the EMA as one huge frame gap. */
+    /** The pause between two stacks landed in the EMA as one huge frame gap. */
     @Test
     fun `the pause between two stacks is not a frame period`() {
         repeat(30) {
@@ -48,10 +47,9 @@ class StageTimingsTest {
         assertTrue(lines.last().contains("fps=10.0 idle=45.0"), lines.last())
     }
 
-    /** `idle` is the diagnosis: 45 ms waiting for the sensor means no pipeline optimisation can buy a frame. */
+    /** 45 ms waiting for the sensor means no pipeline optimisation can buy a frame. */
     @Test
     fun `the logged rate is the gap between frames, and idle says who is the bottleneck`() {
-        // 20 ms of pipeline + 30 ms of engine + 5 ms of publish inside a 100 ms frame: 10 fps.
         repeat(200) {
             now += 45_000_000L
             timings.begin()
@@ -65,7 +63,6 @@ class StageTimingsTest {
         assertTrue(lines.last().contains("frame=55.0 fps=10.0 idle=45.0"), lines.last())
     }
 
-    /** A skipped frame runs neither `grayDet` nor the engine; the previous frame's numbers would read as work. */
     @Test
     fun `a stage that did not run this frame is not reported as a duration`() {
         timings.begin()
@@ -80,7 +77,7 @@ class StageTimingsTest {
         timings.mark(Stage.TOTAL)
         timings.endFrame()
         assertTrue(lines.last().contains("gray=-"), lines.last())
-        // The snapshot still carries the last known value — the debug panel wants stable keys.
+        // The debug panel wants stable keys.
         assertEquals(20.0, timings.snapshot().getValue("gray"))
     }
 
@@ -97,15 +94,11 @@ class StageTimingsTest {
         assertEquals(setOf("convert", "warp", "total"), snap.keys)
         assertEquals(3.0, snap.getValue("convert"))
         assertEquals(2.0, snap.getValue("warp"))
-        // TOTAL is measured from begin(), not from the previous mark.
         assertEquals(10.0, snap.getValue("total"))
         assertTrue(lines.isEmpty())
     }
 
-    /**
-     * No lens configured (the default) means `Stage.LENS` is never marked, and the panel read
-     * `lens 0.0 ms` for a full-frame remap nobody ran — as did gray/grid on an all-skipped feed.
-     */
+    /** The panel read `lens 0.0 ms` for a remap nobody ran. */
     @Test
     fun `a stage that never ran is absent from the snapshot, not zero`() {
         repeat(3) {
@@ -123,7 +116,7 @@ class StageTimingsTest {
         assertTrue("convert" in snap, snap.toString())
     }
 
-    /** Verdict fields (2026-08-01): a dash said a frame was skipped, not WHICH of `readFrame`'s three exits took it. */
+    /** A dash said a frame was skipped, not WHICH exit took it. */
     @Test
     fun `an emitted frame reports no skip reason and no luma`() {
         timings.begin()
@@ -142,7 +135,6 @@ class StageTimingsTest {
         assertTrue(line.endsWith("luma=6.4"), line)
     }
 
-    /** Two decimals: the floor lives between 0 and a few grey levels, one decimal quantises it. */
     @Test
     fun `the noise floor rides beside the luma it trades against`() {
         timings.begin()

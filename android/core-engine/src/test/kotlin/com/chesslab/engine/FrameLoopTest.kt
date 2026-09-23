@@ -14,11 +14,8 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// The per-frame body of `_loop` (`tracker.py`) and `_RunningMean`.
-
 private const val U8 = 0xFF
 
-/** A [FrameLoop] plus the `setRef` calls it made — the capture stands in for 03d's `Commit.kt`. */
 private class Harness(
     config: TrackerConfig = testConfig(),
 ) {
@@ -33,7 +30,6 @@ private class Harness(
         }
     private var seq = 0L
 
-    /** One frame at [tsMs] (default: 100 ms after the previous one); defaults = a quiet board. */
     fun feed(
         gray: GrayImage = grayFrame(),
         tsMs: Long = -1L,
@@ -64,10 +60,7 @@ private class Harness(
 }
 
 class FrameLoopTest {
-    /**
-     * `:1577-1584` — the gate reads the luma of the warp BEFORE CLAHE, and a dark frame must not
-     * mutate anything the next bright frame depends on (buffers, stable count, motion).
-     */
+    /** The gate reads the luma BEFORE CLAHE, and a dark frame must not mutate anything the next bright one depends on. */
     @Test
     fun darkFrameGateIsPreClahe() {
         val h = Harness()
@@ -108,7 +101,7 @@ class FrameLoopTest {
         assertThrows(IllegalArgumentException::class.java) { h.loop.step(input.copy(seq = 6L)) }
     }
 
-    /** Pending verification and asynchronous snapshots must use the producer's one sequence domain. */
+    /** Pending verification and snapshots must share the producer's one sequence domain. */
     @Test
     fun detectionKeepsTheInputSequenceWhenTheProducerStartsAboveOne() {
         val config =
@@ -143,7 +136,6 @@ class FrameLoopTest {
         )
     }
 
-    /** `:1629-1641` — the motion branch drops both buffers and arms the hold. */
     @Test
     fun motionBranchClearsBuffersAndArmsTheHold() {
         val h = Harness()
@@ -163,14 +155,10 @@ class FrameLoopTest {
         assertEquals(h.state.nowS + h.state.config.motionHoldS, h.state.holdUntil, 1e-9)
     }
 
-    /**
-     * `:1646-1647` — BOTH conditions gate `ready`. The hold is set here: at the default 0.1 s the
-     * settle count binds later and this test would assert nothing.
-     */
+    /** BOTH conditions gate `ready`. At the default 0.1 s hold the settle count binds later and this would assert nothing. */
     @Test
     fun readyRequiresSettleFramesAndHold() {
         val h = Harness(testConfig().copy(motionHoldS = 0.4))
-        // Motion at 0.05 s arms holdUntil = 0.45 s; the settle count (4) is reached long before.
         h.feed(motionRoi = 5.0, tsMs = 50L)
         for (ts in listOf(100L, 150L, 200L, 250L, 300L)) h.feed(tsMs = ts)
         assertTrue(h.state.stableCount > h.state.settleFrames, "the settle count is satisfied")
@@ -182,7 +170,6 @@ class FrameLoopTest {
         assertEquals(1, h.refCaptures.size, "the first ready frame captures base truth")
     }
 
-    /** `:1676-1682` — base truth is captured exactly once; a live reference is never overwritten here. */
     @Test
     fun setRefOnlyWhenRefGrayNull() {
         val h = Harness()
@@ -195,17 +182,14 @@ class FrameLoopTest {
         assertSame(captured, h.state.refGray)
     }
 
-    /**
-     * `:1663-1672` — residual hand pixels must never reach the first post-occlusion mean. The state
-     * must leave `occluded` too: it used to stick until the next MOTION frame, killing the periodic CNN check.
-     */
+    /** Residual hand pixels must never reach the first post-occlusion mean, and the state must leave `occluded` —
+     *  it stuck until the next MOTION frame, killing the periodic CNN check. */
     @Test
     fun gridGateReleaseExtendsHoldAndClearsBuffers() {
         val h = Harness(testConfig(minGridLineCoverage = 0.5))
         repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
         assertEquals(1, h.refCaptures.size)
 
-        // Occluder arrives: the gate blocks while the board stays perfectly still.
         val occluded = h.feed(coverage = 0.3)
         assertEquals(FrameOutcome.Skip(SKIP_OCCLUDED), occluded)
         assertEquals(STATE_OCCLUDED, h.state.state)
@@ -228,7 +212,6 @@ class FrameLoopTest {
         assertEquals(STATE_WAITING, h.state.state, "and quiet frames never put it back")
     }
 
-    /** `_occluded_by_grid` — `minGridLineCoverage <= 0` disables the gate entirely. */
     @Test
     fun gridGateDisabledLeavesCoverageUntouched() {
         val h = Harness(testConfig(minGridLineCoverage = 0.0))
@@ -237,13 +220,12 @@ class FrameLoopTest {
         assertEquals(1, h.refCaptures.size, "a disabled gate never blocks")
     }
 
-    /** entry.md invariant 3: counting the dilated set would lock the tracker in `occluded`, where `_try_detect` never runs. */
+    /** Invariant 3: counting the dilated set would lock the tracker in `occluded`, where detection never runs. */
     @Test
     fun occludedGateCountsRawCoreNotDilated() {
         val h = armedHarness()
         val now = h.state.nowS
         val expiry = now + LONG_EXPIRY_S
-        // One strong square, dilated to its four orthogonal neighbours: 5 dilated, 1 raw.
         for (square in listOf("e4", "e3", "e5", "d4", "f4")) h.state.occlusionExpiry[Squares.index(square)] = expiry
         h.state.occlCoreExpiry[Squares.index("e4")] = expiry
 
@@ -255,16 +237,14 @@ class FrameLoopTest {
         assertEquals(STATE_OCCLUDED, h.state.state)
     }
 
-    /**
-     * A hold under the 0.1 s keep-alive lets `ready` fire on live core stamps; the occluded state then
-     * latched on a played move (2026-08-07-13-52-38 lost 8 plies at 50 ms holds).
-     */
+    /** A hold under the 0.1 s keep-alive let `ready` fire on live core stamps, and `occluded` latched on a played
+     *  move (8 plies lost at 50 ms holds). */
     @Test
     fun coreOccludedStateExitsOnAQuietBoard() {
         val h =
             Harness(
                 testConfig().copy(
-                    // Die Empfindlichkeit von 2026-08-07; die Vorgabe (34.5) betritt den Zustand hier nicht.
+                    // Die Empfindlichkeit von damals; die Vorgabe (34.5) betritt den Zustand hier nicht.
                     motionHoldS = 0.05,
                     occluderHoldS = 0.05,
                     commitHoldS = 0.067,
@@ -292,7 +272,6 @@ class FrameLoopTest {
         assertTrue(detected, "a quiet board that differs from the reference is a move, not a hand")
     }
 
-    /** `commitHoldS` opens detection early; the reference still waits for the full motion hold. */
     @Test
     fun commitHoldOpensDetectionButNotTheReference() {
         val h = Harness(testConfig().copy(commitHoldS = 0.05, motionHoldS = 0.20, settleFramesOverride = 2))
@@ -316,7 +295,6 @@ class FrameLoopTest {
         assertEquals(1, h.refCaptures.size, "an armed reference is not re-captured by the loop")
     }
 
-    /** An early commit's reference is replaced on the first quiet frame after the full hold, not before, and not after new motion. */
     @Test
     fun provisionalReferenceIsRecapturedAfterTheFullHold() {
         val h = Harness(testConfig().copy(commitHoldS = 0.05, motionHoldS = 0.20, settleFramesOverride = 2))
@@ -334,7 +312,6 @@ class FrameLoopTest {
         val later = grayFrame(listOf("e4"))
         h.feed(gray = later, tsMs = t, motionRoi = 1.0)
         val motionEnd = t
-        // What a commit leaves behind: a fresh reference (`setRef`) flagged for re-capture.
         h.state.refProvisionalUntil = h.state.nowS + 0.20
         h.state.motionSinceRef = false
         while (t < motionEnd + 190) {
@@ -357,7 +334,6 @@ class FrameLoopTest {
         )
         assertEquals(0.0, h.state.refProvisionalUntil)
 
-        // New motion before the hold keeps the provisional reference.
         h.state.refProvisionalUntil = h.state.nowS + 0.20
         h.state.motionSinceRef = false
         val kept =
@@ -374,7 +350,6 @@ class FrameLoopTest {
         assertTrue(h.state.refProvisionalUntil > 0.0, "still flagged for the labeling side")
     }
 
-    /** The keep-alive is evaluated against `nowS` and expires on its own. */
     @Test
     fun occlusionKeepAliveExpires() {
         val h = armedHarness()
@@ -385,7 +360,6 @@ class FrameLoopTest {
         assertEquals(ofSquares("e4"), h.state.motionOccluded)
     }
 
-    /** `test_detect_scale_half_det_size_and_e2e4` — the detection warp is `boardSize * detectScale`. */
     @Test
     fun detectScaleHalfDetSize() {
         val config = TrackerConfig(boardSize = HALF_SCALE_BOARD, detectScale = 0.5, minGridLineCoverage = 0.0)
@@ -416,7 +390,6 @@ class FrameLoopTest {
         assertEquals(NOTE_WAITING_CLEAR, h.state.note)
     }
 
-    /** `:1596-1600` — the FPS EMA seeds with the first measurable interval. */
     @Test
     fun fpsIsAnEmaOverTheLoopRate() {
         val h = Harness()
@@ -428,9 +401,6 @@ class FrameLoopTest {
         assertEquals(FPS_AT_100_MS, h.state.fps, 1e-9, "a constant rate is a fixed point of the EMA")
     }
 
-    // -- _RunningMean ---------------------------------------------------------------------------
-
-    /** `test_mean_equals_stack` — the window mean equals the mean of the last `maxlen` frames. */
     @Test
     fun runningMeanEqualsWindowStack() {
         val rm = RunningMeanGray(RM_WINDOW)
@@ -441,7 +411,6 @@ class FrameLoopTest {
         assertTrue(expected.contentEquals(requireNotNull(rm.meanUint8()).data))
     }
 
-    /** `test_drift_resync_after_64` — the sum is recomputed from the full window every 64 appends. */
     @Test
     fun runningMeanResyncsAfter64Appends() {
         val rm = RunningMeanGray(RM_DRIFT_WINDOW)
@@ -452,7 +421,6 @@ class FrameLoopTest {
         assertTrue(expected.contentEquals(requireNotNull(rm.meanUint8()).data))
     }
 
-    /** `test_clear_and_reuse` — `clear()` drops the buffer, the sum AND the counter. */
     @Test
     fun runningMeanClearAndReuse() {
         val rm = RunningMeanGray(RM_WINDOW)
@@ -465,20 +433,17 @@ class FrameLoopTest {
         assertEquals(20, requireNotNull(rm.meanUint8()).data[0].toInt() and U8)
     }
 
-    /** `mean_uint8` is `(sum / n).astype(np.uint8)` — TRUNCATION, never rounding. */
+    /** TRUNCATION, never rounding: `(sum / n).astype(np.uint8)`. */
     @Test
     fun runningMeanTruncatesLikeNumpy() {
         val rm = RunningMeanBgr(RM_WINDOW)
         rm.append(bgrFrame(boardSize = RM_SIDE, level = 10))
         rm.append(bgrFrame(boardSize = RM_SIDE, level = 11))
-        // (10 + 11) / 2 = 10.5 -> 10, not 11.
         assertEquals(10, requireNotNull(rm.meanUint8()).data[0].toInt() and U8)
     }
 
-    /**
-     * Invariant 14, the contract `pipeline/PlaneRing.kt` satisfies: the mean holds its planes BY REFERENCE and
-     * [PlaneMean.append] reads the evicted one, so the bound is `window + 1`. One shared buffer fails SILENTLY.
-     */
+    /** The mean holds planes BY REFERENCE and reads the evicted one, so the bound is `window + 1`; one shared
+     *  buffer fails SILENTLY (invariant 14, `pipeline/PlaneRing.kt`). */
     @Test
     fun theBufferRingNeverHandsBackAPlaneTheRunningMeanStillHolds() {
         val frames = (0 until RING_FRAMES).map { randomGray(RING_SEED + it, RM_SIDE).data }
@@ -492,10 +457,7 @@ class FrameLoopTest {
         )
     }
 
-    /**
-     * `c315908`: `detSize` is derived twice (config and calibration profile); a divergence is otherwise
-     * SILENT, and the message must name both sizes to say which producer is off.
-     */
+    /** `detSize` is derived twice; the message must name both sizes to say which producer is off. */
     @Test
     fun aDetectionPlaneThatDisagreesWithTheBoxesIsRefused() {
         val h = Harness(testConfig(boardSize = TEST_BOARD_SIZE))
@@ -510,7 +472,7 @@ class FrameLoopTest {
         assertEquals(0, h.state.frameSeq, "the guard fires before any state is touched")
     }
 
-    /** Das Bewegungsfenster von `commitRecovery` war tot: der Commit hinterliess `STATE_MOVE`, und MOVE hielt bis zur naechsten Hand. */
+    /** Das Bewegungsfenster von `commitRecovery` war tot: der Commit hinterliess `STATE_MOVE`, bis zur naechsten Hand. */
     @Test
     fun aRecoveryCommitReopensDetectionWithoutANewHand() {
         val h = Harness(recoveryConfig())
@@ -527,7 +489,6 @@ class FrameLoopTest {
         assertTrue(outcomes.any { it is FrameOutcome.Detect }, "quiet frames after a bridge must detect: $outcomes")
     }
 
-    /** `resize` mirrors Python building a fresh `_RunningMean`: a new window and an empty buffer. */
     @Test
     fun runningMeanResizeClears() {
         val rm = RunningMeanGray(RM_WINDOW)
@@ -556,9 +517,6 @@ class FrameLoopTest {
         assertEquals(VERIFY_STATE_STALLED, h.state.verifyState)
     }
 
-    // -- helpers ---------------------------------------------------------------------------------
-
-    /** A harness whose reference is already captured and whose hold has expired. */
     private fun armedHarness(): Harness {
         val h = Harness()
         repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
@@ -574,7 +532,6 @@ class FrameLoopTest {
         return GrayImage(side, side, ByteArray(side * side) { rng.nextInt(U8 + 1).toByte() })
     }
 
-    /** [frames] through a [depth]-slot ring of reusable buffers, as the analyzer thread does it. */
     private fun meanThroughRing(
         depth: Int,
         frames: List<ByteArray>,
@@ -593,7 +550,6 @@ class FrameLoopTest {
         const val CORNER_FLOATS = 8
         const val SETTLE_FRAMES_NO_CNN = 4
 
-        /** `recoveryConfig`'s `settleFramesOverride` is 1, so this only has to fill `avgFrames`. */
         const val RECOVERY_SETTLE_FRAMES = 4
         const val LONG_EXPIRY_S = 100.0
         const val FPS_AT_100_MS = 10.0
@@ -607,7 +563,6 @@ class FrameLoopTest {
         const val RM_DRIFT_SIDE = 8
         const val RM_DRIFT_SEED = 42L
 
-        /** `PlaneRing.RING_HEADROOM` — the slots the app's ring keeps beyond the averaging window. */
         const val RING_HEADROOM = 3
         const val RING_FRAMES = 20
         const val RING_SEED = 7L

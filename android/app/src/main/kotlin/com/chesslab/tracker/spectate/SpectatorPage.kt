@@ -4,14 +4,8 @@ import kotlinx.serialization.json.Json
 
 private val pageJson = Json { encodeDefaults = true }
 
-/**
- * The whole spectator client, as one document.
- *
- * Self-contained is a functional requirement, not a preference: the club LAN may have no route to
- * the internet at all, so a CDN script tag or a webfont would render a blank board rather than
- * degrade. Everything — layout, glyphs, the poll loop — is inline, and the first paint comes from
- * the snapshot embedded below so the page is correct before its first request.
- */
+/** Self-contained is a requirement: the club LAN may have no internet, so a CDN script would draw a blank
+ *  board. The first paint comes from the embedded snapshot. */
 fun spectatorPageHtml(snapshot: GameSnapshot): String {
     // `</` inside a script block would close it early; the JSON is data, never markup.
     val initial = pageJson.encodeToString(GameSnapshot.serializer(), snapshot).replace("</", "<\\/")

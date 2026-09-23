@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class BoardExposureTest {
-    /** Der Bereich dieses Telefons: +-24 Schritte zu 1/6 EV, also +-4 EV. */
+    /** +-24 Schritte zu 1/6 EV, also +-4 EV. */
     private val range = ExposureRange(indices = -24..24, stepEv = 1f / 6f)
     private val limits = range.evLimits()
     private val start = ExposureState()
@@ -35,7 +35,6 @@ class BoardExposureTest {
 
     @Test
     fun `clipping outranks the wish to brighten`() {
-        // Dunkel UND ausgebrannt: das saettigte Feld traegt gar nichts mehr, das dunkle noch wenig.
         val next = nextExposure(start, reading(5f, highlight = 255f, clipped = 0.20f), limits)
         assertNotNull(next)
         assertTrue(next!!.ev < start.ev) { "muss dunkler werden, war ${next.ev} EV" }
@@ -43,7 +42,6 @@ class BoardExposureTest {
 
     @Test
     fun `a single dark cell is not worth a change`() {
-        // EIN schwarzes Feld unter einer Figur darf das halbe Brett nicht in die Saettigung fahren.
         val means = FloatArray(ExposureReading.CELLS) { if (it == 0) 3f else 95f }
         assertNull(nextExposure(start, ExposureReading(means, 200f, 0f), limits))
     }
@@ -57,7 +55,7 @@ class BoardExposureTest {
 
     @Test
     fun `at the ceiling of the device nothing is reported`() {
-        // Kein leeres Stellen am Anschlag: jede gemeldete Aenderung kostet den Tracker seine Referenz.
+        // Jede gemeldete Aenderung kostet den Tracker seine Referenz.
         val maxed = ExposureState(ev = limits.endInclusive)
         assertNull(nextExposure(maxed, reading(4f, highlight = 90f), limits))
     }
@@ -70,8 +68,7 @@ class BoardExposureTest {
 
     @Test
     fun `gamma is honoured`() {
-        // Ein Feld von 30 auf 34 zu heben kostet 2,2 * log2(34/30) = 0,40 EV, nicht 0,18.
-        // Ohne die Umrechnung bliebe der Wunsch im Totband und die Regelung haelt sich fuer fertig.
+        // 2,2 * log2(34/30) = 0,40 EV, nicht 0,18: ohne die Umrechnung bliebe der Wunsch im Totband.
         val r = reading(30f, highlight = 150f)
         assertNotNull(nextExposure(start, r, limits))
         assertNull(nextExposure(start, r, limits, ExposurePolicy(gamma = 1.0)))
@@ -85,15 +82,13 @@ class BoardExposureTest {
 
     @Test
     fun `the loop settles instead of hunting`() {
-        // Der Grenzzyklus der ersten Fassung: hoch, runter, Produkt exakt 1,0 — auf zwei von fuenf
-        // Aufnahmen gemessen (`tmp/ae_sim.py`). Die Klinke faellt monoton, also endet es.
+        // Der Grenzzyklus der ersten Fassung (hoch, runter, Produkt 1,0) auf zwei von fuenf Aufnahmen.
         var cur = start
         var steps = 0
         repeat(TICKS) {
-            // Oben KEINE Luft, unten trotzdem dunkel — der Fall, an dem sich die Ziele nicht einigen.
+            // Oben KEINE Luft, unten trotzdem dunkel — die Ziele einigen sich nicht.
             val next = nextExposure(cur, reading(10f, highlight = 255f, clipped = 0.10f), limits) ?: return
-            // Monoton statt "nie zweimal derselbe Wert": am Anschlag faellt nur noch die Klinke,
-            // und die meldet denselben EV-Wert mit neuer Decke — das ist kein Pendeln.
+            // Am Anschlag faellt nur noch die Klinke: derselbe EV-Wert mit neuer Decke ist kein Pendeln.
             assertTrue(next.ev <= cur.ev) { "von ${cur.ev} auf ${next.ev} EV hoch — pendelt" }
             if (next.ev < cur.ev) steps++
             cur = next
@@ -103,19 +98,16 @@ class BoardExposureTest {
 
     @Test
     fun `a well lit board is not dimmed below the user's setting`() {
-        // Der gemeldete Fehler: ein paar Spitzlichter ueber `clipCap` liessen die Klinke fallen
-        // und blendeten ein Brett ab, an dem KEIN Feld zu dunkel war.
+        // Spitzlichter ueber `clipCap` blendeten ein Brett ab, an dem KEIN Feld zu dunkel war.
         val bright = reading(90f, highlight = 255f, clipped = 0.10f)
         val next = nextExposure(start, bright, limits, baseEv = 0.0)
         assertEquals(start.ev, next?.ev ?: start.ev, 1e-9) { "abgeblendet auf ${next?.ev} EV" }
-        // Ohne den Boden faellt sie, und genau so sah es der Nutzer.
         assertTrue(nextExposure(start, bright, limits)!!.ev < start.ev)
     }
 
     @Test
     fun `the ratchet takes back its own lift but stops at the floor`() {
-        // Aufhellen darf sie zuruecknehmen — bis dahin, wo der Schieber steht, und keinen Schritt
-        // weiter. Sonst waere der Boden nur eine andere Art, die Regelung abzuschalten.
+        // Bis zum Schieber und keinen Schritt weiter, sonst waere der Boden ein Ausschalter.
         val lifted = ExposureState(ev = 1.5)
         val next = nextExposure(lifted, reading(90f, highlight = 255f, clipped = 0.10f), limits, baseEv = 0.0)!!
         assertTrue(next.ev < lifted.ev) { "nimmt die eigene Aufhellung nicht zurueck" }
@@ -124,7 +116,6 @@ class BoardExposureTest {
 
     @Test
     fun `a dark board is still brightened above the floor`() {
-        // Der Boden darf das Aufhellen nicht behindern — nur das Abblenden.
         val next = nextExposure(start, reading(12f, highlight = 90f), limits, baseEv = 0.0)
         assertNotNull(next)
         assertTrue(next!!.ev > 0.0)
@@ -132,19 +123,17 @@ class BoardExposureTest {
 
     @Test
     fun `the index is the device step, not a stop`() {
-        // 1/6 EV je Schritt: wer +1 EV will, braucht Index 6 — nicht 1.
         assertEquals(6, range.indexFor(1.0))
         assertEquals(-6, range.indexFor(-1.0))
         assertEquals(24, range.indexFor(99.0)) { "ueber den Anschlag hinaus wird geklemmt" }
         assertEquals(4.0, limits.endInclusive, 1e-6)
     }
 
-    /** Entschieden wurde an `darkTarget` (0,05 = 4 Felder), gemessen am 0,12-Perzentil (Feld 7): dazwischen blendete sie ab. */
+    /** Entschieden an `darkTarget` (4 Felder), gemessen am 0,12-Perzentil (Feld 7): dazwischen blendete sie ab. */
     @Test
     fun `four to eight dark cells are brightened, never dimmed`() {
         val lifted = ExposureState(ev = 1.0)
         for (dark in 4..8) {
-            // 8 liegt unter `ExposurePolicy.floor` (34) — genau das, was `darkFraction` zaehlt.
             val means = FloatArray(ExposureReading.CELLS) { if (it < dark) 8f else 120f }
             val next = nextExposure(lifted, ExposureReading(means, 180f, 0f), limits)
             assertTrue(next == null || next.ev >= lifted.ev) { "$dark dunkle Felder, die Regelung ging aber auf ${next?.ev} EV" }

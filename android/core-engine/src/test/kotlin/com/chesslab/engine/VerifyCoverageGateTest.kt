@@ -6,11 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `onCnnSnapshot` nimmt die gemessene `coverage_gate` NUR auf `rawSnap`. Der Verifikations-Pfad und
- * die Umwandlungs-Abfrage bekommen weiter `snap` — also die stellungsbedingte Sicht OHNE die
- * Schwelle, und `confident` gatet dort wieder mit `1.0 - cnnConfThr`.
- */
+/** Die gemessene `coverage_gate` galt NUR auf `rawSnap`; Verifikation und Umwandlung gateten weiter mit `1.0 - cnnConfThr`. */
 class VerifyCoverageGateTest {
     private class GateSpy(
         private val inner: CnnObservation,

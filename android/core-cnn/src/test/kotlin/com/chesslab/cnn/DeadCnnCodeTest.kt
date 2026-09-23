@@ -18,8 +18,7 @@ class DeadCnnCodeTest {
                 .filter { it.isDirectory }
                 .flatMap { it.walkTopDown().filter { f -> f.isFile && f.extension == "kt" }.toList() }
         val declaration = sources.single { it.name == "Expected.kt" && it.path.contains("core-cnn") }
-        // A caller either imports the cnn spelling explicitly, or sits in package `com.chesslab.cnn`
-        // itself, where the unqualified name binds to it.
+        // A caller either imports the cnn spelling, or sits in package `com.chesslab.cnn` where the bare name binds to it.
         val callers =
             sources.filter { file ->
                 if (file == declaration || file.name == "DeadCnnCodeTest.kt") return@filter false

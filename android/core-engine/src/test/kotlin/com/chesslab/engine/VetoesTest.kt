@@ -12,20 +12,19 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// `_apply_vetoes`, entry.md invariant 2: a shadow-vetoed square leaves `changed` and KEEPS its z —
-// a vacated square darkens to board colour and reads as a shadow. The opposite lives in `Taint.kt`.
+// Invariant 2: a shadow-vetoed square leaves `changed` and KEEPS its z — a vacated square darkens to board
+// colour and reads as a shadow. The opposite lives in `Taint.kt`.
 
 private const val U8 = 0xFF
 
 private const val MIN_TIER_A_FRAMES = 247
 
-/** `parity`: how many tier-A frames carry at least one HSV shadow square (STATUS 01c: 109). */
 private const val MIN_SHADOW_FRAMES = 100
 
 private const val BOARD = TEST_BOARD_SIZE
 
 class VetoesTest {
-    /** Where the channel-local guard dropped the census channel, Python and the port take the band fast path. */
+    /** Where the guard dropped the census channel, Python and the port take the band fast path. */
     @Test
     fun applyVetoesMatchesPythonOnEveryTierAFrame() {
         var checked = 0
@@ -37,8 +36,7 @@ class VetoesTest {
             val refs = HashMap<List<Int>, Pair<GrayImage, BgrImage>>()
             for (frame in clip.frames) {
                 val tierA = frame.tierA
-                // `refFrames == null` = `_maybe_patch_anomaly` mutated ref_gray in place; that frame
-                // is not reconstructible from the planes (D01a-6). Currently none of the 247 is.
+                // `refFrames == null`: `_maybe_patch_anomaly` mutated ref_gray in place; not reconstructible (currently none).
                 if (tierA?.refFrames == null) continue
                 val tierB = requireNotNull(frame.tierB)
                 val refFrames = requireNotNull(tierA.refFrames)
@@ -48,8 +46,7 @@ class VetoesTest {
                 state.refBgr = refBgr
                 val cur = clip.meanGray(tierA.curFrames)
                 val curBgr = clip.meanBgr(tierA.curFrames)
-                // `censusNoiseZ == null` = the guard dropped the channel; Python then has neither
-                // `cens` nor `_cens_raw` and computes the candidate band locally.
+                // The guard dropped the channel: Python has neither `cens` nor `_cens_raw` and computes the band locally.
                 val guarded = tierA.censusNoiseZ == null
                 if (guarded) bandFrames++
                 if (tierA.hsvShadowSquares.isNotEmpty()) shadowFrames++
@@ -67,7 +64,7 @@ class VetoesTest {
         assertTrue(bandFrames > 0, "the census band fast path was never exercised")
     }
 
-    /** entry.md invariant 8 from the fixtures: a shadow square with RAW census >= thr > NORMALIZED is not vetoed. */
+    /** Invariant 8 from the fixtures: a shadow square with RAW census >= thr > NORMALIZED is not vetoed. */
     @Test
     fun censusThresholdReadsTheRawChannelInTheFixtures() {
         var discriminating = 0
@@ -100,7 +97,6 @@ class VetoesTest {
         return found
     }
 
-    /** `test_shadow_veto_removes_hand_shadow_in_detect`, plus entry.md invariant 2: the vetoed squares keep their z. */
     @Test
     fun handShadowRemovedFromChangedAndKeepsZ() {
         val state = shadowScenario()
@@ -118,7 +114,6 @@ class VetoesTest {
         }
     }
 
-    /** `test_hsv_shadow_detects_uniform_darkening` — same chroma, uniformly darker. */
     @Test
     fun hsvShadowUniformDarkening() {
         val ref = bgrFrame(level = SHADOW_LIGHT)
@@ -129,7 +124,6 @@ class VetoesTest {
         assertEquals(ofSquares("e4", "d5"), shadows, "uniform darkening is a cast shadow")
     }
 
-    /** `test_hsv_shadow_ignores_real_piece` — a saturated red block is a piece, not a shadow. */
     @Test
     fun hsvShadowIgnoresRealPiece() {
         val ref = bgrFrame(level = SHADOW_LIGHT)
@@ -141,7 +135,6 @@ class VetoesTest {
         assertEquals(0L, shadows, "an arriving coloured piece must not read as shadow")
     }
 
-    /** `test_census_low_for_uniform_darkening` — a pure brightness change carries no structure. */
     @Test
     fun censusLowForUniformDarkening() {
         val ref = grayFrame(base = SHADOW_LIGHT)
@@ -153,7 +146,6 @@ class VetoesTest {
         assertTrue(out[Squares.index("e4")] < CENSUS_QUIET, "census must stay near zero (${out[Squares.index("e4")]})")
     }
 
-    /** `test_multiplicative_shadow_is_census_quiet` — a uniform scale preserves every census comparison. */
     @Test
     fun multiplicativeShadowIsCensusQuiet() {
         val ref = smoothTexture(seed = 7L)
@@ -166,10 +158,7 @@ class VetoesTest {
         assertTrue(z[Squares.index("d5")] < Z_HOT, "a multiplicative shadow must not fire the census channel")
     }
 
-    /**
-     * `test_hard_shadow_is_shadow_not_occlusion` — the user-reported bug: a strong cast shadow latched
-     * as OCCLUDED and stalled detection; legacy mode (`occlCensusThr = 0`) reproduces it.
-     */
+    /** A strong cast shadow latched as OCCLUDED and stalled detection; `occlCensusThr = 0` reproduces it. */
     @Test
     fun hardShadowIsNotOcclusion() {
         val ref = smoothTexture(seed = 3L)
@@ -204,10 +193,8 @@ class VetoesTest {
         assertTrue(legacy.occluded.has(e4), "legacy mode must reproduce the old behaviour")
     }
 
-    /**
-     * entry.md invariant 8 as a unit: normalized 12, raw 55, `censusThr` 40. The square IS an HSV
-     * shadow, but its raw census says a structure changed there, so it survives as a candidate.
-     */
+    /** Invariant 8 as a unit: normalized 12, raw 55, `censusThr` 40 — an HSV shadow whose raw census says a
+     *  structure changed survives as a candidate. */
     @Test
     fun censusThrComparesRawNotNormalized() {
         val state = shadowScenario()
@@ -227,7 +214,7 @@ class VetoesTest {
         assertTrue(state.shadowVetoed != 0L, "the other shadowed squares must still be vetoed")
     }
 
-    /** The "only photograph a clean board" guard reads the CURRENTLY latched set, not a permanently-true `not set()`. */
+    /** Reads the CURRENTLY latched set, not a permanently-true `not set()`. */
     @Test
     fun sessionCaptureWaitsForTheLatchToClear() {
         val state = shadowScenario()
@@ -241,7 +228,6 @@ class VetoesTest {
         assertEquals(null, state.pendingCapture, "a clean board flushes it immediately")
     }
 
-    /** `censusZWeight == 0`: the veto computes its own RAW census over the candidate rows. */
     @Test
     fun bandFastPathVetoesWithoutTheEvidenceChannel() {
         val state = shadowScenario(censusZWeight = 0.0)
@@ -255,7 +241,6 @@ class VetoesTest {
         assertEquals(0L, state.changed, "every shadowed candidate must be vetoed")
     }
 
-    /** No colour reference (or no colour frame) means no shadow veto at all. */
     @Test
     fun withoutColourFramesNothingIsVetoed() {
         val state = shadowScenario()
@@ -269,10 +254,7 @@ class VetoesTest {
         assertEquals(changed, state.changed, "the candidates must pass through untouched")
     }
 
-    /**
-     * `baselineOcclusion=0` liess dieses Veto weiterlaufen: `FrameLoop` nullte `shadowVetoed`,
-     * `applyVetoes` setzte es neu (`docs/tracker-flow.md`).
-     */
+    /** `baselineOcclusion=0` liess dieses Veto weiterlaufen: `FrameLoop` nullte `shadowVetoed`, `applyVetoes` setzte es neu. */
     @Test
     fun theShadowVetoFollowsTheBaselineOcclusionSwitch() {
         val an = shadowScenario()
@@ -290,8 +272,6 @@ class VetoesTest {
         assertEquals(0L, aus.shadowVetoed, "mit dem Schalter AUS darf kein Feld schattenvetoiert sein")
         assertEquals(candidates, aus.changed, "und die Kandidaten bleiben in `changed`")
     }
-
-    // -- scenario helpers ------------------------------------------------------------------------
 
     /** Only the top two ranks darken, so median normalization leaves them hot. */
     private fun shadowScenario(censusZWeight: Double = 1.0): EngineState {
@@ -343,7 +323,6 @@ class VetoesTest {
         }
     }
 
-    /** Multiplicative darkening of one square plus an 8 px halo — Python's shadow construction. */
     private fun darkenSquare(
         image: GrayImage,
         square: String,

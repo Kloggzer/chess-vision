@@ -7,12 +7,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** Woran der Fokus gerade ist — die eine Zeile, die der Kameraschirm rendert. */
 sealed interface FocusState {
-    /** Nie gemessen: der Fokus steht auf dem, was der Nutzer oder die Automatik gewaehlt hat. */
     data object Idle : FocusState
 
-    /** Die Kamera stellt selbst scharf; ihr Ergebnis wird danach gegengeprueft. */
     data object Seeking : FocusState
 
     data class Sweeping(
@@ -25,48 +22,33 @@ sealed interface FocusState {
         val sharpness: Float,
     ) : FocusState
 
-    /** Gemessen weich gegen das gefundene Optimum — der Fall, fuer den es den Sweep gibt. */
     data class Soft(
         val sharpness: Float,
         val reference: Float,
     ) : FocusState
 
-    /** No repeatable peak; the previous focus has been restored. */
     data object Failed : FocusState
 }
 
-/** Dass das Bild weich geworden ist, in Worten fuer den Spieler. */
 data class FocusNotice(
     val sharpness: Float,
     val reference: Float,
 )
 
-/**
- * Was ein Schirm mit dem Fokus darf: den Sweep AUSLOESEN und abbrechen.
- *
- * Ausloesen und nicht anlaufen lassen: die automatische Konvergenz flog 2026-08-02, weil sie sich
- * auf ein noch nicht aufgestelltes Brett eingestellt hat (`OpticsLock`).
- */
+/** AUSLOESEN, nicht anlaufen lassen: die automatische Konvergenz stellte sich auf ein noch nicht aufgestelltes Brett. */
 interface FocusTuner {
     val state: StateFlow<FocusState>
 
-    /** Die zuletzt gemessene Schaerfe des Bretts, oder null wenn noch keine vorliegt. */
     val sharpness: StateFlow<Float?>
 
-    /** Kamera fragen, gegenpruefen, halten — der schnelle Weg. */
     fun start()
 
-    /** Die volle Reihe, ohne die Kamera zu fragen: langsamer, aber sie sieht jede Stufe. */
+    /** Ohne die Kamera zu fragen: langsamer, aber sie sieht jede Stufe. */
     fun sweep() = Unit
 
     fun cancel()
 
-    /**
-     * Ob ein Schirm zusieht.
-     *
-     * Nur dann wird im Leerlauf gemessen: ein 1024er Warp je Messung ist nichts, was ohne
-     * Zuschauer laufen sollte.
-     */
+    /** Nur dann wird im Leerlauf gemessen: ein 1024er Warp je Messung. */
     fun watch(on: Boolean) = Unit
 
     companion object {
@@ -82,17 +64,11 @@ interface FocusTuner {
     }
 }
 
-/**
- * Wer nach jedem Frame am Fokus messen darf.
- *
- * Eine Schnittstelle mit einem Nichtstun wie [ExposureGovernor], damit Replay und Clip-Sim
- * unveraendert bleiben: die stellen keine Linse.
- */
+/** Mit Nichtstun wie [ExposureGovernor]: Replay und Clip-Sim stellen keine Linse. */
 interface FocusGovernor {
-    /** Waehrend eines Sweeps haelt die Belichtungsregelung still — siehe `TrackerCoordinator`. */
+    /** Waehrend eines Sweeps haelt die Belichtungsregelung still. */
     val sweeping: Boolean get() = false
 
-    /** True once a focus change has settled and the tracker can capture a new baseline. */
     fun onBoard(
         seq: Long,
         quiet: Boolean,
@@ -113,10 +89,8 @@ interface FocusGovernor {
     }
 }
 
-/**
- * Serializes UI edits with the analyzer's sweep. The public camera port must be this wrapper:
- * checking the raw port alone cannot prevent a UI edit between a reading and the next lens move.
- */
+/** The public camera port must be this wrapper: the raw port alone cannot prevent a UI edit between a reading
+ *  and the next lens move. */
 class BoardFocusGovernor(
     private val port: CameraLookPort,
     private val settleFrames: Int = SETTLE_FRAMES,
@@ -185,14 +159,12 @@ class BoardFocusGovernor(
         readings.clear()
         due = 0L
         locking = false
-        // Um den Punkt der Kamera herum statt ueber den ganzen Bereich: die neun Feinstufen decken
-        // eine Grobstufe nach jeder Seite ab und finden den Gipfel in einem Drittel der Zeit.
+        // Um den Punkt der Kamera herum: neun Feinstufen finden den Gipfel in einem Drittel der Zeit.
         seeded = askDevice()
         seedWaiting = if (seeded) MAX_SEED_FRAMES else 0
         if (seeded) phase.value = FocusState.Seeking else beginSweep()
     }
 
-    /** Den Geraete-Autofokus aufs Brett richten. False, wenn er sich nicht steuern laesst. */
     private fun askDevice(): Boolean {
         val where = region ?: return false
         port.setLook(look.value.copy(focus = null))
@@ -230,9 +202,8 @@ class BoardFocusGovernor(
 
     @Synchronized
     override fun cancel() {
-        // An `sweeping`, nicht am Sweep-Objekt: in der Geraetesuche und in der Bestaetigung
-        // ist `sweep` null, `sweeping` aber true — Abbrechen tat dort lautlos nichts und die
-        // manuelle Distanz kam nie zurueck, waehrend der Lauf die Linse trotzdem sperrte.
+        // An `sweeping`, nicht am Sweep-Objekt: in Geraetesuche und Bestaetigung ist `sweep` null — Abbrechen tat
+        // dort lautlos nichts, waehrend der Lauf die Linse sperrte.
         if (!sweeping) return
         restore(FocusState.Idle)
     }
@@ -278,12 +249,7 @@ class BoardFocusGovernor(
         }
     }
 
-    /**
-     * Auf die Konvergenz warten.
-     *
-     * Der Vorgabe-Lock nimmt den Punkt, wie er ist; "Auto" sucht neun Feinstufen um ihn herum.
-     * Bleibt die Konvergenz aus, uebernimmt die volle Reihe.
-     */
+    /** Bleibt die Konvergenz aus, uebernimmt die volle Reihe. */
     private fun awaitDevice(): Boolean {
         val settledAt = port.autoFocus()
         if (settledAt == null) {
@@ -305,21 +271,13 @@ class BoardFocusGovernor(
         return false
     }
 
-    /** Ob der eine automatische Lock jetzt laufen darf. */
     private fun canArm(): Boolean = region != null && look.value.focus == null && locked == null
 
-    /**
-     * Der Vorgabefall: Kamera scharfstellen lassen, Ergebnis einfrieren, fertig.
-     *
-     * Gegen 2026-08-02 abgesichert, wo genau das auf ein noch nicht aufgestelltes Brett scharfstellte:
-     * ohne erkannte Brettecken passiert hier nichts.
-     */
+    /** Ohne erkannte Brettecken passiert hier nichts — sonst stellt es auf ein nicht aufgestelltes Brett scharf. */
     private fun armAutoLock(): Boolean {
         byUser = false
         before = look.value
-        // Erst NACH der Zusage entwaffnen: ein abgelehnter Versuch (Kamera noch nicht gebunden,
-        // Region verweigert) toetete sonst den einen Vorgabe-Lock bis zum Prozessende, und der
-        // Regler ueberlebt einen Tracker-Neustart. Den Erfolg haelt `canArm`s `locked == null`.
+        // Erst NACH der Zusage entwaffnen: ein abgelehnter Versuch toetete sonst den Vorgabe-Lock bis zum Prozessende.
         if (!askDevice()) return false
         armed = false
         locking = true
@@ -328,7 +286,6 @@ class BoardFocusGovernor(
         return false
     }
 
-    /** Eine Messung an der gestellten Distanz, und die ist der Bezug fuer die Aufsicht. */
     private fun lockStep(board: () -> BgrImage?): Boolean {
         val sharp = sample(board) ?: return false
         val at = look.value.focus ?: return false
@@ -347,12 +304,8 @@ class BoardFocusGovernor(
         return confirm(best, sharp)
     }
 
-    /**
-     * Der Gewinner wird gestellt und muss dort seine EIGENE Zahl wiederholen.
-     *
-     * Das traegt erst, seit die Probe ihren Startpunkt zuletzt misst und die Wartezeit mit dem Weg
-     * waechst: vorher las dieselbe Distanz 131 und dann 104, und die Huerde war eine Muenzwurf.
-     */
+    /** Der Gewinner muss seine EIGENE Zahl wiederholen. Traegt erst, seit die Probe ihren Startpunkt zuletzt misst:
+     *  vorher las dieselbe Distanz 131 und dann 104. */
     private fun pick(best: FocusSample) {
         candidate = best
         against = best.sharpness
@@ -392,8 +345,7 @@ class BoardFocusGovernor(
     ): Boolean {
         val watching = watch
         val held = locked
-        // Die ANZEIGE braucht kein ruhiges Bild, die Weich-Warnung schon: `quiet` haelt sie von
-        // Zuegen und Commits fern, sperrte aber auch den Anzeiger auf einem plaudernden Brett.
+        // Die ANZEIGE braucht kein ruhiges Bild, die Weich-Warnung schon.
         val wanted = watched || (watching != null && quiet)
         val raster = if (wanted && seq >= due) board() else null
         if (raster == null) return false
@@ -422,8 +374,7 @@ class BoardFocusGovernor(
             sweep = null
             val best = run.best
             if (best == null) {
-                // Der lokale Lauf sah nur Unschaerfe: die Kamera stand grob daneben, also die
-                // ganze Reihe. `beginSweep` raeumt `seeded` ab, ein zweiter Anlauf entfaellt.
+                // Nur Unschaerfe: die Kamera stand grob daneben, also die ganze Reihe.
                 if (seeded) beginSweep() else restore(FocusState.Failed)
             } else {
                 pick(best)
@@ -451,8 +402,7 @@ class BoardFocusGovernor(
     ): Boolean {
         if (sharp < against * CONFIRM_FRACTION) {
             candidate = null
-            // Der Punkt der Kamera laesst sich nicht wiederholen — das beantwortet die volle Reihe,
-            // nicht ein Fehlschlag. `beginSweep` raeumt `seeded` ab, ein zweiter Anlauf entfaellt.
+            // Der Punkt der Kamera laesst sich nicht wiederholen — das beantwortet die volle Reihe.
             if (seeded) beginSweep() else restore(FocusState.Failed)
             return false
         }
@@ -461,7 +411,6 @@ class BoardFocusGovernor(
         locked = FocusSample(best.focus, sharp)
         watch = FocusWatch(sharp)
         phase.value = FocusState.Locked(best.focus, sharp)
-        // The final distance has settled AND reproduced its reading before the baseline is reset.
         return true
     }
 
@@ -496,13 +445,8 @@ class BoardFocusGovernor(
         waiting = 0
     }
 
-    /**
-     * Je weiter die Linse faehrt, desto laenger schwingt sie nach — die Metadaten melden schon
-     * `STATIONARY`, waehrend das Bild noch weich ist.
-     *
-     * Gemessen am Geraet 2026-09-09: dieselbe Distanz 0,167 las 68,5 nach einem Grobschritt (0,083)
-     * und 105,8 nach einem Feinschritt (0,021); die Bestaetigung sprang 0,0625 und las 29 statt 110.
-     */
+    /** Je weiter die Linse faehrt, desto laenger schwingt sie nach, obwohl die Metadaten `STATIONARY` melden:
+     *  dieselbe Distanz las 68,5 nach einem Grobschritt und 105,8 nach einem Feinschritt. */
     private fun settleFor(
         from: Float?,
         to: Float,
@@ -519,10 +463,8 @@ class BoardFocusGovernor(
         const val READINGS = 3
         const val MAX_WAIT_FRAMES = 60
 
-        /** Wie lange auf die Kamera gewartet wird, bevor die eigene Reihe uebernimmt. */
         const val MAX_SEED_FRAMES = 45
 
-        /** Zusatzframes fuer die volle Spanne; ein Grobschritt bekommt damit fuenf. */
         const val TRAVEL_FRAMES = 60
 
         const val MAX_SETTLE_FRAMES = 15

@@ -1,12 +1,6 @@
 package com.chesslab.tracker.speech
 
-/**
- * A bounded, drop-the-stale utterance queue.
- *
- * A four-ply recovery commits four moves in one tick. Narrating all of them is worse than useless
- * — by the time the fourth is spoken the board has moved on — so the middle is dropped and
- * summarised, and the NEWEST moves are the ones that survive.
- */
+/** A four-ply recovery commits four moves in one tick: the middle is dropped and summarised, the NEWEST survive. */
 internal class UtteranceQueue(
     private val max: Int,
     private val summary: (Int) -> String,
@@ -16,8 +10,8 @@ internal class UtteranceQueue(
     private var inFlight = 0
     private var dropped = 0
 
-    /** Steigt bei jedem [clear]. Die Meldung eines abgeraeumten Spruchs traegt die alte Zahl
-     *  und darf den Platz seines Nachfolgers nicht freigeben. */
+    /** Steigt bei jedem [clear]: die Meldung eines abgeraeumten Spruchs traegt die alte Zahl und darf den
+     *  Platz seines Nachfolgers nicht freigeben. */
     private var generation = 0
 
     val idle: Boolean get() = inFlight == 0 && waiting.isEmpty()
@@ -38,8 +32,7 @@ internal class UtteranceQueue(
         out(text, true, generation)
     }
 
-    /** [at] ist die Generation DIESES Spruchs. Der unterbrochene meldet trotzdem fertig
-     *  (`onStop` ruft `onDone`), und diese Meldung raeumte sonst den Platz des Alarms. */
+    /** Der unterbrochene meldet trotzdem fertig (`onStop` ruft `onDone`), und das raeumte den Platz des Alarms. */
     fun done(at: Int) {
         if (at != generation) return
         if (inFlight > 0) inFlight--
@@ -64,7 +57,6 @@ internal class UtteranceQueue(
         out(next, false, generation)
     }
 
-    /** Spoken once, after the burst has drained — "and 7 more moves" mid-burst helps nobody. */
     private fun summaryOrNull(): String? {
         if (dropped == 0) return null
         val n = dropped

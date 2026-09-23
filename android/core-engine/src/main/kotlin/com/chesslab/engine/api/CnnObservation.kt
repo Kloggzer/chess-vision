@@ -21,12 +21,8 @@ interface CnnObservation {
 
     fun pOccluded(square: String): Double
 
-    /**
-     * Die gemessene Verdeckungsschwelle des MODELLS annehmen (`docs/occlusion-gate.md`); ohne sie
-     * gatet [confident] mit `1.0 - thr`, also am KLASSEN-Schwellwert.
-     *
-     * `CnnObservation by x` MUSS das ueberschreiben — sonst gibt die Delegation `x` zurueck.
-     */
+    /** Ohne sie gatet [confident] mit `1.0 - thr`. `CnnObservation by x` MUSS das ueberschreiben — sonst gibt
+     *  die Delegation `x` zurueck. */
     fun withCoverageThr(thr: Double): CnnObservation = this
 
     fun invalidMass(square: String): Double = 0.0
@@ -36,7 +32,6 @@ interface CnnObservation {
         thr: Double,
     ): Boolean = invalidMass(square) >= thr
 
-    /** Full identity distribution for likelihood scoring; coverage remains separate in [pOccluded]. */
     fun classProbs(square: String): DoubleArray = DoubleArray(0)
 
     val classNames: List<String> get() = emptyList()
@@ -52,7 +47,6 @@ data class ResyncResult(
     val match: Boolean,
     val conflicts: List<String>,
     val checked: Int,
-    // The sole legal occupancy explanation and its agreement are required for CNN overrule.
     val move: String? = null,
     val agreement: Double = 0.0,
 )
@@ -69,7 +63,7 @@ data class DeriveResult(
     val inconclusive: Boolean,
 )
 
-/** FEN crosses the module seam because engine and CNN use incompatible board types. */
+/** FEN crosses the seam because engine and CNN use incompatible board types. */
 interface CnnEvaluator {
     val confThr: Double
 

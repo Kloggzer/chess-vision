@@ -11,13 +11,9 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * `close` is the service's teardown order made real: `TrackerService.onDestroy` closes the stack
- * and the recording right after it, and both release memory the analyzer may still be reading.
- * `shutdownNow` interrupts, which an in-progress OpenCV call ignores — so the wait is the contract.
- */
+/** `shutdownNow` interrupts, which an in-progress OpenCV call ignores — so the wait is the contract. */
 @RunWith(RobolectricTestRunner::class)
-// A plain [Application]: the app's own initializes WorkManager, which this test has no use for.
+// A plain [Application]: the app's own initializes WorkManager.
 @Config(manifest = Config.NONE, application = Application::class)
 class TrackerCameraCloseTest {
     @Test

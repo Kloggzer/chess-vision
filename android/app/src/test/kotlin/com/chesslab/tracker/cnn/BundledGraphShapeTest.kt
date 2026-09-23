@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-/** A DYNAMIC batch makes ORT's ALL_OPT answer `[64,3,128,128]` with `[1,2]` on the phone only —
- *  shipped three times (`b24f1f3`); the desktop provider tolerates it, so the REAL assets are read. */
+/** A DYNAMIC batch makes ORT's ALL_OPT answer `[64,3,128,128]` with `[1,2]` — on the phone only, and shipped
+ *  three times (`b24f1f3`). The desktop provider tolerates it, so the REAL assets are read. */
 class BundledGraphShapeTest {
     @Test
     fun everyFp32GraphDeclaresTheBatchTheTrackerRuns() {
@@ -25,7 +25,6 @@ class BundledGraphShapeTest {
         }
     }
 
-    /** Against the `config.json` beside the graph, via [ModelSpec]; only the batch is a literal. */
     private fun assertShape(
         file: File,
         dir: File,

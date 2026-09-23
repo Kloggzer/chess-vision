@@ -8,12 +8,10 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import kotlin.math.abs
 
-/** Wo eine SCHAETZUNG als MESSUNG weitergereicht werden koennte. Der Anker gegen die affine
- *  Rekonstruktion (57,2 px) schloss eine solche Stelle; diese drei sind die Nachbarn davon. */
+/** Wo eine SCHAETZUNG als MESSUNG weitergereicht werden koennte — die Nachbarn des affinen 57-px-Falls. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class CornerProvenanceTest {
-    /** Zwei Marker rekonstruieren die anderen beiden unter QUADRAT-Annahme. Wer drei fordert,
-     *  darf diese Annahme nicht als Antwort bekommen. */
+    /** Zwei Marker rekonstruieren unter QUADRAT-Annahme; wer drei fordert, darf diese Annahme nicht bekommen. */
     @Test
     fun `too few markers yield nothing, not a square assumption`() {
         val tracker = MarkerTracker()
@@ -23,8 +21,7 @@ class CornerProvenanceTest {
         assertNotNull(boardCornersFromMarkers(emptyMap(), GEOM, tracker, minMarkers = 2))
     }
 
-    /** `completeSingleSeed` ergaenzt GENAU EINE nie gesehene Ecke aus den drei echten. Bei zweien
-     *  waere die Ergaenzung aus einer anderen Schaetzung gebaut — beide bleiben stehen. */
+    /** Bei zwei nie gesehenen Ecken waere die Ergaenzung aus einer anderen Schaetzung gebaut — beide bleiben stehen. */
     @Test
     fun `two seeded corners are left alone instead of extrapolated`() {
         val tracker = MarkerTracker()
@@ -36,8 +33,7 @@ class CornerProvenanceTest {
         for (i in 0 until CORNER_COUNT) assertArrayEquals(want[i], got[i], EXACT, "Ecke $i")
     }
 
-    /** Der Homographie-Cache haelt EINEN Eintrag. Vergleicht er die Ecken nicht, liefert er die
-     *  Geometrie des vorigen Bildes aus — ein Warp auf Zahlen, die niemand mehr gemessen hat. */
+    /** Vergleicht der Ein-Eintrag-Cache die Ecken nicht, liefert er die Geometrie des vorigen Bildes aus. */
     @Test
     fun `the homography cache refuses a hit for moved corners`() {
         val cache = HomographyCache()

@@ -32,14 +32,9 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
 
-/** The picker's suggested name; the user may change it, so nothing downstream may key on it. */
+/** The user may rename it, so nothing downstream may key on it. */
 private const val DIAGNOSTICS_FILE = "chesslab-diagnostics.zip"
 
-/**
- * Who decided each move, on what evidence — and, unlike Python, which candidates were REFUSED.
- * Newest first. No images: `_recent_decisions` keeps warped frames for the feedback dataset, and
- * that is memory a phone running a tournament session does not have.
- */
 @Composable
 fun DecisionLogPanel(
     state: DebugState,
@@ -50,8 +45,7 @@ fun DecisionLogPanel(
     var expanded by remember { mutableStateOf<Int?>(null) }
     val exportDiagnostics =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-            // SAF, the same path the session export uses: the user picks the destination, so
-            // nothing leaves the app's own storage without them choosing where it goes.
+            // SAF: nothing leaves the app's storage without the user choosing where.
             uri ?: return@rememberLauncherForActivityResult
             context.contentResolver.openOutputStream(uri)?.use { zipDiagnostics(context.filesDir, it) }
         }
@@ -59,11 +53,8 @@ fun DecisionLogPanel(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
-        // Two exports, and they answer different questions. "Export as text" is the 64-row ring
-        // this screen is showing, right now. "Export diagnostics" is the rotating file on disk:
-        // every row since the app started, each file headed by the config and the model that were
-        // in force — which is the thing nobody could see when `motionRecencyS` sat at 0.0 in the
-        // DataStore and silently rejected every diff-path commit for an evening.
+        // Text export: the 64-row ring on screen. Diagnostics: every row since start, each file headed by its
+        // config and model — what nobody could see when `motionRecencyS` sat at 0.0 in the DataStore.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
             TextButton(onClick = {
                 shareDecisionLog(

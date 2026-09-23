@@ -4,10 +4,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 
-/**
- * OpenCV's fixed-point 8-bit BGR->HSV/Lab conversions; tuned thresholds require its numbers.
- * HSV: H 0..179, S/V 0..255. Lab: L=L*255/100, a/b offset by 128, saturated to 0..255.
- */
+/** OpenCV's fixed-point 8-bit conversions, because the tuned thresholds require its numbers. HSV: H 0..179,
+ *  S/V 0..255. Lab: L*255/100, a/b offset by 128. */
 
 private const val BYTE_MASK = 0xFF
 private const val CHANNELS = 3
@@ -30,7 +28,7 @@ internal class PlaneGeometry(
     val whitePov: Boolean,
     val extendUp: Double = 0.0,
 ) {
-    /** NumPy slicing clips to the plane; an empty region is skipped rather than flagged. */
+    /** NumPy slicing clips to the plane; an empty region is skipped, not flagged. */
     fun region(
         square: Int,
         extendUp: Double,
@@ -71,7 +69,6 @@ private val hsvHDiv: IntArray =
         }
     }
 
-/** OpenCV `COLOR_BGR2HSV`, 8-bit: H 0..179, S/V 0..255. */
 internal fun bgrToHsv(
     bgr: ByteArray,
     width: Int,
@@ -83,7 +80,6 @@ internal fun bgrToHsv(
     return out
 }
 
-/** Converts one box at plane offsets; per-pixel conversion is bit-identical to a full pass. */
 internal fun bgrToHsvBox(
     bgr: ByteArray,
     width: Int,
@@ -91,7 +87,6 @@ internal fun bgrToHsvBox(
     out: ByteArray,
 ) = forEachBoxRow(width, box) { from, to -> hsvRange(bgr, out, from, to) }
 
-/** [bgrToLab] over one box; see [bgrToHsvBox]. */
 internal fun bgrToLabBox(
     bgr: ByteArray,
     width: Int,
@@ -214,7 +209,6 @@ private val labCoeffs: IntArray =
         }
     }
 
-/** OpenCV `COLOR_BGR2LAB`, 8-bit sRGB with D65 white point. */
 internal fun bgrToLab(
     bgr: ByteArray,
     width: Int,

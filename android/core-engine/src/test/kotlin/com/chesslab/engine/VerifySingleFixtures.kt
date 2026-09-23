@@ -7,14 +7,11 @@ import com.chesslab.engine.api.DeriveResult
 import com.chesslab.engine.api.IdentityResult
 import com.chesslab.engine.api.ResyncResult
 
-// Fakes for VerifySingleTest. `:core-engine` cannot depend on `:core-cnn` (cycle), so the seam is
-// implemented by hand, mirroring `_FakeObs` / `_FakeRecovery` in `tests/test_move_tracker.py`.
+// `:core-engine` cannot depend on `:core-cnn` (cycle), so the seam is faked by hand, mirroring `_FakeObs` / `_FakeRecovery`.
 
-/** `_FakeObs` — per-square occupancy and confidence, everything else unknown. */
 internal class VerifyObs(
     private val occupancy: Map<String, Boolean> = mapOf("e4" to true, "e2" to false),
     private val confidence: Map<String, Boolean> = mapOf("e4" to true, "e2" to true),
-    /** Squares whose `occluded` class dominates — the 14-class head's own hand report. */
     private val occluded: Set<String> = emptySet(),
     private val labels: Map<String, String> = emptyMap(),
 ) : CnnObservation {
@@ -39,12 +36,7 @@ internal class VerifyObs(
     override fun occupancyOnly(): CnnObservation = this
 }
 
-/**
- * `_FakeRecovery` — canned evaluation results, no model.
- *
- * `minConfidentBoard` defaults to 0 (permissive) so the occupancy-axis scenarios need no 32-square
- * confidence map; the blind-glance guard is exercised explicitly with the real default.
- */
+/** `minConfidentBoard` defaults to 0 (permissive); the blind-glance guard is exercised with the real default. */
 internal class VerifyEvaluator(
     private val match: Boolean = false,
     private val occAgree: Double = 0.0,
@@ -100,7 +92,6 @@ internal class VerifyEvaluator(
     ): String? = null
 }
 
-/** A tracker with an active (stubbed) CNN and a pending candidate, like `_pending_tracker`. */
 internal fun pendingState(
     uci: String = "e2e4",
     fen: String = STARTPOS,
@@ -122,21 +113,19 @@ internal fun pendingState(
             frames = 0,
             priorUsed = false,
             seq = 0,
-            // Mirrors `Dispatch`: the wall-clock deadline (`verifyTimeoutS`) is measured from
-            // these, and a pending without them would read as expired on its very first tick.
+            // As `Dispatch` does: without these a pending reads as expired on its very first tick.
             startedS = state.nowS,
             lastTickS = state.nowS,
         )
     return state
 }
 
-/** a1+a2+a3 — adjacent flags, the shape a hand leaves ([gridHandSquares]). */
+/** Adjacent flags, the shape a hand leaves ([gridHandSquares]). */
 internal const val HAND_CLUSTER = 0b111L
 
-/** a1+h8 — two flags with no adjacency: a leaning piece plus noise, never a hand. */
+/** No adjacency: a leaning piece plus noise, never a hand. */
 internal const val SCATTERED_FLAGS = (1L shl 0) or (1L shl 63)
 
-/** `_mk_snap` — a seq-tagged snapshot as the free-running observer would deliver it. */
 internal fun snapOf(
     state: EngineState,
     obs: CnnObservation,

@@ -30,31 +30,25 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 
-/** Everything the archived review screen can render. */
 data class ReviewUi(
     val game: GameView? = null,
     val pgn: String = "",
     val grade: GameGrade? = null,
     val opening: OpeningSummary? = null,
     val running: Boolean = false,
-    /** True after the game itself is complete while nearby book continuations are being cached. */
     val warmingLibrary: Boolean = false,
     val libraryCached: Int = 0,
     val libraryTotal: Int = 0,
-    /** Why the book continuations were not cached; the game's own review is unaffected. */
     val libraryNote: String? = null,
     val engineMissing: Boolean = false,
-    /** Prevents a route change from flashing the previous game or a false "not found" state. */
+    /** Prevents a route change from flashing the previous game or a false "not found". */
     val loading: Boolean = false,
-    /** Retryable failures are visible and, unlike a fake zero score, are never cached. */
+    /** Retryable failures are visible and, unlike a fake zero score, never cached. */
     val error: String? = null,
 )
 
-/**
- * Process-owned review state. A monotonically increasing generation fences every asynchronous
- * writer: once a game is changed, stopped, discarded or deleted, an older callback cannot touch
- * either the UI or the analysis files.
- */
+/** A monotonic generation fences every asynchronous writer: after a change, stop or delete an older
+ *  callback touches neither the UI nor the analysis files. */
 class ReviewViewModel(
     private val store: GameStore,
     private val reviews: ReviewStore,
@@ -125,7 +119,6 @@ class ReviewViewModel(
         focus = ply
     }
 
-    /** Updates PGN metadata without throwing away the already loaded analysis or board position. */
     fun editGameDetails(
         white: String,
         black: String,
@@ -238,7 +231,6 @@ class ReviewViewModel(
         jobs.forEach { it.cancelAndJoin() }
     }
 
-    /** Deletes the game snapshot and makes the next tap bypass the shared position cache once. */
     @Synchronized
     fun discard() {
         val game = mutable.value.game ?: return
@@ -262,7 +254,7 @@ class ReviewViewModel(
         id: String,
     ): Boolean = generation.get() == token && requestedId == id
 
-    /** Best-effort idle work: a failure is named beside the review, never turned into its error. */
+    /** A failure is named beside the review, never turned into its error. */
     private suspend fun warmLibrary(
         token: Long,
         game: GameView,

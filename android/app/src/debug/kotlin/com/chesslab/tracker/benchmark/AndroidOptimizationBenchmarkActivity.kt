@@ -47,13 +47,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
 
-/**
- * Debug-only, repeatable device benchmark for the optimisations shared with the Android tracker.
- *
- * It is an activity instead of an instrumentation test because HyperOS may reject installation of
- * a second test APK. Launching it force-stops the normal tracker first; it writes only logcat and a
- * temporary model copy below `filesDir/android-perf-bench`, which it removes before returning.
- */
+/** Debug-only device benchmark. An activity, not an instrumentation test: HyperOS may reject a second
+ *  test APK. Force-stops the tracker; writes logcat and a temp model copy that it removes again. */
 class AndroidOptimizationBenchmarkActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,20 +96,12 @@ private class AndroidOptimizationBenchmark(
         cnnThreads()
     }
 
-    /**
-     * What an input size costs, weights held constant: the SAME untrained
-     * `mobilenetv4_conv_small_035` exported at 80 and at 128, one batch of 64 crops each. Compute
-     * only — the graphs carry no training, so accuracy is not the question here.
-     */
+    /** What an input size costs, weights held constant: one untrained graph exported at 80 and at 128. */
     fun cnnInputSize() {
-        // Pushed, not bundled: two graphs of the same run exported at both sizes are 5 MB of
-        // artefact that belongs to the measurement, not to the APK.
+        // Pushed, not bundled (5 MB of measurement artefact):
         //   chesslab export --run <run> --format onnx --infer-size 80x80   (and 128x128)
         //   adb push model.onnx /sdcard/Android/data/com.chesslab.tracker/files/cnn_bench/model80.onnx
         val sizes = listOf(CNN_SIZE, CNN_SIZE_LARGE)
-        // Zwei Orte, weil HyperOS der App nicht zeigt, was `adb push` in ihr EXTERNES
-        // Datenverzeichnis legt (2026-08-27: Datei da, Rechte und SELinux stimmen, App sieht
-        // nichts). Der interne Pfad ist ueber `run-as` befuellbar und immer sichtbar.
         val directory = benchModelDir(sizes) ?: return
         run {
             val environment = OrtEnvironment.getEnvironment()
@@ -143,11 +130,8 @@ private class AndroidOptimizationBenchmark(
         }
     }
 
-    /**
-     * Was eine ARCHITEKTUR je Brett kostet, ohne Training: jedes `*.onnx` aus `cnn_bench/` gegen
-     * dieselbe Batch von 64 Zufalls-Crops. Zwei Durchgaenge, weil der zweite die Drift-Probe ist —
-     * liegt er neben dem ersten, hat das Telefon waehrend der Messung nicht gedrosselt.
-     */
+    /** Was eine ARCHITEKTUR je Brett kostet: jedes `*.onnx` aus `cnn_bench/` gegen dieselben 64 Zufalls-Crops.
+     *  Zwei Durchgaenge — der zweite ist die Drift-Probe: liegt er neben dem ersten, drosselte nichts. */
     fun archBench(
         rounds: Int,
         threads: Int,
@@ -353,7 +337,6 @@ private class AndroidOptimizationBenchmark(
         }
     }
 
-    /** The expensive shared tracker path, driven without CameraX or a physical board. */
     private fun trackerHotPaths() {
         val probe = RecordingWorkProbe()
         WorkProfiler.install(probe).use { measuredTrackerHotPaths() }

@@ -9,10 +9,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.math.abs
 
-/**
- * BGR -> HSV / Lab against OpenCV's `parity/_colorspace/`: <= 1 LSB per channel, since OpenCV's 8-bit
- * path is fixed-point. The DERIVED square sets must still be exact (`ShadowGamutParityTest`).
- */
+/** <= 1 LSB per channel, since OpenCV's 8-bit path is fixed-point; the DERIVED sets must still be exact
+ *  (`ShadowGamutParityTest`). */
 class ColorSpaceParityTest {
     @Serializable
     private data class Patch(
@@ -37,15 +35,12 @@ class ColorSpaceParityTest {
     @Test
     fun hueIsCircular() {
         val out = ByteArray(CHANNELS * 2)
-        // BGR: pure red, then a red a hair into magenta (hue just below the 0 wrap).
         bgrToHsv(byteArrayOf(0, 0, RED, 1, 0, RED), 2, 1, out)
 
         assertEquals(0, out[0].toInt() and BYTE_MASK, "pure red hue")
         val wrapped = out[CHANNELS].toInt() and BYTE_MASK
         assertTrue(wrapped == 0 || wrapped >= HUE_NEAR_WRAP, "near-red hue must not sit mid-range: $wrapped")
     }
-
-    // -----------------------------------------------------------------------------------
 
     private fun comparePatches(
         space: String,
@@ -93,7 +88,6 @@ class ColorSpaceParityTest {
         const val MEAN_LSB = 0.2
         const val HUE_NEAR_WRAP = 175
 
-        /** 255 as a signed byte. */
         const val RED: Byte = -1
         val json = Json { ignoreUnknownKeys = true }
     }

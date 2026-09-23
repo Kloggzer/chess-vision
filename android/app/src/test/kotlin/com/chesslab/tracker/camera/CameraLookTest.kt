@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Only what a JVM can decide: the predecessor's white-balance gains had five green tests and sat in
- *  the wrong colour space entirely, which only the sensor knows. */
+/** Only what a JVM can decide: the predecessor's white-balance gains had green tests and sat in the wrong
+ *  colour space, which only the sensor knows. */
 class CameraLookTest {
     private val phone =
         CameraAbilities(
@@ -27,7 +27,6 @@ class CameraLookTest {
         assertTrue(!CameraLook(focus = 0f).isAuto, "a manual focus AT infinity is still manual")
     }
 
-    /** The step is a device property; ±24 indices at 1/6 EV is the ±4 EV this phone advertises. */
     @Test
     fun exposureIsReportedInEvNotInIndices() {
         assertEquals(4.0f, phone.exposure!!.ev(24), 1e-4f)
@@ -35,7 +34,6 @@ class CameraLookTest {
         assertEquals(0.0f, phone.exposure!!.ev(0), 1e-4f)
     }
 
-    /** A stored value can outlive the camera it was chosen on (other lens, restored backup). */
     @Test
     fun aStoredValueIsClampedToWhateverThisCameraOffers() {
         val wild = CameraLook(evIndex = 400, zoomRatio = 99f, focus = 5f, whiteBalance = WhiteBalance.SHADE)
@@ -46,10 +44,7 @@ class CameraLookTest {
         assertEquals(WhiteBalance.SHADE, fitted.whiteBalance)
     }
 
-    /**
-     * An axis the device does not have is not clamped, it is DROPPED — a fixed-focus lens has no
-     * distance to hold, and a camera with no exposure compensation would silently ignore an index.
-     */
+    /** DROPPED, not clamped: a fixed-focus lens has no distance to hold. */
     @Test
     fun anUnsupportedAxisFallsBackToAutomatic() {
         val bare = CameraAbilities()
@@ -58,13 +53,11 @@ class CameraLookTest {
         assertTrue(fitted.isAuto)
     }
 
-    /** Before a camera is bound there is nothing to clamp against, and a guess would be worse. */
     @Test
     fun withNoAbilitiesTheValueIsLeftAlone() {
         assertEquals(400, CameraLook(evIndex = 400).clampedTo(null).evIndex)
     }
 
-    /** `AUTO` leaves the key UNSET rather than writing `CONTROL_AWB_MODE_AUTO`: the device's own default. */
     @Test
     fun eachPresetMapsToItsOwnIlluminant() {
         assertEquals(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT, CameraLookControl.awbModeFor(WhiteBalance.DAYLIGHT))
@@ -73,7 +66,6 @@ class CameraLookTest {
         assertNull(CameraLookControl.awbModeFor(WhiteBalance.AUTO))
     }
 
-    /** The illuminant is the one axis that holds by being STATED — nothing locks it any more. */
     @Test
     fun aPresetReachesTheCaptureRequestAndAutoTakesItBack() {
         val control = CameraLookControl(reissue = {})
@@ -83,10 +75,7 @@ class CameraLookTest {
         assertNull(control.awbMode())
     }
 
-    /**
-     * The capture request belongs to `OpticsLock`; a look change has to ask for it to be re-issued.
-     * Exactly once per change — the flood this feature shipped with was one re-issue per drag pixel.
-     */
+    /** Exactly once per change: the shipped flood was one re-issue per drag pixel. */
     @Test
     fun oneChangeIsOneReissue() {
         var reissues = 0
@@ -97,18 +86,16 @@ class CameraLookTest {
         assertEquals(CameraLook(evIndex = 6, whiteBalance = WhiteBalance.CLOUDY), control.look.value)
     }
 
-    /** 0..1 is infinity..nearest, scaled by the lens's own minimum — a diopter figure is not a UI. */
     @Test
     fun automaticFocusSuppliesNoDistanceAtAll() {
         val control = CameraLookControl(reissue = {})
         assertNull(control.focusDiopters())
         control.setLook(CameraLook(focus = 0.5f))
-        // Nothing bound: the fraction scales onto 0 diopters, infinity, the safe end for a board.
         assertEquals(0f, control.focusDiopters())
     }
 
-    /** `TrackerService` pushes the saved look before the first bind; clamping it against an EMPTY
-     *  ability set reset every axis to automatic — "Save does nothing" on the device. */
+    /** The saved look arrives before the first bind; clamping it against an EMPTY ability set reset every
+     *  axis to automatic — "Save does nothing". */
     @Test
     fun aLookSetBeforeTheCameraBindsSurvivesIntact() {
         val control = CameraLookControl(reissue = {})

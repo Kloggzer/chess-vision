@@ -8,11 +8,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 
-/** The specs/41 trap: quad spread is a MOVEMENT check that scores a consistently wrong quad beautifully. */
+/** Quad spread is a MOVEMENT check that scores a consistently wrong quad beautifully. */
 class GeometryScanTest {
     @Test
     fun aStaticQuadHasNoSpreadButCanStillBeWrong() {
-        // Nowhere near a real board, and the spread is perfect: never a correctness gate.
         val quad = floatArrayOf(10f, 900f, 20f, 40f, 950f, 60f, 930f, 940f)
         val quads = List(5) { quad.copyOf() }
         val spread = quadSpreadRectified(quads, medianQuadOf(quads), boardSize = 800)
@@ -55,20 +54,19 @@ class GeometryScanTest {
         val ok = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(ok).isEmpty())
 
-        // 2026-08-08: the pass rate measures playing speed — rec-20260808-003957 (82.5 %, 837 aligned) is
-        // labelable. Only a video without ENOUGH aligned samples is refused.
+        // The pass rate measures playing speed; only a video without ENOUGH aligned samples is refused.
         val handsyButEvidenced = scanned(alignPassRate = 0.5, aligned = 500, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(handsyButEvidenced).isEmpty())
 
         val sparse = scanned(alignPassRate = 0.5, aligned = 40, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(sparse).single().contains("align to the board's own grid"))
 
-        // A moving board is a WARNING: as a gate it refused `2026-08-13-19-34-23` (absolute gate 97.2 %).
+        // A moving board is a WARNING: as a gate it refused a recording whose absolute gate passed 97.2 %.
         val nudged = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 9.0, clockP90 = 0.0)
         assertTrue(geometryRefusals(nudged).isEmpty())
         assertTrue(geometryWarnings(nudged).single().contains("does not stand for every frame"))
 
-        // VFR is a WARNING since 2026-08-14: the replay clock reads each frame's PTS (phone: 26.35/23.47 fps).
+        // VFR is a WARNING: the replay clock reads each frame's PTS.
         val vfr = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 20.0)
         assertTrue(geometryRefusals(vfr).isEmpty())
         assertTrue(geometryWarnings(vfr).single().contains("variable-rate")) { geometryWarnings(vfr).toString() }

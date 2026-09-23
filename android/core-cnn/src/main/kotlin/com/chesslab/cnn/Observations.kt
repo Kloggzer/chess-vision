@@ -2,15 +2,8 @@ package com.chesslab.cnn
 
 import kotlin.math.exp
 
-/**
- * Ported from `cnn_recovery.py observation_from_probs` when Python still carried the tracker.
- *
- * Class indices are ALWAYS derived from the run's `classes` list (13- and 14-class runs);
- * never assume a position. `pOcc` is the summed mass of the 12 piece classes, clamped at 0
- * against float drift. The argmax keeps the FIRST maximum (Python's `max(range(n), key=…)`),
- * so the comparison below is a strict `>` — and it runs over the CLASSES only, because a row
- * may carry one more value than that (see `pOccluded` below).
- */
+/** Class indices come from the run's `classes` list, never assumed. The argmax keeps the FIRST maximum
+ *  (strict `>`) and runs over the CLASSES only: a row may carry one more value (`pOccluded`). */
 fun observationFromProbs(
     perSquareProbs: Map<String, DoubleArray>,
     classes: List<String>,
@@ -33,10 +26,8 @@ fun observationFromProbs(
                 "square $square carries ${probs.size} values for ${classes.size} classes"
             }
             val pe = probs[iEmpty]
-            // The `occluded` class where the run has one; otherwise the occlusion head's coverage
-            // value, which sits one past the classes (`ModelSpec.coverageOutput`). Until that
-            // column existed this was identically 0.0 on every 13-class run and the CNN arm of the
-            // hand veto was blind — a 13-class run WITHOUT coverage still reads 0.0.
+            // The `occluded` class where the run has one, else the coverage column one past the classes. Without it a
+            // 13-class run reads 0.0 and the CNN arm of the hand veto is blind.
             val po =
                 when {
                     iOccluded >= 0 -> probs[iOccluded]
@@ -45,8 +36,7 @@ fun observationFromProbs(
                 }
             pEmpty[square] = pe
             pOccluded[square] = po
-            // The coverage column is an independent sigmoid, no softmax class: it gates `confident`,
-            // it does not share the denominator (only a real `occluded` class does).
+            // The coverage column is an independent sigmoid, no softmax class: it gates `confident` without sharing the denominator.
             pOcc[square] = if (iOccluded >= 0) maxOf(0.0, 1.0 - pe - po) else 1.0 - pe
             val top = argmaxFirst(probs, classes.size)
             label[square] = classes[top]
@@ -67,10 +57,8 @@ fun observationFromProbs(
         perSquareProbs.mapValues { (square, probs) ->
             invalidMass(probs, classes, possible?.get(square))
         }
-    // The rows ride along RAW on both views: an engine that searches legal moves must not be
-    // handed a distribution that `applyPrior` already weighted by legality.
-    // Trimmed to the CLASS columns: a coverage run carries one more, and that one is `pOccluded`,
-    // not a class. Handing it over as if it were would have it softmaxed with the rest.
+    // The rows ride RAW on both views: an engine searching legal moves must not get a prior-weighted distribution.
+    // Trimmed to the CLASS columns: the coverage column would otherwise be softmaxed with the rest.
     val rows = CnnProbs(classes, perSquareProbs.mapValues { (_, row) -> row.copyOf(classes.size) })
     val raw = read(perSquareProbs).copy(invalidMassBySquare = invalid, probs = rows)
     if (priorLambda <= 0.0 || possible == null) return raw
@@ -81,9 +69,6 @@ fun observationFromProbs(
     return read(conditioned).copy(invalidMassBySquare = invalid, raw = raw, probs = rows)
 }
 
-/**
- * The [SquareClassifier] path: 64 probability rows in [ALL_SQUARES] order.
- */
 fun observationFromProbs(
     probs: Array<FloatArray>,
     classes: List<String>,
@@ -98,16 +83,13 @@ fun observationFromProbs(
     return observationFromProbs(rows, classes, possible, priorLambda)
 }
 
-/** Every square's occupancy verdict — the whole-board form of [OccupancyObservation.confident]. */
 fun OccupancyObservation.confident(thr: Double): Map<String, Boolean> = pOcc.keys.associateWith { confident(it, thr) }
 
-/** Same for identity; without labels every key maps to `false`, never to an empty map. */
+/** Without labels every key maps to `false`, never to an empty map. */
 fun OccupancyObservation.labelConfident(thr: Double): Map<String, Boolean> = pOcc.keys.associateWith { labelConfident(it, thr) }
 
-/** Squares whose OCCUPANCY statement is reliable, in [ALL_SQUARES] order. */
 fun OccupancyObservation.confidentSquares(thr: Double): List<String> = ALL_SQUARES.filter { pOcc.containsKey(it) && confident(it, thr) }
 
-/** Squares whose IDENTITY statement is reliable, in [ALL_SQUARES] order. */
 fun OccupancyObservation.labelConfidentSquares(thr: Double): List<String> =
     ALL_SQUARES.filter { pOcc.containsKey(it) && labelConfident(it, thr) }
 
@@ -122,28 +104,23 @@ private fun argmaxFirst(
     return top
 }
 
-/** Multiplikativ auf `softmax(z/T)` landet die Staerke als `lambda*T` auf den rohen Logits:
- *  4,0 lief so als 5,98 und waere mit jedem neuen Modell mitgewandert (gemessen 2026-09-17). */
+/** Auf `softmax(z/T)` landet die Staerke als `lambda*T` auf den rohen Logits: 4,0 lief als 5,98 und waere
+ *  mit jedem neuen Modell mitgewandert. */
 fun priorOnTempered(
     lambda: Double,
     temperature: Double,
 ): Double = if (temperature <= 0.0) lambda else lambda / temperature
 
-/**
- * Reweight a square's classes by what chess allows, then renormalise. [lambda] ist die Staerke
- * IN DIESEM Raum — wer eine Zahl auf den rohen Logits meint, reicht sie durch [priorOnTempered].
- * Sie bleibt FINIT: a wrong committed move must stay arguable by the pixels. `occluded`
- * is never penalised — a hand is a statement about SIGHT, not about chess.
- */
+/** [lambda] ist die Staerke IN DIESEM Raum; eine Zahl auf den rohen Logits geht durch [priorOnTempered].
+ *  FINIT: a wrong committed move must stay arguable by the pixels. `occluded` is never penalised. */
 fun applyPrior(
     probs: DoubleArray,
     classes: List<String>,
     allowed: Set<String>?,
     lambda: Double,
 ): DoubleArray {
-    // Immer eine Kopie: `observationFromProbs` legt das Ergebnis als `conditioned` ab, und wer den
-    // Rueckgabewert der Aufrufer-Zeile gibt, laesst eine spaetere Aenderung daran auch die ROHE
-    // Zeile umschreiben — genau die Trennung, wegen der `raw` ueberhaupt mitgefuehrt wird.
+    // Immer eine Kopie: `observationFromProbs` legt das Ergebnis als `conditioned` ab, und eine geteilte
+    // Zeile schriebe bei spaeterer Aenderung auch die ROHE um.
     if (lambda <= 0.0 || allowed == null) return probs.copyOf()
     val penalty = exp(-lambda)
     val out = probs.copyOf()
@@ -157,7 +134,6 @@ fun applyPrior(
     return out
 }
 
-/** Raw probability mass assigned to context-forbidden identity labels. */
 internal fun invalidMass(
     probs: DoubleArray,
     classes: List<String>,

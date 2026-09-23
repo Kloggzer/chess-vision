@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
-/** A lamp the device has not switched yet: `enableTorch()` returned its future and nothing waited. */
 private class PendingLamp : TorchLampPort {
     override val torchOn = MutableStateFlow(false)
     override val hasTorch = true
@@ -25,9 +24,8 @@ private class PendingLamp : TorchLampPort {
     }
 }
 
-/** Bug-Audit A5: `enableTorch()` gibt ein Future zurueck, niemand wartet darauf, und die Basis
- *  entsteht womoeglich unter der ALTEN Beleuchtung — genau der Referenz, die sie ersetzen soll.
- *  Lasttragend: jede Dunkel-Aufnahme lief hierdurch (`docs/bug-audit-2026-09-13.md`). */
+/** `enableTorch()` gibt ein Future zurueck, niemand wartet darauf, und die Basis entsteht womoeglich unter der
+ *  ALTEN Beleuchtung. Lasttragend: jede Dunkel-Aufnahme lief hierdurch. */
 @Disabled("BUG: A5 — the baseline is taken before the device confirms the torch actually switched")
 @OptIn(ExperimentalCoroutinesApi::class)
 class TorchBaselineRacesTheHardwareBugTest {

@@ -24,7 +24,6 @@ private class EmptyStore : ConfigStore {
     ) = Unit
 }
 
-/** Refresh and delete read the same on-disk picture: sessions, their bytes, which the PC holds. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingViewModelTransferTest {
     @TempDir

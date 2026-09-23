@@ -5,22 +5,16 @@ import com.chesslab.engine.api.GrayImage
 
 private const val BGR_CHANNELS = 3
 
-/**
- * The shadow veto's per-frame scratch, owned by the [EngineState] whose frames it holds — at file scope
- * it would be one set of buffers per process, safe only while no two engines are alive at once.
- * Everything is consumed inside one call; outside the candidate boxes the HSV planes are stale.
- */
+/** Owned by its [EngineState]: at file scope it would be one set of buffers per process. Outside the
+ *  candidate boxes the HSV planes are stale. */
 internal class ShadowVetoScratch {
     var refHsv = ByteArray(0)
     var curHsv = ByteArray(0)
     val censBand = DoubleArray(Squares.COUNT)
 }
 
-/**
- * Step 3 — the hot squares split into survivors and shadow-vetoed. **entry.md invariant 2, the half that
- * PRESERVES z:** a cast shadow only leaves `changed` and its z survives for scoring, because a VACATED
- * square often reads as a uniform darkening and zeroing z would destroy every real move's from-evidence.
- */
+/** **Invariant 2, the half that PRESERVES z:** a shadow only leaves `changed` — a VACATED square often reads
+ *  as uniform darkening, and zeroing z would destroy every real move's from-evidence. */
 internal fun EngineState.applyVetoes(
     cur: GrayImage,
     curBgr: BgrImage?,
@@ -30,14 +24,10 @@ internal fun EngineState.applyVetoes(
     changed = hot
     var shadowVeto = 0L
     val ref = refBgr
-    // `baselineOcclusion` heisst AUS wirklich aus: dieses Veto steht auf demselben Schalter wie
-    // der Baseline-Arm, sonst schaltet er nur die Haelfte ab, die niemanden interessiert
-    // (gemessen 2026-09-21, `docs/tracker-flow.md`).
+    // AUS heisst wirklich aus: dieses Veto steht auf demselben Schalter wie der Baseline-Arm.
     if (config.baselineOcclusion && curBgr != null && ref != null && hot != 0L) {
-        // Invariant 8: `censusThr` (40.0) was live-tuned on the RAW census channel. The normalized
-        // channel serves scoring and noise learning; using it here lets normalization pull a
-        // structurally changed destination square under the threshold, which is the
-        // phantom-shadow-as-destination class.
+        // Invariant 8: `censusThr` was tuned on the RAW channel; the normalized one can pull a changed destination
+        // under it — the phantom-shadow-as-destination class.
         val censForVeto = censRaw ?: bandCensusForVeto(cur, hot)
         val shadows = hsvShadows(ref, curBgr, hot)
         val thr = config.censusThr
@@ -49,11 +39,8 @@ internal fun EngineState.applyVetoes(
     }
 }
 
-/**
- * Only the CANDIDATES' boxes are converted to HSV: [hsvShadowSquares] looks at exactly those boxes and
- * the conversion is per-pixel, so this is the same answer for a fraction of the pixels — two full
- * 800x800 conversions per detection frame to judge a handful of squares was the veto's whole cost.
- */
+/** Only the CANDIDATES' boxes: the conversion is per-pixel, so the answer is the same for a fraction — two
+ *  full 800x800 conversions per detection frame were the veto's whole cost. */
 private fun EngineState.hsvShadows(
     ref: BgrImage,
     cur: BgrImage,
@@ -73,11 +60,8 @@ private fun EngineState.hsvShadows(
     return hsvShadowSquares(scratch.refHsv, scratch.curHsv, geom, candidates)
 }
 
-/**
- * The `censusZWeight == 0` fast path: no evidence-side census channel this frame, so the veto computes
- * its own over the candidate rows, the +/-1 halo making the band-local codes identical to the full
- * transform. Never runs when [EngineState.censRaw] exists — a second band would diverge, not save.
- */
+/** `censusZWeight == 0`: the veto computes its own census over the candidate rows (the ±1 halo keeps the
+ *  codes identical). Never when [EngineState.censRaw] exists — a second band would diverge. */
 private fun EngineState.bandCensusForVeto(
     cur: GrayImage,
     changed: Long,

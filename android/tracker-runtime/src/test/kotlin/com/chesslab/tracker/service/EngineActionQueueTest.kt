@@ -61,7 +61,6 @@ class EngineActionQueueTest {
         assertEquals(listOf("Undo", "CaptureBaseline", "snap:7", "frame:1"), ops.calls)
     }
 
-    /** The end-of-frame drain: an observation that came back inline is judged without a frame. */
     @Test
     fun aFramelessTickDrainsTheQueuesAndTouchesNoFrame() {
         val ops = RecordingOps()
@@ -89,7 +88,7 @@ class EngineActionQueueTest {
         val host = EngineHost(ops)
         repeat(100) { host.submit(EngineAction.SetFen("fen$it")) }
         host.tick(null)
-        // What survives is the NEWEST: blocking here would stall whichever UI thread submitted it.
+        // Blocking here would stall whichever UI thread submitted it.
         assertTrue(ops.calls.size < 100, "queue is unbounded: ${ops.calls.size} actions drained")
         assertEquals("SetFen:fen99", ops.calls.last())
     }
@@ -98,7 +97,6 @@ class EngineActionQueueTest {
     fun displacedEntriesAreCountedPerQueue() {
         val ops = RecordingOps()
         val host = EngineHost(ops)
-        // Snapshot queue depth is 4: five submits displace exactly one.
         repeat(5) { host.submit(snapshot(it.toLong())) }
         assertEquals(1L, host.snapshotsDropped)
         assertEquals(0L, host.actionsDropped, "the two queues must count independently")

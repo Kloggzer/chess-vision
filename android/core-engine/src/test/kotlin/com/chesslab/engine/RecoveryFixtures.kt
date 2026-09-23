@@ -10,22 +10,17 @@ import com.chesslab.engine.api.IdentityResult
 import com.chesslab.engine.api.ResyncResult
 import com.chesslab.engine.api.TrackerConfig
 
-// Fakes for CnnTickTest / AlarmLatchTest only. Mirrors `_AlarmStub` and `_FakeRecovery` in
-// `tests/test_move_tracker.py`: canned identity/occupancy verdicts, so the recovery and alarm
-// state machines are driven without any model.
+// Mirrors `_AlarmStub` and `_FakeRecovery` in `tests/test_move_tracker.py`: canned verdicts, no model.
 
-/** Position after 1.Nf3 with castling rights removed — the board every alarm scenario runs on. */
 internal const val NF3_NO_CASTLING = "rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b - - 1 1"
 
 internal const val LABEL_EMPTY = "empty"
 
-/** `_AlarmStub._build_obs`: one confidence for every square, identity present unless stripped. */
 internal class RecoveryObs(
     private val labels: Map<String, String>,
     private val identity: Boolean = true,
     private val confidence: Double = 0.99,
     private val runnerUpConfidence: Double = 0.0,
-    /** Squares whose `occluded` class dominates — a hand, as the observer itself reports it. */
     private val occluded: Set<String> = emptySet(),
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = labelOf(square) != LABEL_EMPTY
@@ -53,32 +48,29 @@ internal class RecoveryObs(
     private fun labelOf(square: String): String = labels[square] ?: LABEL_EMPTY
 }
 
-/** `_AlarmStub.set_obs_for_board`: what the game state expects, plus the squares the CNN misreads. */
 internal fun obsForBoard(
     game: Game,
     overrides: Map<String, String> = emptyMap(),
     identity: Boolean = true,
 ): RecoveryObs = RecoveryObs(Squares.ALL.associateWith { game.labelAt(it) } + overrides, identity)
 
-/** `_AlarmStub` / `_FakeRecovery`: every verdict is a field, so a test states exactly one thing. */
+/** Every verdict is a field, so a test states exactly one thing. */
 internal class RecoveryEvaluator(
     var match: Boolean = false,
     var conflicts: List<String> = emptyList(),
     var moves: List<String> = emptyList(),
     var agreement: Double = 1.0,
-    /** `null` = occupancy says whatever identity says; a test that pits the two axes names it. */
     var occupancyMatch: Boolean? = null,
     var occupancyConflict: Boolean = true,
     var guess: String? = null,
 ) : CnnEvaluator {
     val observations = mutableListOf<CnnObservation>()
 
-    /** 0 keeps every existing test permissive; the blind-glance guard needs a real bar. */
+    /** 0 keeps the existing tests permissive; the blind-glance guard needs a real bar. */
     override var minConfidentBoard: Int = 0
 
     var inconclusive: Boolean = false
 
-    /** What `resync_check` itself names, for the scenarios that need a named move and its score. */
     var resyncMove: String? = null
     var resyncAgreement: Double = 0.0
 
@@ -125,11 +117,7 @@ internal class RecoveryEvaluator(
     ): String? = guess
 }
 
-/**
- * A state whose `_cnn_tick` gates are open through the STUCK path (`cnn_cooldown_s = 0`,
- * `settle_frames = 1`), with the periodic check pushed out of reach — mirrors the `_make_tracker`
- * kwargs of every alarm test.
- */
+/** Gates open through the STUCK path (`cnn_cooldown_s = 0`, `settle_frames = 1`), periodic check out of reach. */
 internal fun recoveryConfig(
     confirmFrames: Int = 1,
     desyncObsN: Int = 3,
@@ -138,9 +126,8 @@ internal fun recoveryConfig(
         boardSize = TEST_BOARD_SIZE,
         detectScale = 1.0,
         cnnCooldownS = 0.0,
-        // The latch's DURATION gate off by default here: these fixtures feed snapshots with the
-        // clock standing still, and every test built on them asserts the COUNT rule. The duration
-        // rule has its own test, which sets the knob itself (`AlarmDurationTest`).
+        // Duration gate off: these fixtures feed snapshots with the clock standing still, and assert the COUNT rule.
+        // `AlarmDurationTest` sets the knob itself.
         alarmMinS = 0.0,
         cnnCheckIntervalS = 3600.0,
         desyncObsN = desyncObsN,
@@ -154,7 +141,6 @@ internal fun recoveryState(
     desyncObsN: Int = 3,
 ): EngineState = EngineState(recoveryConfig(confirmFrames, desyncObsN), fen, whitePov = true).armed()
 
-/** The stuck precondition every `_cnn_tick` gate test needs, plus the deterministic clock. */
 internal fun EngineState.armed(): EngineState {
     cnnRun = true
     nowS = 1000.0
@@ -162,15 +148,9 @@ internal fun EngineState.armed(): EngineState {
     return this
 }
 
-/**
- * A game already under way. The alarm may not latch before the first commit (`alarmable` in
- * `Alarm.kt`), so a scenario that needs a latched alarm has to put a ply on the record — which is
- * what any run that has been tracking for a while has. [san] defaults to the move `NF3_NO_CASTLING`
- * was reached by.
- */
+/** The alarm may not latch before the first commit, so a latched scenario needs a ply on the record. */
 internal fun EngineState.underWay(san: String = "Nf3"): EngineState = apply { history.add(san) }
 
-/** One observation of the current position. [gray] is the anchor warp (`null` = none delivered). */
 internal fun recoverySnap(
     state: EngineState,
     obs: CnnObservation,
@@ -179,19 +159,13 @@ internal fun recoverySnap(
     fen: String = state.board.fen(),
     warped: BgrImage? = null,
     gridOccluded: Long = 0L,
-    /** Stamped from the engine's own clock where a test needs the glance to read as FRESH. */
     tsMs: Long = 0L,
 ): CnnSnapshot = CnnSnapshot(obs, seq, tsMs, 0.0, warped, gray, fen, gridOccluded)
 
-/** Monotonic snapshot seqs for [recoveryGlances] — far above the hand-numbered ones in tests. */
 private var glanceSeq = 9000L
 
-/**
- * The two agreeing clean glances a bridge demands since specs/39 phase 02 — one snapshot, one
- * vote, so a single `cnnTick` no longer commits a recovery anywhere. Tests that assert what a
- * COMMITTED bridge does drive it through this; tests about the voting itself tick by hand.
- * The anchor-carrying snapshot is the SECOND one, because that is the glance that commits.
- */
+/** Two agreeing glances since specs/39 phase 02 — one snapshot, one vote. The anchor-carrying snapshot is the
+ *  SECOND, because that glance commits. */
 internal fun EngineState.recoveryGlances(
     cnn: CnnEvaluator,
     obs: CnnObservation,
@@ -202,7 +176,6 @@ internal fun EngineState.recoveryGlances(
     return cnnTick(cnn, recoverySnap(this, obs, seq = ++glanceSeq, gray = gray, warped = warped))
 }
 
-/** Latch the alarm the way `_alarmed_tracker` does: three distinct stable mismatching glances. */
 internal fun alarmedState(): Pair<EngineState, RecoveryEvaluator> {
     val state = recoveryState(NF3_NO_CASTLING).underWay()
     val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")

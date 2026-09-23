@@ -11,14 +11,9 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * `_commit_move` / `_commit_sequence` / `_set_ref` / `_record_decision` plus the user-correction
- * paths of the public API (`undo`, `reset_to_start`, `capture_baseline`, `choose_promotion`).
- */
 class CommitTest {
     @Test
     fun commitAdvancesBaseTruthPair() {
-        // `test_valid_move_advances_base_truth_with_fen`: the (image, FEN) pair is never split.
         val state = detectState(ref = grayFrame(listOf("e2")))
         val cur = grayFrame(listOf("e4"))
         state.tryDetect(cur, null, seq = 1)
@@ -37,7 +32,6 @@ class CommitTest {
         assertEquals(state.board.fen(), record.fenAfter)
     }
 
-    /** A commit inside the motion hold flags its reference for re-capture at the hold's end. */
     @Test
     fun commitInsideTheMotionHoldFlagsTheReferenceProvisional() {
         val early = detectState(ref = grayFrame(listOf("e2")))
@@ -58,7 +52,6 @@ class CommitTest {
         assertEquals(0.0, settled.refProvisionalUntil)
     }
 
-    /** The composite takes the new frame only on visible squares; covered ones keep the old reference. */
     @Test
     fun aCompositeReferenceKeepsCoveredSquaresFromTheOldOne() {
         val state = detectState(ref = grayFrame(listOf("e2")))
@@ -85,7 +78,6 @@ class CommitTest {
         )
     }
 
-    /** Inside the commit hold a hypothesis from half-seen squares never becomes pending. */
     @Test
     fun anEarlyHypothesisWaitsForItsSquaresSeenSettled() {
         val early = detectState(ref = grayFrame(listOf("e2")))
@@ -116,8 +108,7 @@ class CommitTest {
         assertEquals(DECIDER_DIFF_PAIR, state.decisionLog.last().decider)
         assertTrue(event is TrackerEvent.SequenceCommitted)
 
-        // One row per pair left the FIRST move nowhere in the log: VID_20260802_222741 read `Nxf3+` at
-        // ply 25 with Black not to move and did not replay past ply 1 (user, 2026-08-09).
+        // One row per pair left the FIRST move nowhere in the log: VID_20260802_222741 read `Nxf3+` with Black not to move.
         assertEquals(2, state.decisionLog.size, "a pair is TWO moves and therefore two rows")
         val (a, b) = state.decisionLog.takeLast(2)
         assertEquals(listOf("e4", "e5"), listOf(a.san, b.san))
@@ -138,7 +129,7 @@ class CommitTest {
 
     @Test
     fun setRefFromCommitDoesNotRebuildGamut() {
-        // entry.md invariant 6: a commit-time reference may still carry hand residue.
+        // Invariant 6: a commit-time reference may still carry hand residue.
         val state = detectState()
         state.setRef(grayFrame(), bgrFrame(), fromCommit = false)
         val quietGamut = requireNotNull(state.refGamut) { "the quiet capture builds the gamut" }
@@ -162,7 +153,7 @@ class CommitTest {
         assertTrue(!state.motionSinceRef, "a fresh reference requires a new hand before the next commit")
     }
 
-    /** `undo` takes back a COMMIT: the recovery of 2026-08-02 pushed four plies and `undo` popped one. */
+    /** `undo` takes back a COMMIT: a recovery pushed four plies and `undo` popped one. */
     @Test
     fun everyCommitPathRecordsHowManyPliesItPushed() {
         val single = detectState()
@@ -200,7 +191,6 @@ class CommitTest {
         assertEquals(0, state.decisionLog.size, "the undone move's provenance row is dropped")
     }
 
-    /** 2026-08-02: *"ich habe keine Chance wieder zum Spielstate zurückzukommen"* — one press unwinds the commit. */
     @Test
     fun undoUnwindsAMultiMoveRecoveryAsAUnit() {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
@@ -215,7 +205,7 @@ class CommitTest {
 
         assertEquals(fenBefore, state.board.fen())
         assertEquals(emptyList<String>(), state.history)
-        // Including phase 00's per-move rows: the trim drops every row above the restored history.
+        // The trim drops every row above the restored history.
         assertEquals(0, state.decisionLog.count { it.accepted }, "orphan rows for moves that no longer exist")
         assertTrue(state.note!!.contains("4 moves undone"), state.note!!)
     }
@@ -233,7 +223,6 @@ class CommitTest {
         assertEquals("last move undone (logged as bad example)", state.note)
     }
 
-    /** The record is of the LAST commit only; the next press is an ordinary single-ply undo. */
     @Test
     fun asecondUndoAfterASequenceTakesBackOneOrdinaryMove() {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
@@ -251,10 +240,7 @@ class CommitTest {
         assertEquals(emptyList<String>(), state.history, "and the ordinary move one at a time")
     }
 
-    /**
-     * The wrong shape loops the whole undo body per popped ply. The note is what can fail (a loop ends
-     * on "last move undone"); `clearAlarm` is idempotent, so the event count alone cannot tell.
-     */
+    /** A loop over popped plies ends on "last move undone": the note can fail, `clearAlarm` is idempotent. */
     @Test
     fun theCleanupRunsOncePerUndoNotOncePerPoppedMove() {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
@@ -262,7 +248,7 @@ class CommitTest {
         engine.attachCnn(RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3", "b8c6"), agreement = 0.95))
         engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
         engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 2, gray = grayFrame()))
-        // Latched AFTER the commit: a recovery clears the alarm itself (defect 2, not this pack's).
+        // Latched AFTER the commit: a recovery clears the alarm itself.
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)
 
         val events = engine.undo()
@@ -299,7 +285,6 @@ class CommitTest {
     fun choosePromotionRejectsInvalidPiece() {
         val engine = TrackerEngine(detectConfig())
         assertTrue(engine.choosePromotion('k').single() is TrackerEvent.Note)
-        // A valid piece with nothing pending is an error too.
         assertTrue(engine.choosePromotion('q').single() is TrackerEvent.Note)
         assertEquals(emptyList<String>(), engine.state.history)
     }
@@ -348,7 +333,6 @@ class CommitTest {
         assertTrue(state.note.orEmpty().contains("desynced"), "note was '${state.note}'")
     }
 
-    /** Derselbe Riegel fuer die CNN-getriebene Antwort — sie geht durch dieselbe Tuer. */
     @Test
     fun anAlarmBlocksTheCnnConfirmedPromotion() {
         val engine = promotionEngine()
@@ -381,7 +365,7 @@ class CommitTest {
         assertNull(state.promoPending)
     }
 
-    /** The phantom prompt of 2026-08-08-00-39-57 @6436: with nobody to answer, the replay lost 22 plies. */
+    /** A phantom prompt with nobody to answer lost the replay 22 plies. */
     @Test
     fun cnnWithdrawsAPromotionPromptWhoseTargetReadsEmpty() {
         val engine = promotionEngine()
@@ -398,7 +382,7 @@ class CommitTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
-    /** Zwei Stimmen heissen zwei HINTEREINANDER: ein sicher leeres Ziel dazwischen ist Gegenbeweis, nicht Pause. */
+    /** Zwei HINTEREINANDER: ein sicher leeres Ziel dazwischen ist Gegenbeweis, nicht Pause. */
     @Test
     fun anEmptyReadRestartsThePromotionVote() {
         val engine = promotionEngine()
@@ -419,7 +403,6 @@ class CommitTest {
         assertTrue(state.history.single().startsWith("a8=Q"), "history was ${state.history}")
     }
 
-    /** A covered or unreadable target says nothing either way — the prompt stays open. */
     @Test
     fun cnnKeepsThePromptWhileTheTargetIsUnreadable() {
         val engine = promotionEngine()
@@ -509,7 +492,6 @@ class CommitTest {
         assertEquals(STATE_WAITING, engine.state.state)
     }
 
-    /** An engine on [PROMOTION_FEN] whose a7-a8 push waits on the promotion prompt. */
     private fun promotionEngine(withCnn: Boolean = true): TrackerEngine {
         val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
         if (withCnn) engine.attachCnn(RecoveryEvaluator())

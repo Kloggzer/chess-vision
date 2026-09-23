@@ -38,8 +38,7 @@ class ObservationTest {
         assertEquals("wP", obs.label("e2"))
     }
 
-    /** The CNN arm of the hand veto was blind until this column existed (CLAUDE.md pitfall).
-     *  It is not a class: it may neither win the argmax nor be the runner-up. */
+    /** The CNN arm of the hand veto was blind until this column existed. Not a class: neither argmax nor runner-up. */
     @Test
     fun `the coverage column past the classes feeds pOccluded`() {
         val row = DoubleArray(PIECES13_CLASSES.size + 1)
@@ -60,8 +59,7 @@ class ObservationTest {
         assertFalse(single(pOcc = 0.84, pEmpty = 0.16).confident("e4", THR), "peak below thr")
     }
 
-    /** `coverage_gate` is MEASURED per model (0,05 bis 0,35) and used to hang on `1.0 - thr`:
-     *  lowering `cnnConfThr` loosened the occlusion gate with it. */
+    /** `coverage_gate` is MEASURED per model and used to hang on `1.0 - thr`: lowering `cnnConfThr` loosened it. */
     @Test
     fun `the measured gate replaces the class threshold, in both directions`() {
         val square = labelled(pOccluded = 0.20)
@@ -84,15 +82,13 @@ class ObservationTest {
         assertTrue(labelled(pOccluded = 0.20).withCoverageThr(0.25).labelConfident("e4", THR))
     }
 
-    /** `coveredOut` vergleicht mit `>=`: die gemessene Schwelle ist erreicht, nicht erst ueberschritten. */
     @Test
     fun `a square exactly at the measured gate is already covered`() {
         assertFalse(labelled(pOccluded = 0.25).withCoverageThr(0.25).confident("e4", THR))
         assertTrue(labelled(pOccluded = 0.24).withCoverageThr(0.25).confident("e4", THR))
     }
 
-    /** `withCoverageThr` muss die ROHE Zeile mitnehmen: die Wiederherstellung liest ueber
-     *  `rawObservation()` an der bedingten Sicht vorbei, und dort galt sonst weiter `1.0 - thr`. */
+    /** Die Wiederherstellung liest ueber `rawObservation()` an der bedingten Sicht vorbei; dort galt sonst `1.0 - thr`. */
     @Test
     fun `the measured gate reaches the raw observation too`() {
         val conditioned = priored().withCoverageThr(0.05)
@@ -136,8 +132,7 @@ class ObservationTest {
         assertTrue(flags.values.none { it })
     }
 
-    /** On a coverage model the label is never `occluded`, so a fully covered square's guess reached
-     *  `boardMatchesIdentity`, the deep search and `cnnAdoptedFen`. */
+    /** On a coverage model the label is never `occluded`, so a covered square's guess reached identity checks. */
     @Test
     fun `labelConfident gates on the coverage column as well`() {
         assertFalse(covered(0.9).labelConfident("e4", THR), "a covered square states no identity")
@@ -149,8 +144,6 @@ class ObservationTest {
         assertFalse(fourteen.labelConfident("e4", THR), "the 14-class softmax stays false as before")
     }
 
-    /** The coverage column is an independent sigmoid, not a softmax class; only a run with a real
-     *  `occluded` CLASS shares one denominator. */
     @Test
     fun `coverage mass does not leave the occupancy denominator`() {
         assertClose(1.0, covered(0.14).pOcc.getValue("e4"), "13 classes + coverage: 1 − pEmpty")
@@ -174,7 +167,6 @@ class ObservationTest {
         assertClose(0.5, obs.runnerUpConf("e4"), "tie runner-up")
     }
 
-    /** One coverage-model square: `wQ` at 0.99 with the coverage column set to [coverage]. */
     private fun covered(coverage: Double): OccupancyObservation {
         val row = DoubleArray(PIECES13_CLASSES.size + 1)
         row[PIECES13_CLASSES.indexOf("wQ")] = 0.99

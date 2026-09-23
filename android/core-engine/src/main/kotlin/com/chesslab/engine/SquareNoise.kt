@@ -3,27 +3,22 @@ package com.chesslab.engine
 import kotlin.math.abs
 import kotlin.math.max
 
-/** Gray-lane EMA rate. */
 internal const val NOISE_ALPHA_DEFAULT: Double = 0.05
 
 internal const val NOISE_INIT_STD_DEFAULT: Double = 6.0
 
-/** Gray lane std floor — mandatory, or the EMA collapses against a fresh reference. */
+/** Mandatory, or the EMA collapses against a fresh reference. */
 internal const val NOISE_STD_FLOOR_DEFAULT: Double = 3.0
 
-/** Census lane initial std — flat squares tie-flip from frame one, so it starts wide. */
+/** Flat squares tie-flip from frame one, so it starts wide. */
 internal const val CENSUS_NOISE_INIT_STD: Double = 8.0
 
-/** Census lane std floor — tighter than gray; census is illumination-invariant. */
 internal const val CENSUS_NOISE_STD_FLOOR: Double = 2.5
 
-/** A 1/8-rate slow lane prevents excluded flat squares from staying hot forever. */
+/** A slow lane, or excluded flat squares stay hot forever. */
 internal const val CENSUS_NOISE_EXCLUDE_ALPHA_SCALE: Double = 0.125
 
-/**
- * Per-square EMA runs on median-normalized values. Gray exclusions learn nothing; census
- * exclusions use [CENSUS_NOISE_EXCLUDE_ALPHA_SCALE] so tie-flip noise can cool down.
- */
+/** Gray exclusions learn nothing; census exclusions learn at [CENSUS_NOISE_EXCLUDE_ALPHA_SCALE] so tie-flip noise cools. */
 internal class SquareNoise(
     private val alpha: Double = NOISE_ALPHA_DEFAULT,
     initStd: Double = NOISE_INIT_STD_DEFAULT,
@@ -32,10 +27,7 @@ internal class SquareNoise(
     val mean = DoubleArray(Squares.COUNT)
     val std = DoubleArray(Squares.COUNT) { initStd }
 
-    /**
-     * Deviation uses the pre-update mean. Exact `a == 0.0` prevents a hand or shadow from inflating
-     * an excluded square's deviation and desensitizing a later move.
-     */
+    /** Against the pre-update mean. Exact `a == 0.0` keeps a hand or shadow from inflating an excluded square's deviation. */
     fun update(
         diffs: DoubleArray,
         exclude: Long = 0L,

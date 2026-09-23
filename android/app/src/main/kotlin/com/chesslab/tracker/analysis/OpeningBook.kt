@@ -13,9 +13,7 @@ data class OpeningSummary(
     /** Number of played half-moves through the last position named by the book. */
     val theoryPlies: Int,
     val gameEndedInTheory: Boolean,
-    /** The most referenced book path from that position, in SAN. */
     val continuation: List<String> = emptyList(),
-    /** The same path in UCI, so the UI can replay it instead of merely printing it. */
     val continuationUci: List<String> = emptyList(),
 )
 
@@ -43,13 +41,8 @@ private const val OPENING_FIELDS = 4
 private const val CONTINUATION_FIELDS = 3
 private const val POSITION_KEY_FIELDS = 3
 
-/**
- * The shipped, immutable half of the review library.
- *
- * Named positions answer “what opening was this?”; continuation edges seed a few likely positions
- * into [ReviewStore]'s separate, persistent engine library. The two stores deliberately do not
- * merge: seeing a personal novelty must not silently redefine it as opening theory.
- */
+/** The shipped half of the review library. It never merges with [ReviewStore]: a personal novelty
+ *  must not silently become opening theory. */
 class OpeningBook private constructor(
     private val named: Map<String, OpeningEntry>,
     private val continuations: Map<String, List<BookMove>>,
@@ -90,12 +83,8 @@ class OpeningBook private constructor(
         return uci
     }
 
-    /**
-     * A bounded fan-out from the game's last named opening position.
-     *
-     * The first step keeps two popular alternatives; deeper steps keep one. This gives coaching a
-     * useful nearby branch without turning one finished review into an exponential background job.
-     */
+    /** Bounded fan-out: two alternatives at the first step, one below — a useful branch without turning
+     *  one review into an exponential background job. */
     fun likelyContinuationFens(
         game: GameView,
         horizonPlies: Int = DEFAULT_HORIZON_PLIES,

@@ -5,24 +5,13 @@ import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import kotlin.math.ln
 
-/**
- * Die gefittete `temperature` wurde 2026-09-16 verdrahtet und `cnnConfThr` dagegen nachgezogen
- * (`calibratedConfThr`). Zwei WEITERE Verbraucher derselben Wahrscheinlichkeiten wurden es nicht.
- * Beides ist Engine-Verhalten, also rot und `@Disabled` statt still gefixt.
- */
+/** Zwei WEITERE Verbraucher der getemperten Wahrscheinlichkeiten; Engine-Verhalten, also rot und
+ *  `@Disabled` statt still gefixt. */
 class TemperatureParityTest {
-    /*
-     * Der applyPrior-Befund ist ERLEDIGT (2026-09-17): `priorOnTempered` teilt die deklarierte
-     * Staerke am Aufrufer, `applyPrior` nimmt sie per Bauart im getemperten Raum. Der Vertrag
-     * steht in `PriorStrengthTest`; ein @Disabled, das nie gruen werden kann, waere dieselbe
-     * Falle wie ein veralteter TODO.
-     */
+    // applyPrior ist erledigt (`PriorStrengthTest`); ein @Disabled, das nie gruen werden kann, waere eine Falle.
 
-    /**
-     * `calibratedConfThr` eicht EINE Spitzenklasse gegen gleichmaessigen Rest, also `pEmpty`.
-     * `confident` misst aber auch `pOcc`, die Summe von 12 Klassen — die tempert in die
-     * GEGENRICHTUNG (0,85 zu 0,879, nicht zu 0,584), und die Huerde faellt effektiv auf 0,33.
-     */
+    /** `calibratedConfThr` eicht EINE Spitzenklasse, also `pEmpty`; `confident` misst auch `pOcc`, die Summe
+     *  von 12 Klassen — die tempert GEGENlaeufig (0,85 zu 0,879), die Huerde faellt effektiv auf 0,33. */
     @Disabled("Engine-Verhalten: verschiebt die Besetzt-Huerde, braucht den Regressionssatz")
     @Test
     fun `the occupancy gate survives the temperature like the identity gate does`() {
@@ -40,8 +29,7 @@ class TemperatureParityTest {
         )
     }
 
-    /** `PROMO_CNN_CONFIDENCE` ist eine 0,90 im Engine-Code, an keiner `calibratedConfThr` vorbei:
-     *  getempert erreicht eine rohe 0,95 nur 0,759, und erst ab roh 0,989 bestaetigt sie wieder. */
+    /** `PROMO_CNN_CONFIDENCE` 0,90 geht an keiner `calibratedConfThr` vorbei: getempert erreicht roh 0,95 nur 0,759. */
     @Disabled("Engine-Verhalten: die 0,90 in PromotionConfirm ist ungeeicht")
     @Test
     fun `the hard-coded promotion confidence means the same thing after the temperature`() {
@@ -59,8 +47,7 @@ class TemperatureParityTest {
         )
     }
 
-    /** `invalidMass` ist die Summe der VERBOTENEN Klassen: sie steigt beim Tempern (0,600 auf
-     *  0,714), waehrend die Schwelle auf 0,584 faellt — beide Seiten laufen aufeinander zu. */
+    /** `invalidMass` steigt beim Tempern (0,600 auf 0,714), waehrend die Schwelle auf 0,584 faellt. */
     @Disabled("Engine-Verhalten: die Legalitaets-Sicherung greift viel frueher")
     @Test
     fun `the invalid-mass safety is the same demand after the temperature`() {
@@ -80,21 +67,18 @@ class TemperatureParityTest {
         )
     }
 
-    /** Eine Spitzenklasse, der Rest gleichmaessig — die Zeile, die eine Umwandlung bestaetigt. */
     private fun peak(
         at: Int,
         top: Double,
         n: Int,
     ): DoubleArray = DoubleArray(n) { if (it == at) top else (1.0 - top) / (n - 1) }
 
-    /** `empty` zuerst, der Rest der Masse gleichmaessig auf die 12 Figuren — [PIECES13_CLASSES]. */
     private fun row(
         pOcc: Double,
         n: Int,
     ): DoubleArray = DoubleArray(n) { if (it == 0) 1.0 - pOcc else pOcc / (n - 1) }
 
     private companion object {
-        /** `p4a-80-clahe`, die Vorgabe; `TrackerStack.priorLambda`; `TrackerConfig.cnnConfThr`. */
         const val T_SHIPPED = 1.495
         const val LAMBDA = 4.0
         const val ENGINE_THR = 0.85

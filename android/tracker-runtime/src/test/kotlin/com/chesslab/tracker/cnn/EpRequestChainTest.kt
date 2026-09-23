@@ -10,27 +10,21 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/** A staged model that names files without needing them to exist — the chain never opens them. */
 internal fun stagedModel(
     dir: File,
     fp32: String = MODEL_FP32_FILE,
     qnn: String? = MODEL_QNN_FILE,
 ): StagedModel = StagedModel(dir, "{}", File(dir, fp32), qnn?.let { File(dir, it) })
 
-/**
- * 07a's `AppSettings.epRequest` (STATUS D07a-11): an explicit request exists for diagnosis
- * (MEMORY `android-live-bringup-2607`), so it must not silently keep trying the NPU first.
- */
+/** An explicit request exists for diagnosis, so it must not silently keep trying the NPU first. */
 class EpRequestChainTest {
     @Test
     fun autoKeepsTheWholeAutomaticChain() {
-        // NNAPI is deliberately NOT here: measured 470 ms per 64 crops on an SM8650 against the
-        // CPU's 97, and a floor below the always-present CPU provider is unreachable anyway.
+        // NNAPI: 470 ms per 64 crops on an SM8650 against the CPU's 97.
         assertEquals(listOf(Ep.QNN, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.AUTO))
         assertEquals(listOf(Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.AUTO))
     }
 
-    /** The shipped AAR no longer contains QNN, so `addQnn` throws on every device. */
     @Test
     fun epChainDegradesWhenQnnIsAbsent(
         @TempDir tmp: File,
@@ -56,7 +50,6 @@ class EpRequestChainTest {
         assertEquals(listOf(Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.CPU))
     }
 
-    /** The one way to reach NNAPI at all — it is not in the automatic chain. */
     @Test
     fun explicitNnapiSkipsQnnButKeepsCpuAsTheLastResort() {
         assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.NNAPI))
@@ -68,8 +61,6 @@ class EpRequestChainTest {
     ) {
         val chain = epChain(hasQnnModel = true, request = EpRequest.QNN)
         assertEquals(listOf(Ep.QNN, Ep.NNAPI, Ep.XNNPACK, Ep.CPU), chain)
-        // The head is what is REPORTED as requested; that it is not what will be selected is the
-        // whole reason 07b renders both ends.
         assertEquals("QNN-HTP(NPU)", requestedBackend(stagedModel(tmp), EpRequest.QNN))
     }
 
@@ -82,7 +73,6 @@ class EpRequestChainTest {
         assertEquals("XNNPACK", requestedBackend(stagedModel(tmp, qnn = null), EpRequest.QNN))
     }
 
-    /** On the real asset: the automatic chain warns twice here (05c's contract test asserts that). */
     @Test
     fun requestedCpuGetsCpuWithoutTouchingTheOtherProviders(
         @TempDir tmp: File,
@@ -97,7 +87,6 @@ class EpRequestChainTest {
         assertNotEquals("CPU", requestedBackend(staged, EpRequest.AUTO), "AUTO must not silently mean CPU")
     }
 
-    /** 07a's `modelAsset`. The alternate name is served from the FP32 bytes: no quantized graph ships. */
     @Test
     fun theSelectedGraphIsWhatIsStagedAndReported(
         @TempDir tmp: File,
@@ -114,7 +103,6 @@ class EpRequestChainTest {
         assertTrue(missing?.message.orEmpty().contains("nope.onnx"), "a missing graph must name itself: $missing")
     }
 
-    /** `AppSettingsSection` renders the label verbatim; NNAPI left the automatic path at 470 ms vs 97 on SM8650. */
     @Test
     fun theAutoLabelMayNotPromiseAProviderTheAutomaticChainSkips() {
         val automatic = epChain(hasQnnModel = true, request = EpRequest.AUTO)

@@ -38,7 +38,6 @@ class DiagnosticsLogTest {
 
     private fun dir() = diagnosticsDir(tmp)
 
-    /** Same dispatcher as the test body, so nothing runs until the test says `runCurrent()`. */
     private fun TestScope.log(
         maxFileBytes: Long = 1024L * 1024L,
         maxFiles: Int = 4,
@@ -51,7 +50,7 @@ class DiagnosticsLogTest {
             .sortedBy { it.name.filter(Char::isDigit).toInt() }
             .flatMap { file -> file.readLines().filter(String::isNotBlank).map { PARSER.parseToJsonElement(it).jsonObject } }
 
-    /** The sink runs on the analyzer thread: 23.1 ms median whole-frame budget at 26–28 fps (2026-08-02). */
+    /** The sink runs on the analyzer thread: 23.1 ms median whole-frame budget. */
     @Test
     fun offerTouchesNoFile() =
         runTest {
@@ -76,7 +75,6 @@ class DiagnosticsLogTest {
             val files = dir().listFiles().orEmpty().sortedBy { it.name }
             assertEquals(2, files.size, "the cap did not hold: ${files.map(File::getName)}")
             assertFalse(File(dir(), "diag-0.ndjson").exists(), "the oldest file survived the cap")
-            // Whole, not torn: every line of the newest file parses on its own.
             val newest = files.last().readLines().filter(String::isNotBlank)
             assertTrue(newest.isNotEmpty())
             newest.forEach { PARSER.parseToJsonElement(it) }
@@ -121,8 +119,6 @@ class DiagnosticsLogTest {
             assertEquals(KIND_RUN_START, lines().first().str("kind"), "der Lauf-Kopf fiel aus der Schlange")
         }
 
-    /** `motionRecencyS` sat at 0.0 in the DataStore and rejected every diff commit for an evening, and
-     *  nothing on the device said which model was loaded. */
     @Test
     fun runStartCarriesTheConfigInForceAndTheModelIdentity() =
         runTest {
@@ -142,7 +138,6 @@ class DiagnosticsLogTest {
             val model = row.obj("model")
             assertEquals("occ-v6-f5nd", model.str("loadedDir"))
             assertEquals("80x80", model.str("inferSize"))
-            // A null `declaredPads` was served a box nobody chose (specs/45).
             assertEquals("0.05", model.str("declaredPads"))
             assertEquals("side=0.050", model.str("servedPads"))
             assertEquals("XNNPACK", model.str("actualEp"))

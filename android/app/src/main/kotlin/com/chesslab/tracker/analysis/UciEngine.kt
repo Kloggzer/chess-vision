@@ -7,10 +7,8 @@ import java.io.IOException
 import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 
-/** How long the `uci`/`isready` handshake may take before the engine counts as wedged. */
 private const val HANDSHAKE_TIMEOUT_MS = 5_000L
 
-/** Slack on top of `movetime` before a search counts as wedged. */
 private const val ANALYSE_GRACE_MS = 5_000L
 
 private const val QUIT_GRACE_MS = 500L
@@ -19,13 +17,7 @@ private const val READ_POLL_MS = 10L
 
 private const val NS_PER_MS = 1_000_000L
 
-/**
- * A Stockfish process speaking UCI over stdin/stdout.
- *
- * Pure JVM (`java.lang.Process`), Android-free and fakeable through [processFactory] — the one
- * part of the legacy engine that was the right shape. Every call blocks, and only [EngineService]
- * holds one: it serialises every consumer under its lane lock.
- */
+/** Only [EngineService] holds one: it serialises every consumer under its lane lock. Every call blocks. */
 class UciEngine(
     private val enginePath: String,
     private val processFactory: (String) -> Process = { ProcessBuilder(it).redirectErrorStream(true).start() },
@@ -34,7 +26,6 @@ class UciEngine(
     private var writer: BufferedWriter? = null
     private var reader: BufferedReader? = null
 
-    /** Spawns the process and performs the handshake. Throws if the binary is missing or mute. */
     fun start(
         threads: Int,
         hashMb: Int,
@@ -51,14 +42,8 @@ class UciEngine(
         readUntil("readyok")
     }
 
-    /**
-     * One `go` cycle. Returns the last `info` seen per multipv slot, slot 1 first.
-     *
-     * [nodes] adds a node limit alongside the movetime, and UCI stops at whichever comes first. The
-     * live eval bar wants the time bound and nothing else (it must never cost the tracker a frame);
-     * the review pass wants the NODE bound, with time only as a safety valve, so that the same game
-     * grades the same on any device and at any temperature. See `ReviewBudget`.
-     */
+    /** [nodes] adds a node limit beside `movetime`; UCI stops at whichever comes first. The review wants the
+     *  NODE bound, so a game grades the same on any device and temperature (`ReviewBudget`). */
     fun analyse(
         fen: String,
         movetimeMs: Long,
@@ -102,10 +87,7 @@ class UciEngine(
         while (readLine(deadlineNs).trim() != marker) Unit
     }
 
-    /**
-     * Polls instead of blocking on `readLine`: a wedged engine must surface as an exception the
-     * analyzer can recover from, not as a thread parked forever holding the process.
-     */
+    /** Polls instead of blocking on `readLine`: a wedged engine must surface as an exception, not park the thread. */
     private fun readLine(
         deadlineNs: Long,
         cancelled: () -> Boolean = { false },

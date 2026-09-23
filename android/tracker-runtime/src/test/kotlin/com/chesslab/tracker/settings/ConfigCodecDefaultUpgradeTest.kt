@@ -12,7 +12,7 @@ class ConfigCodecDefaultUpgradeTest {
 
         val decoded = ConfigCodec.decode(oldJson)
 
-        // Gegen die VORGABE, nicht gegen 0.067: geprueft wird der Sprung, nicht der Wert.
+        // Gegen die VORGABE: geprueft wird der Sprung, nicht der Wert.
         assertEquals(
             TrackerConfig().commitHoldS,
             decoded.config.commitHoldS,

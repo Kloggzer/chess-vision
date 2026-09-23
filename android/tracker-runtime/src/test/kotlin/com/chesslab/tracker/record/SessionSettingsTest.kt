@@ -15,10 +15,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * What `settings.json` says, on the JVM. The file exists so that "which config did this
- * recording run?" has an answer — so the tests read it back the way the PC will.
- */
+/** Read back the way the PC will. */
 class SessionSettingsTest {
     @TempDir
     lateinit var dir: File
@@ -39,8 +36,7 @@ class SessionSettingsTest {
         val config = TrackerConfig().copy(maxChanged = 7, boardSize = 1104)
         writer(config, AppSettings(modelDir = "real14-80"))
         val root = file()
-        // The config block IS the ConfigCodec envelope — same wire form as the phone's DataStore
-        // slot, so the desktop replay's `config=` can consume it without a second codec.
+        // The ConfigCodec envelope, so the replay's `config=` needs no second codec.
         assertEquals(json.parseToJsonElement(ConfigCodec.encode(config)), root.getValue("config"))
         assertEquals(
             "real14-80",
@@ -94,11 +90,11 @@ class SessionSettingsTest {
                 .single()
                 .jsonObject
         assertEquals("motionThr", entry.getValue("key").jsonPrimitive.content)
-        // Der VORIGE Wert ist die Vorgabe, nicht die Zahl von 2026-09: sonst bricht jede Neujustierung.
+        // Gegen die Vorgabe, nicht eine feste Zahl: sonst bricht jede Neujustierung.
         assertEquals(TrackerConfig().motionThr, entry.getValue("old").jsonPrimitive.double)
         assertEquals(0.30, entry.getValue("new").jsonPrimitive.double)
         assertEquals("t1", entry.getValue("at").jsonPrimitive.content)
-        // `recorded_at` names the session OPEN, not the last rewrite — the rows carry their own clock.
+        // The session OPEN, not the last rewrite — the rows carry their own clock.
         assertEquals("t0", root.getValue("recorded_at").jsonPrimitive.content)
     }
 
@@ -137,14 +133,13 @@ class SessionSettingsTest {
                 { AppSettings() },
                 { TrackerConfig() },
             ) { "t${tick++}" }
-        // Before a session: nothing to write into, nothing crashes.
         host.configChanged(TrackerConfig().copy(motionThr = 0.30))
         host.opened(dir)
         host.configChanged(TrackerConfig().copy(motionThr = 0.35))
         assertEquals(1, file().getValue("history").jsonArray.size)
         host.finished()
         host.configChanged(TrackerConfig().copy(motionThr = 0.40))
-        // The closed session keeps its last state; a later change belongs to no recording.
+        // A change after the session closed belongs to no recording.
         val entry =
             file()
                 .getValue("history")

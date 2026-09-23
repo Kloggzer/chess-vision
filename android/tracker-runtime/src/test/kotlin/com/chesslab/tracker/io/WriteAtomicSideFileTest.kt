@@ -8,10 +8,7 @@ import java.io.File
 import java.util.Collections
 import java.util.concurrent.CyclicBarrier
 
-/**
- * Eigene Nebendatei je SCHREIBVORGANG, wie `chesslab.ioutil._side_file` und `lib/atomic.ts::tmpFor`
- * — unter einem geteilten `<name>.tmp` landet der Mischmasch zweier Rumpfe als fertige Datei.
- */
+/** Unter einem geteilten `<name>.tmp` landet der Mischmasch zweier Rumpfe als fertige Datei. */
 class WriteAtomicSideFileTest {
     @TempDir
     lateinit var dir: File
@@ -20,8 +17,7 @@ class WriteAtomicSideFileTest {
     fun `two writers on one file never tear it and never fail`() {
         val file = File(dir, "index.json")
         val payloads = (0 until WRITERS).map { "$it".repeat(BODY) }
-        // Windows verweigert das Umhaengen, solange ein anderer Strang dieselbe Zieldatei ersetzt
-        // — das ist erwartbar und NICHT der Befund hier. Gemessen wird, was auf der Platte landet.
+        // Windows verweigert das Umhaengen gegen einen parallelen Ersetzer — erwartbar, nicht der Befund.
         val torn = Collections.synchronizedList(mutableListOf<Int>())
         val gate = CyclicBarrier(WRITERS)
         val threads =

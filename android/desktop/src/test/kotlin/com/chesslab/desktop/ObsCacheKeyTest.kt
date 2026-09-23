@@ -7,8 +7,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Path
 
-/** Der Cache antwortet auf Crop-Bytes. Haengt er nur am Modell-NAMEN, beantwortet neu abgelegte
- *  Gewichte der vorige Lauf — ein stilles A/B, das keinen Unterschied zeigt (Bug-Audit C4). */
+/** Haengt der Cache nur am Modell-NAMEN, beantwortet neu abgelegte Gewichte der vorige Lauf. */
 class ObsCacheKeyTest {
     @TempDir
     lateinit var temp: Path
@@ -26,8 +25,7 @@ class ObsCacheKeyTest {
         assertNotEquals(before, after, "re-staged weights answered from the cache of the model they replaced")
     }
 
-    /** Der Cache haelt WAHRSCHEINLICHKEITEN, und die haengen auch an der `config.json`
-     *  (temperature, normalize, clahe_*). Ein A/B las sonst 41 168 alte Antworten. */
+    /** Die Wahrscheinlichkeiten haengen auch an der `config.json`: ein A/B las sonst 41 168 alte Antworten. */
     @Test
     fun aChangedConfigGetsItsOwnCache() {
         val root = temp.resolve("obs-cache").toFile()

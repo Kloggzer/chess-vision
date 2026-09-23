@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** `_DECIDER_REASON` (`tracker.py`) verbatim and in order — the debug screen and `track-feedback` read them. */
+/** Verbatim and in order: the debug screen and `track-feedback` read them. */
 private val PYTHON_DECIDER_REASON =
     mapOf(
         "diff" to "frame-diff — UNVERIFIED, no CNN was available",
@@ -97,7 +97,6 @@ class DecisionLogTest {
 
     @Test
     fun rejectedCandidatesAreLoggedToo() {
-        // Gate 6b, the absolute LL floor: `bestScore` is 0.0 and `commitLlFloor` 2.0.
         val state = detectState(detectConfig(requireMotion = true))
         val cand = Candidate(listOf(state.legalMoveFor("e2e4")!!), priorUsed = false, vote = true)
         assertFalse(state.commitGates(cand))
@@ -116,7 +115,7 @@ class DecisionLogTest {
         assertEquals(1, state.decisionLog.size)
     }
 
-    /** 2026-08-01, a mismatch cycle on a legitimate `Qxd4`: the rejected rows lived only behind a debug switch that was off. */
+    /** A `Qxd4` mismatch cycle: the rejected rows lived only behind a debug switch that was off. */
     @Test
     fun everyDecisionReachesTheSinkIncludingTheRejections() {
         val lines = mutableListOf<String>()
@@ -153,13 +152,9 @@ class DecisionLogTest {
         assertEquals(row.reason, emitted.reason)
     }
 
-    /**
-     * Where a legitimate move most plausibly dies: `windowEnd` rejects on ANY conflicting square, and
-     * until this row existed the rejection wrote only a `note` the next frame overwrote.
-     */
+    /** Where a legitimate move most plausibly dies; the rejection wrote only a `note` the next frame overwrote. */
     @Test
     fun theVerifyLadderRecordsWhyItDiscardedACandidate() {
-        // Window of 1 and a glance with nothing confident: the ladder's occlusion timeout.
         val state = pairState(ucis = listOf("e2e4"), verifyWindow = 1)
         val events = VerifySingle.tick(state, PairRecovery(), snapshotOf(state, FakeObs(emptyMap(), emptySet())))
 
@@ -172,7 +167,7 @@ class DecisionLogTest {
         assertTrue(line.startsWith("ply=0 REJECT e2e4"), line)
     }
 
-    /** Live Nf6: each diff rejection erased the recovery vote, so the correct recovery waited 20 s for the motion gate. */
+    /** Each diff rejection erased the recovery vote, so the correct recovery waited 20 s (live Nf6). */
     @Test
     fun rejectingADiffCandidateKeepsTheIndependentRecoveryVote() {
         val state = pairState(ucis = listOf("e2e4"), verifyWindow = 1)
@@ -186,10 +181,7 @@ class DecisionLogTest {
         assertEquals(1, state.recoveryConfirmer.count)
     }
 
-    /**
-     * An observation about an OLDER frame is an observer that answered: on a warm phone, cycles past
-     * the 1.5 s budget dropped every diff candidate as stalled.
-     */
+    /** An observation about an OLDER frame is an observer that answered: warm phones dropped every candidate as stalled. */
     @Test
     fun aStaleObservationKeepsThePendingAliveWithoutVoting() {
         val state = pairState(ucis = listOf("e2e4"), verifyWindow = 8)
@@ -239,7 +231,7 @@ class DecisionLogTest {
 
     @Test
     fun decisionCarriesNoBitmaps() {
-        // Python's `_recent_decisions` keeps warped BGR copies; the phone cannot afford them.
+        // Python keeps warped BGR copies per decision; the phone cannot afford them.
         val forbidden = setOf("byte[]", "int[]", "GrayImage", "BgrImage", "Bitmap")
         val offenders =
             DebugDecision::class.java.declaredFields
@@ -264,8 +256,7 @@ class DecisionLogTest {
         assertTrue(payload.cnnReads.isEmpty(), "no observation has landed yet")
     }
 
-    /** `cnnSeq` und `cnnAgeMs` tragen die -1, `cnnInferMs` trug eine 0,0 — und der Schirm zeigt
-     *  beide in DERSELBEN Zeile. "Noch nichts gesehen" las sich als "kostete null ms". */
+    /** `cnnInferMs` trug eine 0,0 neben zwei -1 in DERSELBEN Zeile: "noch nichts gesehen" las sich als "null ms". */
     @Test
     fun debugPayloadReportsNoInferenceTimeUntilAnObservationLanded() {
         val state = detectState()

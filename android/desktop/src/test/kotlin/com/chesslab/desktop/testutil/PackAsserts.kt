@@ -16,10 +16,7 @@ import java.security.MessageDigest
 internal fun packManifest(out: File): List<JsonObject> =
     File(out, "manifest.jsonl").readLines().filter { it.isNotBlank() }.map { Json.parseToJsonElement(it).jsonObject }
 
-/**
- * A pack's bytes, manifest and `packed_meta.json` must agree row for row; returns the row count.
- * Prints a hash of the whole pack with [root] masked, so two builds of one fixture can be compared.
- */
+/** Prints a hash of the whole pack with [root] masked, so two builds of one fixture can be compared. */
 internal fun assertPackConsistent(
     out: File,
     root: File,

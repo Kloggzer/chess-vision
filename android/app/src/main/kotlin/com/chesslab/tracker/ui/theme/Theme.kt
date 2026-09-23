@@ -11,23 +11,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
-// Two schemes, one material. There is no dynamic colour: a tournament-hall phone that repaints
-// itself from the wallpaper is a screen you cannot read at a glance, and the whole point of the
-// paper-and-ink palette is that it is the same object by day and by lamplight.
+// No dynamic colour: a phone that repaints itself from the wallpaper cannot be read at a glance.
 
-/**
- * Every Material role is filled, not just the obvious six.
- *
- * The container and `surfaceContainer*` roles are what Material's own components reach for — the
- * slider's inactive track, a selected `FilterChip`, a card's tonal elevation. Leaving them at the
- * baseline is how a warm palette ends up with lavender sliders and purple chips.
- *
- * **Material's `primary` is the app's [ChesslabPalette.accent], not its `primary`** (specs/48).
- * Every button, link, slider and progress bar the framework colours for itself is a call to action,
- * and there is one accent for those. The palette's own `primary` is furniture and is named
- * explicitly by the two components that are furniture — see [ChesslabSwitchColors] and
- * [ChesslabChipColors].
- */
+/** Every Material role is filled: left at baseline, sliders turn lavender and chips purple. Material's
+ *  `primary` is the app's [ChesslabPalette.accent] — one accent for every call to action. */
 internal fun ChesslabPalette.scheme(dark: Boolean): ColorScheme {
     val base = if (dark) darkColorScheme() else lightColorScheme()
     return base.copy(
@@ -35,8 +22,6 @@ internal fun ChesslabPalette.scheme(dark: Boolean): ColorScheme {
         onPrimary = onAccent,
         primaryContainer = selection,
         onPrimaryContainer = onSurface,
-        // `secondary` carries the caution role so the restart bar and Material's own accents land
-        // on the app's semantics; `tertiary` carries "the tracker is following".
         secondary = busy,
         onSecondary = onAccent,
         secondaryContainer = selection,
@@ -56,8 +41,7 @@ internal fun ChesslabPalette.scheme(dark: Boolean): ColorScheme {
         surfaceContainer = surfaceRaised,
         surfaceContainerHigh = surfaceRaised,
         surfaceContainerHighest = surfaceRaised,
-        // Elevation by fill is retired, and the tint is how Material re-introduces it: a dialog or a
-        // menu would silently pick up an accent wash on top of the surface it was given.
+        // The tint would silently re-introduce elevation by fill as an accent wash on dialogs and menus.
         surfaceTint = Color.Transparent,
         inverseSurface = onSurface,
         inverseOnSurface = background,
@@ -86,13 +70,7 @@ fun ChesslabTheme(
     }
 }
 
-/**
- * The switch track, in the furniture colour.
- *
- * A switch is a setting, not an action, and Material would draw it in `primary` — which is the
- * accent now. Two of these on a screen beside one filled button would give the screen three things
- * shouting the same hue.
- */
+/** Material would draw a switch in `primary` — the accent — and a switch is a setting, not an action. */
 @Composable
 fun chesslabSwitchColors(): SwitchColors {
     val palette = LocalChesslabPalette.current

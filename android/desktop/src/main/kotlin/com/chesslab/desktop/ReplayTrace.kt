@@ -8,7 +8,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import java.io.File
 
-/** Streaming diagnostic: no camera images retained and no sampled UI status used as evidence. */
 internal class ReplayTrace(
     file: File,
     private val probe: RecordingWorkProbe,
@@ -81,16 +80,13 @@ internal class ReplayTrace(
                 put("cnnCoverageMax", debug?.cnnReads?.maxOfOrNull { it.pOccluded })
                 put("cnnHandSquares", status.cnnOccluded.size)
                 put("stuck", status.stuckReason)
-                // Die Schutz-Achse, die der Regressionssatz NICHT misst: er lieferte 396/3/0/171
-                // mit UND ohne Verdeckungsschutz. `desktop fuzz check` zaehlt sie synthetisch --
-                // hier stehen dieselben Groessen fuer ECHTES Material.
+                // Die Schutz-Achse, die der Regressionssatz NICHT misst (396/3/0/171 mit UND ohne Verdeckungsschutz).
                 put("occlVetoed", status.occlusionVetoed.size)
                 put("shadowVetoed", status.shadowVetoed.size)
                 put("changed", status.changed.size)
                 put("note", status.note)
                 put("fen", status.fen)
-                // Die zwei Kanaele GETRENNT, nicht nur das fusionierte `z = max(zGray, w*zCensus)`:
-                // sonst sieht man nur, DASS ein Feld stumm blieb, nie welcher Kanal einbrach.
+                // Die zwei Kanaele GETRENNT: sonst sieht man nur, DASS ein Feld stumm blieb, nie welcher einbrach.
                 probeSq?.let {
                     put("probeSquare", it)
                     put("probeZ", status.z[it])

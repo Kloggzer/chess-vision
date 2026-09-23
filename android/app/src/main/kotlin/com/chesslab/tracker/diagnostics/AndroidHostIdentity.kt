@@ -3,10 +3,6 @@ package com.chesslab.tracker.diagnostics
 import android.content.Context
 import android.os.Build
 
-/**
- * The Android answers to [HostIdentity]. Stays with the app when the runtime moves out — it is the
- * one place allowed to read `Build` and the package manager on the shared code's behalf.
- */
 fun androidHostIdentity(context: Context): HostIdentity =
     HostIdentity(
         version =

@@ -24,7 +24,7 @@ internal fun Long.squareNames(): List<String> {
     return out
 }
 
-/** Provenance fields require lexicographic a1,a2,… order; file-major iteration avoids sorting. */
+/** Provenance fields want lexicographic a1,a2,… order; file-major iteration avoids sorting. */
 internal inline fun Long.forEachSquareSorted(action: (Int) -> Unit) {
     for (file in 0 until Squares.N) {
         for (rank in 0 until Squares.N) {
@@ -40,7 +40,6 @@ internal fun Long.sortedSquareNames(): List<String> {
     return out
 }
 
-/** Unknown names are ignored. */
 internal fun ofSquares(names: Collection<String>): Long {
     var mask = 0L
     for (name in names) {

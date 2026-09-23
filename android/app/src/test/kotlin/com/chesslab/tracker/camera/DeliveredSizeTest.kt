@@ -11,8 +11,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
-/** Regression for `a7dab73`: 1280x720 requested, 4:3 1280x960 delivered, the request emitted as truth —
- *  corners rescaled by 720/960, the warp drifted ~2.3 ranks and every auto-calibration stuck. */
+/** Regression for `a7dab73`: a 4:3 frame delivered for a 16:9 request, the request taken as truth — the
+ *  warp drifted ~2.3 ranks. */
 class DeliveredSizeTest {
     @Test
     fun deliveredSizeIsReadFromTheImageNeverFromTheRequest() {
@@ -28,8 +28,7 @@ class DeliveredSizeTest {
 
     @Test
     fun requestAndDeliveredAreNeverConflated() {
-        // The only public producer of a DeliveredSize takes an ImageProxy; CameraRequest has no
-        // path to one. Downshifting changes the WISH and nothing else.
+        // The only public producer of a DeliveredSize takes an ImageProxy; a downshift changes the WISH only.
         val downshifted = CameraRequest(width = 3840, height = 2160, targetFps = 30).downshifted()
         assertEquals(1280, downshifted.width)
         assertEquals(720, downshifted.height)

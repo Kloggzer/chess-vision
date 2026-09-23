@@ -10,9 +10,8 @@ data class TrackerStatus(
     val changed: Set<String>,
     val shadowVetoed: Set<String>,
     val occlusionVetoed: Set<String>,
-    /** Fresh, confident occupancy conflicts; piece-type disagreement alone is not a desync. */
+    /** Piece-type disagreement alone is not a desync. */
     val cnnConflicts: Set<String> = emptySet(),
-    /** Fresh coverage flags filtered to hand-plausible squares; empty without a coverage output. */
     val cnnOccluded: Set<String> = emptySet(),
     val bestLl: Double,
     val secondLl: Double,
@@ -26,12 +25,11 @@ data class TrackerStatus(
     val pendingFrames: Int,
     val stageTimingsMs: Map<String, Double>,
     val fps: Double,
-    /** The frame's motion score against `motionThr` — the settle gate's input, cheap enough to always carry. */
     val motion: Double = 0.0,
-    // Camera-delivered FPS distinguishes a dead camera from frames rejected before reaching the engine.
+    // Distinguishes a dead camera from frames rejected before reaching the engine.
     val cameraFps: Double = 0.0,
     val note: String?,
-    // Source-image pixels in [a8, h8, h1, a1] order (entry.md invariant 11); null before calibration.
+    // [a8, h8, h1, a1] (invariant 11); null before calibration.
     val corners: FloatArray? = null,
     val debug: DebugPayload? = null,
 )

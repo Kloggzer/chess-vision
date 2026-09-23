@@ -4,10 +4,8 @@ import com.chesslab.engine.api.TrackerConfig
 import java.io.File
 import kotlin.random.Random
 
-// Zufallssuche ueber Szene UND Konfiguration: welcher Engine-Zustand ist erreichbar, und welcher
-// Wert war dafuer noetig. Dass die noetige Eingabe real vorkommt, sagt der Befund NICHT —
-// `Envelope`. Und OHNE Prior: `fuzzRun` umgeht `CnnObserver.priorFor`, die Huerden unten werden
-// also auf einer anderen Verteilung gesweept als der des Geraets. `docs/engine-fuzz.md`.
+// Zufallssuche ueber Szene UND Konfiguration. Dass die noetige Eingabe real vorkommt, sagt der Befund NICHT
+// (`Envelope`). OHNE Prior: `fuzzRun` umgeht `CnnObserver.priorFor` — `docs/engine-fuzz.md`.
 
 /** Rand des plausiblen Bereichs aus `scripts/screen_knobs.py`, absichtlich weiter gefasst. */
 private val KNOBS: Map<String, Pair<Double, Double>> =
@@ -56,10 +54,7 @@ private val INTEGRAL =
         "refusedStreakForEval",
     )
 
-/**
- * `trials` ist die Erreichbarkeits-Groesse, nicht `hits`: das Maximum haelt je EINE Extremszene
- * und ist gegen alles zweiter Ordnung blind — ein Schatten-Rendering aenderte 17 Maxima um null.
- */
+/** `trials` ist die Erreichbarkeits-Groesse: das Maximum ist gegen alles zweiter Ordnung blind. */
 internal data class Witness(
     val trials: Int,
     val frames: Int,
@@ -82,12 +77,10 @@ private fun sampleScene(rng: Random): Scene =
         obsLagFrames = rng.nextInt(0, Envelope.OBS_LAG_MAX + 1),
         obsWrong = if (rng.nextInt(2) == 0) rng.nextInt(1, 20) else 0,
         luma = rng.nextDouble(2.0, 240.0),
-        // Ohne verdeckte Zuege laufen Brett und Engine nie auseinander, und die Verify-Leiter
-        // endet praktisch immer auf `confirmed` (gemessen: 13 `resynced` in 5 000 Ziehungen).
+        // Ohne verdeckte Zuege endet die Verify-Leiter fast immer auf `confirmed` (13 `resynced` in 5 000).
         hiddenEvery = if (rng.nextInt(2) == 0) rng.nextInt(2, 5) else 0,
         handCover = rng.nextDouble(0.2, 1.0),
-        // EXKLUSIV wie am Geraet: entweder Coverage-Modell (Rillen-Arm aus) oder keins
-        // (Rillen-Arm an). Beide gleichzeitig gibt es in keiner ausgelieferten Konfiguration.
+        // EXKLUSIV wie am Geraet.
         coverageModel = rng.nextInt(2) == 0,
     )
 
@@ -100,10 +93,7 @@ private fun sampleOverrides(rng: Random): Map<String, Double> {
     }
 }
 
-/**
- * Szene und Konfiguration zusammen ziehen, weil die Zustaende an BEIDEM haengen: ein Knopf, dessen
- * Situation die Szene nie erzeugt, sieht sonst genauso stumm aus wie einer, der nichts tut.
- */
+/** Szene und Konfiguration zusammen: ein Knopf, dessen Situation die Szene nie erzeugt, sieht sonst stumm aus. */
 internal fun fuzzSearch(
     trials: Int,
     seed: Long,
@@ -121,8 +111,7 @@ internal fun fuzzSearch(
         for ((state, hits) in out.reached) {
             if (state.startsWith("note:")) continue
             val seen = best[state]
-            // `frames` summiert die Frames MIT diesem Zustand ueber alle Ziehungen — nur dieser
-            // Anteil ist mit dem Korpus vergleichbar, der ebenfalls Frames zaehlt.
+            // Nur der Frame-Anteil ist mit dem Korpus vergleichbar.
             best[state] =
                 if (seen == null || hits > seen.hits) {
                     Witness((seen?.trials ?: 0) + 1, (seen?.frames ?: 0) + hits, hits, scene, overrides)
@@ -135,10 +124,7 @@ internal fun fuzzSearch(
     return best to frames
 }
 
-/**
- * Feste Szenen, die die Netze ansprechen: Hand ueber dem Brett, Schatten auf den Nachbarfeldern,
- * schwache Beobachtung. Sie messen NICHT die Bewertung, sondern ob ein Veto noch scharf ist.
- */
+/** Sie messen NICHT die Bewertung, sondern ob ein Veto noch scharf ist. */
 private val WACHE =
     listOf(
         Scene(plies = 4, handFrames = 24, handSquares = 10, handCoverage = 0.6),
@@ -176,7 +162,6 @@ internal fun wacheZustaende(config: TrackerConfig): Map<String, Int> {
     return total
 }
 
-/** `fuzz check <knopf>=<wert> ...` — sind die Netze noch scharf? Sekunden statt eines Replays. */
 internal fun fuzzCheck(args: List<String>) {
     val overrides =
         args.filter { it.contains('=') }.associate {
@@ -196,7 +181,6 @@ internal fun fuzzCheck(args: List<String>) {
 
 private val WACHEN_ACHSEN = listOf("veto:shadow", "veto:occlusion", "veto:changed", "gate:occluded")
 
-/** `fuzz [trials] [seed] [out=<datei>]` — kein OpenCV, kein Modell, keine Aufnahme. */
 internal fun fuzzVerb(args: List<String>) {
     val trials = args.getOrNull(0)?.toIntOrNull() ?: DEFAULT_TRIALS
     val seed = args.getOrNull(1)?.toLongOrNull() ?: 1L
@@ -209,8 +193,7 @@ internal fun fuzzVerb(args: List<String>) {
     println("$frames Frames insgesamt")
     println("%-28s %9s %8s %8s  %s".format("Zustand", "Ziehungen", "Anteil", "max", "noetig dafuer"))
     for ((state, w) in found.entries.sortedByDescending { it.value.frames }) {
-        // `state:*` zaehlt UEBERGAENGE, nicht Frames. Ein Anteil daran waere keine Groesse, die
-        // mit dem Korpus vergleichbar ist -- darum ein Strich statt einer Zahl.
+        // `state:*` zaehlt UEBERGAENGE, nicht Frames: kein mit dem Korpus vergleichbarer Anteil.
         val anteil =
             if (state.startsWith("state:")) {
                 "%8s".format("-")

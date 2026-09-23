@@ -74,7 +74,6 @@ class CaptureRunTest {
         assertEquals(setOf("8/8/8/8/8/8/8/8 w - - 0 1"), fens.toSet())
     }
 
-    /** The profile the device really ran goes into the bundle, fallbacks and all. */
     @Test
     fun theRecordingStatesWhatTheDeviceActuallyDid() {
         val run = newRun(SHOT, observed = { FELL_BACK })
@@ -90,7 +89,6 @@ class CaptureRunTest {
         assertEquals(listOf("bit rate clamped 40000000 -> 24000000"), recording.notes)
     }
 
-    /** Nothing armed, nothing claimed: no `recording` key rather than a block of zeroes. */
     @Test
     fun anUnmeasuredRunClaimsNoProfile() {
         val run = newRun(SHOT)
@@ -98,7 +96,6 @@ class CaptureRunTest {
         assertNull(finish(run).recording)
     }
 
-    /** A frame the writer could not produce writes no row at all — `steps` never outruns `log.jsonl`. */
     @Test
     fun aLostFrameLeavesNoStep() {
         val run = newRun(SHOT, source = DeadSource)
@@ -107,7 +104,6 @@ class CaptureRunTest {
         assertEquals(0, log().size)
     }
 
-    /** A full disk. The bundle still has to be closed and the encoder still has to be released. */
     @Test
     fun aBundleThatCannotWriteItsCaptureJsonIsStillClosed() {
         var finished = false
@@ -138,13 +134,12 @@ class CaptureRunTest {
         assertEquals(before, file.readText())
     }
 
-    /** The step's START — the turning the human does between two taps. */
     private fun tick(): Long {
         now += STEP_NS
         return now
     }
 
-    /** The run's own clock, read when the frame is grabbed: the step's END is strictly later. */
+    /** Read when the frame is grabbed: the step's END is strictly later. */
     private fun grabbed(): Long {
         now += GRAB_NS
         return now
@@ -165,7 +160,6 @@ class CaptureRunTest {
     }
 }
 
-/** 4K asked for, 1440p delivered, no AE range pinned, the encoder clamped the rate. */
 private val FELL_BACK =
     CaptureObserved(
         requested = CaptureProfile(3840, 2160, 15),
@@ -178,7 +172,6 @@ private val FELL_BACK =
 private const val STEP_NS = 3_000_000_000L
 private const val GRAB_NS = 1_000_000L
 
-/** Was die Messung ergeben hat — der Lauf labelt dagegen, nicht gegen den Vorschlag. */
 private val PLACED = listOf(Target("g4", "wQ", "sehr hell", 180, 256, 199, Fit.OK))
 
 private val SHOT =

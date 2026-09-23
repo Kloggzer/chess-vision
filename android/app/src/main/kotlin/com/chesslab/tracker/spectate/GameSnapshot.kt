@@ -7,13 +7,8 @@ import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.resultFromFen
 import kotlinx.serialization.Serializable
 
-/**
- * Everything a spectator is allowed to know.
- *
- * The field list is the security model, not a convenience: no z values, no census, no CNN reads,
- * no crops, no decider, no config, no device info. A spectator page is not a debug surface, and a
- * debug payload on an open LAN cannot be un-leaked.
- */
+/** The field list is the security model: no z values, census, reads, crops, decider, config or device
+ *  info — a debug payload on an open LAN cannot be un-leaked. */
 @Serializable
 data class GameSnapshot(
     val fen: String = STARTPOS,
@@ -30,12 +25,7 @@ const val STATUS_STUCK = "stuck"
 const val STATUS_ALARM = "alarm"
 const val STATUS_OVER = "over"
 
-/**
- * Fold the tracker's public status and the ONE live game into the wire projection.
- *
- * [game] is the same `GameView` the review screen renders — the spectator page is a second
- * RENDERER of one projection, never a second projection.
- */
+/** [game] is the review screen's `GameView`: a second RENDERER of one projection, never a second projection. */
 fun gameSnapshot(
     status: TrackerStatus?,
     game: GameView,
@@ -54,10 +44,7 @@ fun gameSnapshot(
     )
 }
 
-/**
- * The engine's four internal states collapse to what a watcher can act on. An alarm becomes the
- * single word "alarm" — never the conflict list, which is engine internals by another name.
- */
+/** An alarm becomes the single word "alarm", never the conflict list (engine internals by another name). */
 private fun spectatorStatus(
     status: TrackerStatus?,
     moveCount: Int,
@@ -72,12 +59,7 @@ private fun spectatorStatus(
         else -> STATUS_TRACKING
     }
 
-/**
- * `null` while the game is live. A malformed FEN is "live", never a fabricated result.
- *
- * [resultFromFen] is the library's own rule and returns `*` for a game still running; this only
- * turns that into the null the wire uses. It used to be a second copy of the same board reading.
- */
+/** `null` while live. A malformed FEN is "live", never a fabricated result. */
 private fun outcome(fen: String): String? =
     runCatching { resultFromFen(fen) }
         .getOrNull()

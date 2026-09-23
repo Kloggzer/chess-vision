@@ -35,7 +35,6 @@ private class UnreadableStore : ConfigStore {
     ) = Unit
 }
 
-/** The recording page's three actions, each failing the way the device fails: the page has to say so. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingViewModelFailureTest {
     @TempDir
@@ -90,7 +89,7 @@ class RecordingViewModelFailureTest {
             }
         }
 
-    /** A full disk or a vanished SAF target used to throw on the IO dispatcher and take the app down. */
+    /** A full disk or a vanished SAF target threw on the IO dispatcher and took the app down. */
     @Test
     fun anExportThatCannotBeWrittenSaysWhy() =
         runTest {

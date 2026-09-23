@@ -15,10 +15,8 @@ internal fun perSquareDiff(
     return absDiffMeans(grayA.data, grayB.data, grayA.width, boxes, out)
 }
 
-/**
- * Direct box sums avoid a 5.1 MB integral-plane write at 800x800; default boxes cover ~63%.
- * Overhang above 0.32 may overlap but remains correct. Zero-area boxes yield 0.0, never NaN.
- */
+/** Direct box sums avoid a 5.1 MB integral-plane write at 800x800. Overhang above 0.32 may overlap and stays
+ *  correct; a zero-area box yields 0.0, never NaN. */
 internal fun absDiffMeans(
     a: ByteArray,
     b: ByteArray,

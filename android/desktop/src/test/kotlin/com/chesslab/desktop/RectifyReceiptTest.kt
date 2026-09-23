@@ -3,10 +3,7 @@ package com.chesslab.desktop
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * Ein Lauf, der KEIN Brett fand, schrieb `meanWorstSquareOffsetPx: 0.0` — den bestmoeglichen
- * Wert. "Nicht gemessen" sah damit aus wie perfekte Geometrie, und die Zahl wandert in `docs/`.
- */
+/** "Nicht gemessen" sah aus wie perfekte Geometrie (`0.0`), und die Zahl wandert in `docs/`. */
 class RectifyReceiptTest {
     @Test
     fun `ohne ein einziges Brett steht kein Versatz da, sondern null`() {

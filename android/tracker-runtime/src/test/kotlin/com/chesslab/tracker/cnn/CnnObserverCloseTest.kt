@@ -33,10 +33,8 @@ private class ClosingClassifier :
     }
 }
 
-/**
- * A restart closes the observer while the app runs: the teardown must be finished when [CnnObserver.close]
- * returns, because `TrackerStack.close` releases the pipeline right after it and the next stack opens a session.
- */
+/** `TrackerStack.close` releases the pipeline right after [CnnObserver.close] returns, and the next stack opens a
+ *  session. */
 class CnnObserverCloseTest {
     private val classifier = ClosingClassifier()
     private val takes = AtomicInteger()
@@ -140,7 +138,7 @@ class CnnObserverCloseTest {
         assertEquals(before, takes.get())
     }
 
-    /** `retry()` returned true from ANY state and `load` overwrote the running session unclosed. */
+    /** `load` overwrote the running session unclosed. */
     @Test
     fun retryOnAReadyObserverDoesNotLeakTheRunningSession() {
         val observer = observer()

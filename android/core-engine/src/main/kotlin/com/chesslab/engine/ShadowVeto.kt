@@ -3,18 +3,14 @@ package com.chesslab.engine
 import kotlin.math.abs
 import kotlin.math.min
 
-/**
- * Cucchiara HSV shadow: hue stays close, saturation does not rise markedly, and value falls.
- * Invariant 2: vetoed shadows leave `changed` but retain z; callers also gate on raw census.
- */
+/** Cucchiara HSV shadow: hue close, saturation not markedly up, value down. Invariant 2: vetoed shadows leave
+ *  `changed` but keep z; callers also gate on raw census. */
 
 private const val BYTE_MASK = 0xFF
 private const val CHANNELS = 3
 
-/** Python's `+1e-3` guard against a black reference pixel. */
 private const val V_RATIO_EPS = 1e-3
 
-/** Hue is circular over 0..179, so the distance wraps at 180. */
 private const val HUE_WRAP = 180.0
 
 // Live-tuned Cucchiara constants.
@@ -24,7 +20,7 @@ private const val H_TOL = 15.0
 private const val S_TOL = 40.0
 private const val SHADOW_FRAC = 0.5
 
-/** Uses [PlaneGeometry.extendUp] because cast shadows are tested over evidence boxes. */
+/** Evidence boxes ([PlaneGeometry.extendUp]): cast shadows reach above the square. */
 internal fun hsvShadowSquares(
     refHsv: ByteArray,
     curHsv: ByteArray,
@@ -73,7 +69,6 @@ private fun isShadowBox(
             pixels++
         }
     }
-    // Both conditions are required: shadow-like pixels in the majority AND actually darker.
     return shadowPx.toDouble() / pixels >= SHADOW_FRAC && sumVc < sumVr
 }
 

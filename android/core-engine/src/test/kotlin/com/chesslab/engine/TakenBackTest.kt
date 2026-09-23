@@ -6,21 +6,11 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/**
- * The runaway of 2026-08-02, read out of the phone's decision log: a three-move CNN recovery bridge
- * (`b5c4 a3c5 c4c5`) was committed at plies 100–102, taken back, and derived and committed again —
- * byte-identically, three times over, with descending rejection plies in between where the user was
- * pressing Undo. *"I tried to recover but it's impossible."*
- *
- * The mechanism is not a threshold: an undo moves the APP's position, the CNN reads the BOARD, and
- * an undo does not move a physical board. The same question therefore gets the same correct answer
- * on the very next observation. Nothing carried the human rejection into the recovery path, so the
- * loop could not be won by any number of presses.
- */
+/** An undo moves the APP, the CNN reads the BOARD: the same question got the same answer on the next look,
+ *  and a three-move bridge was committed three times while the user pressed Undo. */
 class TakenBackTest {
     private val bridge = listOf("e2e4", "e7e5", "g1f3")
 
-    /** The board never changes, so the stub derives the same bridge from whatever it is asked. */
     private fun looped(moves: List<String> = bridge): Pair<TrackerEngine, RecoveryEvaluator> {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
         val cnn = RecoveryEvaluator(moves = moves, agreement = 0.95)
@@ -30,8 +20,7 @@ class TakenBackTest {
 
     private fun TrackerEngine.observe(seq: Long) {
         state.armed()
-        // Two distinct snapshots per "look at the board": a bridge needs RECOVERY_MIN_VOTES
-        // agreeing glances since specs/39 phase 02, and one snapshot is one vote.
+        // Two snapshots per look: a bridge needs RECOVERY_MIN_VOTES agreeing glances, one snapshot is one vote.
         onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq * 2, gray = grayFrame()))
         onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq * 2 + 1, gray = grayFrame()))
     }
@@ -65,7 +54,6 @@ class TakenBackTest {
         assertEquals(held, state.takenBack, "a commit must not clear the hold")
     }
 
-    /** …and the user's own resolutions are. */
     @Test
     fun aBaselineReleasesTheHold() {
         val (engine, _) = looped()
@@ -76,12 +64,8 @@ class TakenBackTest {
         assertEquals(null, engine.state.takenBack)
     }
 
-    /**
-     * The live shape, which is harder than the one above: an ordinary move had already landed on top
-     * of the bridge, so `lastCommitSize` belonged to THAT move and the bridge came back one press
-     * per ply — which is what the log's descending ply numbers 103, 102, 101 were. Only a line that
-     * accumulates across consecutive presses spans a take-back like that.
-     */
+    /** The live shape: a move had landed on the bridge, so `lastCommitSize` was THAT move's and the bridge came back
+     *  one press per ply. Only a line accumulated across consecutive presses spans it. */
     @Test
     fun theVetoSpansAPressPerPlyTakeBackWithAMoveOnTopOfTheBridge() {
         val (engine, _) = looped()
@@ -99,24 +83,9 @@ class TakenBackTest {
         assertEquals(emptyList<String>(), state.history, "the position undone to is held")
     }
 
-    /**
-     * REVERSED on the evening it shipped, by the phone.
-     *
-     * This used to assert the opposite — that a different line from the same position still commits,
-     * on the reasoning that a new line is new evidence. The live game says no: the CNN produced two
-     * different four-move bridges from the same standoff (`g3h3 d6d5 h3f3 d5e4`, then
-     * `h5f3 c8h3 f3g3 a8c8`), the line-keyed veto never fired once, and the second bridge committing
-     * also cleared the record guarding the first. "A different line" was not new evidence; it was
-     * the same disagreement read a second way.
-     *
-     * So the hold is keyed to the POSITION. An undo says "the game is here", and nothing derived
-     * from the CNN may move it away from there until the user resolves the disagreement.
-     *
-     * The cost is real and deliberate: a legitimate bridge offered at exactly that position is held
-     * too, and the tracker stalls with a note naming the way out instead of running away. Multi-ply
-     * bridges are NOT restricted anywhere else — `recoveryMaxPlies` is untouched and a hold only
-     * exists at a position an undo returned to.
-     */
+    /** The hold is keyed to the POSITION: the CNN produced two different bridges from one standoff, and "a
+     *  different line" was the same disagreement read twice. A legitimate bridge at exactly that position is
+     *  held too — deliberately; nothing else is restricted. */
     @Test
     fun aDifferentLineFromTheSamePositionIsHeldToo() {
         val (engine, cnn) = looped()
@@ -131,7 +100,7 @@ class TakenBackTest {
         assertTrue(state.takenBack != null, "and the hold survives — only the user releases it")
     }
 
-    /** An undo the user did not mean must not strand the tracker — "New baseline" is the way out. */
+    /** An unmeant undo must not strand the tracker — "New baseline" is the way out. */
     @Test
     fun aNewBaselineReleasesTheVeto() {
         val (engine, _) = looped()
@@ -148,7 +117,6 @@ class TakenBackTest {
         assertEquals(listOf("e4", "e5", "Nf3"), state.history, "the user asserted the board is right")
     }
 
-    /** A resync redefines the position, so nothing about the old line describes anything. */
     @Test
     fun aFenResyncReleasesTheVeto() {
         val (engine, _) = looped()

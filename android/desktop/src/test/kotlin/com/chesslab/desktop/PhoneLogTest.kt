@@ -69,7 +69,6 @@ class PhoneLogTest {
         assertEquals(listOf("e4", "e5"), marks.map { it.san })
     }
 
-    /** 16-20-19: the record restarts after a seam; the marks must follow the second segment's start. */
     @Test
     fun `a record with a seam is walked segment by segment`(
         @TempDir dir: File,
@@ -98,7 +97,6 @@ class PhoneLogTest {
         val sessions = File(dir, "files/sessions/20260815-224804").apply { mkdirs() }
         val games = File(dir, "files/games").apply { mkdirs() }
         File(sessions, "session.yaml").writeText("video_pre_roll_ns: 1000000000\n")
-        // The photo log lost ply 2 — `SessionCapture.supersededFrames`.
         File(sessions, "log.jsonl").writeText(
             """{"ply":1,"fen":"$FEN1 b KQkq - 0 1","ts":"2026-08-15T20:48:15.000Z","move_san":"e4"}""" + "\n",
         )

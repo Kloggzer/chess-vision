@@ -2,13 +2,8 @@ package com.chesslab.cnn
 
 import com.github.bhlangonijr.chesslib.Board
 
-/**
- * Ported from `cnn_recovery.py guess_illegal_move` when Python still carried the tracker. Exactly ONE source (observed empty, expected
- * non-empty) and exactly ONE destination (observed non-empty, expected empty) yield a uci-LIKE
- * string — **no legality is implied**. Any other pattern -> null.
- * Shape AND confidence are occupancy: read off the identity axis, a destination the classes call
- * 90 % occupied but split between two piece types was invisible and the alarm lost its move shape.
- */
+/** Exactly ONE source and ONE destination yield a uci-LIKE string — **no legality is implied**. Shape and
+ *  confidence are OCCUPANCY: on the identity axis a destination split between two piece types was invisible. */
 fun guessIllegalMove(
     board: Board,
     obs: OccupancyObservation,

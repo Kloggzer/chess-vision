@@ -46,7 +46,6 @@ class MateLineResolver(
         )
     }
 
-    /** Null when the engine answered, however short its line; otherwise why it could not. */
     private suspend fun extend(
         board: Board,
         moves: MutableList<String>,

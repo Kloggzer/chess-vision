@@ -12,8 +12,8 @@ import org.opencv.core.Scalar
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
 
-/** 2 360 review boards cost 3.1 GB as PNG. A codec the runtime cannot encode makes `imwrite`
- *  return false and leave nothing, which no compile catches — so the file must exist AND decode. */
+/** A codec the runtime cannot encode makes `imwrite` return false and leave nothing, which no compile catches
+ *  — so the file must exist AND decode. */
 class AnnotatedFramesTest {
     @TempDir
     lateinit var dir: File
@@ -55,7 +55,6 @@ class AnnotatedFramesTest {
         assertTrue(webp < png.length(), "webp $webp is not smaller than png ${png.length()}")
     }
 
-    /** A frame with one bright square: a quad shifted by half the board moves it, so the two boards differ. */
     private fun marked(): Mat =
         frame()
             .also {
@@ -80,8 +79,7 @@ class AnnotatedFramesTest {
         second.release()
     }
 
-    /** The web server's mapping cannot be staged from a JVM (Java shares deletes), so the writer is
-     *  pointed at a name it cannot open at all — the reporting is what this proves. */
+    /** The web server's mapping cannot be staged from a JVM (Java shares deletes): a name it cannot open. */
     @Test
     fun `a board that cannot be written is counted and reported, a stale one is cleared`() {
         File(dir, "000009$REVIEW_SUFFIX").writeBytes(byteArrayOf(1, 2, 3))
@@ -104,7 +102,6 @@ class AnnotatedFramesTest {
         const val BOARD = 256
         const val SIDE = 256f
 
-        /** The natives this whole file exists to exercise — `main` maps them the same way. */
         @JvmStatic
         @BeforeAll
         fun natives() = NativeCv.require()

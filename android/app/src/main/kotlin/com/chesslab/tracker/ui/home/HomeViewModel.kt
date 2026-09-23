@@ -15,13 +15,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** How many games Home lists before the row that opens the library. */
 internal const val RECENT_GAMES = 3
 
-/**
- * One row of Home's recent list. [whiteAccuracy] is null for a game nobody has reviewed — the row
- * says so rather than showing a zero.
- */
+/** [whiteAccuracy] is null for an unreviewed game — the row says so rather than showing a zero. */
 data class HomeGame(
     val id: String,
     val date: String,
@@ -35,19 +31,11 @@ data class HomeGame(
 )
 
 data class HomeUi(
-    /** False until the first read of the store returns — an empty state must not flash. */
     val loaded: Boolean = false,
     val recent: List<HomeGame> = emptyList(),
-    /** What the library holds, for the row that opens it. The STATISTICS are on Games. */
     val games: Int = 0,
 )
 
-/**
- * What a launcher needs: the last few games, and how many there are.
- *
- * Not an `androidx.lifecycle.ViewModel`, for the same reason `GamesViewModel` is not: the durable
- * state is the file store.
- */
 class HomeViewModel(
     private val games: GameStore,
     private val reviews: ReviewStore,
@@ -86,7 +74,6 @@ private fun GameSummary.toHomeGame(accuracy: Pair<Double?, Double?>?) =
         blackAccuracy = accuracy?.second,
     )
 
-/** Names a side by what was captured for it; `?` is stored for a game whose players were skipped. */
 internal fun sideLabel(
     name: String,
     fallback: String,

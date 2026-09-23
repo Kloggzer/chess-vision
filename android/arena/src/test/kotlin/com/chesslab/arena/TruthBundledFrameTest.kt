@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
-/**
- * Ein Commit-Frame mit MEHREREN Plies ist der Abfluss eines Rueckstaus, keine Messung: 54 von 1242
- * `candidate.json`-Plies in 10 Aufnahmen, `2026-08-30-14-33-02` traegt 6 von 8 so.
- */
+/** Ein Commit-Frame mit MEHREREN Plies ist ein Rueckstau-Abfluss, keine Messung (54 von 1242). */
 class TruthBundledFrameTest {
     @Test
     fun `plies bundled on one commit frame carry no frame`(
@@ -21,7 +18,6 @@ class TruthBundledFrameTest {
         assertEquals(listOf(240, -1, -1, 900), truthOf(dir).map { it.frame })
     }
 
-    /** Und die Lag-Messung zaehlt dann nur noch, was wirklich gemessen wurde. */
     @Test
     fun `a bundled reference ply is not scored for lag`(
         @TempDir dir: File,

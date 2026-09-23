@@ -29,12 +29,7 @@ import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * The composition root's link to the tracker service.
- *
- * Every UI action becomes an [EngineAction] value here and nothing else: the engine is single
- * threaded by design and the service is what marshals the queue onto its owning thread.
- */
+/** Every UI action becomes an [EngineAction] value: the service marshals the queue onto the engine's thread. */
 private class BinderSession(
     private val binder: TrackerBinder,
 ) : TrackerSession {
@@ -45,14 +40,12 @@ private class BinderSession(
     override val boardPreview: StateFlow<Bitmap?> get() = binder.boardPreview
     override val cameraOn: StateFlow<Boolean> get() = binder.cameraOn
 
-    /** The one action that is NOT an `EngineAction`: it is the service's camera, not the engine's. */
     override fun setCameraOn(on: Boolean) = binder.setCameraOn(on)
 
     override val torchOn: StateFlow<Boolean> get() = binder.torchOn
 
     override val hasTorch: Boolean get() = binder.hasTorch
 
-    /** Also not an `EngineAction`: the lamp, the optics and the baseline are one act in the service. */
     override fun setTorchOn(on: Boolean) = binder.setTorchOn(on)
 
     override val focus: FocusTuner get() = binder.focusTuner
@@ -74,31 +67,15 @@ private class BinderSession(
     }
 }
 
-/**
- * Both hosts go together. The optics port used to survive the session that owned it, so a camera
- * screen opened after a stop believed it still had a device.
- */
+/** Both hosts go together: a surviving optics port made a camera screen after a stop believe it had a device. */
 private fun releaseHosts() {
     TrackerSessionHost.publish(null)
     CameraLookHost.publish(null)
 }
 
-/**
- * Bind to the tracker service for as long as it is RUNNING, and provide the calibration screen's
- * frame source while it is.
- *
- * Nothing happens until [TrackerRun] says tracking was asked for. Wrapping the nav host in an
- * unconditional start is what made opening the app to read a finished game cost a camera, a
- * foreground notification and a CNN attach.
- *
- * `startForegroundService` before `bindService`, and both only inside the running branch: a
- * bind-only start would give a background service that Android 14 kills the moment it touches the
- * camera, and the service must be foreground *before* it binds one.
- *
- * [content] is wrapped rather than called beside us because the calibration screen reads its frames
- * through a CompositionLocal, and it is the SERVICE's frames or nothing — binding a second camera
- * there froze the feed on every tab switch.
- */
+/** Binds only while [TrackerRun] runs: an unconditional start cost a camera, a notification and a CNN attach
+ *  just to read a game. `startForegroundService` before `bindService` — Android 14 kills a bind-only service
+ *  that touches the camera. [content] is wrapped: the calibration screen reads the SERVICE's frames. */
 @Composable
 fun BindTrackerService(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -133,10 +110,8 @@ fun BindTrackerService(content: @Composable () -> Unit) {
         }
     }
     val bound = binder
-    // ONE call site for `content`, always. Two — a bare call while unbound and a wrapped one once
-    // bound — are two positions in the composition, so the whole subtree was thrown away and
-    // rebuilt the moment the binder arrived, taking `rememberNavController` with it. See
-    // `ProvideCalibrationHost`.
+    // ONE call site for `content`: two are two composition positions, and binding threw the subtree away,
+    // `rememberNavController` with it.
     ProvideCalibrationHost(
         bound?.let {
             CalibrationHost(

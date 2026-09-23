@@ -3,19 +3,14 @@ package com.chesslab.engine
 import com.chesslab.engine.api.GrayImage
 import kotlin.math.max
 
-/**
- * Step 2 — brightness (`absdiff` vs base truth, median-normalized so a global exposure jump dies) and
- * structure (census, illumination-invariant, which is why it sees the dark-on-dark moves the gray mean
- * dilutes away), fused as `z = max(zGray, censusZWeight * zCensus)`. Vetoes and noise update come later.
- */
+/** Brightness (median-normalised, so a global exposure jump dies) and census (illumination-invariant, so it
+ *  sees dark-on-dark moves the gray mean dilutes), fused as `z = max(zGray, censusZWeight * zCensus)`. */
 internal fun EngineState.computeEvidence(cur: GrayImage) {
     val ref = requireNotNull(refGray) { "computeEvidence without a reference image" }
     perSquareDiff(ref, cur, evidenceBoxes, diffRaw)
     normalizeDiffs(diffRaw, lastDiffs)
     noise.z(lastDiffs, zGray)
-    // Per-frame semantics: never let a stale raw channel from an earlier frame survive.
-    // `censusZWeight` is live-tunable, and a leftover `_cens_raw` would freeze the shadow veto's
-    // threshold input after tuning the weight to 0.
+    // A leftover raw channel would freeze the shadow veto's input after the live weight goes to 0.
     censRaw = null
     lastCens = null
     val zs =
@@ -31,22 +26,17 @@ internal fun EngineState.computeEvidence(cur: GrayImage) {
     }
 }
 
-/**
- * The structural channel including the **channel-local guard**: census is illumination-invariant but NOT
- * translation-invariant, so a pixel of jitter fires every textured square at once. More hot squares than
- * a legal move could explain drops the channel and LEARNS the disturbance — never while the alarm is up.
- */
+/** Census is NOT translation-invariant: a pixel of jitter fires every textured square. More hot squares
+ *  than a legal move explains drops the channel and LEARNS the disturbance — never while alarmed. */
 private fun EngineState.censusEvidence(cur: GrayImage): DoubleArray? {
     val ref = requireNotNull(refGray) { "censusEvidence without a reference image" }
     val refCodes = refCensusCodes(ref)
-    // Keep this frame's codes: the quiet re-anchor makes `cur` the NEXT frame's reference, and
-    // re-deriving them there transformed the same plane twice per frame (see `refCensusCodes`).
+    // Kept: the quiet re-anchor makes `cur` the next reference, and re-deriving transformed each plane twice.
     curCensus = censusBuffer(cur.width, cur.height, curCensus)
     curCensusFor = cur
     perSquareCensusChange(refCodes, cur, evidenceBoxes, censValues, codesOut = curCensus)
-    // The RAW channel, captured BEFORE normalization: `censusThr` (40.0) was live-tuned on raw
-    // census and normalization can pull a structurally-changed destination square under it — that
-    // is the phantom-shadow-as-destination class (entry.md invariant 8).
+    // RAW, before normalization: `censusThr` was tuned on raw census, and normalization can pull a changed
+    // destination under it — the phantom-shadow-as-destination class (entry.md invariant 8).
     censRaw = censValues
     normalizeDiffs(censValues, censNorm)
     censusNoise.z(censNorm, zCensus)
@@ -64,11 +54,8 @@ private fun EngineState.censusEvidence(cur: GrayImage): DoubleArray? {
     return zCensus
 }
 
-/**
- * The reference's census codes, cached on **identity**, never equality — the anomaly patcher mutates
- * `refGray` in place and invalidates by nulling [EngineState.refCensusFor]. The quiet re-anchor makes the
- * cached plane a new one almost every frame, so its codes are adopted by swapping buffers, not redone.
- */
+/** Cached on **identity**: the patcher mutates `refGray` in place and invalidates by nulling. A new plane
+ *  almost every frame, so its codes are adopted by swapping buffers. */
 internal fun EngineState.refCensusCodes(ref: GrayImage): ByteArray {
     val cached = refCensus
     if (refCensusFor === ref && cached != null) return cached
@@ -86,6 +73,5 @@ internal fun EngineState.refCensusCodes(ref: GrayImage): ByteArray {
     return codes
 }
 
-/** [refCensusCodes] against the live reference; fails loudly when there is none. */
 internal fun EngineState.refCensusCodes(): ByteArray =
     refCensusCodes(requireNotNull(refGray) { "refCensusCodes without a reference image" })

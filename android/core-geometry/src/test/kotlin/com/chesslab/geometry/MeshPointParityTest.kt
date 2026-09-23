@@ -4,8 +4,7 @@ import com.chesslab.geometry.testutil.GeometryFixtures
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** [meshPoint] against the SAME fixture `calibration.mesh_point` and `lib/warp.test.ts` are pinned
- *  on, so all three straighten a board identically. */
+/** The same fixture as `calibration.mesh_point` and `lib/warp.test.ts`, so all three straighten a board identically. */
 class MeshPointParityTest {
     private val fixture = GeometryFixtures.jsonl("_geometry/mesh_crop_parity.json").single()
 
@@ -32,7 +31,6 @@ class MeshPointParityTest {
     @Test
     fun `tilted lines map exactly as the shared fixture says`() = check("meshPoints", mesh)
 
-    /** Curvature rides on the tilts, and a board pixel outside the field must map too. */
     @Test
     fun `curved lines map exactly as the shared fixture says`() = check("curvedMeshPoints", curved)
 

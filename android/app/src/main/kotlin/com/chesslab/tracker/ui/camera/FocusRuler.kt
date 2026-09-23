@@ -26,17 +26,11 @@ import kotlin.math.roundToInt
 private val TICK_PITCH = 10.dp
 private val RULER_HEIGHT = 78.dp
 
-/** The four tick heights, longest to shortest: the centre mark, every tenth, every fifth, the rest. */
 private val TICK_SELECTED = 56.dp
 private val TICK_MAJOR = 42.dp
 private val TICK_MEDIUM = 30.dp
 private val TICK_MINOR = 20.dp
 
-/**
- * A controlled horizontal wheel picker for focus. It follows the interaction model of a wheel
- * picker (scrolling marks through a fixed centre) but retains camera-specific 0.1-percent steps
- * and reports each selected step while the list is moving.
- */
 @Composable
 fun FocusRuler(
     caption: String,
@@ -53,14 +47,12 @@ fun FocusRuler(
 
     val dragging by listState.interactionSource.collectIsDraggedAsState()
 
-    // A focus setting can also change through Auto/Manual or saved-state restore. Re-centre only
-    // while idle, so an immediate camera update never fights the user's drag.
+    // Re-centre only while idle, so an external update never fights the user's drag.
     LaunchedEffect(selected, listState.isScrollInProgress, dragging) {
         if (!listState.isScrollInProgress && !dragging) listState.scrollToItem(selected)
     }
     LaunchedEffect(listState, itemCount, range, step) {
-        // Only a touch gesture and its fling may write back. Recentring after a sweep update
-        // is display-only: rounding 0.083333 to 0.083 used to cancel the sweep as a user edit.
+        // Only a touch gesture and its fling write back: rounding 0.083333 to 0.083 once cancelled a sweep as a user edit.
         var userScroll = false
         snapshotFlow {
             val info = listState.layoutInfo

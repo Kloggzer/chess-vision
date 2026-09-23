@@ -8,19 +8,11 @@ import org.opencv.objdetect.DetectorParameters
 import org.opencv.objdetect.Objdetect
 import kotlin.math.hypot
 
-// ArUco marker detection + the per-frame board corners.
-// Ports of `calibration.py _detect_marker_quads`, `:624 detect_board_markers` and
-// `:805 board_corners_for_frame`.
-//
-// Marker id 0 -> a8, 1 -> h8, 2 -> h1, 3 -> a1 (`calibration.py _ARUCO_LABELS`).
-//
-// `board_corners_for_frame` lives HERE, not in `MarkerTracker.kt`: it needs OpenCV (resize +
-// detection) and `MarkerTracker.kt` must stay native-free for phase 03.
+// Marker id 0 -> a8, 1 -> h8, 2 -> h1, 3 -> a1. `board_corners_for_frame` lives HERE: it needs OpenCV, and
+// `MarkerTracker.kt` must stay native-free.
 
-/** The corner point the tracker always uses: the quad's centroid. */
 const val MARKER_CORNER_CENTER: String = "center"
 
-/** The unused-but-ported alternative: the quad corner nearest the centroid of all quads. */
 const val MARKER_CORNER_INNER: String = "inner"
 
 private val DEFAULT_MARKER_IDS: Set<Int> = setOf(0, 1, 2, 3)
@@ -31,10 +23,7 @@ private const val POINT_COORDS: Int = 2
 
 private const val BGR_CHANNELS: Int = 3
 
-/**
- * Dictionary name -> OpenCV constant. Python uses `getattr(cv2.aruco, name)`; an explicit
- * map is the greppable equivalent. Unknown name -> `IllegalArgumentException`.
- */
+/** An explicit map instead of Python's `getattr(cv2.aruco, name)`; unknown name -> `IllegalArgumentException`. */
 fun arucoDictionaryId(name: String): Int =
     when (name) {
         "DICT_4X4_50" -> Objdetect.DICT_4X4_50
@@ -50,25 +39,14 @@ fun arucoDictionaryId(name: String): Int =
         else -> throw IllegalArgumentException("unknown ArUco dictionary: '$name'")
     }
 
-/**
- * Raw detection: `{id: 4 quad corners}` per found marker, in ArUco's own order.
- * Port of `calibration.py _detect_marker_quads`.
- */
 fun detectMarkerQuads(
     frame: Mat,
     dictName: String = "DICT_4X4_50",
     ids: Set<Int> = DEFAULT_MARKER_IDS,
 ): Map<Int, List<DoubleArray>> = BoardMarkerDetector().use { it.detectMarkerQuads(frame, dictName, ids) }
 
-/**
- * Thread-confined ArUco session with reusable native state and image scratch.
- *
- * Live alignment invokes the same dictionary hundreds of times. Constructing a detector and its
- * parameter graph on every invocation adds native allocation/finalizer pressure, while omitting
- * explicit releases for the grayscale, resized frame, ids and returned corner Mats lets that
- * pressure accumulate until a GC happens to run. One [LiveAlign] owns one instance and never calls
- * it concurrently.
- */
+/** Live alignment detects hundreds of times: a detector per call adds native allocation and finalizer
+ *  pressure until a GC runs. One [LiveAlign] owns one instance and never calls it concurrently. */
 class BoardMarkerDetector : AutoCloseable {
     private val gray = Mat()
     private val resized = Mat()
@@ -146,10 +124,8 @@ class BoardMarkerDetector : AutoCloseable {
         foundIds.release()
     }
 
-    // TODO: `calibration.py` stellt drei `adaptiveThreshWinSize`-Werte (3, 53, 4) — die
-    // fehlen hier; verkleinert wird um `alignScale` (0,5) statt auf `DETECT_LONG_SIDE = 1344`,
-    // also quellenabhaengig. Python misst Randmarker 2/30 gegen 21-25/30, 4K 135 gegen 27 ms.
-    // Nachziehen heisst die Kalibrierung neu vermessen, nicht die Konstanten kopieren.
+    // TODO: `calibration.py` sets three `adaptiveThreshWinSize` values and scales to `DETECT_LONG_SIDE = 1344`, not
+    // `alignScale` — Python reads 21-25/30 edge markers against 2/30 here. Re-measure calibration, don't copy constants.
     private fun detectorFor(dictName: String): ArucoDetector {
         if (dictionary != dictName || detector == null) {
             detector?.clear()
@@ -162,12 +138,7 @@ class BoardMarkerDetector : AutoCloseable {
     }
 }
 
-/**
- * `{id: [x, y]}` of the FOUND markers. Port of `calibration.py detect_board_markers`.
- *
- * `corner = "center"` (what the tracker always uses) returns the quad CENTROID.
- * `corner = "inner"` returns the quad corner nearest the centroid of all quad means.
- */
+/** `"center"` (what the tracker uses) is the quad CENTROID; `"inner"` the corner nearest the centroid of all quads. */
 fun detectBoardMarkers(
     frame: Mat,
     dictName: String = "DICT_4X4_50",
@@ -193,18 +164,8 @@ private fun quadMean(quad: List<DoubleArray>): DoubleArray =
         quad.sumOf { it[1] } / QUAD_CORNERS,
     )
 
-/**
- * The 4 board corners `[a8, h8, h1, a1]` in FRAME pixels for this frame.
- * Port of `calibration.py board_corners_for_frame`.
- *
- * Updates the tracker once with the current detection and resolves the corners from it
- * (marker-derived, BEFORE `margin`). Returns `null` when fewer than `minMarkers` corners are
- * known.
- *
- * `detectScale < 1.0`: detect on a downscaled frame and scale the points back — ArUco is the
- * most expensive per-frame op and the +-1 px rescale error lies inside the tracker's 4 px
- * dead zone. Do not add rounding.
- */
+/** Marker-derived corners, BEFORE `margin`; `null` below `minMarkers`. `detectScale < 1.0` detects downscaled —
+ *  the ±1 px rescale error lies inside the tracker's 4 px dead zone. Do not add rounding. */
 fun boardCornersForFrame(
     frame: Mat,
     geom: BoardGeometry,
@@ -223,10 +184,7 @@ fun boardCornersForFrame(
     return boardCornersFromMarkers(det, geom, tracker, needed, anchor)
 }
 
-/**
- * Same stateful smoother as live detection. `anchor` KEEPS a never-measured corner where it is;
- * without one, three markers reconstruct the fourth affinely — 57 px off on `2026-09-19-16-26-22`.
- */
+/** `anchor` KEEPS a never-measured corner; without one, three markers reconstruct the fourth affinely — 57 px off. */
 fun boardCornersFromMarkers(
     detected: Map<Int, DoubleArray>,
     geom: BoardGeometry,
@@ -247,12 +205,8 @@ fun boardCornersFromMarkers(
     return resolveBoardCorners(known, geom.boardSize)?.first
 }
 
-/**
- * Exactly ONE corner is seed-only (its marker was never seen live — e.g. clipped at the image
- * edge)? Then complete it from the three REAL corners as a parallelogram
- * (`prev + next - opp`) instead of trusting a seed from a possibly different camera position,
- * which would permanently distort a quarter of the warp.
- */
+/** A seed-only corner (marker never seen live) is completed from the three REAL ones (`prev + next - opp`): a
+ *  seed from another camera position would distort a quarter of the warp for good. */
 private fun completeSingleSeed(
     pts: Map<Int, DoubleArray>,
     status: Map<Int, String>,

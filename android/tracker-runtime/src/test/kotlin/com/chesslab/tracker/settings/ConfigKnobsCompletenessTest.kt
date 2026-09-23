@@ -4,10 +4,7 @@ import com.chesslab.engine.api.TrackerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/**
- * The catalog is the ONLY persistence path: a field without a knob is silently dropped. Fields come
- * from `toString()` (no kotlin-reflect); derived `detSize` is named so its exemption stays explicit.
- */
+/** A field without a knob is silently dropped. `toString()` avoids kotlin-reflect; `detSize` is exempted by name. */
 class ConfigKnobsCompletenessTest {
     private val derived = setOf("detSize")
 

@@ -17,13 +17,11 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import java.util.Locale
 
-/** One square as the CNN read it. Supplied only where the UI can see the model's output. */
 data class CnnRead(
     val label: String,
     val conf: Double,
 )
 
-/** `square: from -> to (conf %)`. [to] and [confidence] are null when the read is not available to the UI. */
 data class SquareChange(
     val square: String,
     val from: String,
@@ -31,15 +29,8 @@ data class SquareChange(
     val confidence: Double?,
 )
 
-/**
- * What "Accept CNN position" would change.
- *
- * [complete] is false when the CNN's own reading of a listed square is not available here. The
- * engine's `acceptCnnPosition()` has **no preview variant** (`STATUS.md` D04x-4: `List<TrackerEvent>`
- * cannot express a would-be FEN plus a change list), and `TrackerStatus` carries no CNN label map,
- * so from the status alone only the *believed* side of each conflict is knowable. The dialog then
- * says so and presents the action as irreversible instead of pretending to a diff it does not have.
- */
+/** [complete] is false when the CNN's read of a listed square is not available here: the engine has no
+ *  preview variant and `TrackerStatus` carries no label map, so the dialog says so and calls it irreversible. */
 data class AcceptCnnPreview(
     val rows: List<SquareChange>,
     val complete: Boolean,
@@ -47,16 +38,11 @@ data class AcceptCnnPreview(
     val isEmpty: Boolean get() = rows.isEmpty()
 }
 
-/** How tall the conflict list may grow before it scrolls inside the dialog. */
 private val LIST_MAX_HEIGHT = 320.dp
 
 private const val PERCENT = 100.0
 
-/**
- * Pure: the believed position plus the alarm's conflicting squares (plus, when a caller can supply
- * them, the CNN's reads) -> the change list. Computing nothing and mutating nothing is the point —
- * `specs/16/04-alarm-ux.md` requires that opening and cancelling this dialog is a no-op.
- */
+/** Pure: opening and cancelling this dialog must be a no-op (`specs/16/04-alarm-ux.md`). */
 fun acceptCnnPreview(
     fen: String,
     conflicts: List<String>,
@@ -82,7 +68,6 @@ private fun pieceName(piece: Char?): String {
     return "$colour ${pieceKind(piece.uppercaseChar())}"
 }
 
-/** The 14-class label vocabulary (`config.CLASSES`): `wP`..`bK`, plus `empty` and `occluded`. */
 private fun pieceLabelName(label: String): String =
     when {
         label.length != 2 -> label

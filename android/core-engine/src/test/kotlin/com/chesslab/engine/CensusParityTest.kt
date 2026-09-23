@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Census channel parity, asserted against `tierA.censusRaw` (entry.md invariant 8: normalization is the caller's business). */
+/** Against `tierA.censusRaw` (invariant 8: normalization is the caller's business). */
 class CensusParityTest {
     @Test
     fun censusCodesMatchPython() {
@@ -26,7 +26,6 @@ class CensusParityTest {
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
                 val crop = tierA.censusCodeCrop
-                // The crop origin is square_region("e2")[0:2], clamped into the plane.
                 val region = squareRegion(Squares.index("e2"), size, clip.meta.whitePov)
                 assertEquals(region[0].coerceIn(0, size - crop.w), crop.x0, "$name: crop x0")
                 assertEquals(region[1].coerceIn(0, size - crop.h), crop.y0, "$name: crop y0")
@@ -58,7 +57,6 @@ class CensusParityTest {
         var inBandSquares = 0
         forEachReconstructableFrame { ctx, frame ->
             val tierA = requireNotNull(frame.tierA)
-            // Python `_apply_vetoes` (`tracker.py`): candidate rows with a +/-1 px halo.
             val rows = squareBand(tierA.vetoCandidates, ctx) ?: return@forEachReconstructableFrame
             perSquareCensusChange(ctx.refCodes, ctx.cur, ctx.boxes, ctx.out, rows)
             val yLo = maxOf(0, rows[0])
@@ -66,8 +64,7 @@ class CensusParityTest {
             for (i in 0 until SQUARES) {
                 val what = "${ctx.name}/${frame.frame}: band census[${Squares.ALL[i]}]"
                 if (inBand(ctx.boxes, i, yLo, yHi, ctx.size)) {
-                    // With the +/-1 halo the banded codes are identical to the full transform,
-                    // so the band result must reproduce Python's full-path censusRaw.
+                    // With the ±1 halo the banded codes equal the full transform, so the band must reproduce Python's censusRaw.
                     assertClose(tierA.censusRaw.getValue(Squares.ALL[i]), ctx.out[i], what)
                     inBandSquares++
                 } else {
@@ -85,7 +82,6 @@ class CensusParityTest {
         var checked = 0
         val full = DoubleArray(SQUARES)
         forEachReconstructableFrame { ctx, frame ->
-            // A band unrelated to the frame's candidates: the middle two ranks, +/-1 px halo.
             val rows = squareBand(listOf("a4", "h5"), ctx) ?: return@forEachReconstructableFrame
             perSquareCensusChange(ctx.refCodes, ctx.cur, ctx.boxes, full)
             perSquareCensusChange(ctx.refCodes, ctx.cur, ctx.boxes, ctx.out, rows)
@@ -103,9 +99,6 @@ class CensusParityTest {
         assertConsumed(checked, "band-interior frames")
     }
 
-    // -----------------------------------------------------------------------------------
-
-    /** Byte-exact comparison of the fixture's 16x16 census-code crop. */
     private fun assertCrop(
         codes: ByteArray,
         size: Int,
@@ -120,7 +113,6 @@ class CensusParityTest {
         }
     }
 
-    /** Everything a frame comparison needs; [cur] and [refCodes] are refreshed per frame. */
     private class Ctx(
         val name: String,
         val size: Int,
@@ -133,7 +125,7 @@ class CensusParityTest {
         val out = DoubleArray(SQUARES)
     }
 
-    /** Frames with `refFrames == null` had `ref_gray` mutated in place by `_maybe_patch_anomaly` (D01a-6). */
+    /** Frames with `refFrames == null` had `ref_gray` mutated in place by `_maybe_patch_anomaly`. */
     private fun forEachReconstructableFrame(body: (Ctx, ParityFrame) -> Unit) {
         for (name in ParityFixtures.clips()) {
             val clip = ParityFixtures.load(name)
@@ -152,7 +144,6 @@ class CensusParityTest {
         }
     }
 
-    /** Candidate rows with a +/-1 px halo, exactly as `_apply_vetoes` builds them. */
     private fun squareBand(
         squares: List<String>,
         ctx: Ctx,

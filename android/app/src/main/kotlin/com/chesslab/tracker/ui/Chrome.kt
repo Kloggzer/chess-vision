@@ -72,44 +72,29 @@ import com.chesslab.tracker.ui.theme.Touch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 
-/*
- * The app's vocabulary — eleven primitives (specs/48), and each KDoc says what its primitive is NOT
- * for, because a component drifts when nobody writes down when not to use it. `docs/ui-vocabulary.md`.
- */
+// Eleven primitives (specs/48); each KDoc says what its primitive is NOT for (`docs/ui-vocabulary.md`).
 
-/**
- * How a screen returns to a running tracker, or null where there is nothing to return to — the app
- * has no bottom bar, and this is what one would have carried (`docs/ui-vocabulary.md`).
- */
+/** How a screen returns to a running tracker, or null — what a bottom bar would have carried. */
 val LocalResumeTracker: ProvidableCompositionLocal<(() -> Unit)?> = compositionLocalOf { null }
 
-/**
- * The frame every screen wears, the tracker included. It owns Back, the side margin and the rule
- * under the bar, because every screen that owned its own disagreed with the others (`docs/ui-vocabulary.md`).
- */
+/** Owns Back, the side margin and the rule under the bar: every screen that owned its own disagreed. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChesslabScaffold(
     title: String,
-    /** Null on the start destination, which has nowhere to go back to and therefore no arrow. */
     onBack: (() -> Unit)?,
     actions: @Composable RowScope.() -> Unit = {},
-    /**
-     * Drawn before the title. Home passes the mark here and nothing else does — a brand is shown
-     * where the app is entered, not on every screen, and never on the board (specs/48).
-     */
+    /** Home only: a brand is shown where the app is entered, never on the board (specs/48). */
     titleIcon: (@Composable () -> Unit)? = null,
     titleStyle: TextStyle? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
-        // The root already consumed `safeDrawing` (MainActivity), so a Scaffold that inset again
-        // would leave a second, doubled system-bar gap on every screen.
+        // The root already consumed `safeDrawing`; insetting again doubles the system-bar gap.
         contentWindowInsets = WindowInsets(0),
         containerColor = Background,
         topBar = {
-            // The banner rides in the top bar slot rather than above the content: Scaffold measures
-            // this whole column, so the content below it is offset by the banner's height for free.
+            // In the top bar slot: Scaffold then offsets the content by the banner's height for free.
             Column {
                 TopAppBar(
                     title = {
@@ -127,9 +112,7 @@ fun ChesslabScaffold(
                         }
                     },
                     navigationIcon = {
-                        // The platform affordance, and the ONLY one: it calls the same `onBack` the
-                        // system back button reaches, so the two can never diverge. `AutoMirrored`
-                        // flips it for RTL locales.
+                        // The ONLY back affordance: it calls the same `onBack` as system back, so the two cannot diverge.
                         onBack?.let {
                             IconButton(onClick = it) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -149,25 +132,19 @@ fun ChesslabScaffold(
             }
         },
     ) { bars ->
-        // The BOTTOM gap is bigger than the top one, and that is the system navigation rather than
-        // symmetry — without it "Show all 83 moves" could not be aimed at (`docs/ui-vocabulary.md`).
+        // The BOTTOM gap is the system navigation, not asymmetry: without it the last button could not be aimed at.
         Box(Modifier.padding(start = Space.md, end = Space.md, top = Space.sm, bottom = Space.xl)) { content(bars) }
     }
 }
 
-/** The hairline that separates two containers. Not a spacer — it is the edge doing the work. */
 @Composable
 fun Rule(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(Stroke.hairline).background(Outline))
 }
 
-/** No tracker bound yet is simply no game — the banner must render before the service does. */
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
 
-/**
- * **Panel — in-progress banner.** One row under the app bar, ABSENT when no game runs. Since
- * specs/43 a game survives leaving the app, and nothing else on screen says so (`docs/ui-vocabulary.md`).
- */
+/** **Panel — in-progress banner.** ABSENT when no game runs; a game survives leaving the app and nothing else says so. */
 @Composable
 private fun LiveGameBanner() {
     val resume = LocalResumeTracker.current ?: return
@@ -197,10 +174,7 @@ private fun LiveGameBanner() {
     }
 }
 
-/**
- * **Panel — in-progress banner, second form.** The engine review, which outlives the screen that
- * started it. This carries the app's ONLY Stop for it (`docs/ui-vocabulary.md`).
- */
+/** **Panel — in-progress banner, second form.** The engine review; carries the app's ONLY Stop for it. */
 @Composable
 private fun AnalysisBanner() {
     val model by ReviewHost.model.collectAsStateWithLifecycle()
@@ -229,7 +203,6 @@ private fun AnalysisBanner() {
             )
             TextAction("Stop", review::stop)
         }
-        // Determinate, because a review is minutes and the one thing worth knowing is how much more.
         val done = if (ui.warmingLibrary) ui.libraryCached else ui.grade?.scored ?: 0
         val total = if (ui.warmingLibrary) ui.libraryTotal else ui.grade?.positions ?: 0
         if (total > 0) {
@@ -242,7 +215,6 @@ private fun AnalysisBanner() {
     }
 }
 
-/** Named so the wording is testable without a device: it is the only thing the banner says. */
 internal fun analysisLine(
     id: String?,
     scored: Int?,
@@ -254,7 +226,6 @@ internal fun analysisLine(
         else -> "Reviewing $id · $scored / $positions"
     }
 
-/** The state worth reading off a one-row banner: that it is tracking, and how far it has got. */
 internal fun liveGameLine(live: GameSessionState): String =
     when (live.moveCount) {
         0 -> "Tracking · waiting for the first move"
@@ -262,10 +233,7 @@ internal fun liveGameLine(live: GameSessionState): String =
         else -> "Tracking · ${live.moveCount} moves"
     }
 
-/**
- * **Primitive — card.** Things that belong together, as a fill on the ground with a 1 px edge. NOT
- * for a single value (that is a [StatTile]), and NOT a way to look important (`docs/ui-vocabulary.md`).
- */
+/** **Primitive — card.** NOT for a single value (a [StatTile]), NOT a way to look important. */
 @Composable
 fun Card(
     modifier: Modifier = Modifier,
@@ -284,10 +252,7 @@ fun Card(
     )
 }
 
-/**
- * **Primitive — stat tile.** One measured number, large, with its unit and denominator. NOT for a
- * number nobody measured, and not for a zero on a fresh install (`docs/ui-vocabulary.md`).
- */
+/** **Primitive — stat tile.** One measured number. NOT for a number nobody measured, nor a fresh-install zero. */
 @Composable
 fun StatTile(
     label: String,
@@ -297,22 +262,18 @@ fun StatTile(
 ) {
     Column(
         modifier
-            // A pair of tiles is a ROW of tiles, and one whose note wraps to two lines made the row
-            // ragged — measured on the emulator, "both sides, over 1 reviewed" against "83 moves
-            // recorded". The caller gives the row an intrinsic height; each tile fills it.
+            // A tile whose note wraps made the row ragged: the caller gives the row an intrinsic height, each tile fills it.
             .fillMaxHeight()
             .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.md))
             .padding(horizontal = Space.md, vertical = Space.sm),
         verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
-        // The grid is read DOWN: `1 of 1` over `0 of 1`, `69 %` beside a `1`.
         Text(value, style = FiguresDisplay, color = OnSurface, maxLines = 1)
         Text(note, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
     }
 }
 
-/** A pair of [StatTile]s, equal height whether or not one of the notes wraps. */
 @Composable
 fun StatRow(content: @Composable RowScope.() -> Unit) {
     Row(
@@ -322,16 +283,12 @@ fun StatRow(content: @Composable RowScope.() -> Unit) {
     )
 }
 
-/**
- * **Primitive — disclosure row.** Title, one line of what is behind it, the rule to the next. Two
- * variants (specs/51); the [icon] is DECORATIVE on purpose (`docs/ui-vocabulary.md`).
- */
+/** **Primitive — disclosure row.** Two variants (specs/51); the [icon] is DECORATIVE on purpose. */
 @Composable
 fun DisclosureRow(
     title: String,
     subtitle: String,
-    // The two variants sit BEFORE [onOpen] so the action stays the trailing lambda every existing
-    // call site already writes — adding a parameter must not rewrite the callers.
+    // Before [onOpen], so the action stays the trailing lambda every call site already writes.
     icon: ImageVector? = null,
     chevron: Boolean = true,
     onOpen: () -> Unit,
@@ -345,8 +302,7 @@ fun DisclosureRow(
             icon?.let {
                 Icon(it, contentDescription = null, tint = OnSurfaceMuted, modifier = Modifier.padding(end = Space.md))
             }
-            // `weight`, or a subtitle long enough to wrap claims the whole row and pushes the chevron
-            // off the screen — which is what the review screen's own disclosure row did.
+            // `weight`, or a wrapping subtitle claims the row and pushes the chevron off the screen.
             Column(Modifier.weight(1f).padding(end = Space.sm)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = OnSurface)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
@@ -357,10 +313,7 @@ fun DisclosureRow(
     }
 }
 
-/**
- * **Primitive — section label.** Body face, semibold, tracked, uppercase. NOT monospace — that is
- * what made the app look like a log viewer (`docs/ui-vocabulary.md`).
- */
+/** **Primitive — section label.** NOT monospace — that made the app look like a log viewer. */
 @Composable
 fun SectionHeading(text: String) {
     Text(
@@ -371,10 +324,7 @@ fun SectionHeading(text: String) {
     )
 }
 
-/**
- * **Primitive — filled button.** The one thing this screen is for, **at most one per screen**.
- * Everything else is [OutlineAction], [TextAction] or [DangerAction]; destructive is never filled.
- */
+/** **Primitive — filled button.** At most one per screen; destructive is never filled. */
 @Composable
 fun FilledAction(
     label: String,
@@ -391,7 +341,6 @@ fun FilledAction(
     }
 }
 
-/** **Primitive — outline button.** Everything the screen can do that is not the one thing it is for. */
 @Composable
 fun OutlineAction(
     label: String,
@@ -411,7 +360,6 @@ fun OutlineAction(
     }
 }
 
-/** **Primitive — text button.** Navigation, and the accent is what says it goes somewhere. */
 @Composable
 fun TextAction(
     label: String,
@@ -429,10 +377,7 @@ fun TextAction(
     }
 }
 
-/**
- * **Primitive — outlined danger.** Destructive, and destructive is never filled. It keeps
- * Material's roomier side padding, at which 8 dp read as a badge (`docs/ui-vocabulary.md`).
- */
+/** **Primitive — outlined danger.** Never filled; keeps Material's side padding, at 8 dp it read as a badge. */
 @Composable
 fun DangerAction(
     label: String,
@@ -449,18 +394,11 @@ fun DangerAction(
     }
 }
 
-/** Three buttons fit across a phone only if they do not each carry Material's 24 dp side padding. */
 private val ACTION_PADDING = PaddingValues(horizontal = Space.sm, vertical = Space.xs)
 
-/**
- * **Primitive — chip.** One option of a group, all visible at once. Selected is the FURNITURE
- * colour and a border, never the accent — it must not compete with the filled button.
- */
+/** **Primitive — chip.** Selected is the FURNITURE colour and a border, never the accent. */
 @OptIn(ExperimentalMaterial3Api::class)
-/**
- * **Primitive — severity stripe.** State in FORM as well as colour — three levels and no more.
- * NOT a way to colour a row that merely differs from its neighbours (`docs/ui-vocabulary.md`).
- */
+/** **Primitive — severity stripe.** Three levels, no more; NOT for a row that merely differs. */
 @Composable
 fun SeverityStripe(
     color: Color,
@@ -479,10 +417,7 @@ fun SeverityStripe(
     }
 }
 
-/**
- * **Panel — empty state.** One sentence naming what will appear, one button that makes it appear.
- * No zeroes, no skeleton grid, no illustration of nothing (`docs/ui-vocabulary.md`).
- */
+/** **Panel — empty state.** One sentence, one button. No zeroes, no skeleton grid. */
 @Composable
 fun EmptyState(
     title: String,
@@ -501,10 +436,7 @@ fun EmptyState(
     }
 }
 
-/**
- * **Panel — destructive confirmation.** The only primitive allowed to interrupt, for an act that
- * cannot be undone and NOTHING else. The five rules it enforces: `docs/ui-vocabulary.md`.
- */
+/** **Panel — destructive confirmation.** The only primitive allowed to interrupt, and only for the irreversible. */
 @Composable
 fun ConfirmDialog(
     title: String,
@@ -528,13 +460,9 @@ fun ConfirmDialog(
     )
 }
 
-/**
- * **One quantity, one unit.** Every percentage is written the same way, wherever it appears — three
- * files drawing the same quantity spelled it three ways (`docs/ui-vocabulary.md`).
- */
+/** **One quantity, one unit**: three files once spelled the same percentage three ways. */
 fun percent(value: Double): String = "${value.roundToInt()} %"
 
-/** A figure, in the one monospace style — see [Figures]. */
 @Composable
 fun Figure(
     text: String,

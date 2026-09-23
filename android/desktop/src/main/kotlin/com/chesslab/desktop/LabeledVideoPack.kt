@@ -39,19 +39,14 @@ private const val LABELED_EVERY = 8
 
 private const val QUAD_FIT_NAME = "quad-fit.json"
 
-/** One frame's re-fitted quad: the PLAYING FIELD's corners, at the margin the sidecar states,
- *  plus the measured 18-line mesh when the fit could locate every line. */
 internal class FittedQuad(
     val corners: FloatArray,
     val margin: Double,
     val mesh: GridMesh? = null,
 )
 
-/**
- * `<sessionDir>/quad-fit.json`, written by `chesslab fit-stored` (`realgames/stored.py`): the PC's re-fit
- * of the quads the phone logged. No file, no entry or a failed frame — the caller keeps the logged
- * marker quad, which is what every pack before this one cut with.
- */
+/** `quad-fit.json` from `chesslab fit-stored`. No file, no entry or a failed frame: the caller keeps the logged
+ *  marker quad. */
 internal fun storedQuadFit(sessionDir: File): Map<String, FittedQuad> {
     val file = File(sessionDir, QUAD_FIT_NAME)
     if (!file.isFile) return emptyMap()
@@ -63,9 +58,8 @@ internal fun storedQuadFit(sessionDir: File): Map<String, FittedQuad> {
     }
 }
 
-/** `grid_lines` is additive: absent, short, non-numeric, non-finite or non-monotone reads as
- *  "no mesh", never as an error — a bad sidecar must not take the whole pack down. A malformed
- *  pair drops exactly ONE stage (curved -> linear -> scalar), never half an axis pair. */
+/** Anything malformed reads as "no mesh", never an error; a malformed pair drops exactly ONE stage
+ *  (curved -> linear -> scalar), never half an axis pair. */
 private fun JsonObject.meshOrNull(): GridMesh? {
     val lines = this["grid_lines"] as? JsonObject
     val xs = lines?.axisOrNull("x")
@@ -94,14 +88,14 @@ private fun JsonObject.boundedOrNull(
     return if (values.all { it.isFinite() && abs(it) < limit }) values.toDoubleArray() else null
 }
 
-// `takeIf { !it.isString }`: kotlinx parses "0.01" as a number, `Number.isFinite` in the TS
-// twin refuses it — the two consumers must land on the SAME stage for the same sidecar.
+// `takeIf { !it.isString }`: kotlinx parses "0.01" as a number, the TS twin refuses it — both must land on the
+// SAME stage for the same sidecar.
 private fun JsonObject.valuesOrNull(name: String): List<Double>? =
     (this[name] as? JsonArray)
         ?.mapNotNull { element -> (element as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull }
         ?.takeIf { it.size == GRID_LINES_PER_AXIS }
 
-/** A fitted quad IS the field, so it is warped at the file's margin — never at the marker outset. */
+/** A fitted quad IS the field: warped at the file's margin, never at the marker outset. */
 internal fun storedGeometry(
     fitted: FittedQuad?,
     quad: FloatArray,
@@ -112,12 +106,8 @@ internal fun storedGeometry(
         BoardGeometry(boardSize = measuredBoardSize(quad), margin = margins4(fitted.margin))
     }
 
-/**
- * `labeled-video-pack <video> <log.jsonl> <corrections.jsonl> <outDir> [every=N] [id=name]`.
- *
- * Confirmed real-game labels travel from the session log into an 80 px memmap without Python
- * ingest. Dirty frames, FEN-lag cells and every frame carrying a manual occlusion are excluded.
- */
+/** `labeled-video-pack <video> <log.jsonl> <corrections.jsonl> <outDir> [every=N] [id=name]`. Dirty frames,
+ *  FEN-lag cells and every frame carrying a manual occlusion are excluded. */
 @Suppress(
     "LongMethod",
     "NestedBlockDepth",
@@ -209,12 +199,8 @@ fun packLabeledVideo(args: List<String>) {
     println("packed $crops labeled 13-class crops from $acceptedFrames clean frames -> ${outDir.absolutePath}")
 }
 
-/**
- * `occlusion-video-pack <video> <log.jsonl> <corrections.jsonl> <outDir> [session=name] [id=name]`.
- *
- * Writes only explicitly manually labelled occluded squares. This keeps hands out of the ordinary
- * FEN-labelled corpus while allowing the fourteenth classifier class to learn from their pixels.
- */
+/** `occlusion-video-pack <video> <log.jsonl> <corrections.jsonl> <outDir> [session=name] [id=name]`: only
+ *  explicitly labelled occluded squares, so hands stay out of the FEN-labelled corpus. */
 @Suppress("LongMethod", "NestedBlockDepth", "CyclomaticComplexMethod", "MagicNumber")
 fun packOcclusionVideo(args: List<String>) {
     require(args.size >= 4) { occlusionUsage() }
@@ -294,13 +280,8 @@ fun packOcclusionVideo(args: List<String>) {
     println("packed $crops manually labelled occluded crops -> ${outDir.absolutePath}")
 }
 
-/**
- * `labeled-session-pack <sessionDir> <outDir> [corrections=file] [id=name]`.
- *
- * Android Stored recordings already contain intentionally sparse JPEG frames. Every logged image
- * is considered exactly once, then rejected when the grid detector sees a hand or metadata marks
- * it unsafe. Pixels go directly from JPEG into the 80 px RGB memmap.
- */
+/** `labeled-session-pack <sessionDir> <outDir> [corrections=file] [id=name]`: every logged image once,
+ *  rejected when the grid detector sees a hand or metadata marks it unsafe. */
 @Suppress("LongMethod", "NestedBlockDepth", "CyclomaticComplexMethod", "LoopWithTooManyJumpStatements")
 fun packLabeledSession(args: List<String>) {
     require(args.size >= 2) { labeledSessionUsage() }
@@ -317,8 +298,7 @@ fun packLabeledSession(args: List<String>) {
     val occludedFrames = overrides.filterValues { values -> values.values.any { it == "occluded" } }.keys
     val rows = selectStoredRows(log, occludedFrames)
     require(rows.isNotEmpty()) { "no clean labeled rows in ${sessionDir.absolutePath}" }
-    // Eine EXPORTIERTE Aufnahme traegt `board` in der Zeile und hat kein `frames/` mehr; ohne
-    // diese Wache stirbt der Lauf am ersten Bild mit "could not decode .../frames/0000.png".
+    // Eine EXPORTIERTE Aufnahme hat kein `frames/` mehr; ohne diese Wache stirbt der Lauf am ersten Bild.
     require(File(sessionDir, "frames").isDirectory || rows.none { it.containsKey("board") }) {
         "${sessionDir.name} ist eine exportierte Aufnahme (boards/ statt frames/) — dafuer ist " +
             "`chesslab session pack --session ${sessionDir.name}`"
@@ -343,8 +323,7 @@ fun packLabeledSession(args: List<String>) {
                     val quad = fitted?.corners ?: row.corners()
                     val geometry = storedGeometry(fitted, quad)
                     val raw = warpBoardForCrops(frame, geometry, cornersFromFlat(quad))
-                    // Straight FIRST, whole raster, exactly as the board store is written: the cuts
-                    // below are plain rectangles and cannot take a bow out on their own any more.
+                    // Straight FIRST, whole raster, like the board store: plain-rectangle cuts cannot unbow.
                     val warped =
                         fitted?.mesh?.let {
                             straightenBoard(raw, it, geometry.boardSize, cropBorderPx(geometry))
@@ -450,12 +429,8 @@ private fun selectRows(
     }
 }
 
-/**
- * Das Korrekturen-Ledger als `frame -> square -> label`, in Zeilenreihenfolge.
- *
- * `retract: true` ist ein GRABSTEIN und traegt sein altes `label` weiter: wer nur `square -> label`
- * sammelt, packt ein zurueckgenommenes Label ins Trainingsmaterial (`labeling.load_corrections`).
- */
+/** `retract: true` ist ein GRABSTEIN und traegt sein altes `label` weiter: wer nur `square -> label`
+ *  sammelt, packt ein zurueckgenommenes Label ins Trainingsmaterial. */
 internal fun correctionMap(
     file: File,
     session: String,

@@ -22,8 +22,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.math.abs
 
-/** specs/23 phase 02 — `preprocessInto` does not resize, so the crop pipeline must cut at the
- *  model's size. Whole chain, no fake: `config.json` -> [withCropOf] -> warp -> `cropFrameSource` -> ORT. */
+/** `preprocessInto` does not resize, so the crops must be cut at the model's size. Whole chain, no fake. */
 class ModelSpecCropSeamTest {
     @Test
     @EnabledIf(OpenCvGate.REF)
@@ -33,7 +32,6 @@ class ModelSpecCropSeamTest {
         assertEquals(SHIPPED_INPUT_SIZE, assertCropSeam(assetDir(), tmp), "the shipped asset's inference size")
     }
 
-    /** More than one measured size cannot be a constant: the p4 family spans 80, 96 and 128 px. */
     @Test
     @EnabledIf(OpenCvGate.REF)
     fun everyBundledModelCropsAtItsOwnSize(
@@ -50,7 +48,6 @@ class ModelSpecCropSeamTest {
         )
     }
 
-    /** @return the square input size the model declares and the crops came out at. */
     private fun assertCropSeam(
         dir: File,
         tmp: File,
@@ -83,7 +80,7 @@ class ModelSpecCropSeamTest {
         return spec.outWidth
     }
 
-    /** Phase 01's wiring is load-bearing: the geometry default matches `p4full-128`, so a smaller arm refuses. */
+    /** The geometry default matches `p4full-128`, so a smaller arm refuses. */
     @Test
     @EnabledIf(OpenCvGate.REF)
     fun withoutTheModelsSizeTheShippedAssetRefusesTheCrops(
@@ -126,16 +123,14 @@ class ModelSpecCropSeamTest {
     }
 }
 
-/** The size the default `p4a-80-clahe` is served at — a tripwire on the DECISION, not a read. */
+/** A tripwire on the DECISION, not a read. */
 internal const val SHIPPED_INPUT_SIZE = 80
 
 private const val TOLERANCE = 1e-4f
 
-/** A committed model directory staged into a real directory, exactly as `CnnObserver.attach` gets it. */
 private fun stagedModelIn(
     model: File,
     dir: File,
 ): StagedModel = CnnModelAssets({ name -> File(model, name).takeIf { it.isFile }?.inputStream() }, dir).stage()
 
-/** `boardSize` is the board's own pixel size, untouched by [withCropOf]; it fits the synthetic frame. */
 private fun liveGeometry(): BoardGeometry = BoardGeometry(boardSize = SYNTHETIC_FRAME_SIDE)

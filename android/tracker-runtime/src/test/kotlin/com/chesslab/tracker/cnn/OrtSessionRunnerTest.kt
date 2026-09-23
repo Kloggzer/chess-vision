@@ -15,7 +15,7 @@ import java.nio.FloatBuffer
 
 private const val CROPS = 64
 
-/** Read from `config.json`, not written down: the graph is exported at the run's `infer_size` (96 since specs/23). */
+/** From `config.json`: the graph is exported at the run's `infer_size`. */
 private val ASSET_SPEC: ModelSpec by lazy { ModelSpec.parse(File(assetDir(), MODEL_CONFIG_FILE).readText()) }
 
 private val INPUT_SHAPE: LongArray
@@ -27,7 +27,6 @@ private val INPUT_SHAPE: LongArray
             ASSET_SPEC.outWidth.toLong(),
         )
 
-/** The real graph's input tensor, zeroed — the runner never looks at the values. */
 private fun zeroInput(): FloatBuffer =
     ByteBuffer
         .allocateDirect(CROPS * ASSET_SPEC.channels * ASSET_SPEC.outWidth * ASSET_SPEC.outHeight * Float.SIZE_BYTES)
@@ -39,21 +38,16 @@ internal fun stageAssets(tmp: File): StagedModel =
 
 private fun leftoverProfiles(dir: File): List<String> = dir.list().orEmpty().filter { it.startsWith("ep-verify") }
 
-/**
- * Real sessions, but `OrtSession.SessionOptions` is write-only: the pinned values are asserted on
- * [SessionTuning], the object they are applied FROM; the profiling flag is asserted end to end.
- */
+/** `OrtSession.SessionOptions` is write-only: the values are asserted on [SessionTuning], the flag end to end. */
 class OrtSessionRunnerTest {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
 
     @Test
     fun sessionOptionsPinThreadsAndOptimisation() {
-        // 4 = the big cores of the SM8650. A change here is a deployment decision, not a tidy-up.
+        // A change here is a deployment decision, not a tidy-up.
         assertEquals(4, SessionTuning.THREADS)
         assertEquals(OrtSession.SessionOptions.OptLevel.ALL_OPT, SessionTuning.OPT_LEVEL)
-        // One batched graph: inter-op parallelism has nothing to overlap.
         assertEquals(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL, SessionTuning.EXECUTION_MODE)
-        // And they are accepted by the real thing rather than only by this test.
         OrtSession.SessionOptions().use { SessionTuning.applyTo(it) }
     }
 
@@ -64,8 +58,7 @@ class OrtSessionRunnerTest {
         val staged = stageAssets(tmp)
         OrtSessionRunner(env, staged.fp32, Ep.CPU, staged.dir).use { runner ->
             runner.run(zeroInput(), INPUT_SHAPE)
-            // No trace to end, so no provider — and, crucially, no per-kernel instrumentation over
-            // 473 nodes on a session that only ever has to classify.
+            // No per-kernel instrumentation over 473 nodes on a session that only classifies.
             assertNull(runner.profiledProvider(), "an unprofiled session must have no trace to read")
         }
         assertTrue(leftoverProfiles(staged.dir).isEmpty(), "no profile may be written: ${leftoverProfiles(staged.dir)}")

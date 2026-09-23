@@ -13,43 +13,33 @@ import com.chesslab.tracker.cnn.ModelSpec
 import org.opencv.core.Mat
 import java.io.File
 
-// One video, end to end: mp4 -> warp -> (crops -> real ONNX -> CnnRecovery) -> TrackerEngine.
-//
-// The engine is driven through its PUBLIC seam only (`onFrame`, `onCnnSnapshot`, `attachCnn`,
-// `choosePromotion`, `status`); nothing here reaches into `EngineState`.
+// Driven through the engine's PUBLIC seam only; nothing here reaches into `EngineState`.
 
-/** `_VirtualClock`'s epoch — same as `ClipReplayParityTest`, so timestamps read alike in logs. */
 private const val VCLOCK_START = 1_700_000_000.0
 
 private const val MS_PER_S = 1000.0
 
-/** All [replayVideo] may see; `SimClip` and `RealGameSource` differ only in knowing the outcome. */
 internal interface SimSource {
     val video: File
     val fps: Double
     val config: TrackerConfig
 
-    /** `[a8, h8, h1, a1]` in FRAME pixels. */
     val corners: List<DoubleArray>
     val geometry: BoardGeometry
     val startFen: String
 
-    /** The answer the promotion dialog would get; `q` when nothing is known to promote. */
     val promotionPiece: Char get() = 'q'
 
-    /** Per decoded frame, the true FEN where known; empty keeps [ObsAudit] silent on unlabelled footage. */
+    /** Empty keeps [ObsAudit] silent on unlabelled footage. */
     val truthFens: List<String?> get() = emptyList()
 }
 
-/** The CNN half of a run: the classifier that produces observations and the evaluator the engine gets. */
 internal class SimCnn(
     val classifier: SquareClassifier,
     val evaluator: CnnEvaluator,
-    /** The model's own `config.json`: crops at its declared size, as `TrackerService` does; null = 128 px. */
     val spec: ModelSpec? = null,
 )
 
-/** Everything a diverging run needs explained: what latched, what the engine said, and when. */
 internal class SimTrace(
     val alarms: List<String>,
     val stuck: List<String>,
@@ -75,7 +65,6 @@ internal class SimResult(
     val sans: List<String> get() = commits.map { it.san }
     val ok: Boolean get() = sans == expected
 
-    /** The first ply where the committed list parts from ground truth, or null when identical. */
     fun firstDivergence(): String? {
         val n = maxOf(sans.size, expected.size)
         for (i in 0 until n) {
@@ -90,7 +79,6 @@ internal class SimResult(
     }
 }
 
-/** What one replay leaves behind, whatever its caller knows about the moves. */
 internal class SimReplay(
     val log: SimEventLog,
     val timings: SimTimings,
@@ -98,10 +86,7 @@ internal class SimReplay(
     val finalNote: String?,
 )
 
-/**
- * Replays [source] at FULL rate; [cnn] null = the diff-only baseline. [onFrame] gets each frame WITH
- * its index, while in hand: h.264 seeking by index is approximate and would hand over a NEARBY frame.
- */
+/** [onFrame] gets each frame WITH its index, in hand: h.264 seeking by index hands over a NEARBY frame. */
 internal fun replayVideo(
     source: SimSource,
     cnn: SimCnn?,
@@ -138,7 +123,6 @@ internal fun replayVideo(
     return SimReplay(log, timings, audit, engine.status().note)
 }
 
-/** One clip against its ground truth — a thin caller of [replayVideo], never a second loop. */
 internal fun runClip(
     clip: SimClip,
     cnn: SimCnn?,
@@ -155,10 +139,7 @@ internal fun runClip(
     )
 }
 
-/**
- * `CnnObserver` with the device's pacing: at most ONE observation in flight, its snapshot held until
- * the video clock passes the MEASURED inference time — a snapshot describes an already-decided frame.
- */
+/** At most ONE observation in flight, held until the video clock passes the MEASURED inference time. */
 private class SimObserver(
     private val cnn: SimCnn,
     private val pipeline: ClipPipeline,
@@ -169,7 +150,6 @@ private class SimObserver(
     private var pending: CnnSnapshot? = null
     private var readyAtS = 0.0
 
-    /** The snapshot whose inference has finished by [nowS], if any. */
     fun deliver(nowS: Double): CnnSnapshot? {
         val snap = pending ?: return null
         if (nowS < readyAtS) return null
@@ -177,7 +157,6 @@ private class SimObserver(
         return snap
     }
 
-    /** True when no inference is in flight, so this frame's crops are worth warping. */
     fun idle(): Boolean = pending == null
 
     fun spawn(
@@ -204,7 +183,6 @@ private class SimObserver(
                 seq = seq,
                 tsMs = timestampMs,
                 inferMs = inferMs,
-                // Invariant 1: the anchor pair is the observed frame's warps at detSize.
                 warped = pipeline.lastBgrDet,
                 gray = pipeline.lastGrayDet,
                 fen = fen,
@@ -213,19 +191,17 @@ private class SimObserver(
     }
 }
 
-/** Collects what the engine emitted, and answers the promotion dialog the way the UI would. */
 internal class SimEventLog(
     private val engine: TrackerEngine,
     private val promotionPiece: Char,
 ) {
     val commits = mutableListOf<SimCommit>()
 
-    /** [commits] per COMMIT rather than per ply: the grouping a per-ply FEN needs (`realGamePlies`). */
     val batches = mutableListOf<SimBatch>()
     val alarms = mutableListOf<String>()
     val stuck = mutableListOf<String>()
 
-    /** Note and verify transitions, POLLED from `status()`: the snapshot path's notes never reach the bus. */
+    /** POLLED from `status()`: the snapshot path's notes never reach the bus. */
     val notes = mutableListOf<String>()
     private var lastNote: String? = null
     private var lastVerify: String? = null
@@ -260,11 +236,10 @@ internal class SimEventLog(
                 else -> Unit
             }
         }
-        // Recursive by design: the promotion commit can itself emit events worth recording.
         if (promotion) record(frame, engine.choosePromotion(promotionPiece))
     }
 
-    /** The alarm is read HERE, at the commit: later the latch may have cleared and the ply reads clean. */
+    /** Read HERE, at the commit: later the latch may have cleared and the ply reads clean. */
     private fun batch(
         frame: Int,
         ucis: List<String>,

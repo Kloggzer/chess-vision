@@ -10,10 +10,8 @@ import com.chesslab.engine.parity.ParityFixtures
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty
 
-/**
- * Per-stage profiler; asserts nothing, `-Pchesslab.profile=true`. The 320 px clip planes are upscaled
- * to the phone's 800 (every stage is O(pixels)); what transfers to the phone is the RATIO between stages.
- */
+/** Asserts nothing; `-Pchesslab.profile=true`. Clip planes upscaled to the phone's 800 (every stage is
+ *  O(pixels)): what transfers is the RATIO between stages. */
 @EnabledIfSystemProperty(named = "chesslab.profile", matches = "true")
 class EngineProfileTest {
     @Test
@@ -29,7 +27,6 @@ class EngineProfileTest {
     }
 }
 
-/** One clip's planes upscaled to [size], plus every buffer the stages need. */
 private class ProfileBench(
     private val size: Int,
 ) {
@@ -52,7 +49,6 @@ private class ProfileBench(
     private val geom = PlaneGeometry(size, size, size, whitePov = true, extendUp = OVERHANG)
     private val baseGeom = PlaneGeometry(size, size, size, whitePov = true)
 
-    /** A realistic hot set: the six squares a move plus its dilation typically raises. */
     val candidates: Long = (0 until Squares.COUNT).fold(0L) { acc, i -> if (i % 11 == 3) acc.with(i) else acc }
 
     private val gamut =
@@ -101,9 +97,7 @@ private class ProfileBench(
         results["RunningMeanBgr append"] = time { bgr.append(curBgr) }
         results["RunningMeanBgr mean"] = time { bgr.meanUint8() }
 
-        // What the stillness and changeset engines do EVERY frame, and it is all they do per
-        // frame: box-average the raw board warp to 160 and compare it per cell. Their own
-        // decision work runs on a reading, which arrives once per ply.
+        // What the stillness and changeset engines do EVERY frame: box-average the board to 160 and compare per cell.
         val refWarp = boardWarp(refBgr)
         val curWarp = boardWarp(curBgr)
         val refBoard = requireNotNull(grayBoard(refWarp))
@@ -122,7 +116,6 @@ private class ProfileBench(
         )
     }
 
-    /** What `FrameInput.board(BOARD_PX)` hands those two: the board warped straight to 160. */
     private fun boardWarp(source: BgrImage): BgrImage {
         val out = ByteArray(BOARD_PX * BOARD_PX * 3)
         for (y in 0 until BOARD_PX) {
@@ -138,7 +131,6 @@ private class ProfileBench(
         return BgrImage(BOARD_PX, BOARD_PX, out)
     }
 
-    /** What the shadow veto now converts: the candidates' boxes of both planes, nothing else. */
     private fun convertCandidateBoxes() {
         candidates.forEachSquare { i ->
             geom.region(i, geom.extendUp)?.let { box ->
@@ -172,7 +164,7 @@ private class ProfileBench(
         return out
     }
 
-    /** Median of [REPS] timed runs after [WARMUP] warmup runs — the JIT needs both. */
+    /** Median of [REPS] runs after [WARMUP] warmups — the JIT needs both. */
     private fun time(body: () -> Unit): Double {
         repeat(WARMUP) { body() }
         val samples = DoubleArray(REPS)

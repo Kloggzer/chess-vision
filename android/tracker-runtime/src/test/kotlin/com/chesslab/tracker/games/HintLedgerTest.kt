@@ -10,10 +10,7 @@ private const val FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 
 
 private const val OTHER_FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 
-/**
- * Die Bindung ist die STELLUNG, nicht die Uhr, und ein nicht befolgter Tipp ist kein vorgesagter
- * Zug. Beides sind Wachen: faellt eine, faellt die Partie hinterher auf eine Behauptung zurueck.
- */
+/** Die Bindung ist die STELLUNG, nicht die Uhr, und ein nicht befolgter Tipp ist kein vorgesagter Zug. */
 class HintLedgerTest {
     @Test
     fun aTipBindsToThePositionItWasComputedFrom() {
@@ -24,7 +21,6 @@ class HintLedgerTest {
         assertEquals(MoveHint("e4", "e2e4", followed = true), ledger.markFor(FEN, "e2e4"))
     }
 
-    /** Genannt ist nicht gespielt: der Vermerk bleibt, die Behauptung "vorgesagt" faellt weg. */
     @Test
     fun aTipThePlayerDidNotFollowIsNotAToldMove() {
         val ledger = HintLedger()
@@ -36,7 +32,7 @@ class HintLedgerTest {
         assertEquals(HintStatus.GIVEN, hintStatus(recorded = true, hint = mark))
     }
 
-    /** Ein Tipp ist mit dem Zug aus seiner Stellung verbraucht — sonst erbt ihn eine Wiederholung. */
+    /** Sonst erbt ihn eine Wiederholung. */
     @Test
     fun theSameTipCannotMarkTwoPlies() {
         val ledger = HintLedger()
@@ -56,7 +52,7 @@ class HintLedgerTest {
         assertEquals(HintRecord("WHITE", quota = 5, delivered = 0), ledger.log())
     }
 
-    /** Der Log zaehlt ZUGESTELLTE Tipps, auch die nicht befolgten — er zaehlt keine Absagen. */
+    /** Auch die nicht befolgten, aber keine Absagen. */
     @Test
     fun theLogCountsWhatWasDeliveredAndUnderWhichHandicap() {
         val ledger = HintLedger()

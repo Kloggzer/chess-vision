@@ -13,8 +13,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
-/** Bug-Audit C2: der Evaluator haengt schon im Konstruktor, ein gescheiterter Attach nahm ihn
- *  aber nie zurueck — Kandidaten liefen dann in `verifyTimeoutS` statt ueber `cnn == null`. */
+/** Ein gescheiterter Attach nahm den Evaluator nie zurueck: Kandidaten liefen in `verifyTimeoutS`. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CnnAttachFailureDetachesBugTest {
     private val scheduler = TestCoroutineScheduler()

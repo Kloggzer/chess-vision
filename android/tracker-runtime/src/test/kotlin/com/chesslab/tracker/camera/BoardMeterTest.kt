@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class BoardMeterTest {
-    /** A 160-px board whose level is set per cell. */
     private fun board(value: (row: Int, col: Int) -> Int): BgrImage = lumaBoard(160) { x, y -> value(y / 20, x / 20) }
 
     @Test
@@ -26,7 +25,6 @@ class BoardMeterTest {
 
     @Test
     fun `saturation is counted`() {
-        // Acht von 64 Feldern ausgebrannt = 12,5 % der Flaeche.
         val r = meterBoard(board { row, _ -> if (row == 0) 255 else 60 })
         assertEquals(0.125f, r.clippedFraction, 1e-3f)
         assertEquals(255f, r.highlightLevel, 0.51f)
@@ -34,7 +32,7 @@ class BoardMeterTest {
 
     @Test
     fun `saturation is judged per channel, not on luminance`() {
-        // Rot bei 255, Luminanz nur 76: auf der Luminanz gerechnet saehe das nach Luft aus.
+        // Rot bei 255, Luminanz nur 76: auf der Luminanz saehe das nach Luft aus.
         val size = 160
         val data = ByteArray(size * size * 3)
         for (i in 0 until size * size) data[i * 3 + 2] = 255.toByte()
@@ -57,13 +55,12 @@ class BoardMeterTest {
 
     @Test
     fun `metering feeds the policy`() {
-        // Die Naht selbst: ein dunkles Brett muss durch die Messung hindurch zu mehr Licht fuehren.
         val range = ExposureRange(indices = -24..24, stepEv = 1f / 6f)
         val next = nextExposure(ExposureState(), meterBoard(board { _, _ -> 12 }), range.evLimits())
         assertTrue(next != null && next.ev > 0.0)
     }
 
-    /** Beide Messungen leiteten die Feldkante nur aus der BREITE ab: ein Index-Fehler statt des `require`. */
+    /** Die Feldkante kam nur aus der BREITE: ein Index-Fehler statt des `require`. */
     @Test
     fun `a non-square raster is refused by the guard, not by the pixel loop`() {
         val oblong = BgrImage(160, 120, ByteArray(160 * 120 * 3))

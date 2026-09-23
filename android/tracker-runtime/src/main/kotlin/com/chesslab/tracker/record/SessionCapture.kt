@@ -6,19 +6,11 @@ import java.io.IOException
 
 private const val KB: Long = 1024L
 
-/**
- * Bytes under `filesDir/sessions` at which recording stops. 8 GB since 2026-09-13.
- *
- * It was 1 GB while [videoBytesOf] counted only the first segment, so a recording really ran to
- * ~10 GB. Counting correctly at 1 GB would have cut a game off after 4,4 minutes and a capture
- * after 2,0 — the repair alone would have been a regression. 8 GB is 35,6 resp. 15,9 minutes.
- */
+/** 8 GB: it was 1 GB while [videoBytesOf] counted only the first segment, so a recording really ran to ~10 GB.
+ *  Counting correctly at 1 GB would have cut a game off after 4,4 minutes. */
 const val DEFAULT_CAP_BYTES: Long = 8L * KB * KB * KB
 
-/**
- * Off by default — recording writes QHD video plus full-resolution reference JPEGs, and that
- * storage cost is the whole reason this is a choice and not a behaviour.
- */
+/** Off by default — QHD video plus full-resolution JPEGs is the storage cost that makes this a choice. */
 @Serializable
 data class RecordingPrefs(
     val enabled: Boolean = false,
@@ -26,23 +18,19 @@ data class RecordingPrefs(
     val capBytes: Long = DEFAULT_CAP_BYTES,
 )
 
-/** The raw frame the recorder would write. */
 class CaptureFrame(
     val width: Int,
     val height: Int,
-    // [a8, h8, h1, a1] in source pixels (entry.md invariant 11).
     val corners: FloatArray,
     val writer: FrameWriter,
 )
 
 interface CaptureSource {
-    /** `null` = no frame or no corners yet, exactly Python's `_last_frame is None` guard. */
     fun grab(): CaptureFrame?
 
     /** A frame size is enough to open the video bundle; labeled stills still require [grab]. */
     fun sessionFrame(): CaptureFrame? = grab()
 
-    /** Non-null while the profile and the delivered frame size disagree — see [RecordingGates]. */
     fun geometryNote(): String?
 }
 
@@ -58,66 +46,38 @@ data class RecordingHooks(
     val reason: () -> String? = { null },
 )
 
-/**
- * `_queue_session_capture` / `_flush_session_capture`.
- *
- * The photo for a committed move is deferred: right after a move the hands are usually still over
- * the board, and a frame with a hand in it is a frame whose 64 crops are labeled as pieces that
- * cannot be seen. It is taken immediately only when the board is already clean, otherwise at the
- * next quiet re-anchor — the tracker's own proof that nothing is moving.
- */
+/** The photo for a committed move is deferred: right after a move the hands are over the board. Taken at once
+ *  only when the board is clean, else at the next quiet re-anchor. */
 class SessionCaptureController(
     private val source: CaptureSource,
     private val open: (CaptureFrame) -> SessionRecorder?,
     private val gates: RecordingGates,
     private val prefs: () -> RecordingPrefs,
-    // Bytes already on disk from EARLIER sessions. A supplier, and deliberately a cached one: the
-    // sessions directory is never walked on the capture path.
+    // A cached supplier: the sessions directory is never walked on the capture path.
     private val existingBytes: () -> Long,
     private val hooks: RecordingHooks = RecordingHooks(),
 ) {
     private var pending: Pending? = null
 
-    /**
-     * Whether the running game has committed a ply — the gate in front of the session DIRECTORY.
-     *
-     * Until the first commit, nothing exists on disk: no `session.yaml`, no timeline, no video
-     * (the encoder buffers in memory, `PreRollRing`). Board setup, ArUco taping, calibration and
-     * empty-board tests all run the tracker without committing, and they used to leave a full
-     * recording each — nine of eleven transferred recordings on 2026-08-13/14, 4.7 GB deleted by
-     * hand. A run that never commits leaves nothing to delete.
-     */
+    /** Until the first commit nothing exists on disk: setup, calibration and tests used to leave a full recording
+     *  each (4.7 GB deleted by hand). A run that never commits leaves nothing. */
     private var committed = false
 
     var recorder: SessionRecorder? = null
         private set
 
-    /** Non-null once the size cap or a failed start stopped recording. Nothing is overwritten. */
     var stoppedReason: String? = null
         private set
 
-    /** Frames the writer could not produce in the RUNNING session. Reset by [stop]. */
     var failedWrites: Int = 0
         private set
 
-    /**
-     * Move photos lost to supersession when the board never went quiet between commits.
-     *
-     * The photo for a committed move is deferred until the board is quiet; if a new move commits
-     * while the deferred photo is still pending, the earlier ply's frame is lost without trace
-     * (caught on 2026-08-14: ply Nc6 of session 20260814-204855 and ply Nf3 of session
-     * 20260814-210104 committed but had no row in log.jsonl). This counter surfaces the loss so
-     * the user sees that something went wrong, not silent data corruption.
-     *
-     * Reset by [stop].
-     */
+    /** A new commit while the deferred photo is pending loses the earlier ply's frame; counted so the loss is
+     *  visible. Reset by [stop]. */
     var supersededFrames: Int = 0
         private set
 
-    /**
-     * Why nothing is being written, most severe first: recording halted, then data actually lost,
-     * then a skip that is by design (geometry suspended, inventory violation).
-     */
+    /** Most severe first: halted, then data lost, then a skip by design. */
     val reason: String?
         get() =
             stoppedReason
@@ -126,7 +86,6 @@ class SessionCaptureController(
                 ?: gates.reason
                 ?: hooks.reason().takeIf { prefs().enabled }
 
-    /** Apply a live preference change at a frame/status boundary. Returns true on lifecycle change. */
     fun syncEnabled(): Boolean {
         val before = recorder
         if (prefs().enabled) {
@@ -137,17 +96,8 @@ class SessionCaptureController(
         return before !== recorder
     }
 
-    /**
-     * Open the session — but only once a ply has committed ([committed]).
-     *
-     * This used to open "as soon as tracking has a frame", because the VIDEO could not wait for
-     * the first move: the lead-in is where a bad first move, focus settling and the initial
-     * anchor are debugged. The pre-roll ring made that reasoning obsolete — the encoder now runs
-     * from tracking start and the last 20 s land in the file retroactively — so the eager open
-     * only manufactured the moveless junk sessions the gate above describes. Geometry is still
-     * not required here: [CaptureSource.sessionFrame] supplies only the source dimensions, and
-     * the video must also capture the periods in which geometry is broken.
-     */
+    /** Only once a ply has committed: the pre-roll ring puts the last 20 s in the file retroactively, so the eager
+     *  open only made moveless junk sessions. Geometry is not required: the video must cover broken geometry too. */
     fun start(): SessionRecorder? {
         val active = recorder
         if (active != null) return active
@@ -156,27 +106,18 @@ class SessionCaptureController(
         return source.sessionFrame()?.let(::startRecorder)
     }
 
-    /**
-     * A move was committed. [clean] is the board's state as the tracker sees it: no occlusion-
-     * vetoed and no tainted squares.
-     */
     fun queue(
         ply: Int,
         fen: String,
         san: String?,
         clean: Boolean,
     ) {
-        // Python: nothing is queued while neither a recorder nor auto-record exists.
         if (recorder == null && !prefs().enabled) return
-        // The first committed ply is what turns a run into a recording. The session opens HERE,
-        // before the photo gates: a geometry mismatch or an inventory violation blocks the still,
-        // never the video bundle the commit has just earned.
+        // The session opens HERE, before the photo gates: they block the still, never the video bundle.
         committed = true
         if (recorder == null) start()
         gates.inventoryFilter = prefs().inventoryFilter
-        // Count BEFORE the gate: the gate judges the NEW ply's FEN, but what it clears is the
-        // EARLIER ply's deferred photo, taken under its own FEN and never gated. Counting after
-        // it left that loss invisible — the very case this counter exists for.
+        // Count BEFORE the gate: it judges the NEW ply's FEN, but clears the EARLIER ply's photo.
         val oldPending = pending
         if (oldPending != null && oldPending.ply != ply) {
             supersededFrames++
@@ -189,7 +130,7 @@ class SessionCaptureController(
         if (clean) flush()
     }
 
-    /** The deferred photo is due — the quiet re-anchor. Both gates run AGAIN here, as in Python. */
+    /** Both gates run AGAIN here, as in Python. */
     fun flush(): String? {
         val due = pending ?: return null
         gates.inventoryFilter = prefs().inventoryFilter
@@ -202,34 +143,26 @@ class SessionCaptureController(
 
     private fun capture(due: Pending): String? {
         val frame = source.grab() ?: return null
-        // BEFORE the recorder is opened: `SessionRecorder.<init>` writes `frames/`, `log.jsonl`
-        // and `session.yaml`, so a start the cap then refused left an empty session directory on
-        // disk — which then counted against the cap for the next one.
+        // BEFORE the recorder opens: a start the cap refused left an empty directory counting against the cap.
         val active = if (capReached()) null else (recorder ?: startRecorder(frame))
         if (active == null) return null
         pending = null
         val written = active.capture(frame.writer, due.ply, due.fen, due.san, frame.corners)
-        // Python logs here (`tracker.py`); this was the one failure that left no trace at all.
         if (written == null) failedWrites++
         return written
     }
 
-    /** A taken-back move must not survive as labeled data (`tracker.py`). */
     fun undo() {
         pending = null
         recorder?.undoLast()
     }
 
     fun stop(): SessionResult? {
-        // The next game earns its own directory with its own first commit.
         committed = false
-        // VOR dem fruehen Ausstieg: `queue()` zaehlt auch ohne offenen Recorder hoch, und die
-        // Zahlen wanderten dann als "Zug-Foto verloren" in eine Partie, die nichts verloren hat.
+        // VOR dem fruehen Ausstieg: `queue()` zaehlt auch ohne offenen Recorder hoch.
         failedWrites = 0
         supersededFrames = 0
-        // Der Riegel rastete dauerhaft ein: bis zum Prozessneustart nahm die App nichts mehr auf,
-        // auch nachdem der Nutzer Aufnahmen geloescht hatte — das einzige Mittel, das er hat.
-        // `capReached()` misst beim naechsten Versuch neu und setzt ihn sofort wieder, wenn noetig.
+        // Sonst rastete der Riegel bis zum Prozessneustart ein, auch nach dem Loeschen von Aufnahmen.
         stoppedReason = null
         val active = recorder ?: return null
         recorder = null
@@ -237,8 +170,7 @@ class SessionCaptureController(
         return active.finish().also(hooks.finished)
     }
 
-    /** Opening writes files, so it can fail mid-game; that must halt RECORDING, not the event
-     *  collector that called it. A failed hook leaves the stills running and says so. */
+    /** That must halt RECORDING, not the event collector that called it. */
     private fun startRecorder(frame: CaptureFrame): SessionRecorder? {
         if (!prefs().enabled || stoppedReason != null) return null
         try {
@@ -274,13 +206,8 @@ class SessionCaptureController(
     private fun writeFailure(): String? = if (failedWrites == 0) null else "frame could not be written — $failedWrites lost"
 }
 
-/**
- * Every segment, not just `video.mp4`. Naming follows `CameraVideo.segmentFile`.
- *
- * `SessionVideoMeta.segments` is only written when the encoder FINISHES, so a running recording
- * still reads 1 and the cap counted its first minute as the whole file — factor 10 on
- * `2026-09-11-20-00-52`. Consecutive names, stopping at the first gap: never a `listFiles()` here.
- */
+/** Every segment: `SessionVideoMeta.segments` is written only when the encoder FINISHES, so the cap read a running
+ *  recording's first minute as the whole file (factor 10). Consecutive names; never a `listFiles()`. */
 private fun videoBytesOf(dir: File): Long {
     var total = 0L
     var index = 0

@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Tier A — golden rows from `_geometry/meta.json -> cropBoxes[] / squareRegions[]`, compared EXACTLY. */
+/** Golden rows from `_geometry/meta.json`, compared EXACTLY. */
 class CropBoxTest {
     @Test
     fun `every fixture crop box matches exactly`() {
@@ -73,15 +73,12 @@ class CropBoxTest {
     fun `default geometry crop boxes`() {
         val geom = BoardGeometry()
         assertEquals(200.0, geom.cell)
-        // `padSide` 0.05 since specs/45 (it was 0.10, which no profile in the corpus ever used):
-        // 0.05 * 200 = 10 px around a 200 px cell.
+        // `padSide` 0.05 since specs/45: 0.05 * 200 = 10 px around a 200 px cell.
         assertArrayEquals(intArrayOf(-10, -10, 210, 210), squareToCropBox("a8", geom, clamp = false))
         assertArrayEquals(intArrayOf(0, 0, 210, 210), squareToCropBox("a8", geom, clamp = true))
         assertEquals(1610, squareToCropBox("h1", geom, clamp = false)[2])
         assertEquals(1600, squareToCropBox("h1", geom, clamp = true)[2])
-        // max(0.1, padSide) * cell, and the 0.1 FLOOR is what decides here — the border did not
-        // move with the pad (the phase file's "200" is an arithmetic slip; `_geometry/meta.json
-        // -> cropBoxes` agrees with 20).
+        // The 0.1 FLOOR decides here — the border did not move with the pad (`_geometry/meta.json` agrees with 20).
         assertEquals(20, cropBorderPx(geom))
     }
 
@@ -109,7 +106,7 @@ class CropBoxTest {
 
     @Test
     fun `square region tiles the board without gaps at a size not divisible by eight`() {
-        // detSize = 800 * 0.5 = 400 is divisible; 321 is the pathological case.
+        // 400 is divisible by eight; 321 is the pathological case.
         val region = squareRegion("a1", 321, whitePov = true, inset = 0.0)
         val next = squareRegion("b1", 321, whitePov = true, inset = 0.0)
         assertEquals(region[2], next[0], "cells must abut with inset 0")

@@ -23,7 +23,7 @@ private class FakeWifi(
 private fun bindable(host: String): Boolean =
     runCatching { ServerSocket().use { it.bind(InetSocketAddress(host, SPECTATOR_PORT)) } }.isSuccess
 
-/** Any site-local IPv4 of this machine — used to prove the server did NOT bind the wildcard. */
+/** Used to prove the server did NOT bind the wildcard. */
 private fun otherLocalAddress(): String? =
     runCatching {
         Collections
@@ -39,7 +39,6 @@ class SpectatorServerTest {
     private val wifi = FakeWifi()
     private val server = SpectatorServer(wifi) { GameSnapshot() }
 
-    /** No test may leave 8420 bound for the next one. */
     @AfterEach
     fun tearDown() {
         wifi.host = LOOPBACK
@@ -87,7 +86,6 @@ class SpectatorServerTest {
         server.start()
         val running = assertInstanceOf(SpectatorState.Running::class.java, server.state.value)
         assertEquals("http://$LOOPBACK:$SPECTATOR_PORT", running.url)
-        // A wildcard bind would own this address too; a Wi-Fi-only bind leaves it free.
         assertTrue(bindable(other!!), "the server bound more than the Wi-Fi interface")
         server.stop()
     }

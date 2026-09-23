@@ -9,11 +9,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowSystemClock
 import java.time.Duration
 
-/**
- * The engine's clock on the phone, and what it must not be: `TrackerSeed.nowMs` defaults to
- * `System.currentTimeMillis`, which a time sync or a user setting the clock moves — and every age
- * in the engine moves with it.
- */
+/** Not `System.currentTimeMillis`: a time sync moves it, and every age in the engine with it. */
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class)
 class TrackerClockTest {
@@ -33,7 +29,6 @@ class TrackerClockTest {
     }
 
     private companion object {
-        /** A year: a boot-relative clock is always further from the epoch than any uptime. */
         const val NOT_EPOCH_MS = 365L * 24 * 60 * 60 * 1000
         const val STEP_MS = 250L
     }

@@ -5,11 +5,8 @@ import com.chesslab.engine.api.GrayImage
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.move.Move
 
-/**
- * The best legal move evidenced at its DESTINATION only — the origin sat below the viability gate
- * (a white piece leaving a white square). Exactly ONE square may be strongly changed; two is a
- * normal move. The caller hands it to CNN verify with `vote = false`, which is what bounds it.
- */
+/** Evidenced at its DESTINATION only — the origin sat below the viability gate (a white piece leaving a
+ *  white square). Exactly ONE strong square; two is a normal move. Verified with `vote = false`. */
 internal fun EngineState.singleEndpointCandidate(
     z: DoubleArray,
     scored: List<Pair<Move, Double>>,
@@ -19,8 +16,8 @@ internal fun EngineState.singleEndpointCandidate(
     val target = soleStrongSquare(z)
     if (target == null || shadowVetoed.has(target)) return null
     val move = scored.firstOrNull { (mv, sc) -> mv.to.ordinal == target && sc > 0.0 }?.first
-    // `a7a8{q,r,b,n}` sind ueber Belegtheit identisch, und der Verifier prueft nur die: er haette
-    // die erste Variante des Generators bestaetigt statt der gespielten Figur.
+    // `a7a8{q,r,b,n}` sind ueber Belegtheit identisch, und der Verifier prueft nur die: er haette die erste
+    // Variante des Generators bestaetigt statt der gespielten Figur.
     if (move != null && move.promotion != null && move.promotion != Piece.NONE) {
         raisePromotionPrompt(move, cur, curBgr)
         return null
