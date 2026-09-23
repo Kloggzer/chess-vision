@@ -247,7 +247,7 @@ def test_archived_at_in_meta_retires_a_session_that_was_never_moved(tmp_path):
 
 def test_session_try_returns_the_error_instead_of_exiting():
     """Die `--all`-Schleifen pruefen `r["error"]` — das war toter Code, solange der Helfer ausstieg."""
-    from chesslab.cli import _session_try
+    from chesslab.cli._common import _session_try
 
     def boom(_sid):
         raise FileNotFoundError("calibration profile 'default' not found")

@@ -60,7 +60,7 @@ und 651 `@Test` allein in `:app`. **Wer eine Prozentzahl zitiert, misst neu.** D
 
 Stand 2026-09-14: Python 67,1 %, Kotlin ohne `:app` 64,7 % (`core-engine` 92,2 %, `desktop` 37,6 %),
 Web `lib/` 73,9 %, Web-Routen 18,6 %. Schwaechste Python-Module damals: `meshprep.py`,
-`training/train.py`, `cli.py`, `hand_gate.py`.
+`training/train.py`, `cli.py` (heute das Paket `cli/`), `hand_gate.py`.
 
 **Die Verteilung ist das Problem, nicht die Hoehe.** Am selben Tag fanden sechs Agenten 73
 belegbare Fehler; `core-engine` stand bei 92 % und trug vier Stellungs-Bugs, weil die gedeckten

@@ -25,7 +25,7 @@ def test_every_recipe_knob_is_written_to_config_json():
 
 def test_the_cli_option_and_the_config_key_agree():
     """Ein Flag ohne config-Eintrag faellt sonst erst auf, wenn jemand zwei Laeufe vergleicht."""
-    cli = Path("src/chesslab/cli.py").read_text(encoding="utf-8")
+    cli = "\n".join(p.read_text(encoding="utf-8") for p in Path("src/chesslab/cli").glob("*.py"))
     flags = set(re.findall(r'"--([a-z0-9-]+)"', cli))
     for flag, key in (("weight-cap", "weight_cap"), ("class-weight", "class_weight"),
                       ("erase-scale", "aug_erase_scale"), ("invert-p", "aug_invert_p")):

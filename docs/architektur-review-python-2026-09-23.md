@@ -12,7 +12,7 @@ Die Zahlen sind vom 2026-09-23, gezaehlt auf der Platte.
 | H3 | vier Aktualitaets-Uhren | Matte/Profil behoben; Altbestand und Gegenrichtung offen |
 | H4 | Zellregel vor dem Training kopiert | behoben (`cell_rule.py`) |
 | H5 | Schreibschutz pro Datei, nicht pro Sessionzustand | behoben (`908b6f78`) |
-| H6 | Temporal-Reihenfolge nur in `cli.py` | behoben; 63 Frames warten auf einen neuen Pass |
+| H6 | Temporal-Reihenfolge nur in `cli/session.py` | behoben; 63 Frames warten auf einen neuen Pass |
 
 ## H2 — Settle-Daten liegen in der Datei, die ihre eigene Quelle veraendert
 
@@ -66,9 +66,9 @@ wenn ein Urteil wegfiele (`--drop-verdicts`). `upsert_proposals` stagt wie `clos
 Alphas als `<stem>.tmp.webp`, veroeffentlicht erst nach bestaetigtem Ledger (`_publish_upserts`).
 Verloren ging vorher nachweislich kein Urteil.
 
-## H6 — die Temporal-Reihenfolge lebt nur in `cli.py`
+## H6 — die Temporal-Reihenfolge lebt nur in `cli/session.py`
 
-`cli.session_temporal_pass` ist die einzige Stelle, die Scan -> Proposal -> Adopt -> SAM -> Upsert
+`cli.session.session_temporal_pass` ist die einzige Stelle, die Scan -> Proposal -> Adopt -> SAM -> Upsert
 -> Prune -> Flags -> `pass.json` kennt. **Behoben:** der Pass stempelt seine Eingaben (H3), eine
 SAM-Zeile nach dem Pass oeffnet die Temporal-Sprosse wieder.
 

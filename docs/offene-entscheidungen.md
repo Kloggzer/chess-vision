@@ -368,7 +368,7 @@ umstellen oder die Ratschen-Begruendung auf "jeder Fehler" erweitern.
 
 13 gesperrte Zellen (von 40 aktiven Sperren) stehen in 14 Packs, 21 Zeilen; 0 Pack-Zeilen
 widersprechen `corrections.jsonl`. `build_dataset(from_packs=True)` lehnt diese Packs ab
-(`dataset_build._stale_packs`); `--allow-stale-packs` fehlt in `cli.py`. `train`/`eval` melden
+(`dataset_build._stale_packs`); `dataset build --allow-stale-packs` (`cli/dataset.py`) laesst sie durch. `train`/`eval` melden
 Konflikte fertiger Datensaetze als `verdict_conflicts` (filtern nicht, `--strict-verdicts` bricht
 ab); groesste Umlabelungen in `real13-mix-v6-*` (bis 257 train-Zeilen, `wB`<->`wN`/`bB`<->`bN`).
 Offen: 5 843 Korrekturen, deren Zelle in keinem Pack steht, nicht ausgewertet. **Empfehlung:** die

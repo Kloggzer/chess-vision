@@ -7,7 +7,6 @@
 # zwei Zahlen, die dabei STEIGEN, sind alte Schnitte, die der Zaehler nie sah - kein neuer Nachbau.
 #
 # Beim Bau der Ratsche waren es 30 Schnitte in src/chesslab und 61 in scripts.
-2 src/chesslab/cli.py  # eine .fen-Liste und die Ausgabe eines Subprozesses, kein JSONL
 1 src/chesslab/meshprep.py  # schneidet eine .obj-Datei
 1 src/chesslab/sessions.py  # ZAEHLT per Substring in 190-MB-Manifesten; parsen kostete 465k Zeilen je Aufruf
 2 scripts/audit_disk_damage.py  # IST der Schadens-Auditor: braucht die rohe Zeile, ihren Index und das fehlende Umbruchzeichen

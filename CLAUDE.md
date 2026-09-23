@@ -200,7 +200,7 @@
 - **Quality:** no measurable difference across three seeds (`docs/training-speed.md`).
 - **`best` taugt nicht zum Vergleich:** it is the max over 60 noisy draws. Compare the mean of the
   last 10–20 epochs, paired per seed. Noise is 94 % model, 6 % val — a bigger val does not help.
-- **A finished run can block in teardown** (ROCm/Windows): `cli.py` leaves with `os._exit`. A sweep
+- **A finished run can block in teardown** (ROCm/Windows): `cli/train.py` leaves with `os._exit`. A sweep
   watches epochs on disk, not the exit code.
 - **Times only on a quiet machine,** two warm repeats per arm, discard warm-up epochs.
 

@@ -36,7 +36,11 @@ def test_the_removed_parameter_stays_removed(module, func, param):
 
 def test_method_reaches_adopt_and_upsert():
     """Der Gegenfall: hier war der Aufrufer die Lücke, nicht der Parameter."""
-    from chesslab.cli import session_temporal_adopt, session_temporal_pass, session_temporal_upsert
+    from chesslab.cli.session import (
+        session_temporal_adopt,
+        session_temporal_pass,
+        session_temporal_upsert,
+    )
 
     for verb in (session_temporal_adopt, session_temporal_upsert, session_temporal_pass):
         assert "method" in inspect.signature(verb).parameters, (

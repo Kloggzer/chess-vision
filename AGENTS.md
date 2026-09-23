@@ -20,7 +20,7 @@ Kotlin and lives in `android/`; nothing of it is left in Python.
   controls for coding agents.
 - `docs/setup/` — PyTorch backends (ROCm / CUDA / CPU).
 - `platform/app/README.md` — the Next.js labeling front-end (`data/recordings/` is its whole world).
-- One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer). **Python is dataset
+- One CLI entry point: `chesslab <command>` (`src/chesslab/cli/`, Typer, one module per sub-app). **Python is dataset
   building and training only since 2026-08-07** — the tracker and the FastAPI/React web UI were
   deleted (reachable at the `python-tracker-final` tag), the capture rig and `track_feedback`
   followed on 2026-08-20. `SessionWriter` (`src/chesslab/session_writer.py`) survived the rig.

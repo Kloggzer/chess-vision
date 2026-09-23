@@ -38,7 +38,7 @@ hatte kein Triton und konnte `torch.compile` nicht.
   (`hipErrorLaunchFailure`, Exit `0xC0000409`). Eager ungetestet.
 - **PowerShell 5.1 + `$ErrorActionPreference='Stop'` + `2>&1 |`** macht Torchs erste
   stderr-Warnung zum Abbruch. Um den nativen Aufruf auf `Continue` setzen, `$LASTEXITCODE` pruefen.
-- **Ein fertiger Lauf blockierte im Teardown** (ROCm-Windows, wie `matte`): `cli.py` verlaesst den
+- **Ein fertiger Lauf blockierte im Teardown** (ROCm-Windows, wie `matte`): `cli/train.py` verlaesst den
   Prozess mit `os._exit` und gibt den Lock von Hand zurueck. Ein Sweep haengt an den Epochen auf
   der Platte, nicht am Exit-Code.
 - **Zeiten nur auf ruhigem Rechner**, zwei warme Wiederholungen je Arm, Aufwaermepochen verwerfen:

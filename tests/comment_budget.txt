@@ -1,6 +1,10 @@
 src/chesslab/alignment.py 37
 src/chesslab/calibration.py 18
-src/chesslab/cli.py 10
+src/chesslab/cli/capture.py 6
+src/chesslab/cli/occluders.py 6
+src/chesslab/cli/realgames.py 10
+src/chesslab/cli/session.py 8
+src/chesslab/cli/train.py 7
 src/chesslab/config.py 16
 src/chesslab/dataset.py 32
 src/chesslab/dataset_build.py 21

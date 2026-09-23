@@ -1,4 +1,4 @@
-"""Red tests for operator-surface defects in ``cli.py`` and ``scripts/``."""
+"""Red tests for operator-surface defects in ``chesslab.cli`` and ``scripts/``."""
 
 from __future__ import annotations
 

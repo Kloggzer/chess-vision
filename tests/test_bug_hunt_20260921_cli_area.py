@@ -41,8 +41,8 @@ def test_occluders_status_exits_loud_on_an_unmeasurable_recording(monkeypatch, c
     der Lauf endete auf 0 — ungemessen als gemessen sauber, wie `recut-coverage` es nicht tut."""
     import typer
 
-    from chesslab import cli
     from chesslab import matte as matte_mod
+    from chesslab.cli import occluders as cli
 
     def boom(_name):
         raise OSError("log.jsonl fehlt")
