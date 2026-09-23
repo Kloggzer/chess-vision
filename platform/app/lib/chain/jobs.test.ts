@@ -6,34 +6,17 @@ import { beforeEach, describe, expect, it, test, vi } from "vitest";
 import { alive } from "@/lib/chain/heavy-lock";
 import { inboxDir, targetDir } from "@/lib/ingest/ingest";
 import {
-  chesslabArgs,
-  DESKTOP_MODEL,
-  enqueueChain,
-  enqueueLabel,
-  enqueuePhoneRecord,
-  holdExport,
-  jobHistory,
-  jobLogTail,
-  jobOf,
-  jobs,
-  jobsDir,
-  killTree,
-  labelArgs,
-  lastByStep,
-  lensFor,
-  packArgs,
-  packInputs,
-  phoneArgs,
-  positionFlagsArgs,
-  refusalOf,
-  releaseExportHold,
-  retimeArgs,
-  spawnTool,
-  stopRunning,
-  verifyPack,
-  whenIdle,
-  type Job,
+  chesslabArgs, DESKTOP_MODEL, labelArgs, lensFor, packArgs, phoneArgs, positionFlagsArgs, retimeArgs,
+} from "@/lib/chain/cli-args";
+import { jobLogTail, refusalOf } from "@/lib/chain/job-log";
+import {
+  enqueueChain, enqueueLabel, enqueuePack, enqueuePhoneRecord, holdExport, jobOf, jobs, lastByStep,
+  releaseExportHold, stopRunning,
 } from "@/lib/chain/jobs";
+import { jobHistory, jobsDir } from "@/lib/chain/ledger";
+import { packInputs, verifyPack } from "@/lib/chain/pack";
+import { whenIdle, type Job } from "@/lib/chain/slot";
+import { killTree, runChesslabCapture, spawnTool } from "@/lib/chain/spawn";
 import { videoInput } from "@/lib/ingest/ingest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
@@ -97,8 +80,8 @@ const released = vi.hoisted(() => ({ at: [] as (string | null)[] }));
 vi.mock("@/lib/chain/heavy-lock", async (original) => {
   const real = await original<typeof import("@/lib/chain/heavy-lock")>();
   return { ...real, releaseHeavyLock: async () => {
-    // Erst HIER laden: im Fabrikschritt haengt der Ringschluss jobs -> heavy-lock -> jobs.
-    const { runningJob } = await import("@/lib/chain/jobs");
+    // Erst HIER laden: im Fabrikschritt haengt der Ringschluss jobs -> heavy-lock -> slot.
+    const { runningJob } = await import("@/lib/chain/slot");
     released.at.push(runningJob()?.name ?? null);
     await real.releaseHeavyLock();
   } };
@@ -492,6 +475,13 @@ describe("Ledger-Zeilen", () => {
     expect(JSON.parse(lines[1]).notBefore).toBe(second.notBefore);
   });
 
+  // Ohne `pid` liest ein zweiter Server jede fremde `running`-Zeile als Leiche (`restarted`).
+  test("jede Zeile traegt die PID des Servers, der sie schrieb", async () => {
+    await holdExport("2026-09-23-11-00-05", 1_000);
+    const line = (await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8")).trim();
+    expect(JSON.parse(line).pid).toBe(process.pid);
+  });
+
   test("eine gescheiterte Ledger-Zeile vergiftet die folgenden nicht", async () => {
     ledger.failOnce = true;
     await expect(holdExport("2026-09-23-11-00-03", 1_000)).rejects.toThrow(/EMFILE/);
@@ -627,6 +617,48 @@ describe("der Slot", () => {
     const first = await enqueuePhoneRecord(name);
     expect(await enqueuePhoneRecord(name)).toBe(first);
     await whenIdle();
+  }, 30_000);
+});
+
+// Vor dem Aufteilen von jobs.ts nachgezogen: diese Wege lagen ungetestet unter den Mocks der Routen.
+describe("Pack-Lauf", () => {
+  test("ohne Spielstand ist der Pack uebersprungen, mit dem Grund", async () => {
+    const name = "2026-08-13-19-34-23";
+    await writeFile(path.join(files, "sessions", "20260813-193423", "video.mp4"), "x");
+    await enqueuePack(name);
+    await whenIdle();
+    expect(await jobOf(name)).toMatchObject({ kind: "pack", state: "skipped", reason: expect.stringContaining("no game record") });
+  });
+
+  test("ohne Desktop-Distribution scheitert er und sagt, wie man sie baut", async () => {
+    const name = "2026-08-13-19-34-23";
+    await writeFile(path.join(files, "sessions", "20260813-193423", "video.mp4"), "x");
+    await game("2026-08-13_1941", "20260813-193423");
+    process.env.CHESSLAB_DESKTOP_BIN = path.join(data, "missing-tool");
+    await enqueuePack(name);
+    await whenIdle();
+    expect(await jobOf(name)).toMatchObject({ state: "failed", reason: expect.stringContaining("installDist") });
+  });
+});
+
+describe("runChesslabCapture", () => {
+  test("gibt stdout, Exit-Code und die Zeile zurueck", async () => {
+    const tool = path.join(data, win ? "uv.bat" : "uv");
+    const body = win ? ["@echo off", "echo %*", "exit /b 3", ""].join("\r\n") : '#!/bin/sh\necho "$@"\nexit 3\n';
+    await writeFile(tool, body, "utf8");
+    if (!win) await chmod(tool, 0o755);
+    process.env.CHESSLAB_UV = tool;
+    process.env.CHESSLAB_REPO_DIR = data;
+    const run = await runChesslabCapture(["occluders", "recut", "x"]);
+    expect(run).toMatchObject({ code: 3, command: `${tool} run chesslab occluders recut x` });
+    expect(run.stdout.trim()).toBe("run chesslab occluders recut x");
+  }, 30_000);
+
+  test("ein Werkzeug, das nicht startet, ist Exit -1 mit Grund", async () => {
+    process.env.CHESSLAB_REPO_DIR = data;
+    const run = await runChesslabCapture(["session", "delete"]);
+    expect(run.code).toBe(-1);
+    expect(run.stderr).not.toBe("");
   }, 30_000);
 });
 

@@ -1,19 +1,19 @@
 // The single door every press goes through — one heavy job at a time is the rule it enforces.
 import { beforeEach, expect, test, vi } from "vitest";
 import type { ChainState } from "@/lib/chain/chain";
-import type { Job } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 const fake = vi.hoisted(() => ({ running: vi.fn(), enqueue: vi.fn(), phone: vi.fn(), run: null as string | null, state: {} as ChainState }));
 
 vi.mock("@/lib/chain/chain", () => ({ chainState: async () => fake.state }));
 vi.mock("@/lib/chain/jobs", () => ({
-  runningJob: fake.running,
   enqueueChain: fake.enqueue,
   enqueueLabel: fake.enqueue,
   enqueuePhoneRecord: fake.phone,
-  modelReadRun: () => fake.run,
 }));
+vi.mock("@/lib/chain/slot", () => ({ runningJob: fake.running }));
+vi.mock("@/lib/chain/cli-args", () => ({ modelReadRun: () => fake.run }));
 
 const { refused, startStep } = await import("@/lib/chain/run");
 const { readHeavyLock } = await import("@/lib/chain/heavy-lock");

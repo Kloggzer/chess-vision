@@ -105,7 +105,7 @@ export type LedgerChange = {
 type Parsed = { bySession: BySession; changes: LedgerChange[] };
 type LedgerCache = Map<string, { key: string; value: Parsed }>;
 /**
- * Pinned on `globalThis` like `lib/chain/jobs.ts`'s `queue`, mtime-keyed like `loadModelReads`. `/`
+ * Pinned on `globalThis` like `lib/chain/slot.ts`'s `queue`, mtime-keyed like `loadModelReads`. `/`
  * asked for this file once per game and split all of it every time — 36 full parses of a growing
  * ledger for one page. Der Name traegt die FORM des Werts: der Cache ueberlebt einen Hot-Reload, also las die neue
  * Funktion sonst die alten Zeilen als halb leere Objekte.

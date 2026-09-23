@@ -4,7 +4,7 @@
  * export". Nothing here is a second truth: step, order and words all come from where they live.
  */
 import { STEP } from "@/lib/chain/steps";
-import type { Job } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 import { newestFirst, recordedAt, type QueueRow } from "@/lib/chain/queues";
 
 /** The chain's own order; a recording is in exactly one group, or in none (useless, archived, bare). */

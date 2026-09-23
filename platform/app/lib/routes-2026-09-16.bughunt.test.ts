@@ -9,8 +9,14 @@ import { tempDataRoot } from "@/lib/test-fixtures";
 const tool = vi.hoisted(() => ({ stdout: "", code: 0, busy: false, calls: [] as string[][] }));
 vi.mock("@/lib/chain/jobs", async (original) => ({
   ...(await original<typeof import("@/lib/chain/jobs")>()),
-  busy: () => tool.busy,
   enqueuePack: async (name: string) => ({ name, state: "queued" }),
+}));
+vi.mock("@/lib/chain/slot", async (original) => ({
+  ...(await original<typeof import("@/lib/chain/slot")>()),
+  busy: () => tool.busy,
+}));
+vi.mock("@/lib/chain/spawn", async (original) => ({
+  ...(await original<typeof import("@/lib/chain/spawn")>()),
   runChesslabCapture: async (args: string[]) => {
     tool.calls.push(args);
     return { code: tool.code, stdout: tool.stdout, stderr: "", command: "chesslab " + args.join(" ") };

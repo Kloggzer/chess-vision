@@ -10,7 +10,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
-import { gameDir } from "@/lib/session-store/recordings";
+import { gameDir, recordingFile } from "@/lib/session-store/recordings";
 import { serialize } from "@/lib/serialize";
 
 export type UiMeta = { title?: string; archived?: boolean };
@@ -60,7 +60,7 @@ export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
  */
 export async function archivedAt(name: string): Promise<string | null> {
   try {
-    const yaml = await readFile(path.join(gameDir(name), "session.yaml"), "utf8");
+    const yaml = await readFile(recordingFile(name, "session"), "utf8");
     return ARCHIVED_AT.exec(yaml)?.[1]?.trim() ?? null;
   } catch (e) {
     // Nur ENOENT ist „nie archiviert"; ein EACCES gab eine ausgemusterte Aufnahme wieder zum Labeln frei.

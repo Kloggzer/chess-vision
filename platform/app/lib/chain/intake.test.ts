@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChainState } from "@/lib/chain/chain";
 import { failedCount, finishedCount, groupIntake, intakeCount, parseOnly, visibleGroups, INTAKE_GROUPS } from "@/lib/chain/intake";
-import type { Job } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 import type { QueueRow } from "@/lib/chain/queues";
 
 const CHAIN: ChainState = {

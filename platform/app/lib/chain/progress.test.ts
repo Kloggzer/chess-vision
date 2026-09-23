@@ -68,6 +68,17 @@ describe("progressOf", () => {
     expect((await progressOf("x", log)).totalSeconds).toBe(52);
   });
 
+  it("has no denominator without a phone session, and takes the newest session that states one", async () => {
+    await writeFile(log, REPLAY);
+    expect((await progressOf("y", log)).totalSeconds).toBeNull();
+    const sessions = path.join(data, "recordings", "y", "files", "sessions");
+    await mkdir(path.join(sessions, "20260813-100000"), { recursive: true });
+    await mkdir(path.join(sessions, "20260813-110000"), { recursive: true });
+    await writeFile(path.join(sessions, "20260813-100000", "session.yaml"), "video_duration_ns: 10000000000\n");
+    await writeFile(path.join(sessions, "20260813-110000", "session.yaml"), "video_duration_ns: 0\n");
+    expect((await progressOf("y", log)).totalSeconds).toBe(10);
+  });
+
   it("reads only the CURRENT run — an appended log still holds the last one's clock", async () => {
     const older = [
       "$ desktop.bat replay video.mp4 label lens",

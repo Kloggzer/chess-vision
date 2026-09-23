@@ -73,6 +73,7 @@ export const RECORDING_FILES = {
   candidate: "candidate.json",
   reference: "reference.pgn",
   modelReads: "model-reads.jsonl",
+  session: "session.yaml",
 } as const;
 
 export const recordingFile = (name: string, file: keyof typeof RECORDING_FILES): string =>
@@ -80,6 +81,9 @@ export const recordingFile = (name: string, file: keyof typeof RECORDING_FILES):
 
 /** Liegt ein `log.jsonl`? Nur ENOENT heisst nein — ein EACCES wirft. */
 export const hasExport = (name: string): Promise<boolean> => exists(recordingFile(name, "log"));
+
+/** Liegt eine `candidate.json`? Ein EACCES wirft — sonst ueberschriebe das Label-Werkzeug Bestaetigungen. */
+export const hasCandidateFile = (name: string): Promise<boolean> => exists(recordingFile(name, "candidate"));
 
 /**
  * Die Aufnahme muss schon dastehen, bevor ein Ledger neben sie geschrieben wird.
@@ -106,6 +110,18 @@ export async function listGames(): Promise<string[]> {
 
 export async function loadCandidate(name: string): Promise<Candidate> {
   return JSON.parse(await readFile(recordingFile(name, "candidate"), "utf8"));
+}
+
+/** `candidate.json` fuer eine ANZEIGE: `null` ohne Datei, `{ doc: null }` halb geschrieben (sie
+ *  entsteht, waehrend `writeConfirmation` schreibt). Nur ENOENT ist "keine" — alles andere wirft. */
+export async function peekCandidate(name: string): Promise<{ doc: Candidate | null } | null> {
+  const text = await readFile(recordingFile(name, "candidate"), "utf8").catch(absentOnly);
+  if (text === null) return null;
+  try {
+    return { doc: JSON.parse(text) as Candidate };
+  } catch {
+    return { doc: null };
+  }
 }
 
 /**

@@ -20,8 +20,12 @@
 1 lib/corpus/corpus-query.ts  # unlesbares log.jsonl nimmt die Aufnahme absichtlich aus der Antwort, statt den Phasenfilter still abzuschalten
 1 lib/corpus/corpus.ts  # nur noch der corpus-index CACHE: eine kaputte Indexdatei wird NEU GEBAUT, nicht geschluckt (2026-09-22)
 1 lib/chain/heavy-lock.ts  # die Sperre selbst; sie unterscheidet `null` und `"unreadable"` schon von Hand
-5 lib/chain/jobs.ts  # Job-LOGS fuer die Anzeige, keine Messung: ein halber Log ist der laufende Prozess
-2 lib/chain/progress.ts  # session.yaml und der Log-SCHWANZ; beide melden `null`, nicht 0
+1 lib/chain/job-log.ts  # Job-LOGS fuer die Anzeige, keine Messung: ein halber Log ist der laufende Prozess
+2 lib/chain/ledger.ts  # jobs.jsonl: fehlt es, ist noch nichts gelaufen; alles andere wirft
+1 lib/chain/pack.ts  # ein unlesbarer Spielstand ist keiner, der die Session nennt
+1 lib/chain/runners.ts  # der Log eines gescheiterten Laufs: ohne ihn bleibt `exit N` der Grund
+1 lib/chain/progress.ts  # der Log-SCHWANZ meldet `null`, nicht 0
+1 lib/session-store/stored.ts  # phoneSessionSeconds: ein unlesbares session.yaml des Handys heisst "kein Nenner", keine 0
 1 lib/chain/queues.ts  # fehlende candidate.json heisst "noch nicht kandidiert" und wird so gerendert
 1 app/game/[name]/page.tsx  # fehlende candidate.json ist ein eigener Zustand der Seite; die PGN wirft seit 2026-09-22
 1 app/page.tsx  # dito

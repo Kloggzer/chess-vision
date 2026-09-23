@@ -17,7 +17,7 @@ vi.mock("@/lib/chain/drain", () => ({
 }));
 
 const matte = vi.hoisted(() => ({ recut: [] as string[], clears: [] as string[], restores: [] as string[] }));
-vi.mock("@/lib/session-store/matte-fix", () => ({
+vi.mock("@/lib/chain/matte-edit", () => ({
   recutMatte: async (name: string) => {
     matte.recut.push(name);
     return { name, cut: 3 };

@@ -2,7 +2,9 @@
 import { isJobStep } from "@/lib/chain/backlog";
 import { chainState, type ChainState } from "@/lib/chain/chain";
 import { claimHeavyLock, releaseHeavyLock } from "@/lib/chain/heavy-lock";
-import { enqueueChain, enqueueLabel, enqueuePhoneRecord, modelReadRun, runningJob, type Job } from "@/lib/chain/jobs";
+import { modelReadRun } from "@/lib/chain/cli-args";
+import { enqueueChain, enqueueLabel, enqueuePhoneRecord } from "@/lib/chain/jobs";
+import { runningJob, type Job } from "@/lib/chain/slot";
 
 export type StepRefusal = { error: string; state: ChainState; status: 400 | 409 };
 

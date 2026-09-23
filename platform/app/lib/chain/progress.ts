@@ -9,11 +9,11 @@
  * Where a denominator is missing (a chesslab step, a recording without `video_duration_ns`) there is
  * no bar — the last line of output is shown instead. An invented percentage is worse than none.
  */
-import { open, readFile, readdir, stat } from "node:fs/promises";
-import path from "node:path";
-import { checkName, gameDir } from "@/lib/session-store/recordings";
+import { open, readFile, stat } from "node:fs/promises";
+import { checkName } from "@/lib/session-store/recordings";
+import { phoneSessionSeconds } from "@/lib/session-store/stored";
 import { absentOnly } from "@/lib/measurement";
-import { lastRunOf } from "@/lib/chain/jobs";
+import { lastRunOf } from "@/lib/chain/job-log";
 
 export type Progress = {
   /** Seconds of the recording the replay has reached, and the recording's own length. */
@@ -31,25 +31,6 @@ export type Progress = {
 
 const TAIL_BYTES = 4096;
 const TAIL_LINES = 4;
-const NS_PER_S = 1e9;
-
-/** The duration the phone recorded beside the video — the only honest denominator we have. */
-async function recordingSeconds(name: string): Promise<number | null> {
-  const sessions = path.join(gameDir(name), "files", "sessions");
-  let ids: string[] = [];
-  try {
-    ids = (await readdir(sessions, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch (e) {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return null;
-  }
-  for (const id of ids.sort().reverse()) {
-    const text = await readFile(path.join(sessions, id, "session.yaml"), "utf8").catch(() => "");
-    const ns = /video_duration_ns:\s*(\d+)/.exec(text);
-    if (ns && Number(ns[1]) > 0) return Number(ns[1]) / NS_PER_S;
-  }
-  return null;
-}
 
 /** Read the tail without pulling a growing log into memory. */
 async function tailOf(file: string): Promise<{ tail: string[]; bytes: number }> {
@@ -76,7 +57,7 @@ export async function progressOf(name: string, log: string | undefined): Promise
   checkName(name, "game name");
   // A queued job has no log yet, but the recording's length is already known — "0 of 412 s" is
   // what a waiting user wants to see, and it is the only honest number available at that moment.
-  if (!log) return { atSeconds: null, totalSeconds: await recordingSeconds(name), plies: 0, frames: null, tail: [], bytes: 0 };
+  if (!log) return { atSeconds: null, totalSeconds: await phoneSessionSeconds(name), plies: 0, frames: null, tail: [], bytes: 0 };
   const { tail, bytes } = await tailOf(log);
   const text = await readFile(log, "utf8").catch(() => "");
   let atSeconds: number | null = null;
@@ -98,5 +79,5 @@ export async function progressOf(name: string, log: string | undefined): Promise
     const step = /\b(\d+)\/(\d+) frames\b/.exec(line);
     if (step && Number(step[2]) > 0) frames = { at: Number(step[1]), total: Number(step[2]) };
   }
-  return { atSeconds, totalSeconds: await recordingSeconds(name), plies, frames, tail, bytes };
+  return { atSeconds, totalSeconds: await phoneSessionSeconds(name), plies, frames, tail, bytes };
 }

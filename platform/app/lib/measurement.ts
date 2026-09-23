@@ -45,7 +45,7 @@ export async function stampOrMissing(file: string): Promise<string | null> {
 
 type Entry = { key: string; value: Measurement<unknown> };
 type Cache = Map<string, Entry>;
-/** Angepinnt wie `lib/chain/jobs.ts` — eine Modul-Map parst sonst bei jedem Hot Reload neu. */
+/** Angepinnt wie `lib/chain/slot.ts` — eine Modul-Map parst sonst bei jedem Hot Reload neu. */
 const cache: Cache = ((globalThis as { __chesslabMeasurements?: Cache }).__chesslabMeasurements ??= new Map());
 
 /** Nur fuer Tests: die Leser sind mtime-gekeyt, ein Fixture kann in dieselbe ms fallen. */

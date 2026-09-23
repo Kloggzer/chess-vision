@@ -1,7 +1,8 @@
 // No ticker, no timer, no work on import: every job starts on a press (2026-08-18).
 import { adoptFailures, clearAdoptFailures } from "@/lib/chain/chain";
 import { refused, startStep } from "@/lib/chain/run";
-import { jobs, lastByStep, runningJob, stopRunning, whenIdle, type Job } from "@/lib/chain/jobs";
+import { jobs, lastByStep, stopRunning } from "@/lib/chain/jobs";
+import { runningJob, whenIdle, type Job } from "@/lib/chain/slot";
 import { backlog, JOB_STEPS, type Backlog, type JobStep } from "@/lib/chain/backlog";
 import { readHeavyLock, stale } from "@/lib/chain/heavy-lock";
 import { queueRows } from "@/lib/chain/queues";

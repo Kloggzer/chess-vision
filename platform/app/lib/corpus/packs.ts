@@ -1,7 +1,7 @@
 /**
  * `/corpus` §7.3: quarantine share per training pack, dirty share per exported session.
  *
- * `training-pack/` ONLY — the canonical name `lib/chain/jobs.ts` (`runPack`) writes. A bundle can
+ * `training-pack/` ONLY — the canonical name `lib/chain/runners.ts` (`runPack`) writes. A bundle can
  * carry several packs of the same video under different sampling settings; they count as
  * variants and are never summed, because that double-counts one recording.
  */

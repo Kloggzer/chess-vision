@@ -1,10 +1,25 @@
 import { constants } from "node:fs";
-import { copyFile } from "node:fs/promises";
+import { copyFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Chess } from "chess.js";
 import { stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
-import { stampOrMissing } from "@/lib/measurement";
+import { exists, stampOrMissing } from "@/lib/measurement";
 import { referencePath } from "@/lib/session-store/recordings";
+
+/** Liegt eine `reference.pgn`? Nur ENOENT heisst nein — ein EACCES wirft. */
+export const hasReferenceFile = (name: string): Promise<boolean> => exists(referencePath(name));
+
+/** Das Handy-PGN als `reference.pgn`, EXKLUSIV: `false`, wenn inzwischen eine liegt — zwischen
+ *  Pruefung und Schreiben kann ein Upload landen, und ein Mensch war dann schneller. */
+export async function writeReferenceOnce(name: string, text: string): Promise<boolean> {
+  try {
+    await writeFile(referencePath(name), text, { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "EEXIST") throw e;
+    return false;
+  }
+}
 
 /** Verweigert, bevor etwas landet — die Route antwortet darauf mit 409. */
 export class ReferenceRefused extends Error {}

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { DESKTOP_MODEL } from "@/lib/chain/jobs";
+import { DESKTOP_MODEL } from "@/lib/chain/cli-args";
 import { decidedRatio, readSummary } from "@/lib/corpus/packs";
 
 /** A pack from 2026-08-14 on. */

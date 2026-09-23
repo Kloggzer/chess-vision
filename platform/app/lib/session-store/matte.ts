@@ -33,13 +33,16 @@ export type AlphaState = "sam" | "fixed" | "pending";
 
 export type SessionMatte = Map<string, MatteFrame>;
 
+/** `mattes/` einer Aufnahme: SAMs Schnitt und daneben die Handfassung. */
+const mattesDir = (name: string): string => path.join(sessionDir(name), "mattes");
+
 export function mattePath(name: string, stem: string): string {
-  return path.join(sessionDir(name), "mattes", `${checkName(stem, "frame")}.webp`);
+  return path.join(mattesDir(name), `${checkName(stem, "frame")}.webp`);
 }
 
 /** `matte.FIXED_SUFFIX` — the hand-corrected alpha sits BESIDE SAM's cut and never over it. */
 export function fixedMattePath(name: string, stem: string): string {
-  return path.join(sessionDir(name), "mattes", `${checkName(stem, "frame")}.fixed.webp`);
+  return path.join(mattesDir(name), `${checkName(stem, "frame")}.fixed.webp`);
 }
 
 /** What a viewer should show: the correction when there is one, SAM's cut otherwise. */
@@ -50,7 +53,7 @@ export async function alphaPath(name: string, stem: string): Promise<string> {
 
 /** Corrected alphas of one session as `stem -> mtime`; absent directory means nobody painted. */
 export async function fixedAlphas(name: string): Promise<Map<string, number>> {
-  const dir = path.join(sessionDir(name), "mattes");
+  const dir = mattesDir(name);
   const out = new Map<string, number>();
   const names = (await readdir(dir).catch(absentOnly)) ?? [];
   for (const file of names.filter((f) => f.endsWith(".fixed.webp"))) {

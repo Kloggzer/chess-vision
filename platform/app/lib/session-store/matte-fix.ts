@@ -1,16 +1,14 @@
 /**
  * The pen's product: `mattes/<stem>.fixed.webp`, SAM's alpha with the human's strokes burnt in.
- * The board is shown STRAIGHTENED, the file has to be the raw raster SAM cut — so a stroke goes
- * back through the mesh and homography `mattePng` used. No coverage here: `occluders recut` cuts it.
+ * The board is shown STRAIGHTENED, the file has to be the raw raster SAM cut. No coverage here, and
+ * no slot check: `chain/matte-edit.ts` asks the slot first and starts `occluders recut`.
  */
 import { readFile, rm } from "node:fs/promises";
 import sharp from "sharp";
 import { writeFileAtomic } from "@/lib/atomic";
 import { forgetRaster } from "@/lib/session-store/crops";
 import { checkName } from "@/lib/session-store/recordings";
-import { busy, runChesslabCapture } from "@/lib/chain/jobs";
-import { alphaPath, fixedMattePath, mattePath, matteStamp } from "@/lib/session-store/matte";
-import { lastLine } from "@/lib/chain/session-delete";
+import { alphaPath, fixedMattePath, mattePath } from "@/lib/session-store/matte";
 import { boardToStored, loadSession } from "@/lib/session-store/session";
 import { applyMat, invertMat, type Mat3, meshPointInverse, type TiltedMesh } from "@/lib/warp";
 
@@ -76,7 +74,6 @@ const encodeAlpha = (out: Buffer, width: number, height: number) =>
 export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer): Promise<string> {
   checkName(name, "game name");
   checkName(stem, "frame");
-  if (busy()) throw new Error("ein Job läuft gerade — der schreibt womöglich dieselben Dateien");
 
   const session = await loadSession(name);
   const board = session.byStem.get(stem)?.board;
@@ -107,7 +104,6 @@ export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer
 export async function clearAlpha(name: string, stem: string): Promise<string> {
   checkName(name, "game name");
   checkName(stem, "frame");
-  if (busy()) throw new Error("ein Job läuft gerade — der schreibt womöglich dieselben Dateien");
 
   const { width, height } = await sharp(await readFile(mattePath(name, stem))).metadata();
   if (!width || !height) throw new Error(`frame ${stem} carries no alpha`);
@@ -123,28 +119,9 @@ export async function clearAlpha(name: string, stem: string): Promise<string> {
 export async function restoreAlpha(name: string, stem: string): Promise<string> {
   checkName(name, "game name");
   checkName(stem, "frame");
-  if (busy()) throw new Error("ein Job läuft gerade — der schreibt womöglich dieselben Dateien");
 
   const file = fixedMattePath(name, stem);
   await rm(file, { force: true });
   forgetRaster(file);
   return file;
-}
-
-/**
- * `alpha-worker` APPENDS to the file `recut` rewrites whole. A fresh mtime means one is mid-run,
- * and rewriting under it would drop the rows it wrote since — so this refuses instead.
- */
-const WORKER_QUIET_MS = 60_000;
-
-export async function recutMatte(name: string): Promise<{ done: string }> {
-  checkName(name, "game name");
-  if (busy()) throw new Error("ein Job läuft gerade — der schreibt womöglich dieselben Manifeste");
-  const age = Date.now() - (await matteStamp(name));
-  if (age < WORKER_QUIET_MS) {
-    throw new Error("matte.jsonl wurde gerade geschrieben — der alpha-worker läuft, recut würde seine Zeilen verlieren");
-  }
-  const run = await runChesslabCapture(["occluders", "recut", name]);
-  if (run.code !== 0) throw new Error((run.stderr || run.stdout).trim() || `${run.command} exited ${run.code}`);
-  return { done: lastLine(run.stdout) };
 }

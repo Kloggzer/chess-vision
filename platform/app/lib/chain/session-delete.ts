@@ -4,7 +4,8 @@
  * worse than no dialog, so both steps run one verb and this file only reads its output.
  */
 import { checkName } from "@/lib/session-store/recordings";
-import { busy, runChesslabCapture } from "@/lib/chain/jobs";
+import { busy } from "@/lib/chain/slot";
+import { runChesslabCapture } from "@/lib/chain/spawn";
 
 /** What `--dry-run` prints, verbatim: the one JSON line of `sessions.deletion_cost`. */
 export type DeletionCost = {
