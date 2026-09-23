@@ -6,15 +6,15 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 const lock = vi.hoisted(() => ({ result: null as unknown }));
-vi.mock("@/lib/heavy-lock", async (original) => ({
-  ...(await original<typeof import("@/lib/heavy-lock")>()),
+vi.mock("@/lib/chain/heavy-lock", async (original) => ({
+  ...(await original<typeof import("@/lib/chain/heavy-lock")>()),
   claimHeavyLock: async (job: string, name: string) => lock.result ?? { held: { pid: process.pid, job, name, startedAt: "" } },
   releaseHeavyLock: async () => undefined,
 }));
 
 const jobs = vi.hoisted(() => ({ calls: [] as string[], fail: null as string | null }));
-vi.mock("@/lib/jobs", async (original) => ({
-  ...(await original<typeof import("@/lib/jobs")>()),
+vi.mock("@/lib/chain/jobs", async (original) => ({
+  ...(await original<typeof import("@/lib/chain/jobs")>()),
   enqueueChain: async (name: string, step: string) => {
     jobs.calls.push(`${name}|${step}`);
     return { name, kind: step, state: "queued", queuedAt: "" };

@@ -1,5 +1,5 @@
-import { chainState } from "@/lib/chain";
-import { refused, startStep } from "@/lib/chain-run";
+import { chainState } from "@/lib/chain/chain";
+import { refused, startStep } from "@/lib/chain/run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

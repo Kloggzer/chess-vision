@@ -45,7 +45,7 @@ export async function stampOrMissing(file: string): Promise<string | null> {
 
 type Entry = { key: string; value: Measurement<unknown> };
 type Cache = Map<string, Entry>;
-/** Angepinnt wie `lib/jobs.ts` — eine Modul-Map parst sonst bei jedem Hot Reload neu. */
+/** Angepinnt wie `lib/chain/jobs.ts` — eine Modul-Map parst sonst bei jedem Hot Reload neu. */
 const cache: Cache = ((globalThis as { __chesslabMeasurements?: Cache }).__chesslabMeasurements ??= new Map());
 
 /** Nur fuer Tests: die Leser sind mtime-gekeyt, ein Fixture kann in dieselbe ms fallen. */
@@ -55,7 +55,7 @@ export function clearMeasurementCache(): void {
 
 /**
  * Mtime-gekeyt wie jeder Leser davor. `salt` traegt einen zweiten Stempel in den Schluessel —
- * `lib/audit-flags.ts` gilt als veraltet, sobald eine Matte JUENGER ist als die Flags.
+ * `lib/reports/audit-flags.ts` gilt als veraltet, sobald eine Matte JUENGER ist als die Flags.
  */
 export async function loadMeasurement<T>(
   file: string,

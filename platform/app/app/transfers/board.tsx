@@ -12,8 +12,8 @@ import {
 import { readAnswer } from "@/lib/answer";
 import { failureParts, logName } from "@/lib/failure";
 import { when } from "@/lib/when";
-import type { TransferRow } from "@/lib/ingest";
-import type { Job } from "@/lib/jobs";
+import type { TransferRow } from "@/lib/ingest/ingest";
+import type { Job } from "@/lib/chain/jobs";
 
 type Board = {
   transfers: TransferRow[];

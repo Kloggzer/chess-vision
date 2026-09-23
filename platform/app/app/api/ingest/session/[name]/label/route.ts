@@ -1,5 +1,5 @@
-import { claimHeavyLock, releaseHeavyLock } from "@/lib/heavy-lock";
-import { enqueueLabel } from "@/lib/jobs";
+import { claimHeavyLock, releaseHeavyLock } from "@/lib/chain/heavy-lock";
+import { enqueueLabel } from "@/lib/chain/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

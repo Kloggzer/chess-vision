@@ -1,4 +1,4 @@
-import { deleteSession, deletionCost } from "@/lib/session-delete";
+import { deleteSession, deletionCost } from "@/lib/chain/session-delete";
 
 /**
  * Two steps of ONE verb: `{dryRun:true}` returns what would go, `{confirm:"<id>"}` deletes it. The

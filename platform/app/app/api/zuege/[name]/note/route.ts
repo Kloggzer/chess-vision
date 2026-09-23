@@ -1,5 +1,5 @@
-import { appendReviewNotes } from "@/lib/review-notes";
-import { sessionId } from "@/lib/session";
+import { appendReviewNotes } from "@/lib/session-store/review-notes";
+import { sessionId } from "@/lib/session-store/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

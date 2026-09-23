@@ -7,7 +7,7 @@ const drain = vi.hoisted(() => ({
   stopFail: null as string | null,
   status: { running: null as string | null },
 }));
-vi.mock("@/lib/drain", () => ({
+vi.mock("@/lib/chain/drain", () => ({
   drainStatus: async () => drain.status,
   startDrain: async (step: string | null) => {
     drain.started.push(step);
@@ -17,7 +17,7 @@ vi.mock("@/lib/drain", () => ({
 }));
 
 const matte = vi.hoisted(() => ({ recut: [] as string[], clears: [] as string[], restores: [] as string[] }));
-vi.mock("@/lib/matte-fix", () => ({
+vi.mock("@/lib/session-store/matte-fix", () => ({
   recutMatte: async (name: string) => {
     matte.recut.push(name);
     return { name, cut: 3 };

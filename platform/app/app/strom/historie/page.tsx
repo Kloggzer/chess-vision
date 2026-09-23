@@ -1,5 +1,5 @@
 import { PageTitle } from "@/app/page-title";
-import { loadHistory } from "@/lib/history-load";
+import { loadHistory } from "@/lib/label/history-load";
 import { HistoryView } from "./history-view";
 
 export const dynamic = "force-dynamic";

@@ -1,4 +1,4 @@
-import { ReferenceMoved, writeConfirmation } from "@/lib/data";
+import { ReferenceMoved, writeConfirmation } from "@/lib/session-store/recordings";
 
 /** The human's verdict: which unmatched candidate plies survive. The plies list is recomputed
  *  server-side from the file — the client only ever names the indices it kept. */

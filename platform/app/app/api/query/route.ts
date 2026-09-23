@@ -1,4 +1,4 @@
-import { queryCorpus } from "@/lib/corpus-query";
+import { queryCorpus } from "@/lib/corpus/corpus-query";
 import { DEFAULT_WALL } from "@/lib/query";
 
 /**

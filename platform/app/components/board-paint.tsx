@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { coveragePct, IDENTITY_CLASSES, LEGACY_LABEL } from "@/lib/classes";
 import { FILES, fenLabels } from "@/lib/fen";
-import { type BoardPlan, type Labels, type Row, cycleNext, planBoard, planRejectAll } from "@/lib/selection";
+import { type BoardPlan, type Labels, type Row, cycleNext, planBoard, planRejectAll } from "@/lib/label/selection";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 /**
@@ -160,7 +160,7 @@ export function useBoardPaint(input: PaintInput): PaintState {
     [brush, fen, set],
   );
 
-  /** One click, one step — the order and its why live in `lib/selection.ts`. */
+  /** One click, one step — the order and its why live in `lib/label/selection.ts`. */
   const cycle = useCallback(
     (square: string) =>
       set(square, cycleNext({ current: plan.labels[square], proposal: accept[square], base: base[square], fen: fen[square], brush })),

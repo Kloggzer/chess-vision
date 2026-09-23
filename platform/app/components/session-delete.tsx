@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { num } from "@/app/corpus/format";
 import { Button } from "@/components/ui/button";
-import type { DeletionCost } from "@/lib/session-delete";
+import type { DeletionCost } from "@/lib/chain/session-delete";
 
 async function post(id: string, body: unknown) {
   const res = await fetch(`/api/session/${encodeURIComponent(id)}`, {

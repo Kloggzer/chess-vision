@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
-import { matteCensus } from "@/lib/matte";
+import { matteCensus } from "@/lib/session-store/matte";
 import { tempDataRoot, writeLog } from "@/lib/test-fixtures";
 
 /**

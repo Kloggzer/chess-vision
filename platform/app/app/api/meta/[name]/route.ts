@@ -1,4 +1,4 @@
-import { loadMeta, saveMeta } from "@/lib/meta";
+import { loadMeta, saveMeta } from "@/lib/session-store/meta";
 
 export async function GET(_request: Request, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;

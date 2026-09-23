@@ -6,8 +6,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { appendRows } from "@/lib/atomic";
-import { appendCorrections, correctionsPath } from "@/lib/corrections";
-import { appendUnusableCells } from "@/lib/unusable-cells";
+import { appendCorrections, correctionsPath } from "@/lib/session-store/corrections";
+import { appendUnusableCells } from "@/lib/session-store/unusable-cells";
 import { jsonlRows, readJsonl } from "@/lib/jsonl";
 import { serialize } from "@/lib/serialize";
 import { tempDataRoot } from "@/lib/test-fixtures";
@@ -83,7 +83,7 @@ test("verschachteltes serialize auf demselben Schluessel verklemmt", async () =>
 });
 
 test("appendReviewNotes riegelt nicht noch einmal selbst", async () => {
-  const source = await readFile(path.join(process.cwd(), "lib", "review-notes.ts"), "utf8");
+  const source = await readFile(path.join(process.cwd(), "lib", "session-store/review-notes.ts"), "utf8");
   const body = source.slice(source.indexOf("export async function appendReviewNotes"), source.indexOf("export async function dropReviewNotes"));
   expect(body).toContain("appendRows(file");
   expect(body).not.toContain("serialize(");

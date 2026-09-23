@@ -8,9 +8,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import type { FrameStem } from "@/lib/data";
-import type { MoveSquares } from "@/lib/review-cards";
-import { readSticky } from "@/lib/sticky";
+import type { FrameStem } from "@/lib/session-store/recordings";
+import type { MoveSquares } from "@/lib/label/review-cards";
+import { readSticky } from "@/lib/label/sticky";
 
 /**
  * Vorher gegen Nachher — die Kamera steht fest, also ist der Unterschied zweier Frames GENAU der

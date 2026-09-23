@@ -9,9 +9,9 @@ import { ReferenceChip } from "@/components/reference-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { ReviewCard } from "@/lib/review-cards";
-import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGame } from "@/lib/zuege";
-import { SHORT_HOLD } from "@/lib/review-cards";
+import type { ReviewCard } from "@/lib/label/review-cards";
+import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGame } from "@/lib/label/zuege";
+import { SHORT_HOLD } from "@/lib/label/review-cards";
 
 /**
  * ZÜGE — every pending game's cards back to back, the game boundary a caption and a commit

@@ -1,7 +1,7 @@
 "use client";
 
 import { SQUARES } from "@/components/board-paint";
-import type { MatteOverlay } from "@/lib/hand-overlay";
+import type { MatteOverlay } from "@/lib/label/hand-overlay";
 
 export type BoardPeekProps = {
   /** The rectified board this cell was cut from — `/api/board/<name>/<stem>`. */

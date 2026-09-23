@@ -4,15 +4,15 @@ import { GameCard, type GameInfo } from "@/app/cards";
 import { PageTitle } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { SessionDelete } from "@/components/session-delete";
-import { chainState } from "@/lib/chain";
+import { chainState } from "@/lib/chain/chain";
 import { failureParts } from "@/lib/failure";
-import { judgedKeys } from "@/lib/corrections";
-import { listGames, loadCandidate, truthSans } from "@/lib/data";
-import { jobHistory, jobLogTail, type Job } from "@/lib/jobs";
-import { loadMeta } from "@/lib/meta";
-import { boardProgressOf, modelReadRows, readKey, type ReadCensus } from "@/lib/model-reads";
-import { bareFrames } from "@/lib/queues";
-import { sessionDir, sessionId } from "@/lib/session";
+import { judgedKeys } from "@/lib/session-store/corrections";
+import { listGames, loadCandidate, truthSans } from "@/lib/session-store/recordings";
+import { jobHistory, jobLogTail, type Job } from "@/lib/chain/jobs";
+import { loadMeta } from "@/lib/session-store/meta";
+import { boardProgressOf, modelReadRows, readKey, type ReadCensus } from "@/lib/session-store/model-reads";
+import { bareFrames } from "@/lib/chain/queues";
+import { sessionDir, sessionId } from "@/lib/session-store/session";
 
 export const dynamic = "force-dynamic";
 

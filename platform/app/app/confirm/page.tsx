@@ -1,4 +1,4 @@
-import { queueRows, splitQueues } from "@/lib/queues";
+import { queueRows, splitQueues } from "@/lib/chain/queues";
 import { PageTitle } from "@/app/page-title";
 import { QueueRowItem } from "@/app/queue-row";
 

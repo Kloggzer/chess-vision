@@ -33,7 +33,7 @@ test("ein neues candidate.json aendert den Schnitt, also darf der Zell-Cache ihn
     rows: [{ frame: 110, boardSize: 64 }],
   });
   await gradientBoard(dir, "000110", 64);
-  const { cellPng } = await import("@/lib/crops");
+  const { cellPng } = await import("@/lib/session-store/crops");
   const before = await cellPng("g", "000110", "e4", 32);
 
   // Nur `candidate.json`: `log.jsonl` und das Brett bleiben Byte fuer Byte liegen.

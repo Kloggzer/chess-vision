@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { modelPickable, pageClaim, pageCounts, type PageCell } from "@/app/strom/labeln/page-head";
-import { laneCells, type LaneCell } from "@/lib/lanes";
-import type { LabelStream } from "@/lib/label-stream";
+import { laneCells, type LaneCell } from "@/lib/label/lanes";
+import type { LabelStream } from "@/lib/label/label-stream";
 
 const cell = (over: Partial<LaneCell>): LaneCell => ({
   session: 0,

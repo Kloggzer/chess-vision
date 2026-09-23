@@ -1,6 +1,6 @@
 import { networkInterfaces } from "node:os";
-import { CHUNK_BYTES, ingestToken } from "@/lib/ingest";
-import { desktopBinary } from "@/lib/jobs";
+import { CHUNK_BYTES, ingestToken } from "@/lib/ingest/ingest";
+import { desktopBinary } from "@/lib/chain/jobs";
 import { PageTitle } from "@/app/page-title";
 import { TransferBoard } from "./board";
 

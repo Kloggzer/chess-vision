@@ -23,7 +23,7 @@ vi.mock("node:child_process", async (original) => ({
   },
 }));
 
-const { enqueueChain, jobHistory, whenIdle } = await import("@/lib/jobs");
+const { enqueueChain, jobHistory, whenIdle } = await import("@/lib/chain/jobs");
 
 beforeEach(async () => {
   await tempDataRoot("position-flags");

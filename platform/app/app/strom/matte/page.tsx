@@ -1,6 +1,6 @@
 import { PageTitle } from "@/app/page-title";
 import { Progress } from "@/components/progress";
-import { loadVerifyStream } from "@/lib/verify";
+import { loadVerifyStream } from "@/lib/label/verify";
 import { MatteReview } from "./review";
 
 export const dynamic = "force-dynamic";

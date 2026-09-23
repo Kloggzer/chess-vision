@@ -1,13 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
-import { chainState } from "@/lib/chain";
-import { tallyLines } from "@/lib/corpus";
-import { flagFrame } from "@/lib/frame-flag";
-import { DESKTOP_MODEL, verifyPack } from "@/lib/jobs";
+import { chainState } from "@/lib/chain/chain";
+import { tallyLines } from "@/lib/corpus/corpus";
+import { flagFrame } from "@/lib/session-store/frame-flag";
+import { DESKTOP_MODEL, verifyPack } from "@/lib/chain/jobs";
 import { jsonlRows, readJsonl, stripBom } from "@/lib/jsonl";
-import { modelReadProvenance } from "@/lib/provenance";
-import { dropReviewNotes, reviewNotesPath } from "@/lib/review-notes";
+import { modelReadProvenance } from "@/lib/corpus/provenance";
+import { dropReviewNotes, reviewNotesPath } from "@/lib/session-store/review-notes";
 import { type RowSpec, tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 test("eine halb geschriebene letzte Zeile ist keine Zeile", () => {

@@ -8,8 +8,8 @@ import { Notice } from "@/components/notice";
 import { PaletteRow } from "@/components/palette-row";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Correction, Ledger } from "@/lib/corrections";
-import { changeText, revertsTo, type Change } from "@/lib/history";
+import type { Correction, Ledger } from "@/lib/session-store/corrections";
+import { changeText, revertsTo, type Change } from "@/lib/label/history";
 
 /**
  * HISTORIE — jede geschriebene Zeile, jüngste zuerst, rückwärts blätterbar (CONCEPT.md 4.2.4).

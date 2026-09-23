@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 const crops = vi.hoisted(() => ({ mattePng: vi.fn() }));
-vi.mock("@/lib/crops", () => ({ mattePng: crops.mattePng, CUT_MIME: "image/webp" }));
+vi.mock("@/lib/session-store/crops", () => ({ mattePng: crops.mattePng, CUT_MIME: "image/webp" }));
 
 const fix = vi.hoisted(() => ({ saveFixedAlpha: vi.fn(), clearAlpha: vi.fn(), recutMatte: vi.fn() }));
-vi.mock("@/lib/matte-fix", () => fix);
+vi.mock("@/lib/session-store/matte-fix", () => fix);
 
 const { GET: matteGet, POST: mattePost } = await import("@/app/api/matte/[name]/[stem]/route");
 const { GET: hello } = await import("@/app/api/ingest/hello/route");

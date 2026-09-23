@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { DEFAULT_LANE, LANES, laneBySlug, lanePath } from "@/lib/lanes";
+import { DEFAULT_LANE, LANES, laneBySlug, lanePath } from "@/lib/label/lanes";
 
 /** `?lane=<id>` was the link before the lanes became routes — it keeps working, one hop. */
 export default async function LabelnIndex({ searchParams }: { searchParams: Promise<{ lane?: string }> }) {

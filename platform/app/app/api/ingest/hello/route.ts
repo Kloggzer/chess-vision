@@ -1,4 +1,4 @@
-import { CHUNK_BYTES, authorized } from "@/lib/ingest";
+import { CHUNK_BYTES, authorized } from "@/lib/ingest/ingest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

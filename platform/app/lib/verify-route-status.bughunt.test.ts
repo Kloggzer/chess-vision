@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 
 // Dieselbe Regel wie `api/cell`: ENOENT -> 404, alles andere -> 500, beides mit Grund im Rumpf.
 const load = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/verify", () => ({ loadVerifyStream: load }));
+vi.mock("@/lib/label/verify", () => ({ loadVerifyStream: load }));
 
 const get = async () => {
   const { GET } = await import("@/app/api/verify/route");

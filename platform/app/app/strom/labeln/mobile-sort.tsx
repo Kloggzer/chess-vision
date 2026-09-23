@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { SQUARES as BOARD_SQUARES } from "@/components/board-paint";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { CROP } from "@/components/crop-grid";
-import type { Correction, Ledger } from "@/lib/corrections";
-import type { StreamSession } from "@/lib/label-stream";
-import { collapseEvents, groupBySquare, type LaneCell } from "@/lib/lanes";
-import type { Tally } from "@/lib/session-tally";
+import type { Correction, Ledger } from "@/lib/session-store/corrections";
+import type { StreamSession } from "@/lib/label/label-stream";
+import { collapseEvents, groupBySquare, type LaneCell } from "@/lib/label/lanes";
+import type { Tally } from "@/lib/label/session-tally";
 import type { Flush, LaneActions } from "./stream";
 
 export type MobileSortProps = {

@@ -8,10 +8,10 @@ import { Progress } from "@/components/progress";
 import { SEGMENTS, segment } from "@/components/segmented";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Correction, Ledger } from "@/lib/corrections";
+import type { Correction, Ledger } from "@/lib/session-store/corrections";
 import { coveragePct, coveredSquares } from "@/lib/classes";
-import { DIRTY_BRUSH, DIRTY_KEY, dirtyRows, frameKey } from "@/lib/dirty-frames";
-import type { LabelStream, StreamBoard } from "@/lib/label-stream";
+import { DIRTY_BRUSH, DIRTY_KEY, dirtyRows, frameKey } from "@/lib/label/dirty-frames";
+import type { LabelStream, StreamBoard } from "@/lib/label/label-stream";
 import {
   DEFAULT_LANE,
   LANES,
@@ -38,10 +38,10 @@ import {
   openCells,
   wallCells,
   type LaneCell,
-} from "@/lib/lanes";
+} from "@/lib/label/lanes";
 import { queryText, type Filter, type QueryAnswer } from "@/lib/query";
-import { cursorSession, linkFilter } from "@/lib/stream-head";
-import { addRows, emptyTally } from "@/lib/session-tally";
+import { cursorSession, linkFilter } from "@/lib/label/stream-head";
+import { addRows, emptyTally } from "@/lib/label/session-tally";
 import { BoardLane } from "./board-lane";
 import { FrameLane, type FrameVerdict } from "./frame-lane";
 import { CellLane } from "./cell-lane";
@@ -180,7 +180,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   }, []);
 
   /**
-   * `Klassenwand` is a server-side question (`lib/corpus-query.ts`), and the URL is its answer's
+   * `Klassenwand` is a server-side question (`lib/corpus/corpus-query.ts`), and the URL is its answer's
    * address: the lane is "a place" (CONCEPT.md 4.2), so a chosen query has to survive a bookmark.
    * `replaceState` and not the router — a navigation here would re-render the lane under the answer.
    */

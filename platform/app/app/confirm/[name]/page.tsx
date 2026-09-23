@@ -1,22 +1,20 @@
 import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import { PageTitle } from "@/app/page-title";
-import { chainState, referenceOrigin } from "@/lib/chain";
+import { chainState, referenceOrigin } from "@/lib/chain/chain";
 import { Badge } from "@/components/ui/badge";
 import { ReferenceChip } from "@/components/reference-chip";
 import {
   confirmedAgainst,
-  gameDir,
   listFrameStems,
   loadCandidate,
   readReference,
+  readReferenceBytes,
   referenceDigest,
-} from "@/lib/data";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+} from "@/lib/session-store/recordings";
 import { lcsReport } from "@/lib/lcs";
 import { absentOnly } from "@/lib/measurement";
-import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
+import { buildGalleryCards, buildReviewCards } from "@/lib/label/review-cards";
 import { ConfirmReview } from "./cards";
 import { ReferenceEditor } from "./reference-editor";
 
@@ -57,7 +55,7 @@ export default async function ConfirmPage({
     readReference(name),
     referenceOrigin(name),
   ]);
-  const referenceBytes = await readFile(path.join(gameDir(name), "reference.pgn")).catch(absentOnly);
+  const referenceBytes = await readReferenceBytes(name);
   const referenceText = referenceBytes?.toString("utf8") ?? "";
   const referenceMd5 = referenceBytes === null ? null : referenceDigest(referenceBytes);
   const truth = reference?.sans ?? null;
@@ -81,7 +79,7 @@ export default async function ConfirmPage({
   // can show the position AFTER this ply. A commit can anchor mid-hand (a verify or pair commit,
   // or a blitz reply already arriving), so ONE picture is sometimes a hand and nothing else; the
   // card lets the human step through what exists instead of judging a covered board. Plies that
-  // share a commit frame share that window, so they share ONE card (`lib/review-cards.ts`).
+  // share a commit frame share that window, so they share ONE card (`lib/label/review-cards.ts`).
   const stems = await listFrameStems(name);
   const cards = buildReviewCards({
     moves,

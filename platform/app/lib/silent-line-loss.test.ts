@@ -1,6 +1,6 @@
 // Ein stilles `catch` macht aus dem Urteil eines Menschen ein "gab es nie"; der Schwanz: `pool.test.ts`.
 import { expect, test } from "vitest";
-import { dedupCorrections } from "@/lib/pool";
+import { dedupCorrections } from "@/lib/corpus/pool";
 import { readJsonl } from "@/lib/jsonl";
 
 test("eine kaputte Zeile mittendrin verschwindet nicht stillschweigend", () => {

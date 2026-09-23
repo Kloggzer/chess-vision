@@ -29,7 +29,7 @@ async function files(): Promise<{ rel: string; text: string }[]> {
 
 // Ohne Freigabe zeigt `queue.live` auf ein totes Kind, und `stopRunning` meldet einen Stopp, den es nie gab.
 test("every spawner in jobs.ts releases queue.live and answers a spawn error", async () => {
-  const src = await readFile(path.join(process.cwd(), "lib", "jobs.ts"), "utf8");
+  const src = await readFile(path.join(process.cwd(), "lib", "chain/jobs.ts"), "utf8");
   const bodies = src
     .split(/\n(?=(?:export )?(?:async )?function )/)
     .filter((b) => b.includes("queue.live = {"));
@@ -44,9 +44,9 @@ test("every spawner in jobs.ts releases queue.live and answers a spawn error", a
 // Deckt auch `handScanned`: ohne Leser sagt die Karte "keine Hand" ueber nie gescannte Aufnahmen.
 test("no LabelStream field is written on every load and read nowhere", async () => {
   const all = await files();
-  const elsewhere = all.filter((f) => f.rel !== "lib/label-stream.ts").map((f) => code(f.text)).join("\n");
+  const elsewhere = all.filter((f) => f.rel !== "lib/label/label-stream.ts").map((f) => code(f.text)).join("\n");
 
-  const src = all.find((f) => f.rel === "lib/label-stream.ts")!.text;
+  const src = all.find((f) => f.rel === "lib/label/label-stream.ts")!.text;
   const block = /export type LabelStream = \{([\s\S]*?)\n\};/.exec(src)?.[1] ?? "";
   const fields = [...code(block).matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1]);
   // Die Zaehler in `reads` sind eigene Felder — `without` wurde je Aufnahme hochgezaehlt.
@@ -58,7 +58,7 @@ test("no LabelStream field is written on every load and read nowhere", async () 
 });
 
 // `matte.jsonl` trug `disputed` in jede Zeile und niemand fragte es ab.
-const ORPHANS: readonly [string, string][] = [["lib/matte.ts", "disputed"]];
+const ORPHANS: readonly [string, string][] = [["lib/session-store/matte.ts", "disputed"]];
 
 test("a field a reader parses has somebody who asks for it", async () => {
   const all = await files();
@@ -71,7 +71,7 @@ test("a field a reader parses has somebody who asks for it", async () => {
 
 // 2026-09-14: `prob`/`margin` wanderten in jede `StreamAuditCell` und wurden nie gelesen.
 test("prob und margin bleiben aus der Audit-Zelle draussen", async () => {
-  const stream = await readFile(path.join(process.cwd(), "lib", "label-stream.ts"), "utf8");
+  const stream = await readFile(path.join(process.cwd(), "lib", "label/label-stream.ts"), "utf8");
   const audit = stream.slice(stream.indexOf("StreamAuditCell"), stream.indexOf("StreamAuditCell") + 400);
 
   expect(audit, "wer sie zurueckholt, bringt den Leser mit").not.toMatch(/margin\s*:/);
@@ -80,7 +80,7 @@ test("prob und margin bleiben aus der Audit-Zelle draussen", async () => {
 // Beide Enden des Positions-Carry sind unverdrahtet; knip sieht es nicht, weil ein Test als Einstieg zaehlt.
 test("carryPositionCorrections is still unwired — a decision, not an oversight", async () => {
   const callers = (await files())
-    .filter((f) => f.rel !== "lib/position-carry.ts" && f.text.includes("carryPositionCorrections"))
+    .filter((f) => f.rel !== "lib/label/position-carry.ts" && f.text.includes("carryPositionCorrections"))
     .map((f) => f.rel);
   expect(callers, "Der Carry ist bewusst unverdrahtet (docs/offene-entscheidungen.md). Wer ihn anschliesst, dreht diese Zusicherung um.").toEqual([]);
 });

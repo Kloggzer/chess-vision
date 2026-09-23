@@ -7,9 +7,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { Contested } from "@/lib/atomic";
-import { keptCards } from "@/lib/confirm-kept";
-import { loadCandidate, referenceDigest, writeConfirmation } from "@/lib/data";
-import { buildReviewCards } from "@/lib/review-cards";
+import { keptCards } from "@/lib/label/confirm-kept";
+import { loadCandidate, referenceDigest, writeConfirmation } from "@/lib/session-store/recordings";
+import { buildReviewCards } from "@/lib/label/review-cards";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const NAME = "g";

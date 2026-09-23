@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 /**
  * Correcting SAM 3's alpha by hand: strokes on a canvas over the straightened board. No coverage
  * and no threshold here — a two-colour stencil the server burns into `mattes/<stem>.fixed.webp`
- * (`lib/matte-fix.ts`). Red raises the alpha, cyan lowers it, both opaque so the file is the eye's.
+ * (`lib/session-store/matte-fix.ts`). Red raises the alpha, cyan lowers it, both opaque so the file is the eye's.
  */
 const PEN_CANVAS = 720;
 const UP_COLOR = "rgb(255,0,0)";

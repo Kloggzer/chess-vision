@@ -1,4 +1,4 @@
-import { coverageResponse } from "@/lib/capture-plan";
+import { coverageResponse } from "@/lib/ingest/capture-plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -3,4 +3,4 @@
 # ein Test legt sein eigenes Fixture an und erfindet dabei keine Schreibpolitik.
 # Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
 2 lib/test-fixtures.ts  # legt Fixtures fuer die Suite an, keine Datei aus data/
-1 lib/heavy-lock.ts  # `flag: "wx"` IST die Sperre - ein rename wuerde sie ueberrennen
+1 lib/chain/heavy-lock.ts  # `flag: "wx"` IST die Sperre - ein rename wuerde sie ueberrennen

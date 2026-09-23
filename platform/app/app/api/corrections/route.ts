@@ -1,4 +1,4 @@
-import { appendCorrections, type Ledger, validate } from "@/lib/corrections";
+import { appendCorrections, type Ledger, validate } from "@/lib/session-store/corrections";
 
 /** The human's verdicts, appended verbatim. One request = one flush, no cross-request buffer. */
 export async function POST(request: Request) {

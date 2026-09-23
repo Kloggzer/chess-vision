@@ -24,7 +24,7 @@ vi.mock("node:fs/promises", async (original) => {
 
 beforeEach(async () => {
   hook.onRead = null;
-  (await import("@/lib/chain")).clearAdoptFailures();
+  (await import("@/lib/chain/chain")).clearAdoptFailures();
 });
 
 const NAME = "g";
@@ -58,7 +58,7 @@ async function game(reference: string | null): Promise<string> {
 }
 
 const candidateOf = async (dir: string) => JSON.parse(await readFile(path.join(dir, "candidate.json"), "utf8"));
-const chainState = async () => (await import("@/lib/chain")).chainState(NAME);
+const chainState = async () => (await import("@/lib/chain/chain")).chainState(NAME);
 
 // --- 1. adoptPgn gegen einen Upload zwischen Pruefen und Schreiben ---------------------------
 
@@ -71,16 +71,16 @@ test("ein Upload zwischen Pruefung und Uebernahme wird vom Handy-PGN nicht ueber
     expect((await upload(HUMAN)).status).toBe(200);
   };
 
-  await (await import("@/lib/chain")).adoptOffered([NAME]);
+  await (await import("@/lib/chain/chain")).adoptOffered([NAME]);
 
   expect(landed).toBe(true);
   expect(await readFile(path.join(dir, "reference.pgn"), "utf8")).toBe(HUMAN);
-  expect((await import("@/lib/chain")).adoptFailures()).toEqual([expect.stringContaining(NAME)]);
+  expect((await import("@/lib/chain/chain")).adoptFailures()).toEqual([expect.stringContaining(NAME)]);
 });
 
 test("ohne Zwischenschreiber wird das Handy-PGN weiter uebernommen", async () => {
   const dir = await game(null);
-  await (await import("@/lib/chain")).adoptOffered([NAME]);
+  await (await import("@/lib/chain/chain")).adoptOffered([NAME]);
   expect(await readFile(path.join(dir, "reference.pgn"), "utf8")).toBe(PHONE);
 });
 

@@ -2,11 +2,11 @@ import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import { PageTitle } from "@/app/page-title";
 import { ListRow } from "@/components/list-row";
-import { chainState } from "@/lib/chain";
-import { STEP } from "@/lib/chain-steps";
-import { repairs } from "@/lib/drain";
+import { chainState } from "@/lib/chain/chain";
+import { STEP } from "@/lib/chain/steps";
+import { repairs } from "@/lib/chain/drain";
 import { failureParts, logName } from "@/lib/failure";
-import { jobs } from "@/lib/jobs";
+import { jobs } from "@/lib/chain/jobs";
 
 export const dynamic = "force-dynamic";
 

@@ -16,7 +16,7 @@ async function dirWhereFileBelongs(...parts: string[]) {
 }
 
 test("eine fehlende Bildrate wird nicht zu 30 erfunden", async () => {
-  const { loadSession } = await import("@/lib/session");
+  const { loadSession } = await import("@/lib/session-store/session");
   // Aufnahmen laufen zwischen 14,8 und 30,0 fps; 30 als Vorgabe verfaelscht `sinceS`/`toS` unauffaellig.
   await writeSession({
     root, fps: null,
@@ -28,7 +28,7 @@ test("eine fehlende Bildrate wird nicht zu 30 erfunden", async () => {
 });
 
 test("ein unlesbares Ledger ist nicht dasselbe wie keine Urteile", async () => {
-  const { decidedKeys } = await import("@/lib/corrections");
+  const { decidedKeys } = await import("@/lib/session-store/corrections");
   await mkdir(path.join(root, "recordings", "g"), { recursive: true });
   await dirWhereFileBelongs("recordings", "g", "corrections.jsonl");
 
@@ -36,7 +36,7 @@ test("ein unlesbares Ledger ist nicht dasselbe wie keine Urteile", async () => {
 });
 
 test("ein kaputtes Aufnahme-Wurzelverzeichnis ist nicht ein leeres Projekt", async () => {
-  const { listGames } = await import("@/lib/data");
+  const { listGames } = await import("@/lib/session-store/recordings");
   // Eine DATEI namens `recordings`: `readdir` wirft ENOTDIR, die Startseite zeigte "keine Aufnahmen".
   await writeFile(path.join(root, "recordings"), "", "utf8");
 
@@ -44,7 +44,7 @@ test("ein kaputtes Aufnahme-Wurzelverzeichnis ist nicht ein leeres Projekt", asy
 });
 
 test("eine unlesbare position-flags ist nicht `nie gelaufen`", async () => {
-  const { loadPositionFlags } = await import("@/lib/position-flags");
+  const { loadPositionFlags } = await import("@/lib/reports/position-flags");
   await dirWhereFileBelongs("reports", "position-flags.jsonl");
 
   await expect(loadPositionFlags()).rejects.toThrow();

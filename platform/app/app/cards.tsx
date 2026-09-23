@@ -15,8 +15,8 @@ import { ListRow } from "@/components/list-row";
 import { Notice } from "@/components/notice";
 import { SessionDelete } from "@/components/session-delete";
 import { UselessButton } from "@/app/useless-button";
-import type { ChainState } from "@/lib/chain";
-import type { Job } from "@/lib/jobs";
+import type { ChainState } from "@/lib/chain/chain";
+import type { Job } from "@/lib/chain/jobs";
 import { when as localWhen } from "@/lib/when";
 
 export type GameInfo = {

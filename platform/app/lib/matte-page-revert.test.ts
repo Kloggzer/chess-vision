@@ -1,6 +1,6 @@
 // Die Matte-Lane hatte keinen Rueckweg fuer eine versehentlich abgeschickte Seite (Nutzer, 2026-09-17).
 import { describe, expect, it } from "vitest";
-import { commitPage, revertPage } from "@/lib/matte-page";
+import { commitPage, revertPage } from "@/lib/label/matte-page";
 
 describe("eine geschriebene Seite zuruecknehmen", () => {
   const page = ["s|000100", "s|000103", "s|000106"];

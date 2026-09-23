@@ -1,15 +1,14 @@
-import path from "node:path";
-import { boardPng, CUT_MIME } from "@/lib/crops";
-import { gameDir } from "@/lib/data";
-import { exists, isMissing } from "@/lib/measurement";
-import { storedBoardPng } from "@/lib/stored";
+import { boardPng, CUT_MIME } from "@/lib/session-store/crops";
+import { hasExport } from "@/lib/session-store/recordings";
+import { isMissing } from "@/lib/measurement";
+import { storedBoardPng } from "@/lib/session-store/stored";
 
 /** Nur ein Bundle OHNE Export darf auf sein Handy-JPEG zurueckfallen. Beide Zeugen muessen es
  *  sagen — ENOENT statt „board is missing", und keine `log.jsonl` auf der Platte. */
 async function unexported(name: string, error: unknown): Promise<boolean> {
   if (!isMissing(error)) return false;
   // Ein EACCES am Log ist kein fehlender Export: sonst kaeme das Handy-JPEG unter fremdem Namen.
-  return !(await exists(path.join(gameDir(name), "log.jsonl")));
+  return !(await hasExport(name));
 }
 
 /** The rectified playing field of one session frame — the drilldown canvas, a8 top left. */

@@ -2,11 +2,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
-import { adoptFailures, adoptOffered, clearAdoptFailures } from "@/lib/chain";
-import { gameDir } from "@/lib/data";
-import { offeredPgns } from "@/lib/queues";
-import type { ChainState } from "@/lib/chain";
-import type { QueueRow } from "@/lib/queues";
+import { adoptFailures, adoptOffered, clearAdoptFailures } from "@/lib/chain/chain";
+import { gameDir } from "@/lib/session-store/recordings";
+import { offeredPgns } from "@/lib/chain/queues";
+import type { ChainState } from "@/lib/chain/chain";
+import type { QueueRow } from "@/lib/chain/queues";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 const NAME = "2026-08-14-09-23-19";

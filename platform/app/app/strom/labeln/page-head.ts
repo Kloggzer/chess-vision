@@ -1,4 +1,4 @@
-import type { LaneCell } from "@/lib/lanes";
+import type { LaneCell } from "@/lib/label/lanes";
 
 /**
  * Was die SEITE behauptet, nicht ihre erste Karte. Eine Seite von 60 laeuft ueber die Bloecke der

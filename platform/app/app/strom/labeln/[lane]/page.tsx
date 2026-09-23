@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { LANES, laneBySlug, lanePath } from "@/lib/lanes";
+import { LANES, laneBySlug, lanePath } from "@/lib/label/lanes";
 
 export const dynamic = "force-static";
 

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { intakeCount } from "@/lib/intake";
-import { queueRows, splitQueues } from "@/lib/queues";
+import { intakeCount } from "@/lib/chain/intake";
+import { queueRows, splitQueues } from "@/lib/chain/queues";
 import { Shell } from "./shell";
 
 export const metadata: Metadata = {

@@ -1,4 +1,4 @@
-import { checkName, framePng, reviewFramePath } from "@/lib/data";
+import { checkName, framePng, reviewFramePath } from "@/lib/session-store/recordings";
 import { isMissing } from "@/lib/measurement";
 
 /** Frames are streamed out of `data/` — never copied into the app. */

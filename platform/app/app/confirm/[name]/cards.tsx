@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { SHORT_HOLD } from "@/lib/review-cards";
+import { SHORT_HOLD } from "@/lib/label/review-cards";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -13,8 +13,8 @@ import {
   type Zoom,
 } from "@/app/confirm/board-frames";
 import { CompareBar, useCompareView } from "@/app/confirm/compare";
-import { keptCards, struckCards } from "@/lib/confirm-kept";
-import type { ReviewCard } from "@/lib/review-cards";
+import { keptCards, struckCards } from "@/lib/label/confirm-kept";
+import type { ReviewCard } from "@/lib/label/review-cards";
 
 export function ConfirmReview({
   name,

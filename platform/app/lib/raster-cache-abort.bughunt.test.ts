@@ -27,13 +27,13 @@ vi.mock("node:fs/promises", async (original) => ({
   stat: () => Promise.resolve({ mtimeMs: 7 }),
 }));
 
-vi.mock("@/lib/matte", async (original) => ({
-  ...(await original<typeof import("@/lib/matte")>()),
+vi.mock("@/lib/session-store/matte", async (original) => ({
+  ...(await original<typeof import("@/lib/session-store/matte")>()),
   alphaPath: (_n: string, stem: string) => Promise.resolve(`/x/${stem}.png`),
 }));
 
-vi.mock("@/lib/session", async (original) => ({
-  ...(await original<typeof import("@/lib/session")>()),
+vi.mock("@/lib/session-store/session", async (original) => ({
+  ...(await original<typeof import("@/lib/session-store/session")>()),
   loadSession: () =>
     Promise.resolve({
       boardSize: 8,
@@ -42,7 +42,7 @@ vi.mock("@/lib/session", async (original) => ({
   boardToStored: () => [1, 0, 0, 0, 1, 0, 0, 0, 1],
 }));
 
-const { mattePng } = await import("@/lib/crops");
+const { mattePng } = await import("@/lib/session-store/crops");
 
 test("ein Byte-Deckel darf eine laufende Dekodierung nicht zum Fehler machen", async () => {
   const first = mattePng("g", "000001", 4).then(() => "ok", (e: Error) => `REJECT ${e.message}`);

@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { commitPage, type MatteVerdict, type PageCommit, revertPage } from "@/lib/matte-page";
-import { pageAllMarked, toggleAllOnPage } from "@/lib/matte-select";
-import { clampPage } from "@/lib/page-turn";
-import { verifyFrameKey } from "@/lib/position-carry";
-import type { ReviewNote } from "@/lib/review-notes";
-import type { VerifyStream } from "@/lib/verify";
+import { commitPage, type MatteVerdict, type PageCommit, revertPage } from "@/lib/label/matte-page";
+import { pageAllMarked, toggleAllOnPage } from "@/lib/label/matte-select";
+import { clampPage } from "@/lib/label/page-turn";
+import { verifyFrameKey } from "@/lib/label/position-carry";
+import type { ReviewNote } from "@/lib/session-store/review-notes";
+import type { VerifyStream } from "@/lib/label/verify";
 import { MatteFrame } from "./frame";
 import { MATTE_PAGE, MatteGrid } from "./grid";
 
@@ -237,7 +237,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
     [judgeOne, loaded.sessions, open],
   );
 
-  // Seitenweise, nicht ersetzend (`lib/matte-select.ts`): `setMarked(allMarked())` verlor die
+  // Seitenweise, nicht ersetzend (`lib/label/matte-select.ts`): `setMarked(allMarked())` verlor die
   // Marken jeder anderen Seite, und "alle" liess sich nicht mehr abraeumen, sobald eine Karte
   // vorgemerkt leer war.
   const pageKeys = useMemo(() => slice.map(verifyFrameKey), [slice]);

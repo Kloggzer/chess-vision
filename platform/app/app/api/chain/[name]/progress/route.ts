@@ -1,5 +1,5 @@
-import { jobOf } from "@/lib/jobs";
-import { progressOf } from "@/lib/progress";
+import { jobOf } from "@/lib/chain/jobs";
+import { progressOf } from "@/lib/chain/progress";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

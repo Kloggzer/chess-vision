@@ -70,20 +70,20 @@ test("loadMeasurement: ein anderer salt ist ein anderer Cache-Eintrag", async ()
 });
 
 test("validateNote prueft den frame-Namen", async () => {
-  const { validateNote } = await import("@/lib/review-notes");
+  const { validateNote } = await import("@/lib/session-store/review-notes");
   expect(() => validateNote({ session_id: "rg-x", frame: "../evil", verdict: "matte-ok" })).toThrow(/frame/);
 });
 
 test("ein Widerruf ohne Ledger legt keins an", async () => {
   await tempDataRoot("drop-none");
-  const { dropReviewNotes, reviewNotesPath } = await import("@/lib/review-notes");
+  const { dropReviewNotes, reviewNotesPath } = await import("@/lib/session-store/review-notes");
   expect(await dropReviewNotes([{ session_id: "rg-x", frame: "000001", verdict: "dirty-frame" }])).toBe(0);
   await expect(stat(reviewNotesPath())).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 test("ein EACCES beim Widerruf ist kein „nichts zu entfernen\" — und das Ledger bleibt stehen", async () => {
   await tempDataRoot("drop-eacces");
-  const { dropReviewNotes, reviewNotesPath } = await import("@/lib/review-notes");
+  const { dropReviewNotes, reviewNotesPath } = await import("@/lib/session-store/review-notes");
   const file = reviewNotesPath();
   await mkdir(path.dirname(file), { recursive: true });
   const body = '{"session_id":"rg-x","frame":"000001","verdict":"dirty-frame","ts":"t"}\n';
@@ -98,7 +98,7 @@ test("eine Ablehnung wird gemerkt, bis ein Mensch sie beantwortet", async () => 
   const root = await tempDataRoot("adopt-remember");
   const game = path.join(root, "recordings", "g");
   await mkdir(game, { recursive: true });
-  const { adoptOffered, clearAdoptFailures } = await import("@/lib/chain");
+  const { adoptOffered, clearAdoptFailures } = await import("@/lib/chain/chain");
   clearAdoptFailures();
   await adoptOffered(["g"]);
   await mkdir(path.join(game, "files", "games"), { recursive: true });
@@ -118,11 +118,11 @@ test("referenceOrigin vergleicht nur die .pgn des Handys, nicht seine Records", 
   await writeFile(path.join(game, "reference.pgn"), "1. d4 *\n", "utf8");
   await writeFile(path.join(games, "rec.json"), "1. d4 *\n", "utf8");
   await writeFile(path.join(games, "a.pgn"), "1. e4 *\n", "utf8");
-  const { referenceOrigin } = await import("@/lib/chain");
+  const { referenceOrigin } = await import("@/lib/chain/chain");
   expect(await referenceOrigin("g")).toBe("outside");
 });
 
 test("validate prueft die session_id selbst — sonst landet ein Mehr-Aufnahmen-Stapel halb", async () => {
-  const { validate } = await import("@/lib/corrections");
+  const { validate } = await import("@/lib/session-store/corrections");
   expect(() => validate({ session_id: "../x", frame: "000001", square: "a1", label: "wP" })).toThrow(/session_id/);
 });

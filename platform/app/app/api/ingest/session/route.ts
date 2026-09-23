@@ -1,4 +1,4 @@
-import { authorized, declare, validateManifest } from "@/lib/ingest";
+import { authorized, declare, validateManifest } from "@/lib/ingest/ingest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

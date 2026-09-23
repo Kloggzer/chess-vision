@@ -3,14 +3,14 @@ import { Badge } from "@/components/ui/badge";
 import { BarRows, Legend, Meter, PairBars, Tile, type Bar, type Tone } from "@/components/chart";
 import { maxOf, niceMax } from "@/lib/chart";
 import { LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@/lib/classes";
-import type { ClassScheme, CorpusIndex, Shares, Split } from "@/lib/corpus";
-import type { Bundle, PackSummary, SessionDirty } from "@/lib/packs";
-import { decidedRatio } from "@/lib/packs";
-import type { PackGroup } from "@/lib/perf";
-import { agreed } from "@/lib/perf";
-import type { OccludedFit, Pool } from "@/lib/pool";
-import { occludedDiff } from "@/lib/pool";
-import type { Provenance, ProvenanceSummary } from "@/lib/provenance";
+import type { ClassScheme, CorpusIndex, Shares, Split } from "@/lib/corpus/corpus";
+import type { Bundle, PackSummary, SessionDirty } from "@/lib/corpus/packs";
+import { decidedRatio } from "@/lib/corpus/packs";
+import type { PackGroup } from "@/lib/corpus/perf";
+import { agreed } from "@/lib/corpus/perf";
+import type { OccludedFit, Pool } from "@/lib/corpus/pool";
+import { occludedDiff } from "@/lib/corpus/pool";
+import type { Provenance, ProvenanceSummary } from "@/lib/corpus/provenance";
 import { num, orDash, pct } from "./format";
 
 const CARD = "border-border space-y-2 rounded-lg border px-3 py-2";
@@ -20,7 +20,7 @@ const SUMMARY = "cursor-pointer max-sm:min-h-11";
 export type DatasetView = {
   name: string;
   split: Split;
-  /** What this snapshot's labels mean — read off the snapshot, never assumed (`lib/corpus.ts`). */
+  /** What this snapshot's labels mean — read off the snapshot, never assumed (`lib/corpus/corpus.ts`). */
   scheme: ClassScheme;
   index: CorpusIndex;
   shares: Shares;
@@ -399,7 +399,7 @@ export function SharesBlock({ view }: { view: DatasetView }) {
   --source-manifest data/crops/<tag>/manifest.jsonl,data/crops/capped-rg-<datum>/manifest.jsonl`}
         </pre>
         <p className="mt-1">
-          Kein Code-Pfad erzwingt eine Ergänzungs-Obergrenze: <code>--source-manifest</code> (cli.py:725) nimmt einen von
+          Kein Code-Pfad erzwingt eine Ergänzungs-Obergrenze: <code>--source-manifest</code> (cli/dataset.py:137) nimmt einen von
           Hand reduzierten Pool, das ist die ganze Mechanik.
         </p>
       </details>

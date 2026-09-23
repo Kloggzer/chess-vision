@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, test, vi } from "vitest";
 import { POST } from "@/app/api/pgn/[name]/route";
@@ -93,7 +93,7 @@ describe("POST /api/pgn/[name] data-safety regressions", () => {
   });
 
   it("schreibt ueber den Treuhaender statt die lebende Wahrheit an Ort und Stelle", async () => {
-    const source = await readFile(path.join(process.cwd(), "app", "api", "pgn", "[name]", "route.ts"), "utf8");
+    const source = await readFile(path.join(process.cwd(), "lib", "session-store", "reference.ts"), "utf8");
     expect(
       source,
       "BUG: a kill during writeFile(reference.pgn) can leave the only human reference half-written",
@@ -116,6 +116,20 @@ describe("POST /api/pgn/[name] data-safety regressions", () => {
     fail.on = null;
     expect(await readFile(pgn, "utf8")).toBe("1. e4 e5 *\n");
     expect((await readdir(game)).filter((f) => f !== "reference.pgn")).toEqual([]);
+  });
+
+  it("ohne `replace=1` bleibt eine vorhandene Referenz stehen, eine fehlende landet ohne Sicherung", async () => {
+    const pgn = path.join(game, "reference.pgn");
+    const refused = await upload("1. d4 d5 *\n", false);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "reference.pgn exists — replace must be explicit" });
+    expect(await readFile(pgn, "utf8")).toBe("1. e4 e5 *\n");
+    await rm(pgn);
+    const fresh = await upload("1. d4 d5", false);
+    expect(fresh.status).toBe(200);
+    expect(await fresh.json()).toEqual({ plies: 2, replaced: false, backup: null });
+    expect(await readFile(pgn, "utf8")).toBe("1. d4 d5\n");
+    expect((await upload("kein pgn", true)).status).toBe(400);
   });
 
   it("fehlt die Datei, ist der Stempel `null`", async () => {

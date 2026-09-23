@@ -1,11 +1,11 @@
-import { listFrameStems, loadCandidate, readReference } from "@/lib/data";
+import { listFrameStems, loadCandidate, readReference } from "@/lib/session-store/recordings";
 import { lcsReport } from "@/lib/lcs";
-import { queueRows, splitQueues, type QueueRow } from "@/lib/queues";
-import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
-import { referenceOrigin } from "@/lib/chain";
-import { badIntervals } from "@/lib/review-notes";
-import { sessionId } from "@/lib/session";
-import type { StreamGame } from "@/lib/zuege";
+import { queueRows, splitQueues, type QueueRow } from "@/lib/chain/queues";
+import { buildGalleryCards, buildReviewCards } from "@/lib/label/review-cards";
+import { referenceOrigin } from "@/lib/chain/chain";
+import { badIntervals } from "@/lib/session-store/review-notes";
+import { sessionId } from "@/lib/session-store/session";
+import type { StreamGame } from "@/lib/label/zuege";
 import { ZuegeStream } from "./stream";
 
 export const dynamic = "force-dynamic";

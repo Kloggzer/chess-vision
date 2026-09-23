@@ -1,7 +1,7 @@
 import { Contested } from "@/lib/atomic";
-import { flagFrame } from "@/lib/frame-flag";
-import { appendReviewNotes, validateNote } from "@/lib/review-notes";
-import { recordingName } from "@/lib/session";
+import { flagFrame } from "@/lib/session-store/frame-flag";
+import { appendReviewNotes, validateNote } from "@/lib/session-store/review-notes";
+import { recordingName } from "@/lib/session-store/session";
 
 /**
  * Das Urteil ueber ein ganzes FRAME, aus der Strittig-Lane: `matte` schickt es weiter (SAM holt

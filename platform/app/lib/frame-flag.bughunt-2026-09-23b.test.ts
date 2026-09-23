@@ -32,5 +32,5 @@ beforeEach(() => {
 test("ein EACCES auf den Sicherungsnamen ist kein freier Name", async () => {
   await writeSession({ root: await tempDataRoot("flagbackup"), rows: [{ frame: 100 }] });
   fail.on = (op, file) => (op === "stat" && file.includes("log.jsonl.bak.") ? "EACCES" : null);
-  await expect((await import("@/lib/frame-flag")).flagFrame("g", "000100", true)).rejects.toThrow(/EACCES/);
+  await expect((await import("@/lib/session-store/frame-flag")).flagFrame("g", "000100", true)).rejects.toThrow(/EACCES/);
 });

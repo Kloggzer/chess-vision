@@ -203,7 +203,7 @@ const MESH_INVERSE_ITERATIONS = 8;
 /**
  * The inverse of [meshPoint]: a point of the MEASURED board back to the ideal one it belongs to.
  * What straightens a stroke painted on the straightened board back onto the raw raster it has to
- * be written into (`lib/matte-fix.ts`).
+ * be written into (`lib/session-store/matte-fix.ts`).
  */
 export function meshPointInverse(x: number, y: number, mesh: GridMesh): [number, number] {
   let u = x;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { SEGMENTS, segment } from "@/components/segmented";
-import { failedOn, INTAKE_GROUPS, type IntakeGroup, type IntakeGroupKey } from "@/lib/intake";
+import { failedOn, INTAKE_GROUPS, type IntakeGroup, type IntakeGroupKey } from "@/lib/chain/intake";
 
 /** The filter lives in the URL and nowhere else: every step is a plain link, so a filtered view is
  *  shareable, survives a reload, and costs neither client state nor a `Suspense` boundary. */

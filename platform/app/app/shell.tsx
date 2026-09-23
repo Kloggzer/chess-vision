@@ -5,8 +5,8 @@ import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { DrainTarget } from "@/lib/drain";
-import { visibleSteps } from "@/lib/step-lane";
+import type { DrainTarget } from "@/lib/chain/drain";
+import { visibleSteps } from "@/lib/label/step-lane";
 import { runDot, runState, useDrain, type Drain } from "./drain-status";
 
 export type NavCounts = { zuege: number; labeln: number; einpflegen: number };

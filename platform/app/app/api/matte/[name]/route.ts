@@ -1,4 +1,4 @@
-import { recutMatte } from "@/lib/matte-fix";
+import { recutMatte } from "@/lib/session-store/matte-fix";
 
 /**
  * `chesslab occluders recut <name>` from the UI — the one verb that turns painted pixels into

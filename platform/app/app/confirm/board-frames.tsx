@@ -16,8 +16,8 @@ import {
   useBlink,
   type CompareView,
 } from "@/app/confirm/compare";
-import type { FrameStem } from "@/lib/data";
-import type { MoveSquares, ReviewCard } from "@/lib/review-cards";
+import type { FrameStem } from "@/lib/session-store/recordings";
+import type { MoveSquares, ReviewCard } from "@/lib/label/review-cards";
 
 /**
  * The commit picture and its pager, shared by the confirm page and the ZÜGE stream.

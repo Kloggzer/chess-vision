@@ -5,7 +5,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { loadMatte } from "@/lib/matte";
+import { loadMatte } from "@/lib/session-store/matte";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 const FIXTURE = path.join(

@@ -10,11 +10,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { readAnswer } from "@/lib/answer";
-import type { ChainState, ChainStep } from "@/lib/chain";
-import { STEP } from "@/lib/chain-steps";
+import type { ChainState, ChainStep } from "@/lib/chain/chain";
+import { STEP } from "@/lib/chain/steps";
 import { failureParts, logName } from "@/lib/failure";
-import type { Job } from "@/lib/jobs";
-import type { Progress } from "@/lib/progress";
+import type { Job } from "@/lib/chain/jobs";
+import type { Progress } from "@/lib/chain/progress";
 
 const BUSY = new Set(["queued", "running"]);
 

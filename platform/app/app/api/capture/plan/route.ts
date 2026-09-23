@@ -1,4 +1,4 @@
-import { planResponse } from "@/lib/capture-plan";
+import { planResponse } from "@/lib/ingest/capture-plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

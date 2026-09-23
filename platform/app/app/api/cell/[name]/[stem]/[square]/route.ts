@@ -1,7 +1,7 @@
-import { cellPng, CUT_MIME, medianPng } from "@/lib/crops";
+import { cellPng, CUT_MIME, medianPng } from "@/lib/session-store/crops";
 import { isMissing } from "@/lib/measurement";
-import { loadSession } from "@/lib/session";
-import { storedCellPng } from "@/lib/stored";
+import { loadSession } from "@/lib/session-store/session";
+import { storedCellPng } from "@/lib/session-store/stored";
 
 /** Bounds the work a URL can ask for — a crop is a thumbnail, not a poster. */
 function size(request: Request, fallback: number): number {
@@ -20,7 +20,7 @@ export async function GET(
     const cut = median ? medianPng : cellPng;
     const px = size(request, 160);
     // Only a bundle that was never exported falls through to its stored JPEGs (the same
-    // "no session log" reading `lib/label-stream.ts` uses); an exported session's errors surface.
+    // "no session log" reading `lib/label/label-stream.ts` uses); an exported session's errors surface.
     const exported = await loadSession(name).then(
       () => true,
       (e: unknown) => {

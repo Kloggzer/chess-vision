@@ -1,14 +1,14 @@
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
-import { parseCost } from "@/lib/session-delete";
+import { parseCost } from "@/lib/chain/session-delete";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
 // Routen-Jagd 2026-09-16: jeder Test haengt an einer Route, die bis dahin in `route-coverage.txt` stand.
 
 const tool = vi.hoisted(() => ({ stdout: "", code: 0, busy: false, calls: [] as string[][] }));
-vi.mock("@/lib/jobs", async (original) => ({
-  ...(await original<typeof import("@/lib/jobs")>()),
+vi.mock("@/lib/chain/jobs", async (original) => ({
+  ...(await original<typeof import("@/lib/chain/jobs")>()),
   busy: () => tool.busy,
   enqueuePack: async (name: string) => ({ name, state: "queued" }),
   runChesslabCapture: async (args: string[]) => {
@@ -18,8 +18,8 @@ vi.mock("@/lib/jobs", async (original) => ({
 }));
 
 const games = vi.hoisted(() => ({ names: [] as string[] }));
-vi.mock("@/lib/label-stream", async (original) => ({
-  ...(await original<typeof import("@/lib/label-stream")>()),
+vi.mock("@/lib/label/label-stream", async (original) => ({
+  ...(await original<typeof import("@/lib/label/label-stream")>()),
   liveGames: async () => games.names,
 }));
 

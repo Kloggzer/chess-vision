@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Hint } from "@/app/page-title";
 import { ListRow } from "@/components/list-row";
 import { Badge } from "@/components/ui/badge";
-import type { QueueRow } from "@/lib/queues";
+import type { QueueRow } from "@/lib/chain/queues";
 import { UselessButton } from "./useless-button";
 
 /**

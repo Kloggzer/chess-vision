@@ -1,5 +1,5 @@
 import { isMissing } from "@/lib/measurement";
-import { loadVerifyStream } from "@/lib/verify";
+import { loadVerifyStream } from "@/lib/label/verify";
 
 /** Nachschub fuer die Matte-Lane: `skip` sind die offenen Frames, die der Client schon haelt. */
 export async function GET(request: Request) {

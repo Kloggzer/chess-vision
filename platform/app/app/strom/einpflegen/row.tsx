@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import { ListRow } from "@/components/list-row";
-import type { IntakeRow } from "@/lib/intake";
+import type { IntakeRow } from "@/lib/chain/intake";
 
 /** Name, when, one fact, one control — the step's sentence lives once in the section, not here. */
 export function IntakeRowItem({ row }: { row: IntakeRow }) {

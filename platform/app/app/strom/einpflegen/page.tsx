@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { PageTitle } from "@/app/page-title";
-import { failedCount, finishedCount, groupIntake, intakeCount, parseOnly, visibleGroups } from "@/lib/intake";
-import { jobs } from "@/lib/jobs";
-import { queueRows } from "@/lib/queues";
+import { failedCount, finishedCount, groupIntake, intakeCount, parseOnly, visibleGroups } from "@/lib/chain/intake";
+import { jobs } from "@/lib/chain/jobs";
+import { queueRows } from "@/lib/chain/queues";
 import { IntakeStepper } from "./filters";
 import { IntakeRowItem } from "./row";
 

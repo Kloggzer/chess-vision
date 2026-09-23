@@ -1,4 +1,4 @@
-import { appendUnusableCells, validateCell } from "@/lib/unusable-cells";
+import { appendUnusableCells, validateCell } from "@/lib/session-store/unusable-cells";
 
 /**
  * „Aus diesem Crop ist kein Label zu holen" — ein eigenes Ledger neben `corrections.jsonl`, weil

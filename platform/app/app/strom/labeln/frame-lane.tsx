@@ -3,8 +3,8 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { StreamBoard, StreamSession } from "@/lib/label-stream";
-import { FRAME_LANE_SET } from "@/lib/lanes";
+import type { StreamBoard, StreamSession } from "@/lib/label/label-stream";
+import { FRAME_LANE_SET } from "@/lib/label/lanes";
 import type { LaneActions } from "./stream";
 
 export type FrameVerdict = "matte" | "unusable";

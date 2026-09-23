@@ -2,11 +2,11 @@ import Link from "next/link";
 import { PageTitle } from "@/app/page-title";
 import { SEGMENTS, segment } from "@/components/segmented";
 import { LEGACY_LABEL } from "@/lib/classes";
-import { classScheme, corpusIndex, listDatasets, newestDataset, loadDatasetMeta, trainShares, type DatasetEntry } from "@/lib/corpus";
-import { listPacks, sessionDirty } from "@/lib/packs";
-import { groupByPack, loadPerf, sweepLog } from "@/lib/perf";
-import { loadPool, occludedFit, snapshotOccluded, type Pool } from "@/lib/pool";
-import { modelReadProvenance, summarize } from "@/lib/provenance";
+import { classScheme, corpusIndex, listDatasets, newestDataset, loadDatasetMeta, trainShares, type DatasetEntry } from "@/lib/corpus/corpus";
+import { listPacks, sessionDirty } from "@/lib/corpus/packs";
+import { groupByPack, loadPerf, sweepLog } from "@/lib/corpus/perf";
+import { loadPool, occludedFit, snapshotOccluded, type Pool } from "@/lib/corpus/pool";
+import { modelReadProvenance, summarize } from "@/lib/corpus/provenance";
 import { BalanceCard, D2Banner, LightBlock, PacksBlock, PoolCard, SharesBlock, Tiles, VetoStrip, type DatasetView } from "./sections";
 
 export const dynamic = "force-dynamic";

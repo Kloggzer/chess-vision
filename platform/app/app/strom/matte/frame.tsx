@@ -10,9 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { moveLabel } from "@/lib/fen";
-import { verifyFrameKey } from "@/lib/position-carry";
+import { verifyFrameKey } from "@/lib/label/position-carry";
 import type { MatteVerdict } from "./review";
-import type { VerifyFrame, VerifySession } from "@/lib/verify";
+import type { VerifyFrame, VerifySession } from "@/lib/label/verify";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 

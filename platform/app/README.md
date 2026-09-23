@@ -6,7 +6,7 @@ the file formats are the only bridge.
 **A recording is one folder, and everything that only says something about it lives inside** — the
 import (`candidate.json`, `video.mp4`, `files/`, `review/`, `review-extra/`), what was cut from it
 (`session.yaml`, `log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`) and its own
-`corrections.jsonl` and `useless.json`. `lib/data.ts` `gameDir` is the only place that names the
+`corrections.jsonl` and `useless.json`. `lib/session-store/recordings.ts` `gameDir` is the only place that names the
 path. Everything derived lives outside and is rebuildable: `data/crops/<tag>/` (crops plus that
 pool's `manifest.jsonl`), `data/datasets/`, `data/models/`, `data/reports/`. Outside a recording
 this app touches only `data/labels/review-notes.jsonl` and its own `data/inbox/`.
@@ -30,15 +30,15 @@ sentence stands once per section, not per row. Useless, archived and video-less 
 as everywhere. The filter lives in the URL and nowhere else: pressing a step is `?nur=<step>`
 (pressing it again shows all), `?gescheitert=1` keeps only rows whose last job failed on the step
 the disk still asks for. Both are plain links, so a filtered view is shareable and survives a
-reload. The step's words come from `lib/chain-steps.ts`, the same table `chain-actions.tsx` prints
+reload. The step's words come from `lib/chain/steps.ts`, the same table `chain-actions.tsx` prints
 on the card; `Karte →` jumps to `/#<name>`, the card's own anchor. Model and grouping:
-`lib/intake.ts` (`visibleGroups` decides what gets a section).
+`lib/chain/intake.ts` (`visibleGroups` decides what gets a section).
 
 ## `/strom/labeln` — the streams (phase 03b)
 
 Reads `data/recordings/<name>/model-reads.jsonl` (line 1 = `_model`/`_classes`/`_written_at`) and the
 session the export cut into **the same folder** — `session.yaml` + `log.jsonl` + `boards/` under
-`data/recordings/<name>/`, carrying the id `rg-<name>` (`lib/session.ts` `sessionDir` is `gameDir`).
+`data/recordings/<name>/`, carrying the id `rg-<name>` (`lib/session-store/session.ts` `sessionDir` is `gameDir`).
 Streams: **bucket grid** (score > hi, one `Enter` confirms a
 page of 60 — clicks are for exceptions; the mid-band between `lo` and `hi` is its own grid, and the
 control stream below `lo` writes NOTHING), **board drilldown** (8×8 overlay on the rectified frame).
@@ -46,9 +46,9 @@ Painting `occluded` is gone: it is `lib/classes.ts`'s `LEGACY_LABEL`, still READ
 that carry it stay legible, but nothing writes another one — occlusion is measured as `coverage`
 (`matte.jsonl`), not asked, and only the 13 identities are writable. The one-card *tinder* view
 was **deleted** (*"tinder nervt"*, 2026-08-10 — `docs/labeling-ux/CONCEPT.md` §1.4). A queue's **flags arrive selected**
-and a click takes one off (`lib/selection.ts`): confirm commits exactly what is still selected and
+and a click takes one off (`lib/label/selection.ts`): confirm commits exactly what is still selected and
 says so live, `⌫` takes all of them off. The `reviewed` ledger lives per recording next to
-`corrections.jsonl` (`lib/corrections.ts` `ledgerPath`) and is provenance only — Python skips it.
+`corrections.jsonl` (`lib/session-store/corrections.ts` `ledgerPath`) and is provenance only — Python skips it.
 
 ### `Strittige Frames` — ein Urteil über das ganze Bild
 
@@ -61,7 +61,7 @@ eines dirty Frames fallen. Der Satz steht über der Lane, nicht in einem Filter.
 Zwei Urteile, verschieden schwer. **⏎ matten lassen** schreibt `matte-wanted` nach
 `review-notes.jsonl`; `chesslab occluders alpha-worker <name> --wanted` holt genau diese Stems
 (`alpha_worker(frames=…)` übergeht beide Filter), und ab der Matte sind die Crops Sache der
-Strittig-Lane. **unbrauchbar** setzt `unusable` auf der Log-Zeile (`lib/frame-flag.ts`: Sicherung,
+Strittig-Lane. **unbrauchbar** setzt `unusable` auf der Log-Zeile (`lib/session-store/frame-flag.ts`: Sicherung,
 dann tmp+rename wie `sessions._write_log`) — `slice_session` und `alpha_worker` überspringen die
 Zeile beide, und `loadLabelStream` nimmt sie aus dem Strom. Ein Frame verlässt die Lane mit jedem
 der beiden Urteile, und auch dann, wenn eine Matte da ist. Beides über `POST /api/frame-verdict`.
@@ -146,13 +146,13 @@ starting the dev server must not touch the corpus.
 - **The panel** (`app/shell.tsx` → `app/drain-status.tsx`, `GET/POST /api/drain`) is the app's
   primary control: one big button per job step (`label`, `export`, `matte`, `model-read`), each
   carrying the number of recordings waiting on it, plus the line that says what runs right now.
-- **A press drains that step**: oldest recording first, one at a time, through `lib/chain-run.ts` —
+- **A press drains that step**: oldest recording first, one at a time, through `lib/chain/run.ts` —
   the same door the card button uses, which re-reads the disk and 409s on a step that is not the
   next one. **Stopp** ends the drain after the recording in the slot; it never kills a running job.
   Only one drain exists at a time, because the slot is one.
-- **The counts** come from `lib/backlog.ts` (pure and tested): per step, every non-`useless`,
+- **The counts** come from `lib/chain/backlog.ts` (pure and tested): per step, every non-`useless`,
   non-`archived` recording whose `nextStep()` is that step and whose ledger says it is neither busy
-  nor failed. `lib/drain.ts` caches one pass for 10 s, so polling does not re-walk `recordings/`.
+  nor failed. `lib/chain/drain.ts` caches one pass for 10 s, so polling does not re-walk `recordings/`.
 - **Never a retry.** The marker is the job ledger's last row for that recording: `kind` names the
   step, `failed`/`skipped` means a human presses or nothing happens. Those rows are the
   **`/reparatur`** lane, with the tool's own last words and the manual button.
@@ -164,7 +164,7 @@ starting the dev server must not touch the corpus.
   run that trained on the session (`check_not_circular`), so the button reads
   `CHESSLAB_MODEL_READ_RUN` and 409s with that sentence when it is unset — on the button, not in a
   log nobody reads.
-- **`adopt-pgn` rides on the queue read** (`lib/queues.ts` → `chain.adoptOffered`): every bundle
+- **`adopt-pgn` rides on the queue read** (`lib/chain/queues.ts` → `chain.adoptOffered`): every bundle
   that carries a phone `.pgn` and has no `reference.pgn` gets one, whenever any page reads the
   queue. `adoptPgn` never overwrites, and a refusal is remembered and printed in the panel instead
   of retried on every render.
@@ -174,11 +174,11 @@ starting the dev server must not touch the corpus.
   a `chesslab` run started in a terminal is visible there, not silently overrun.
 
 `slice`, `dataset build` and `train` are **not** in this vocabulary, and the slot stays a single
-serialized promise chain — the same one worker `lib/jobs.ts` has always had.
+serialized promise chain — the same one worker `lib/chain/jobs.ts` has always had.
 
 ## The queues, and "nutzlos"
 
-`/confirm` lists every game whose next chain step is its own, newest first (`lib/queues.ts`;
+`/confirm` lists every game whose next chain step is its own, newest first (`lib/chain/queues.ts`;
 both naming schemes on disk carry the same 14 digits, so `VID_20260802_222741` sorts by its clock
 and not by its `V`). The same read counts what waits on `labeln`, and that count is the badge the
 nav puts on `/strom/labeln` (`app/shell.tsx`) — the labeling streams themselves are corpus-wide,

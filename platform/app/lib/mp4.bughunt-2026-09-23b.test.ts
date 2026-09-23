@@ -34,5 +34,5 @@ test("ein EACCES auf ein Segment kuerzt die Aufnahme nicht", async () => {
   await writeFile(head, "x");
   await writeFile(path.join(root, "video-001.mp4"), "x");
   fail.on = (op, file) => (op === "stat" && file.endsWith("video-001.mp4") ? "EACCES" : null);
-  await expect((await import("@/lib/mp4")).firstUnfinalized(head)).rejects.toThrow(/EACCES/);
+  await expect((await import("@/lib/ingest/mp4")).firstUnfinalized(head)).rejects.toThrow(/EACCES/);
 });

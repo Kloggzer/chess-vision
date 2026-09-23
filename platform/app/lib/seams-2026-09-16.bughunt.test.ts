@@ -34,11 +34,11 @@ test("ein zur Matte geschicktes Frame bleibt offene Arbeit, nicht bloss unsichtb
   forget("__chesslabReviewNotes");
   forget("__chesslabMatteSets");
   // EIGENES Feld, nicht `reportedOpen`: das steuert `--reported`, ein solches Frame braucht `--wanted`.
-  const { matteCensus } = await import("@/lib/matte");
+  const { matteCensus } = await import("@/lib/session-store/matte");
   expect((await matteCensus(name)).wanted, "sonst ist das Frame nirgends mehr sichtbar").toBe(1);
 
   // Die Sprosse darf sich nicht darueber schliessen (Fixture unbestaetigt, also direkt an `nextStep`).
-  const { nextStep } = await import("@/lib/chain");
+  const { nextStep } = await import("@/lib/chain/chain");
   const full = { done: 9, total: 9, target: 9, reported: 0, reportedOpen: 0, reportedOrphan: 0 };
   expect(nextStep({
     video: "v", videoBroken: null, offeredPgn: null, hasReference: true, hasPhoneRecord: false,
@@ -56,7 +56,7 @@ test("ein `matte_cov: null` heisst UNGEMESSEN und darf keine 0 werden", async ()
     '{"session_id": "rg-g", "frame": "000100", "square": "e2", "fen_label": "wP", "ply": 3, ' +
     '"dev": 41.2, "matte_cov": null, "seen": true, "reason": "timing"}\n');
   forget("__chesslabMeasurements");
-  const { loadPositionFlags } = await import("@/lib/position-flags");
+  const { loadPositionFlags } = await import("@/lib/reports/position-flags");
   expect(gemessen(await loadPositionFlags()).rows[0].matte_cov).toBeNull();
 });
 
@@ -68,7 +68,7 @@ test.fails("das Wort des Menschen (`judged`) ueberlebt das Lesen der Audit-Flags
     '"predicted": "bQ", "prob": 0.91, "judged": "bQ", "margin": 0.77, "fold": "interim", ' +
     '"model": "p4a-80-clahe", "ts": "2026-09-16T10:00:00+00:00"}\n');
   forget("__chesslabMeasurements");
-  const { loadAuditFlags } = await import("@/lib/audit-flags");
+  const { loadAuditFlags } = await import("@/lib/reports/audit-flags");
   const row = gemessen(await loadAuditFlags()).rows[0] as unknown as Record<string, unknown>;
   expect(row.judged).toBe("bQ");
 });

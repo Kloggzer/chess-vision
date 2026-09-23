@@ -12,10 +12,10 @@ vi.mock("node:fs/promises", async () => {
   return { ...actual, default: actual, writeFile: (...args: Parameters<typeof realWrite>) => onWrite(...args) };
 });
 
-const { flagFrame } = await import("@/lib/frame-flag");
+const { flagFrame } = await import("@/lib/session-store/frame-flag");
 const { readJsonl } = await import("@/lib/jsonl");
-const { readUseless, setUseless } = await import("@/lib/useless");
-const { appendReviewNotes, dropReviewNotes, reviewNotesPath, unusableBoards } = await import("@/lib/review-notes");
+const { readUseless, setUseless } = await import("@/lib/session-store/useless");
+const { appendReviewNotes, dropReviewNotes, reviewNotesPath, unusableBoards } = await import("@/lib/session-store/review-notes");
 const { tempDataRoot, writeSession } = await import("@/lib/test-fixtures");
 
 const NAME = "2026-09-16-10-00-00";

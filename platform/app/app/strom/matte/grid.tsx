@@ -3,8 +3,8 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { verifyFrameKey } from "@/lib/position-carry";
-import type { VerifyFrame, VerifySession } from "@/lib/verify";
+import { verifyFrameKey } from "@/lib/label/position-carry";
+import type { VerifyFrame, VerifySession } from "@/lib/label/verify";
 
 /** Zehn Bretter auf einen Blick. Mehr passt bei 320 px nicht mehr nebeneinander, weniger macht
  *  aus dem Raster wieder eine Einzelansicht. Die Ziffernreihe reicht genau bis hierher. */

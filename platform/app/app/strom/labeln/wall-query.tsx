@@ -2,7 +2,7 @@
 
 import { DISAGREE, STEPS, type Filter } from "@/lib/query";
 
-/** Which side of the interval a frame sits on (`lib/session.ts` `FramePhase`) — different work. */
+/** Which side of the interval a frame sits on (`lib/session-store/session.ts` `FramePhase`) — different work. */
 const PHASES: [string, string][] = [
   ["any", "beide"],
   ["after", "nach dem Zug"],

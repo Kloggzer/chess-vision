@@ -2,7 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { loadVerifyStream } from "@/lib/verify";
+import { loadVerifyStream } from "@/lib/label/verify";
 import { sessionRow, tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const COVER = { a1: 0.9, b1: 0.8 };

@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
 import { barPct } from "@/lib/chart";
-import { clampPage, turnPage } from "@/lib/page-turn";
-import { commitPage } from "@/lib/matte-page";
-import { pageAllMarked, toggleAllOnPage } from "@/lib/matte-select";
+import { clampPage, turnPage } from "@/lib/label/page-turn";
+import { commitPage } from "@/lib/label/matte-page";
+import { pageAllMarked, toggleAllOnPage } from "@/lib/label/matte-select";
 import { DEFAULT_WALL } from "@/lib/query";
-import { cursorSession, linkFilter } from "@/lib/stream-head";
+import { cursorSession, linkFilter } from "@/lib/label/stream-head";
 
 // Funde in `app/**`, das vitest nicht einsammelt — jede Stelle steckt in einer reinen Funktion in `lib/`.
 

@@ -1,4 +1,4 @@
-import { appendChunk, authorized } from "@/lib/ingest";
+import { appendChunk, authorized } from "@/lib/ingest/ingest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -4,7 +4,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { beforeEach, describe, expect, it, test } from "vitest";
 import { GET as FRAME } from "@/app/api/frame/[name]/[stem]/route";
-import { reviewNotesPath } from "@/lib/review-notes";
+import { reviewNotesPath } from "@/lib/session-store/review-notes";
 import { stemOf, tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 let root: string;
@@ -128,7 +128,7 @@ describe("POST /api/zuege/[name] with action reexport", () => {
   const queue = () => (globalThis as { __chesslabJobs?: Queue }).__chesslabJobs;
 
   it("refuses instead of answering 202 with somebody else's job", async () => {
-    await import("@/lib/jobs");
+    await import("@/lib/chain/jobs");
     const q = queue()!;
     q.jobs.clear();
     // Ein Pack-Job nimmt den Heavy-Lock NICHT — die Sperre ist also frei, der Slot aber besetzt.

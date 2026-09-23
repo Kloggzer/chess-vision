@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { QueueRow } from "@/lib/queues";
+import type { QueueRow } from "@/lib/chain/queues";
 import { UselessButton } from "./useless-button";
 
 /**

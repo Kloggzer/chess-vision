@@ -1,6 +1,6 @@
-import { adoptDirty } from "@/lib/adopt-dirty";
-import { recordingName } from "@/lib/session";
-import { appendReviewNotes, dropReviewNotes, validateNote } from "@/lib/review-notes";
+import { adoptDirty } from "@/lib/chain/adopt-dirty";
+import { recordingName } from "@/lib/session-store/session";
+import { appendReviewNotes, dropReviewNotes, validateNote } from "@/lib/session-store/review-notes";
 
 /** A verdict, never a label: nothing here reaches `corrections.jsonl` (CONCEPT.md 8c). */
 export async function POST(request: Request) {

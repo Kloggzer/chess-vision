@@ -27,13 +27,13 @@ vi.mock("node:fs/promises", async (original) => ({
   stat: () => Promise.resolve({ mtimeMs: 7 }),
 }));
 
-vi.mock("@/lib/matte", async (original) => ({
-  ...(await original<typeof import("@/lib/matte")>()),
+vi.mock("@/lib/session-store/matte", async (original) => ({
+  ...(await original<typeof import("@/lib/session-store/matte")>()),
   alphaPath: () => Promise.resolve("/x/alpha.png"),
 }));
 
-vi.mock("@/lib/session", async (original) => ({
-  ...(await original<typeof import("@/lib/session")>()),
+vi.mock("@/lib/session-store/session", async (original) => ({
+  ...(await original<typeof import("@/lib/session-store/session")>()),
   loadSession: () =>
     Promise.resolve({
       boardSize: 8,
@@ -42,7 +42,7 @@ vi.mock("@/lib/session", async (original) => ({
   boardToStored: () => [1, 0, 0, 0, 1, 0, 0, 0, 1],
 }));
 
-const { forgetRaster, mattePng } = await import("@/lib/crops");
+const { forgetRaster, mattePng } = await import("@/lib/session-store/crops");
 
 test("forgetRaster throws the raster out — its key carries the mtime, the call does not", async () => {
   await mattePng("g", "000001", 4);

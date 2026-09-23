@@ -8,8 +8,8 @@ import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const fake = vi.hoisted(() => ({ script: "", spawned: 0 }));
 
-vi.mock("@/lib/jobs", async (original) => {
-  const real = await original<typeof import("@/lib/jobs")>();
+vi.mock("@/lib/chain/jobs", async (original) => {
+  const real = await original<typeof import("@/lib/chain/jobs")>();
   return { ...real, spawnTool: (_bin: string, args: string[], cwd: string) => {
     fake.spawned += 1;
     return real.spawnTool(process.execPath, [fake.script, ...args], cwd);
@@ -137,7 +137,7 @@ describe("dirty-frame und Widerruf", { timeout: 20_000 }, () => {
   it("ein gescheiterter Lauf steht im Job-Status, nicht nur im Log", async () => {
     await writeFile(ctl("fail"), "");
     expect((await note()).adoptFailed).toEqual([]);
-    const { jobHistory } = await import("@/lib/jobs");
+    const { jobHistory } = await import("@/lib/chain/jobs");
     await vi.waitFor(async () => {
       const failed = (await jobHistory(NAME)).find((j) => j.kind === "adopt-dirty");
       expect(failed?.state, "BUG: das Scheitern verschwindet im .adopt-dirty.log").toBe("failed");
@@ -154,7 +154,7 @@ describe("abgebrochener Export", () => {
 
   it("haelt die Export-Sprosse offen und nennt den Grund", async () => {
     await exportedAndSettled();
-    const { chainState } = await import("@/lib/chain");
+    const { chainState } = await import("@/lib/chain/chain");
     expect((await chainState(NAME)).step).not.toBe("export");
     await writeFile(path.join(data, "recordings", NAME, ".export-running"), "export started x\n");
     const state = await chainState(NAME);
@@ -165,10 +165,10 @@ describe("abgebrochener Export", () => {
 
   it("sperrt die Folgeschritte an der Tuer", async () => {
     await exportedAndSettled();
-    const { chainState } = await import("@/lib/chain");
+    const { chainState } = await import("@/lib/chain/chain");
     const offered = (await chainState(NAME)).step!;
     await writeFile(path.join(data, "recordings", NAME, ".export-running"), "export started x\n");
-    const { startStep } = await import("@/lib/chain-run");
+    const { startStep } = await import("@/lib/chain/run");
     const answer = await startStep(NAME, offered);
     expect("error" in answer && answer.status).toBe(409);
   });

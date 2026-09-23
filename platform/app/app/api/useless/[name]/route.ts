@@ -1,5 +1,5 @@
-import { chainState } from "@/lib/chain";
-import { readUseless, setUseless } from "@/lib/useless";
+import { chainState } from "@/lib/chain/chain";
+import { readUseless, setUseless } from "@/lib/session-store/useless";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
