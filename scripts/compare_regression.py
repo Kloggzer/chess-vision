@@ -8,7 +8,7 @@ vergleicht, hat sie danach nicht mehr. Hier wird aus den Logs gelesen, die bleib
 **Die Alarmspalte des Skripts ist nicht die Episodenzahl.** Sie zaehlt `ALARM latched`-Zeilen,
 also abgelehnte ENTSCHEIDUNGEN unter einem stehenden Latch. Der Champion sah danach mit 7 gegen 5
 schlechter aus, waehrend seine Episoden von 15 auf 8 fielen. Beide Spalten stehen deshalb hier,
-und `desync` ist die, die zaehlt (`docs/champion-2026-09-20.md`).
+und `desync` ist die, die zaehlt (`docs/regression-reference.md`).
 """
 
 from __future__ import annotations

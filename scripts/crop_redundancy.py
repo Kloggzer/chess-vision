@@ -63,7 +63,7 @@ def runs_of(rows: list[dict]) -> dict[tuple, list[dict]]:
 
 def open_pack(pack: Path) -> tuple[np.memmap, dict[str, int]]:
     """`(Memmap, {Crop-Pfad: Zeile})` eines SESSION-Packs — das Gegenstueck zu
-    `training.pack.open_packed_rows`, das den DATENSATZ-Pack oeffnet (`docs/pack-arten.md`)."""
+    `training.pack.open_packed_rows`, das den DATENSATZ-Pack oeffnet (`docs/packs.md`)."""
     meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
     mm = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r",
                    shape=(meta["n"], meta["h"], meta["w"], 3))
