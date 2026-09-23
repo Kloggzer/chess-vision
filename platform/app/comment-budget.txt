@@ -24,7 +24,6 @@ lib/session-store/corrections.ts 8
 lib/session-store/crops.ts 8
 lib/session-store/recordings.ts 8
 lib/ingest/ingest.ts 13
-lib/chain/jobs.ts 13
 lib/label/label-stream.ts 10
 lib/label/lanes.ts 9
 lib/lcs.ts 8

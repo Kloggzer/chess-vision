@@ -1,6 +1,7 @@
 import { Progress } from "@/components/progress";
 import { chainState } from "@/lib/chain/chain";
-import { jobs, type Job } from "@/lib/chain/jobs";
+import { jobs } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 import { judgedKeys } from "@/lib/session-store/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/session-store/recordings";
 import { isArchived, loadMeta } from "@/lib/session-store/meta";

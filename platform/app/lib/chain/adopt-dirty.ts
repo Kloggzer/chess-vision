@@ -2,7 +2,9 @@
  * Die gemeldeten Hände ins `log.jsonl` übernehmen — billig, also ohne Knopf und ohne Heavy-Slot:
  * im Slot wartete es auf genau den SAM-Lauf, den es vorbereitet. SAM 3 bleibt ein Knopf.
  */
-import { jobsDir, recordOffSlot, repoDir, spawnTool, uvBinary } from "@/lib/chain/jobs";
+import { repoDir, uvBinary } from "@/lib/chain/cli-args";
+import { jobsDir, recordOffSlot } from "@/lib/chain/ledger";
+import { spawnTool } from "@/lib/chain/spawn";
 import { checkName } from "@/lib/session-store/recordings";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";

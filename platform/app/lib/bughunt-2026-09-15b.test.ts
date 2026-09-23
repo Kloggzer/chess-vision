@@ -28,8 +28,8 @@ async function files(): Promise<{ rel: string; text: string }[]> {
 }
 
 // Ohne Freigabe zeigt `queue.live` auf ein totes Kind, und `stopRunning` meldet einen Stopp, den es nie gab.
-test("every spawner in jobs.ts releases queue.live and answers a spawn error", async () => {
-  const src = await readFile(path.join(process.cwd(), "lib", "chain/jobs.ts"), "utf8");
+test("every spawner in runners.ts releases queue.live and answers a spawn error", async () => {
+  const src = await readFile(path.join(process.cwd(), "lib", "chain/runners.ts"), "utf8");
   const bodies = src
     .split(/\n(?=(?:export )?(?:async )?function )/)
     .filter((b) => b.includes("queue.live = {"));

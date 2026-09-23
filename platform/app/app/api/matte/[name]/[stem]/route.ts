@@ -1,5 +1,5 @@
 import { CUT_MIME, mattePng } from "@/lib/session-store/crops";
-import { clearAlpha, restoreAlpha, saveFixedAlpha } from "@/lib/session-store/matte-fix";
+import { clearAlpha, restoreAlpha, saveFixedAlpha } from "@/lib/chain/matte-edit";
 import { isMissing } from "@/lib/measurement";
 
 /** The frame's alpha as a greyscale field, aligned with `/api/board/<name>/<stem>` of the same size. */

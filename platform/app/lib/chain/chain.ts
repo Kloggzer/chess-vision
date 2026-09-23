@@ -8,9 +8,12 @@
  * The UI therefore offers exactly one button, and never one whose input does not exist yet.
  */
 import { createHash } from "node:crypto";
-import { open, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { type Candidate, confirmedAgainst, gameDir, recordingFile, referenceDigest } from "@/lib/session-store/recordings";
+import {
+  confirmedAgainst, gameDir, peekCandidate, readReferenceBytes, RECORDING_FILES, recordingFile, referenceDigest,
+} from "@/lib/session-store/recordings";
+import { hasReferenceFile, writeReferenceOnce } from "@/lib/session-store/reference";
 import { dataDir } from "@/lib/session-store/recordings";
 import { videoInput } from "@/lib/ingest/ingest";
 import { readJsonl, stripBom } from "@/lib/jsonl";
@@ -180,12 +183,12 @@ export async function chainState(name: string): Promise<ChainState> {
   // Der Name wird VOR dem Promise.all geprueft: sonst lehnen schon gestartete Leser unbeobachtet ab.
   gameDir(name);
   const passFile = path.join(dataDir(), "reports", "temporal-mattes", name, "pass.json");
-  const [video, offeredPgn, referenceBytes, hasPhoneRecord, candidateText, session, mattes, matteStamps, passRun, readsSource, logStamp, useless] = await Promise.all([
+  const [video, offeredPgn, referenceBytes, hasPhoneRecord, candidate, session, mattes, matteStamps, passRun, readsSource, logStamp, useless] = await Promise.all([
     videoOf(name),
     phonePgn(name),
-    readFile(recordingFile(name, "reference")).catch(absentOnly),
+    readReferenceBytes(name),
     phoneRecord(name),
-    readFile(recordingFile(name, "candidate"), "utf8").catch(absentOnly),
+    peekCandidate(name),
     exportedSession(name),
     matteCensus(name),
     matteSources(name),
@@ -196,15 +199,8 @@ export async function chainState(name: string): Promise<ChainState> {
     stampOf(recordingFile(name, "log")),
     uselessFlag(name),
   ]);
-  // Eine halb geschriebene `candidate.json` ist "noch nicht bestaetigt", kein Grund, die ganze
-  // Queue-Seite zu leeren — sie entsteht waehrend `writeConfirmation` schreibt.
-  const doc = candidateText === null ? null : ((): Candidate | null => {
-    try {
-      return JSON.parse(candidateText) as Candidate;
-    } catch {
-      return null;
-    }
-  })();
+  // Eine halb geschriebene `candidate.json` ist "noch nicht bestaetigt" (`peekCandidate`).
+  const doc = candidate?.doc ?? null;
   const confirmed = doc?.confirmed === true;
   const hasReference = referenceBytes !== null;
   const against = confirmed ? confirmedAgainst(doc!, hasReference ? referenceDigest(referenceBytes) : null) : null;
@@ -241,7 +237,7 @@ export async function chainState(name: string): Promise<ChainState> {
     offeredPgn: hasReference ? null : offeredPgn,
     hasReference,
     hasPhoneRecord,
-    hasCandidate: candidateText !== null,
+    hasCandidate: candidate !== null,
     confirmed,
     hasSession: session.exported,
     hasSettle: session.settled,
@@ -277,7 +273,7 @@ function sameFile(stamped: string | null | undefined, current: string | null): b
 /** Welche Scan-Eingabe die Kette selbst nachstempelt; Bretter nur Python (`provenance.check`),
  *  jedes Brett-Schreiben schreibt auch das Log. `log.jsonl` prueft schon `_source`. */
 function scanInputPath(name: string, rel: string): string | null {
-  if (rel === "session.yaml") return path.join(sessionDir(name), rel);
+  if (rel === RECORDING_FILES.session) return recordingFile(name, "session");
   if (rel.startsWith("profile:")) return path.join(dataDir(), "calibration", `${rel.slice("profile:".length)}.yaml`);
   return null;
 }
@@ -361,16 +357,10 @@ export function nextStep(state: Omit<ChainState, "step" | "reason">): { step: Ch
  * `referenceOrigin` has to say so wherever the adopted file is used.
  */
 export async function adoptPgn(name: string): Promise<{ adopted: string } | { reason: string }> {
-  const target = recordingFile(name, "reference");
-  if (await exists(target)) return { reason: "reference.pgn already exists — nothing was overwritten" };
+  if (await hasReferenceFile(name)) return { reason: "reference.pgn already exists — nothing was overwritten" };
   const source = await phonePgn(name);
   if (!source) return { reason: "the transfer carries no .pgn — the phone never finished a game for it" };
-  // Exklusiv: zwischen der Pruefung oben und hier kann ein Upload landen, und den ueberschrieb
-  // ein blankes `writeFile` ohne Sicherung. EEXIST heisst: ein Mensch war schneller.
-  try {
-    await writeFile(target, await readFile(source, "utf8"), { encoding: "utf8", flag: "wx" });
-  } catch (e) {
-    if ((e as { code?: string })?.code !== "EEXIST") throw e;
+  if (!(await writeReferenceOnce(name, await readFile(source, "utf8")))) {
     return { reason: "reference.pgn appeared while adopting — nothing was overwritten" };
   }
   return { adopted: path.basename(source) };
@@ -415,14 +405,10 @@ const md5 = (bytes: Buffer) => createHash("md5").update(bytes).digest("hex");
  */
 export async function referenceOrigin(name: string): Promise<ReferenceOrigin> {
   const dir = gameDir(name);
-  let digest: string;
-  try {
-    digest = md5(await readFile(recordingFile(name, "reference")));
-  } catch (e) {
-    // Nur ENOENT ist "none": ein EACCES liess sonst das Handy-PGN als menschliche Referenz durch.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return "none";
-  }
+  // Nur ENOENT ist "none": ein EACCES liess sonst das Handy-PGN als menschliche Referenz durch.
+  const bytes = await readReferenceBytes(name);
+  if (bytes === null) return "none";
+  const digest = md5(bytes);
   const games = path.join(dir, "files", "games");
   let pgns: string[] = [];
   try {

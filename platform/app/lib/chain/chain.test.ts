@@ -497,6 +497,17 @@ describe("Temporal-Sprosse und ihre Eingaben", () => {
     expect(state.reason).toMatch(/Profil/);
   });
 
+  it("macht die Sprosse wieder auf, wenn session.yaml nach dem Pass geaendert wurde", async () => {
+    await recording();
+    await passWithInputs();
+    await writeFile(game("session.yaml"), "session_id: rg-x\nprofile: q\n");
+    const t = new Date(Date.now() + 60_000);
+    await utimes(game("session.yaml"), t, t);
+    const state = await chainState(NAME);
+    expect(state.step).toBe("temporal");
+    expect(state.hasTemporalPass).toBe(false);
+  });
+
   it("eine Datei, die schon beim Pass fehlte und weiter fehlt, ist kein Wechsel", async () => {
     await recording();
     await mkdir(path.dirname(passFile()), { recursive: true });
@@ -625,6 +636,17 @@ describe("adoptPgn", () => {
     await writeFile(game("files", "games", "2026-08-13_1941.pgn"), "1. e4 e5");
     await writeFile(game("reference.pgn"), "1. d4 d5");
     expect(await adoptPgn(NAME)).toMatchObject({ reason: expect.stringContaining("already exists") });
+  });
+
+  // Zwischen Pruefung und Schreiben landet ein Upload: `wx` statt Ueberschreiben.
+  it("a reference that lands between the check and the write is kept", async () => {
+    await mkdir(game("files", "games"), { recursive: true });
+    await writeFile(game("files", "games", "2026-08-13_1941.pgn"), "1. e4 e5");
+    await writeFile(game("reference.pgn"), "1. d4 d5");
+    failOn("stat", "reference.pgn", "ENOENT");
+    expect(await adoptPgn(NAME)).toMatchObject({ reason: expect.stringContaining("appeared while adopting") });
+    fail.on = null;
+    expect(await readFile(game("reference.pgn"), "utf8")).toBe("1. d4 d5");
   });
 
   it("says plainly when the transfer carries no PGN at all", async () => {

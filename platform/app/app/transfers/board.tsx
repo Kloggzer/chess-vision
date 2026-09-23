@@ -13,7 +13,7 @@ import { readAnswer } from "@/lib/answer";
 import { failureParts, logName } from "@/lib/failure";
 import { when } from "@/lib/when";
 import type { TransferRow } from "@/lib/ingest/ingest";
-import type { Job } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 
 type Board = {
   transfers: TransferRow[];

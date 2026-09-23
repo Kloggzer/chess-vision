@@ -4,7 +4,7 @@
 # Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
 # Gezaehlt wird nur Zeilenschnitt MIT JSON.parse: lib/session-store/matte.ts scannt seine 2-MB-Logs weiter mit
 # Regex, parst dort aber keine Zeile und erfindet damit auch keine Lesepolitik.
-4 lib/chain/jobs.ts  # manifestRows wirft mit Absicht; der Rest zerschneidet Log-TEXT, kein JSONL
+1 lib/chain/pack.ts  # manifestRows wirft mit Absicht
 1 lib/session-store/review-notes.ts  # BEHAELT eine kaputte Zeile beim Umschreiben, statt sie zu verlieren
 2 lib/chain/session-delete.ts  # zerschneidet die AUSGABE eines Werkzeugs, keine Datei
 1 lib/chain/chain.ts  # liest nur die erste Zeile aus einem 4-KB-Puffer

@@ -13,7 +13,7 @@ import { readAnswer } from "@/lib/answer";
 import type { ChainState, ChainStep } from "@/lib/chain/chain";
 import { STEP } from "@/lib/chain/steps";
 import { failureParts, logName } from "@/lib/failure";
-import type { Job } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 import type { Progress } from "@/lib/chain/progress";
 
 const BUSY = new Set(["queued", "running"]);

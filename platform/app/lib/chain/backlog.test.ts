@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { backlog, type BacklogInput } from "@/lib/chain/backlog";
 import { nextStep } from "@/lib/chain/chain";
 import type { ChainState } from "@/lib/chain/chain";
-import type { Job } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 import type { QueueRow } from "@/lib/chain/queues";
 
 const CHAIN: ChainState = {

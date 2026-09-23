@@ -1,6 +1,6 @@
 // Pure on purpose: testable without disk or server, driven by queue state and clock.
 import type { ChainStep } from "@/lib/chain/chain";
-import type { Job } from "@/lib/chain/jobs";
+import type { Job } from "@/lib/chain/slot";
 import { proposesCandidate, recordedAt, type QueueRow } from "@/lib/chain/queues";
 import { EXPORT_HOLD_MS } from "@/lib/label/zuege";
 

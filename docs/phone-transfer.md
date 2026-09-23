@@ -76,7 +76,7 @@ address in Settings.
 - **One pack at a time** — a replay JVM holds ~6 GB.
 - **The pack's id is the transfer name**, not the video stem (always `"video"`): `corrections.jsonl`
   dedups on `(session_id, frame, square)`, so one recording's verdict would rule on another's crop.
-  The job passes `id=<transfer name>` (`lib/jobs.ts::packArgs`).
+  The job passes `id=<transfer name>` (`lib/chain/cli-args.ts::packArgs`).
 - **Fail-closed:** a pack job is `done` only after `model=p4a-80-clahe` (`DESKTOP_MODEL`), all
   counts, valid FEN labels only in `accepted/` and `label=unreviewed` are verified. `accepted/` is
   staging, not a merged dataset — promotion is a separate step so splits stay session-level.
