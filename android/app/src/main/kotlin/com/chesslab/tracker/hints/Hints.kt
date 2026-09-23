@@ -42,6 +42,12 @@ enum class HintRefusal {
     NOT_YOUR_TURN,
 }
 
+/** Der Mattweg in SAN; [failure] sagt, warum die Engine ihn nicht verlaengern konnte. */
+data class HintLine(
+    val san: List<String>,
+    val failure: String? = null,
+)
+
 /** Was die App im Moment des Drucks sieht. Der Tipp wird genau hieran gebunden. */
 data class HintMoment(
     val fen: String,
@@ -64,6 +70,8 @@ sealed interface HintOutcome {
         val mateIn: Int?,
         val line: List<String>,
         val remaining: Int,
+        /** Gesetzt, wenn die Engine den Mattweg nicht rechnen konnte: dann steht nur der Zug da. */
+        val lineFailure: String? = null,
     ) : HintOutcome
 
     data class Refused(

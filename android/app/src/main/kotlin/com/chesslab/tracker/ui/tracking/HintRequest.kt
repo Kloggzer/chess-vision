@@ -12,6 +12,7 @@ import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.hints.FenClock
 import com.chesslab.tracker.hints.HintHost
+import com.chesslab.tracker.hints.HintLine
 import com.chesslab.tracker.hints.HintMoment
 import com.chesslab.tracker.hints.HintOutcome
 import com.chesslab.tracker.hints.HintPhrase
@@ -64,11 +65,12 @@ internal fun rememberHintRequest(
 internal fun liveLineResolver(
     engines: EngineService,
     options: () -> AnalysisOptions,
-): suspend (String, String) -> List<String> =
+): suspend (String, String) -> HintLine =
     { position, uci ->
         val budget = options().let { ReviewBudget(threads = it.threads, hashMb = it.hashMb) }
         withContext(Dispatchers.Default) {
-            MateLineResolver(engines, EngineLane.LIVE, budget).resolve(position, listOf(uci)).sanLine
+            val resolved = MateLineResolver(engines, EngineLane.LIVE, budget).resolve(position, listOf(uci))
+            HintLine(resolved.sanLine, resolved.failure)
         }
     }
 

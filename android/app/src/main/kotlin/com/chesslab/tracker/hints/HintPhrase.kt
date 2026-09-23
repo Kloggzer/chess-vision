@@ -26,7 +26,8 @@ object HintPhrase {
         val mate = tip.mateIn ?: return move
         val head = if (de) "Du hast Matt in $mate" else "You have mate in $mate"
         val line = tip.line.take(LINE_PLIES).joinToString(" ")
-        return listOf(head, move, line).filter { it.isNotBlank() }.joinToString(". ")
+        val failure = tip.lineFailure?.let { if (de) "Engine nicht verfuegbar: $it" else "Engine unavailable: $it" }
+        return listOf(head, move, line, failure.orEmpty()).filter { it.isNotBlank() }.joinToString(". ")
     }
 
     private fun refusal(

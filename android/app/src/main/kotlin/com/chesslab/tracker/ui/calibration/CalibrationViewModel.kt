@@ -4,7 +4,6 @@ import com.chesslab.tracker.geometry.BoardDetector
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.MeasuredGeometry
-import com.chesslab.tracker.geometry.measuredBoardSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.IOException
 import kotlin.math.hypot
 
 /** Interval between detection attempts while the camera screen is open. */
@@ -20,6 +20,8 @@ private const val AUTO_DETECT_MS: Long = 500
 private const val NO_FRAME = "Waiting for the camera…"
 
 private const val SAVE_FAILED = "The calibration could not be stored — it will be tried again."
+
+private fun loadFailed(reason: String?) = "The saved calibration could not be read ($reason) — retrying."
 
 private const val ALL_MARKERS = 4
 
@@ -95,9 +97,12 @@ class CalibrationViewModel(
 
     /** Poll while the screen is open. The tracking screen stops after repairing its profile. */
     suspend fun autoDetect(stopAfterSaved: Boolean = false) {
+        var loaded = false
         while (scope.isActive) {
             if (stopAfterSaved && _state.value.saved) return
-            detectOnce()
+            // Detecting before the profile is read would search with the default marker dictionary.
+            loaded = loaded || loadStored()
+            if (loaded) detectOnce()
             adopt(_state.value, onAdopted)
             delay(AUTO_DETECT_MS)
         }
@@ -116,8 +121,9 @@ class CalibrationViewModel(
      * marker is visible but fails to decode. Two codes fall back to a similarity fit and are never
      * stored.
      *
-     * Written once per change, not once per detection: [needsWrite] compares against what is stored,
-     * so a steady camera costs nothing. Orientation is never touched — it is one bit, `whitePov` is
+     * Written once per change, not once per detection or per opened screen:
+     * [MeasuredGeometry.differsFrom] compares against what is stored, so a steady camera costs
+     * nothing. Orientation is never touched — it is one bit, `whitePov` is
      * read only as a 180° rotation, the marker IDs already anchor a8, and it has its own switch in
      * Settings. A second control for the same bit is how the two drift apart.
      */
@@ -129,7 +135,13 @@ class CalibrationViewModel(
         val required = requiredStableReads(s.markerIds.size)
         if (required == null || s.stableReads < required || writing) return
         val measured = MeasuredGeometry(corners.copyOf(), s.frameWidth, s.frameHeight)
-        if (!needsWrite(measured)) return
+        val stored = store.current
+        if (stored != null && !measured.differsFrom(stored)) {
+            if (s.saved) return
+            _state.value = _state.value.copy(saved = true)
+            onSaved(stored.copy(corners = measured.corners.copyOf()))
+            return
+        }
         writing = true
         scope.launch {
             // A store that throws used to leave [writing] set, and this instance then never
@@ -146,12 +158,14 @@ class CalibrationViewModel(
         }
     }
 
-    /** Only the source frame and the measured board edge matter; the quad itself is re-derived. */
-    private fun needsWrite(measured: MeasuredGeometry): Boolean {
-        val stored = store.geometry
-        return stored.boardSize != measuredBoardSize(measured.corners) ||
-            !_state.value.saved
-    }
+    private suspend fun loadStored(): Boolean =
+        try {
+            store.load()
+            true
+        } catch (e: IOException) {
+            _state.value = _state.value.copy(note = loadFailed(e.message))
+            false
+        }
 
     /**
      * One detection. `internal` rather than private so the poll's rules can be tested without

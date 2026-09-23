@@ -20,6 +20,22 @@ class HintPhraseTest {
         assertTrue(HintPhrase.of(tip, "de-DE").startsWith("Du hast Matt in 2"))
     }
 
+    @Test
+    fun aMateWithoutItsWaySaysWhyInBothLanguages() {
+        val tip =
+            HintOutcome.Tip(
+                FEN,
+                "Qh4",
+                "d8h4",
+                mateIn = 2,
+                line = listOf("Qh4"),
+                remaining = 1,
+                lineFailure = "UCI engine terminated",
+            )
+        assertEquals("You have mate in 2. Play Qh4. Qh4. Engine unavailable: UCI engine terminated", HintPhrase.of(tip, "en-US"))
+        assertTrue(HintPhrase.of(tip, "de-DE").endsWith("Engine nicht verfuegbar: UCI engine terminated"))
+    }
+
     /** Jede Absage ausser "kein Kontingent mehr" sagt ausdruecklich, dass nichts verbraucht wurde. */
     @Test
     fun everyFreeRefusalSaysThatNothingWasUsedUp() {

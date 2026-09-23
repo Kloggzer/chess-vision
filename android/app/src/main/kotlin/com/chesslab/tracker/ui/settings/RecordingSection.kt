@@ -44,9 +44,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import kotlin.coroutines.CoroutineContext
 
 private const val MB = 1024L * 1024L
@@ -104,7 +103,20 @@ class RecordingViewModel(
             mutable.value = onDisk(mutable.value).copy(error = if (deleted) null else "$id could not be deleted completely")
         }
 
-    fun sessionDir(id: String): File = sessions.dir(id)
+    /** [open] is the SAF destination; a refused or failed write lands on the page with its reason. */
+    fun exportSession(
+        id: String,
+        open: () -> OutputStream?,
+    ) = io {
+        val out =
+            try {
+                open()
+            } catch (e: SecurityException) {
+                throw IOException("access to the export destination was refused (${e.message})", e)
+            } ?: throw IOException("the export destination could not be opened")
+        out.use { zipSession(sessions.dir(id), it) }
+        mutable.value = mutable.value.copy(error = null)
+    }
 
     private fun onDisk(base: RecordingUi): RecordingUi {
         val list = sessions.list()
@@ -215,14 +227,11 @@ private fun SessionRow(
     transferred: Boolean,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val export =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri ?: return@rememberLauncherForActivityResult
             // SAF: the user picks the destination, so no storage permission is involved.
-            scope.launch(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(uri)?.use { zipSession(model.sessionDir(session.id), it) }
-            }
+            model.exportSession(session.id) { context.contentResolver.openOutputStream(uri) }
         }
     var confirming by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

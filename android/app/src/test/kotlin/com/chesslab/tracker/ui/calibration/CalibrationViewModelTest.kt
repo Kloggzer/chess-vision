@@ -1,12 +1,16 @@
 package com.chesslab.tracker.ui.calibration
 
 import android.graphics.Bitmap
+import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.geometry.BoardDetector
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationResult
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.FakeProfileBacking
+import com.chesslab.tracker.geometry.MeasuredGeometry
 import com.chesslab.tracker.geometry.ProfileBacking
+import com.chesslab.tracker.geometry.carryOver
+import com.chesslab.tracker.geometry.encodeProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
@@ -227,6 +231,41 @@ class CalibrationViewModelTest {
             assertEquals(1, backing.writes)
             coroutineContext.cancelChildren()
         }
+
+    /** The first detection must already use the stored dictionary, or a board with other codes stays invisible. */
+    @Test
+    fun theFirstDetectionUsesTheSavedMarkerDictionary() =
+        runTest {
+            val saved = carryOver(null, MeasuredGeometry(OK_CORNERS, 1920, 1080)).copy(markerDict = "DICT_5X5_100")
+            val store = CalibrationStore(FakeProfileBacking(encodeProfile(saved)))
+            val seen = mutableListOf<String>()
+            val vm = CalibrationViewModel(GeometryReadingDetector(store::geometry, seen), store, this) { 7L }
+            launch { vm.autoDetect() }
+            runCurrent()
+
+            assertEquals(listOf("DICT_5X5_100"), seen, "detection ran with the default geometry instead of the saved profile")
+            coroutineContext.cancelChildren()
+        }
+
+    /** Opening a screen over an unchanged board must not rewrite the stored profile. */
+    @Test
+    fun anUnchangedBoardIsNotRewrittenWhenAScreenOpens() =
+        runTest {
+            val saved = carryOver(null, MeasuredGeometry(OK_CORNERS, 1920, 1080))
+            val backing = FakeProfileBacking(encodeProfile(saved))
+            val vm = CalibrationViewModel(FakeDetector(ok()), CalibrationStore(backing), this) { 7L }
+            var adopted: CalibrationProfile? = null
+            vm.onAdopted = { adopted = it }
+            launch { vm.autoDetect(stopAfterSaved = true) }
+            runCurrent()
+            advanceTimeBy(2_000)
+            runCurrent()
+
+            assertEquals(0, backing.writes, "a new screen rewrote a profile that already matched the board")
+            assertTrue(vm.state.value.saved, "the tracking screen must still stop polling")
+            assertArrayEquals(OK_CORNERS, adopted?.corners, "the running tracker still gets the fresh seed")
+            coroutineContext.cancelChildren()
+        }
 }
 
 /**
@@ -256,6 +295,23 @@ private class ThrowingOnceDetector : BoardDetector {
         calls++
         if (calls == 1) error("detector blew up")
         return ok()
+    }
+
+    override suspend fun warp(
+        corners: FloatArray,
+        whitePov: Boolean,
+        margin: List<Double>?,
+    ): Bitmap? = null
+}
+
+/** Records the marker dictionary the detection would search with. */
+private class GeometryReadingDetector(
+    private val geometry: () -> BoardGeometry,
+    private val seen: MutableList<String>,
+) : BoardDetector {
+    override suspend fun detect(): CalibrationResult? {
+        seen += geometry().markerDict
+        return null
     }
 
     override suspend fun warp(

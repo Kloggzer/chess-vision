@@ -29,6 +29,12 @@ data class MeasuredGeometry(
             )
 
     override fun hashCode(): Int = 31 * (31 * corners.contentHashCode() + sourceWidth) + sourceHeight
+
+    /** Whether storing this over [stored] would change anything but the seed quad the live path replaces. */
+    fun differsFrom(stored: CalibrationProfile): Boolean =
+        stored.boardSize != measuredBoardSize(corners) ||
+            stored.sourceWidth != sourceWidth ||
+            stored.sourceHeight != sourceHeight
 }
 
 class CalibrationStore(
@@ -44,10 +50,20 @@ class CalibrationStore(
     var geometry: BoardGeometry = BoardGeometry(margin = margins4(DEFAULT_MARKER_MARGIN))
         private set
 
-    suspend fun load(): ProfileLoad = profile.first().also { if (it is ProfileLoad.Ok) geometry = it.profile.geometry() }
+    /** The profile of the last read or write; null until one was read, or when none is stored. */
+    @Volatile
+    var current: CalibrationProfile? = null
+        private set
+
+    suspend fun load(): ProfileLoad =
+        profile.first().also {
+            current = (it as? ProfileLoad.Ok)?.profile
+            if (it is ProfileLoad.Ok) geometry = it.profile.geometry()
+        }
 
     suspend fun save(profile: CalibrationProfile) {
         backing.write(encodeProfile(profile))
+        current = profile
         geometry = profile.geometry()
     }
 

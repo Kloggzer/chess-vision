@@ -13,6 +13,7 @@ import com.chesslab.tracker.hints.HINT_SETTLE_MS
 import com.chesslab.tracker.hints.HintController
 import com.chesslab.tracker.hints.HintMoment
 import com.chesslab.tracker.hints.HintOutcome
+import com.chesslab.tracker.hints.HintPhrase
 import com.chesslab.tracker.hints.HintPlan
 import com.chesslab.tracker.hints.HintRefusal
 import com.chesslab.tracker.hints.HintSide
@@ -27,6 +28,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -102,8 +104,22 @@ class HintLineGateTest {
 
             val line = liveLineResolver(engines) { AnalysisOptions() }(BLACK_TO_MOVE, "e7e5")
 
-            assertEquals(listOf("e5"), line, "the seed survives, nothing is searched")
+            assertEquals(listOf("e5"), line.san, "the seed survives, nothing is searched")
             assertEquals(0, spawned, "a LIVE consumer must not start Stockfish past the gate")
+        }
+
+    /** Eine Engine, die nicht antwortet, darf den Mattweg nicht still auf den ersten Zug kuerzen. */
+    @Test
+    fun aDeadEngineIsNamedInTheSpokenTip() =
+        runBlocking {
+            val mute = ScriptedEngineProcess(engineScript(emptyList())).apply { dieOn = "uci" }
+            val engines = EngineService { UciEngine("fake") { mute } }
+            val controller = HintController().apply { startGame(HintPlan(HintSide.BLACK, quota = 2)) }
+
+            val outcome = controller.request({ mateMoment(null) }, liveLineResolver(engines) { AnalysisOptions() })
+
+            val spoken = HintPhrase.of(outcome, "en-US")
+            assertTrue(spoken.contains("UCI engine terminated"), "the tip said only the first move: $spoken")
         }
 }
 

@@ -49,7 +49,7 @@ class HintLedgerBindingTest {
                 moment = { moment(fen = fen, result = result(fen, mate = -2)) },
                 resolveLine = { _, _ ->
                     fen = OTHER_FEN
-                    listOf("Qh4")
+                    HintLine(listOf("Qh4"))
                 },
             )
             assertNull(ledger.markFor(FEN, "e7e5"))

@@ -105,7 +105,7 @@ class HintControllerTest {
                     moment = { moment(fen = fen, result = result(fen, mate = -2)) },
                     resolveLine = { _, _ ->
                         fen = OTHER_FEN
-                        listOf("Qh4", "g3", "Qxg3")
+                        HintLine(listOf("Qh4", "g3", "Qxg3"))
                     },
                 )
             assertEquals(HintOutcome.Refused(HintRefusal.EXPIRED), outcome)
@@ -151,7 +151,7 @@ class HintControllerTest {
         runTest {
             val controller = HintController()
             controller.startGame(HintPlan(HintSide.BLACK, quota = 2))
-            val mine = controller.request({ moment(result = result(FEN, mate = -3)) }, { _, _ -> listOf("Qh4") })
+            val mine = controller.request({ moment(result = result(FEN, mate = -3)) }, { _, _ -> HintLine(listOf("Qh4")) })
             assertEquals(3, (mine as HintOutcome.Tip).mateIn)
             val theirs = controller.request({ moment(result = result(FEN, mate = 3)) })
             assertEquals(null, (theirs as HintOutcome.Tip).mateIn)
@@ -177,7 +177,7 @@ class HintControllerTest {
             var second: HintOutcome? = null
             controller.request({ moment(result = result(FEN, mate = -2)) }, { _, _ ->
                 second = controller.request({ moment() })
-                listOf("Qh4")
+                HintLine(listOf("Qh4"))
             })
             assertEquals(HintOutcome.Ignored, second)
             assertEquals(2, controller.state.value.remaining)

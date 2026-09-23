@@ -39,8 +39,8 @@ import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.camera.FocusState
 import com.chesslab.tracker.camera.FocusTuner
 import com.chesslab.tracker.geometry.CalibrationProfile
+import com.chesslab.tracker.geometry.CalibrationStoreHost
 import com.chesslab.tracker.geometry.ProfileLoad
-import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.SourceFramedPreview
@@ -118,7 +118,7 @@ fun CameraRoute(onBack: () -> Unit) {
 @Composable
 private fun savedProfile(): CalibrationProfile? {
     val context = LocalContext.current
-    val store = remember(context) { calibrationStore(context) }
+    val store = remember(context) { CalibrationStoreHost.of(context) }
     val load by store.profile.collectAsStateWithLifecycle(initialValue = ProfileLoad.Absent)
     return (load as? ProfileLoad.Ok)?.profile
 }

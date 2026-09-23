@@ -18,11 +18,6 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Instrumented tests. The only one is NormLatencyBenchmark, which times the two
-        // normalizers against each other on the real SoC — a question no desktop EP can answer,
-        // because the desktop has no XNNPACK and therefore runs the convolutions badly.
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
         // ABI selection belongs to the build types below. Keeping it out of defaultConfig
         // lets the normal debug/release APKs stay arm64-only while the separate `emulator`
         // build contains only x86_64. In particular, no APK pays for both embedded Stockfish
@@ -251,10 +246,4 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.junit4)
     testRuntimeOnly(libs.junit.vintage.engine)
-
-    // Instrumented tests run on the device, where JUnit5 has no runner — JUnit4 is what
-    // AndroidJUnitRunner drives, so this source set uses a different framework from the JVM one.
-    androidTestImplementation(libs.junit4)
-    androidTestImplementation(libs.androidx.test.runner)
-    androidTestImplementation(libs.androidx.test.junit)
 }

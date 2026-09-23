@@ -56,7 +56,7 @@ class HintController(
      */
     suspend fun request(
         moment: () -> HintMoment,
-        resolveLine: suspend (String, String) -> List<String> = { _, _ -> emptyList() },
+        resolveLine: suspend (String, String) -> HintLine = { _, _ -> HintLine(emptyList()) },
     ): HintOutcome {
         if (!claim()) return HintOutcome.Ignored
         try {
@@ -68,7 +68,7 @@ class HintController(
 
     private suspend fun deliver(
         moment: () -> HintMoment,
-        resolveLine: suspend (String, String) -> List<String>,
+        resolveLine: suspend (String, String) -> HintLine,
     ): HintOutcome {
         val side = synchronized(lock) { plan.side } ?: return publish(HintOutcome.Refused(HintRefusal.NOT_YOUR_TURN))
         val opened = moment()
@@ -79,7 +79,7 @@ class HintController(
         val mateIn = mateForSide(result, side)
         val line =
             if (mateIn == null) {
-                emptyList()
+                HintLine(emptyList())
             } else {
                 resolveLine(opened.fen, best.uci.orEmpty())
             }
@@ -93,7 +93,7 @@ class HintController(
         san: String,
         uci: String,
         mateIn: Int?,
-        line: List<String>,
+        line: HintLine,
         moment: () -> HintMoment,
         side: HintSide,
     ): HintOutcome =
@@ -105,7 +105,7 @@ class HintController(
             // Erst HIER, im selben Abschnitt wie die Abbuchung: was nicht zugestellt wurde, ist
             // auch nicht vorgesagt, und der Record haette sonst eine Absage als Tipp gefuehrt.
             ledger?.delivered(fen, san, uci)
-            HintOutcome.Tip(fen = fen, san = san, uci = uci, mateIn = mateIn, line = line, remaining = remaining())
+            HintOutcome.Tip(fen, san, uci, mateIn, line.san, remaining(), line.failure)
         }
 
     /** Die Rangordnung von `gateBlock` bleibt, wie sie ist: ein Tipp kehrt sie nicht um, er bekommt

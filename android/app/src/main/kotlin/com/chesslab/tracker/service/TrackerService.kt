@@ -41,8 +41,8 @@ import com.chesslab.tracker.diagnostics.androidHostIdentity
 import com.chesslab.tracker.diagnostics.diagnosticsDir
 import com.chesslab.tracker.diagnostics.runStartOf
 import com.chesslab.tracker.games.GameSessionController
+import com.chesslab.tracker.geometry.CalibrationStoreHost
 import com.chesslab.tracker.geometry.ProfileLoad
-import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.geometry.cropLine
 import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.hints.HintHost
@@ -135,7 +135,7 @@ class TrackerService :
     /** Read once: `PackageManager` is a binder call and the answer cannot change under us. */
     private val host by lazy { androidHostIdentity(this) }
 
-    private val calibration by lazy { calibrationStore(this) }
+    private val calibration by lazy { CalibrationStoreHost.of(this) }
 
     private val cameraRate = CameraRate()
 

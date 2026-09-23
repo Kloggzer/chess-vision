@@ -5,6 +5,7 @@ import com.chesslab.tracker.analysis.EngineService
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.GameReviewer
 import com.chesslab.tracker.analysis.MateLineResolver
+import com.chesslab.tracker.analysis.NO_ENGINE_BINARY
 import com.chesslab.tracker.analysis.OpeningBook
 import com.chesslab.tracker.analysis.OpeningSummary
 import com.chesslab.tracker.analysis.PositionLibraryWarmer
@@ -40,6 +41,8 @@ data class ReviewUi(
     val warmingLibrary: Boolean = false,
     val libraryCached: Int = 0,
     val libraryTotal: Int = 0,
+    /** Why the book continuations were not cached; the game's own review is unaffected. */
+    val libraryNote: String? = null,
     val engineMissing: Boolean = false,
     /** Prevents a route change from flashing the previous game or a false "not found" state. */
     val loading: Boolean = false,
@@ -172,6 +175,7 @@ class ReviewViewModel(
                 warmingLibrary = false,
                 libraryCached = 0,
                 libraryTotal = 0,
+                libraryNote = null,
                 engineMissing = false,
                 error = null,
             )
@@ -258,7 +262,7 @@ class ReviewViewModel(
         id: String,
     ): Boolean = generation.get() == token && requestedId == id
 
-    /** Best-effort idle work: a failure here must not turn a completed game review into an error. */
+    /** Best-effort idle work: a failure is named beside the review, never turned into its error. */
     private suspend fun warmLibrary(
         token: Long,
         game: GameView,
@@ -272,18 +276,21 @@ class ReviewViewModel(
                 libraryCached = 0,
                 libraryTotal = missing.size,
             )
+        var note: String? = null
         try {
-            PositionLibraryWarmer(engines, reviews, budget).warm(missing) { done, total ->
-                if (owns(token, game.id)) {
-                    mutable.value = mutable.value.copy(libraryCached = done, libraryTotal = total)
+            val warmed =
+                PositionLibraryWarmer(engines, reviews, budget).warm(missing) { done, total ->
+                    if (owns(token, game.id)) {
+                        mutable.value = mutable.value.copy(libraryCached = done, libraryTotal = total)
+                    }
                 }
-            }
+            if (!warmed) note = libraryNote(NO_ENGINE_BINARY)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: IOException) {
-            // The played game is already complete and saved; future reviews can retry warming.
+        } catch (failure: IOException) {
+            note = libraryNote(failure.message?.takeIf(String::isNotBlank) ?: failure.javaClass.simpleName)
         } finally {
-            if (owns(token, game.id)) mutable.value = mutable.value.copy(warmingLibrary = false)
+            if (owns(token, game.id)) mutable.value = mutable.value.copy(warmingLibrary = false, libraryNote = note)
         }
     }
 
@@ -304,6 +311,8 @@ class ReviewViewModel(
     }
 
     private fun positions(game: GameView): List<String> = listOf(game.startFen) + game.plies.map { it.fenAfter }
-
-    private fun IOException.userMessage(): String = message?.takeIf(String::isNotBlank) ?: "Analysis failed"
 }
+
+internal fun libraryNote(failure: String): String = "Engine unavailable: $failure — nearby book positions were not cached."
+
+private fun IOException.userMessage(): String = message?.takeIf(String::isNotBlank) ?: "Analysis failed"

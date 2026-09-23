@@ -14,7 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.geometry.ArucoCalibrator
-import com.chesslab.tracker.geometry.calibrationStore
+import com.chesslab.tracker.geometry.CalibrationStoreHost
 import com.chesslab.tracker.ui.calibration.CalibrationHost
 import com.chesslab.tracker.ui.calibration.CalibrationState
 import com.chesslab.tracker.ui.calibration.CalibrationViewModel
@@ -45,7 +45,7 @@ fun rememberBoardModel(
     val context = LocalContext.current
     val model =
         remember(host) {
-            val store = calibrationStore(context)
+            val store = CalibrationStoreHost.of(context)
             CalibrationViewModel(
                 detector = ArucoCalibrator(host.latestCalibrationFrame, store::geometry),
                 store = store,

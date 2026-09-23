@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 
 private class UnwritableStore : ConfigStore {
     override suspend fun read(slot: String): String? = null
@@ -88,4 +89,39 @@ class RecordingViewModelFailureTest {
                 open.close()
             }
         }
+
+    /** A full disk or a vanished SAF target used to throw on the IO dispatcher and take the app down. */
+    @Test
+    fun anExportThatCannotBeWrittenSaysWhy() =
+        runTest {
+            File(root, "20260923-120000").apply { mkdirs() }.resolve("log.jsonl").writeText("{}")
+            val model =
+                RecordingViewModel(SessionStore(root), RecordingSettings(UnwritableStore()), this, StandardTestDispatcher(testScheduler))
+
+            model.exportSession("20260923-120000") { FullOutput() }
+            advanceUntilIdle()
+
+            assertEquals("Storage error: disk full", model.ui.value.error)
+        }
+
+    @Test
+    fun anExportWhoseDestinationWillNotOpenSaysSo() =
+        runTest {
+            val model =
+                RecordingViewModel(SessionStore(root), RecordingSettings(UnwritableStore()), this, StandardTestDispatcher(testScheduler))
+
+            model.exportSession("20260923-120000") { throw SecurityException("permission revoked") }
+            advanceUntilIdle()
+
+            assertTrue(
+                model.ui.value.error
+                    .orEmpty()
+                    .contains("permission revoked"),
+                "got ${model.ui.value.error}",
+            )
+        }
+}
+
+private class FullOutput : OutputStream() {
+    override fun write(b: Int): Unit = throw IOException("disk full")
 }

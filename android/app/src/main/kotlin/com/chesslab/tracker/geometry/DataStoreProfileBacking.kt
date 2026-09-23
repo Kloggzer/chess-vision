@@ -19,8 +19,14 @@ private val PROFILE_KEY = stringPreferencesKey("calibration_profile")
 // write path.
 private val Context.calibrationDataStore: DataStore<Preferences> by preferencesDataStore(name = "calibration")
 
-fun calibrationStore(context: Context): CalibrationStore =
-    CalibrationStore(DataStoreProfileBacking(context.applicationContext.calibrationDataStore))
+/** The one [CalibrationStore] of the process: the service and every screen detect against the same geometry. */
+object CalibrationStoreHost {
+    private var instance: CalibrationStore? = null
+
+    @Synchronized
+    fun of(context: Context): CalibrationStore =
+        instance ?: CalibrationStore(DataStoreProfileBacking(context.applicationContext.calibrationDataStore)).also { instance = it }
+}
 
 /** The one thing the store needs from its backing. A fake makes the carry-over rule JVM-testable. */
 class DataStoreProfileBacking(
@@ -31,22 +37,4 @@ class DataStoreProfileBacking(
     override suspend fun write(text: String) {
         store.edit { it[PROFILE_KEY] = text }
     }
-}
-
-/** What a calibration run actually MEASURES. Everything else is carried over. */
-data class MeasuredGeometry(
-    val corners: FloatArray,
-    val sourceWidth: Int,
-    val sourceHeight: Int,
-) {
-    override fun equals(other: Any?): Boolean =
-        this === other ||
-            (
-                other is MeasuredGeometry &&
-                    corners.contentEquals(other.corners) &&
-                    sourceWidth == other.sourceWidth &&
-                    sourceHeight == other.sourceHeight
-            )
-
-    override fun hashCode(): Int = 31 * (31 * corners.contentHashCode() + sourceWidth) + sourceHeight
 }

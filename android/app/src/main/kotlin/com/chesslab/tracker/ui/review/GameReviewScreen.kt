@@ -185,6 +185,9 @@ private fun GameReviewScreen(
             analysisPhase(ui)?.let { phase ->
                 item(key = "analysis") { AnalysisState(phase, grade, ui.error, model::review) }
             }
+            ui.libraryNote?.let { note ->
+                item(key = "library") { Text(note, style = MaterialTheme.typography.labelSmall, color = Danger) }
+            }
             when (section) {
                 ReviewSection.REVIEW -> {
                     item(key = "board") { ReviewBoard(game, review.selected, grade, review.advice) }
