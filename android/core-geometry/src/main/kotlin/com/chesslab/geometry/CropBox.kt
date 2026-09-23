@@ -85,17 +85,17 @@ fun cropBorderPx(geom: BoardGeometry): Int = pyRound(max(CROP_WARP_BORDER_CELLS,
 /** Grid lines per axis: 8 cells share 9 boundaries. */
 const val GRID_LINES_PER_AXIS: Int = 9
 
-/** A steeper line is a misfit, not a lens — shared with realgames.py and `lib/warp.ts`. */
+/** A steeper line is a misfit, not a lens — shared with realgames/mesh.py and `lib/warp.ts`. */
 const val MESH_TILT_LIMIT: Double = 0.05
 
-/** The same for the parabola term — realgames.py `MESH_CURV_LIMIT` explains the number. */
+/** The same for the parabola term — realgames/mesh.py `MESH_CURV_LIMIT` explains the number. */
 const val MESH_CURV_LIMIT: Double = 0.08
 
 /** Simultaneous evaluations per point — three leaves the residual far inside a pixel. */
 const val CORNER_ITERATIONS: Int = 3
 
 /**
- * The 18 MEASURED grid lines of one frame (`quad-fit.json` `grid_lines`, realgames.py), as
+ * The 18 MEASURED grid lines of one frame (`quad-fit.json` `grid_lines`, realgames/mesh.py), as
  * fractions of the playing-field side — `xs` left to right, `ys` top to bottom, white POV.
  * [tx]/[ty] are the lines' dimensionless tilts about the board centre, [cx]/[cy] their parabola
  * terms; each pair comes complete or not at all, and curvature only on top of tilts, so a

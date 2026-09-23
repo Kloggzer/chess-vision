@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .session_store.names import log_path, matte_path
+
 
 def session_stamp(session_dir: Path) -> str:
     """`<Millisekunden>:<Bytes>` der `log.jsonl` — die Form, auf die `lib/session.ts` schon cacht."""
-    st = (session_dir / "log.jsonl").stat()
+    st = log_path(session_dir).stat()
     return f"{st.st_mtime_ns // 1_000_000}:{st.st_size}"
 
 
@@ -83,7 +85,7 @@ def _same_file(stamped: str | None, current: str | None) -> bool:
 def _check_inputs(session_dir: Path, path: Path) -> None:
     """`_inputs`: was ein Lauf AUSSER dem Log las — `matte.jsonl` und die Eingaben seines Scans."""
     head = _head(path, "_inputs") if path.suffix == ".json" else {}
-    if "matte" in head and not _same_file(head["matte"], file_stamp(session_dir / "matte.jsonl")):
+    if "matte" in head and not _same_file(head["matte"], file_stamp(matte_path(session_dir))):
         raise Stale(f"{path.name}: matte.jsonl hat sich seit dem Lauf geaendert — den Schritt neu rechnen")
     if "scan" in head:
         from .temporal_flags import source_stamp

@@ -101,10 +101,10 @@ export type GridMesh = { x: number[]; y: number[]; tx?: number[]; ty?: number[];
 /** A mesh whose tilt stage is proven present; curvature may still be absent. */
 export type TiltedMesh = GridMesh & { tx: number[]; ty: number[] };
 
-/** A steeper line is a misfit, not a lens — shared with realgames.py and CropBox.kt. */
+/** A steeper line is a misfit, not a lens — shared with realgames/mesh.py and CropBox.kt. */
 const MESH_TILT_LIMIT = 0.05;
 
-/** The same for the parabola term — realgames.py `MESH_CURV_LIMIT` explains the number. */
+/** The same for the parabola term — realgames/mesh.py `MESH_CURV_LIMIT` explains the number. */
 const MESH_CURV_LIMIT = 0.08;
 
 /** 9 finite, strictly increasing numbers — anything else reads as "no mesh", never as an error. */

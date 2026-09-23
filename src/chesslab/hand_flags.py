@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import config, provenance
 from .ioutil import read_jsonl, write_rows
-from .matte_store import read_matte
+from .session_store.matte import read_matte
 
 FLAGS_FILE = "hand-flags.jsonl"
 #: Ab hier behauptet der Occlusion-Kopf eine Verdeckung. Tief angesetzt, weil ein verpasster

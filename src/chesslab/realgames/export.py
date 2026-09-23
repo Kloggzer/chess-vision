@@ -20,6 +20,7 @@ from ..session_store.log import (
     refuse_orphaned_verdicts,
     write_session,
 )
+from ..session_store.names import log_path
 from ..session_store.recording import (
     corrected_frames,
     game_dir,
@@ -71,7 +72,7 @@ def adopt_reported_dirty(name: str) -> dict:
     if not changed:
         return {"reported": len(wanted), "changed": 0, "set": 0, "retracted": 0, "stems": [],
                 "backup": None}
-    backup = backup_log(session_dir / "log.jsonl")
+    backup = backup_log(log_path(session_dir))
     _write_log(session_dir, rows)
     move_boards(moves)
     return {"reported": len(wanted), "changed": len(changed), "set": len(changed) - retracted,
@@ -129,7 +130,7 @@ REPAIRED_KEYS = ("corners", "corners_source", "corners_prev", "corners_set_at", 
 
 def carry_repaired_geometry(session_dir: Path, rows: list[dict]) -> int:
     """Copy the repair's per-frame geometry onto freshly planned rows. Returns rows carried."""
-    log = session_dir / "log.jsonl"
+    log = log_path(session_dir)
     if not log.is_file():
         return 0
     old = {Path(r["frame"]).stem: r for r in read_jsonl(log)}
@@ -311,9 +312,9 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                 f"(its {len(candidate['moves'])} moves have nothing vouching for them)")
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
     session_dir = game_dir(name)
-    if not report_only and not drop_verdicts and (session_dir / "log.jsonl").is_file():
+    if not report_only and not drop_verdicts and log_path(session_dir).is_file():
         # Frueh, solange `boards/` noch unberuehrt ist; `write_session` prueft zum Schluss erneut.
-        refuse_orphaned_verdicts(carry_human_verdicts(read_jsonl(session_dir / "log.jsonl"),
+        refuse_orphaned_verdicts(carry_human_verdicts(read_jsonl(log_path(session_dir)),
                                                       [dict(r) for r in rows]), False)
     if not report_only:
         # Von hier bis zum Log-Schreiben sind die Bretter schon neu und das Log noch alt.

@@ -11,6 +11,7 @@ import chess.pgn
 
 from .. import config
 from ..ioutil import read_jsonl, stamp_of
+from .names import CANDIDATE_FILE, REFERENCE_FILE, corrections_path, log_path
 
 
 def game_dir(name: str) -> Path:
@@ -18,9 +19,17 @@ def game_dir(name: str) -> Path:
     return config.DATA.recordings / name
 
 
+def candidate_path(name: str) -> Path:
+    return game_dir(name) / CANDIDATE_FILE
+
+
+def reference_path(name: str) -> Path:
+    return game_dir(name) / REFERENCE_FILE
+
+
 def load_candidate(name: str) -> dict:
     """The candidate exactly as the tracker left it — nothing here rewrites `moves[]`."""
-    path = game_dir(name) / "candidate.json"
+    path = candidate_path(name)
     if not path.exists():
         raise FileNotFoundError(f"no candidate: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
@@ -32,7 +41,7 @@ def read_reference(name: str) -> tuple[list[str], str]:
     import hashlib
     import io
 
-    path = game_dir(name) / "reference.pgn"
+    path = reference_path(name)
     if not path.exists():
         raise FileNotFoundError(f"no reference game: {path}")
     data = path.read_bytes()
@@ -58,12 +67,12 @@ def write_confirmation(name: str, candidate: dict, plies: list[int], *,
 
     from ..ioutil import Contested, write_json_guarded
 
-    path = game_dir(name) / "candidate.json"
+    path = candidate_path(name)
     stamp = stamp_of(path)
     what = f"{name}: candidate.json wurde waehrend der Bestaetigung geschrieben — nichts ersetzt, neu bestaetigen"
     if load_candidate(name) != candidate:
         raise ValueError(what)
-    ref = game_dir(name) / "reference.pgn"
+    ref = reference_path(name)
     md5 = hashlib.md5(ref.read_bytes()).hexdigest() if ref.exists() else None
     # Das Urteil fiel gegen die Bytes, die `read_reference` las; eine waehrend der Rueckfrage
     # ersetzte Datei bekaeme sonst ihren md5 an ein Urteil ueber die alte.
@@ -106,7 +115,7 @@ def reference_is_the_phones_own(name: str) -> bool:
     """
     import hashlib
 
-    ref = game_dir(name) / "reference.pgn"
+    ref = reference_path(name)
     games = game_dir(name) / "files" / "games"
     if not ref.exists() or not games.is_dir():
         return False
@@ -165,7 +174,7 @@ def corrected_frames(name: str) -> set[int]:
     from ..labeling import load_corrections
 
     return {int(frame)
-            for (_sid, frame, _square) in load_corrections(game_dir(name) / "corrections.jsonl")
+            for (_sid, frame, _square) in load_corrections(corrections_path(game_dir(name)))
             if str(frame).isdigit()}
 
 
@@ -206,13 +215,12 @@ def stored_session_dirs(name: str) -> list[Path]:
     root = game_dir(name) / "files" / "sessions"
     if not root.is_dir():
         return []
-    return sorted(d for d in root.iterdir() if (d / "log.jsonl").is_file())
+    return sorted(d for d in root.iterdir() if log_path(d).is_file())
 
 
 def stored_rows(session_dir: Path) -> list[dict]:
     """The logged rows in frame order — every row, since the sidecar is keyed per frame."""
-    log = session_dir / "log.jsonl"
-    rows = read_jsonl(log)
+    rows = read_jsonl(log_path(session_dir))
     return sorted((r for r in rows if r.get("frame") and r.get("corners")),
                   key=lambda r: Path(r["frame"]).stem)
 

@@ -8,7 +8,8 @@ import pytest
 from chesslab.calibration import GridMesh
 from chesslab.realgames.boards import STRAIGHTEN_CHECKPOINT, straighten_boards
 from chesslab.realgames.mesh import meshes_for_boards
-from chesslab.session_store.boards import BOARD_ENCODE, MATTE_DIR, MATTE_ENCODE
+from chesslab.session_store.boards import BOARD_ENCODE, MATTE_ENCODE
+from chesslab.session_store.names import MATTE_DIR
 from conftest import write_jsonl
 
 BS, BORDER, TILT = 400, 20, 0.04

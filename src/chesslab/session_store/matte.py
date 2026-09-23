@@ -8,14 +8,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from .ioutil import read_jsonl
-
-MATTE_FILE = "matte.jsonl"
+from ..ioutil import read_jsonl
+from .names import matte_path
 
 
 def read_rows(session_dir: Path) -> list[dict]:
     """Die rohe Historie, leer ohne Datei."""
-    return read_jsonl(Path(session_dir) / MATTE_FILE)
+    return read_jsonl(matte_path(session_dir))
 
 
 def effective_rows(rows: Iterable[dict]) -> dict[str, dict]:

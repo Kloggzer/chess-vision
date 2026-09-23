@@ -37,6 +37,7 @@ from .labeling import (
     read_session_meta,
     usable_board,
 )
+from .session_store.names import READS_FILE, log_path
 from .state import GameState
 
 
@@ -153,10 +154,6 @@ def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
     return crops_for_frame(image, row["corners"], profile)
 
 
-#: What one model saw on every square of a session. `occluded-proposals.jsonl` carried this as a
-#: side effect of hunting occlusion — which SAM 3 measures now, so the reads travel alone.
-READS_FILE = "model-reads.jsonl"
-
 
 def read_session(name: str, model_dir: Path, *, device: str = "cpu",
                  progress: bool = True, weights: str | None = None,
@@ -170,7 +167,7 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
-    if not (session_dir / "log.jsonl").exists():
+    if not log_path(session_dir).exists():
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
     meta = read_session_meta(session_dir)
     check_not_circular(model_dir, meta["session_id"])
@@ -178,6 +175,8 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     classes = model_classes(model_dir)
     squares = all_squares()
     rows = [r for r in read_log(session_dir) if r.get("board") or r.get("frame")]
+    # What one model saw on every square — `occluded-proposals.jsonl` carried this as a side
+    # effect of hunting occlusion, which SAM 3 measures now, so the reads travel alone.
     # A side measurement (the per-model `coverage_gate`) must not overwrite the canonical
     # file: the labeling lane, audit-flags, chain-steps and provenance all read it.
     path = game_dir(name) / (out or READS_FILE)

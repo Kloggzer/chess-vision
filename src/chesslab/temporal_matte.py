@@ -17,7 +17,8 @@ import numpy as np
 from . import config, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
 from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
-from .matte_store import measured_coverage, read_matte
+from .session_store.matte import measured_coverage, read_matte
+from .session_store.names import BOARD_DIR, MATTE_DIR, MATTE_FILE
 from .session_store.paths import session_dir
 from .temporal_flags import load_flags, source_stamp
 
@@ -163,7 +164,7 @@ def bracketing(rows, target, *, max_gap_s=config.TEMPORAL_MATTE_MAX_GAP_S,
     # beschaedigte Zeile sah damit aus wie eine, fuer die es einfach keinen Nachbarn gab.
     try:
         here = index(target)
-        clean = [r for r in rows if Path(str(r.get("board", ""))).parent.name == "boards"]
+        clean = [r for r in rows if Path(str(r.get("board", ""))).parent.name == BOARD_DIR]
         before = [r for r in clean if index(r) < here]
         after = [r for r in clean if index(r) > here]
         if not before or not after:
@@ -350,7 +351,7 @@ def adopt_proposals(session_id, *, method="local"):
     require_fresh_proposals(directory, recording)
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
-    matte_path = recording / "matte.jsonl"
+    matte_path = recording / MATTE_FILE
     matte_stamp = stamp_of(matte_path)
     rows_before = read_jsonl(matte_path)
     kept_rows = [r for r in rows_before if r.get("source") != "temporal"]
@@ -361,7 +362,7 @@ def adopt_proposals(session_id, *, method="local"):
     have = matted_frames(kept_rows)
     # Dieselbe Herkunft wie SAMs Zeilen: diese Coverage ist gegen DIESEN Export geschnitten.
     stamp = provenance.source(recording)
-    (recording / "mattes").mkdir(exist_ok=True)
+    (recording / MATTE_DIR).mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []
     for row in read_jsonl(report):
@@ -373,7 +374,7 @@ def adopt_proposals(session_id, *, method="local"):
         if stem in have:
             kept += 1
             continue
-        target = recording / "mattes" / f"{stem}.webp"
+        target = recording / MATTE_DIR / f"{stem}.webp"
         alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
         coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
         if max(coverage.values()) <= MATTE_DIRTY:
@@ -430,12 +431,12 @@ def upsert_proposals(session_id, *, method="local"):
     require_fresh_proposals(directory, recording)
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
-    matte_path = recording / "matte.jsonl"
+    matte_path = recording / MATTE_FILE
     matte_stamp = stamp_of(matte_path)
     rows_before = read_jsonl(matte_path)
     kept_rows = [r for r in rows_before if r.get("source") not in ("upsert", "merged")]
     replaced = len(rows_before) - len(kept_rows)
-    mattes = recording / "mattes"
+    mattes = recording / MATTE_DIR
     backups = {p.name.removesuffix(".sam.webp") for p in mattes.glob("*.sam.webp")}
     # Punkt 28, wie `sam_matte`: SAMs Absage ist die JUENGERE Aussage und nimmt die fruehere
     # Messung zurueck. Als blosser Filter gelesen blieb die alte Zahl stehen und zaehlte als
@@ -498,7 +499,7 @@ def pass_inputs(session_id) -> dict:
         scan = source_stamp(recording)
     except OSError:
         return {}
-    return {"matte": provenance.file_stamp(recording / "matte.jsonl"), "scan": scan}
+    return {"matte": provenance.file_stamp(recording / MATTE_FILE), "scan": scan}
 
 
 def _publish_upserts(mattes: Path, backups: set[str], staged: dict[str, Path]) -> None:
@@ -530,7 +531,7 @@ def prune_dead_rows(session_id):
     from .labeling import MATTE_DIRTY
 
     recording, _ = session_dir(session_id)
-    matte_path = recording / "matte.jsonl"
+    matte_path = recording / MATTE_FILE
     if not matte_path.is_file():
         return {"path": matte_path, "dropped": 0, "kept": 0}
     stamp = stamp_of(matte_path)

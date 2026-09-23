@@ -30,6 +30,7 @@ from PIL import Image
 
 from .. import config
 from ..ioutil import mtime_size, write_json
+from ..session_store.names import BOARD_DIR, LOG_FILE
 from ..work_audit import measure
 
 log = logging.getLogger("chesslab.pack")
@@ -231,7 +232,7 @@ def cut_plan(rows: list[dict]) -> tuple[list[tuple[int, str]], dict]:
         if sid and sq and frame is not None:
             if sid not in has_boards:
                 d = game_dir(sid[3:] if sid.startswith("rg-") else sid)
-                has_boards[sid] = (d / "log.jsonl").exists() and (d / "boards").is_dir()
+                has_boards[sid] = (d / LOG_FILE).exists() and (d / BOARD_DIR).is_dir()
             if has_boards[sid]:
                 at.setdefault(sid, {}).setdefault(str(frame), []).append((sq, i))
                 continue

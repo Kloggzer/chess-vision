@@ -14,15 +14,22 @@ from pathlib import Path
 import yaml
 
 from . import config
-from .ioutil import append_rows, read_jsonl, stamp_of, write_rows, write_rows_guarded
+from .ioutil import append_rows, iter_jsonl, read_jsonl, stamp_of, write_rows, write_rows_guarded
 from .session_store.log import _write_log
+from .session_store.names import (
+    corrections_path,
+    log_path,
+    matte_path,
+    meta_path,
+    unusable_cells_path,
+)
 from .session_store.paths import _read_meta, _safe_id, active_session_dir, all_sessions, session_dir
 
 log = logging.getLogger("chesslab.sessions")
 
 
 def _log_count(session_dir: Path) -> int:
-    p = session_dir / "log.jsonl"
+    p = log_path(session_dir)
     if not p.exists():
         return 0
     return len(read_jsonl(p))
@@ -132,7 +139,7 @@ def _purge_crops_for_frames(session_id: str, frame_stems: set[str], paths: confi
 
 def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
     """Drop a trimmed frame's matte row. Keyed by frame alone — the file belongs to one session."""
-    path = sdir / "matte.jsonl"
+    path = matte_path(sdir)
     if not path.exists() or not frame_stems:
         return 0
     stamp = stamp_of(path)
@@ -224,7 +231,7 @@ def archive_session(session_id: str, reason: str, paths: config.Paths = config.D
 def _record_archive_reason(dst, sid: str, reason: str, n_crops: int, paths: config.Paths) -> None:
     """Write the reason where a human and a script will each find it."""
     stamp = datetime.now(UTC).isoformat()
-    meta = dst / "session.yaml"
+    meta = meta_path(dst)
     if meta.exists():
         try:
             data = yaml.safe_load(meta.read_text(encoding="utf-8")) or {}
@@ -270,7 +277,7 @@ def set_session_reviewed(session_id: str, reviewed: bool,
 
     meta = _read_meta(target)
     meta["reviewed"] = bool(reviewed)
-    (target / "session.yaml").write_text(
+    meta_path(target).write_text(
         yaml.safe_dump(meta, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return {"session_id": sid, "reviewed": bool(reviewed)}
 
@@ -283,12 +290,9 @@ def deletion_cost(session_id: str, paths: config.Paths = config.DATA) -> dict:
     """
     sid = _safe_id(session_id)
     target, _ = session_dir(sid, paths)
-    log = target / "log.jsonl"
-    frames = len(read_jsonl(log))
-    crops = sum(1 for m in _manifest_files(paths) if m.exists() for line in
-                m.read_text(encoding="utf-8").splitlines() if f'"session_id": "{sid}"' in line)
-    own = target / "corrections.jsonl"
-    corrections = len(read_jsonl(own))
+    frames = len(read_jsonl(log_path(target)))
+    crops = sum(1 for m in _manifest_files(paths) for r in iter_jsonl(m) if r.get("session_id") == sid)
+    corrections = len(read_jsonl(corrections_path(target)))
     return {"session_id": sid, "frames": frames, "crops": crops, "corrections": corrections}
 
 
@@ -313,11 +317,11 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     """
     sid = _safe_id(session_id)
     target, _ = session_dir(sid, paths)
-    log_path = target / "log.jsonl"
-    if not log_path.exists():
+    log_file = log_path(target)
+    if not log_file.exists():
         raise FileNotFoundError(f"Session '{sid}' has no log.jsonl.")
-    stamp = stamp_of(log_path)
-    rows = read_jsonl(log_path)
+    stamp = stamp_of(log_file)
+    rows = read_jsonl(log_file)
     keep = max(0, min(int(keep_frames), len(rows)))
     kept, removed_rows = rows[:keep], rows[keep:]
     removed_stems = {_frame_stem(r) for r in removed_rows if _frame_stem(r)}
@@ -335,7 +339,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
             "created_at": datetime.now(UTC).isoformat(),
         })
         import yaml
-        (reject_dir / "session.yaml").write_text(yaml.safe_dump(meta, sort_keys=False), encoding="utf-8")
+        meta_path(reject_dir).write_text(yaml.safe_dump(meta, sort_keys=False), encoding="utf-8")
         _write_log(reject_dir, removed_rows, stamp=None)
     # Erst das bewachte Log, dann die Bilder: ein `Contested` liess sonst den Schwanz im
     # Reject-Ordner, waehrend das Log ihn weiter nannte. Der Reject-Ordner ist bis dahin nur Ablage.
@@ -362,10 +366,10 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
             removed_manifest_rows += _filter_jsonl_frames(manifest, sid, removed_stems)
     # Also the session's OWN sidecars: a trimmed frame used to keep its matte row
     # forever, because nothing here knew the file existed.
-    removed_corrections = _filter_jsonl_frames(target / "corrections.jsonl", sid, removed_stems)
+    removed_corrections = _filter_jsonl_frames(corrections_path(target), sid, removed_stems)
     # Dasselbe fuer das ZWEITE menschliche Ledger: Frames heissen nach Quell-Index, ein
     # Re-Export vergibt die Stems neu — ein altes "unbrauchbar" traefe dann ein anderes Bild.
-    _filter_jsonl_frames(target / "unusable-cells.jsonl", sid, removed_stems)
+    _filter_jsonl_frames(unusable_cells_path(target), sid, removed_stems)
     removed_matte_rows = _filter_matte_frames(target, removed_stems)
     return {
         "session_id": sid,

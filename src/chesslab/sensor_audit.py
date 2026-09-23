@@ -27,6 +27,7 @@ from chesslab.labeling import (
 )
 from chesslab.realgames.position import SETTLE_CELL_PX, SETTLE_MIN_FRAMES, cell_deviations
 from chesslab.session_store.log import read_log
+from chesslab.session_store.names import BOARD_DIR
 from chesslab.session_store.paths import session_dir
 
 GROUPS = ('both', 'matte_only', 'grooves_only', 'neither', 'matte_unknown')
@@ -104,7 +105,7 @@ def audit(rec, *, temporal=False, seen_min=SETTLE_SEEN_MIN, contrast_floor=8.0,
                                   for s in squares]).astype(np.float32)
             loaded.append((row, grooves, cells))
         stack = np.stack([x[2] for x in loaded]) if temporal and loaded else None
-        eligible = [reference_stock == "all" or Path(x[0]['board']).parent.name == "boards"
+        eligible = [reference_stock == "all" or Path(x[0]['board']).parent.name == BOARD_DIR
                     for x in loaded]
         for index, (row, grooves, cells) in enumerate(loaded):
             stem = Path(row['frame']).stem

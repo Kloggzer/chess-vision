@@ -21,11 +21,12 @@ from .labeling import (
     read_matte,
     read_session_meta,
 )
-from .session_store.log import INTERVAL_FILE, ExportInterrupted
+from .session_store.log import ExportInterrupted
+from .session_store.names import INTERVAL_FILE, LOG_FILE, interval_path, matte_path, meta_path
 from .state import GameState
 
 FLAGS_FILE = "position-flags.jsonl"
-INTERVAL_REPORT = "interval-check.jsonl"
+INTERVAL_REPORT = INTERVAL_FILE
 
 #: Frames je Seite einer Ply-Grenze, auf denen der Zug-Zeitpunkt nicht gesichert ist. Drei, weil
 #: der Commit hoechstens um wenige Frames wandert; grosszuegiger flutet es die Lane.
@@ -112,9 +113,9 @@ def position_flags() -> dict:
     from .temporal_flags import load_flags
 
     rows, per_session, stale_temporal, unmeasured, interrupted = [], {}, [], [], []
-    for path in sorted(config.DATA.recordings.glob("*/log.jsonl")):
+    for path in sorted(config.DATA.recordings.glob(f"*/{LOG_FILE}")):
         session_dir = path.parent
-        if not (session_dir / "session.yaml").is_file():
+        if not meta_path(session_dir).is_file():
             continue
         session_id = read_session_meta(session_dir)["session_id"]
         matte = read_matte(session_dir)
@@ -129,8 +130,8 @@ def position_flags() -> dict:
             unmeasured.append(session_id)
         found = [flag for entry in entries
                  for flag in frame_flags(entry, matte.get(Path(entry["frame"]).stem), session_id)
-                 ] if (session_dir / "matte.jsonl").is_file() else []
-        intervals = read_jsonl(session_dir / INTERVAL_FILE)
+                 ] if matte_path(session_dir).is_file() else []
+        intervals = read_jsonl(interval_path(session_dir))
         timing = timing_flags(entries, intervals, matte, session_id)
         temporal, stale = load_flags(session_dir, session_id, entries, matte)
         if stale:

@@ -50,7 +50,7 @@ internal class FittedQuad(
 )
 
 /**
- * `<sessionDir>/quad-fit.json`, written by `chesslab fit-stored` (`realgames.py`): the PC's re-fit
+ * `<sessionDir>/quad-fit.json`, written by `chesslab fit-stored` (`realgames/stored.py`): the PC's re-fit
  * of the quads the phone logged. No file, no entry or a failed frame — the caller keeps the logged
  * marker quad, which is what every pack before this one cut with.
  */

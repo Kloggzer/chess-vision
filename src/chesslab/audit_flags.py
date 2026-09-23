@@ -12,6 +12,7 @@ from pathlib import Path
 from . import config, provenance
 from .ioutil import read_jsonl, write_json, write_rows
 from .labeling import load_corrections
+from .session_store.names import CORRECTIONS_FILE, MATTE_FILE, READS_FILE, REVIEWED_FILE, matte_path
 
 INTERIM_FOLD = 0  # No folds in the interim: the proposals rotate models per session instead.
 Cell = tuple[str, str, str]
@@ -159,7 +160,7 @@ def covered_cells(session_dir: Path) -> set[tuple[str, str]]:
 def newest_input(rec: Path) -> str | None:
     """Der juengste Produzenten-Zeitstempel — Matten und Modell-Lesarten. Ist er neuer als
     `written_at`, sind die Flags veraltet und die Lane zeigt Arbeit, die es nicht mehr gibt."""
-    ts = [p.stat().st_mtime for pat in ("*/matte.jsonl", "*/model-reads.jsonl")
+    ts = [p.stat().st_mtime for pat in (f"*/{MATTE_FILE}", f"*/{READS_FILE}")
           for p in rec.glob(pat)] if rec.exists() else []
     return datetime.fromtimestamp(max(ts), UTC).isoformat() if ts else None
 
@@ -177,7 +178,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
     # Corrections last, so a retraction there reopens what a confirmation closed.
     from .labeling import ledger_paths
 
-    ledgers = ledger_paths("reviewed.jsonl") + ledger_paths("corrections.jsonl")
+    ledgers = ledger_paths(REVIEWED_FILE) + ledger_paths(CORRECTIONS_FILE)
     judged = ledger_labels(*ledgers)
     ts = datetime.now(UTC).isoformat()
     flags: list[dict] = []
@@ -188,7 +189,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
     #: Aufnahmen ohne `matte.jsonl`: `covered_cells` ist dort LEER, also faellt unter `--visible`
     #: keine Zelle weg — nicht weil sie frei sind, sondern weil niemand nachgesehen hat.
     without_matte: list[str] = []
-    for path in sorted(rec.glob("*/model-reads.jsonl")):
+    for path in sorted(rec.glob(f"*/{READS_FILE}")):
         model, rows, classes = read_proposals(path)
         reason = None
         # `read_proposals` liest Modell und Klassen aus dem Kopf und liess den `_source` daneben
@@ -223,7 +224,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
             # Modell. Die Helligkeit kommt aus den Reads (`bright`), wo sie gemessen wurde.
             from .training.occlusion import CELL_DARK_MIN
 
-            if not (path.parent / "matte.jsonl").is_file():
+            if not matte_path(path.parent).is_file():
                 without_matte.append(rows[0]["session_id"])
             covered = covered_cells(path.parent)
             dark = {(r["frame"], r["square"]) for r in rows

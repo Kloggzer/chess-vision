@@ -9,7 +9,8 @@ from typing import Any
 
 import cv2
 
-from ..session_store.boards import BOARD_ENCODE, BOARD_KEYS, MATTE_DIR, MATTE_ENCODE, write_board
+from ..session_store.boards import BOARD_ENCODE, BOARD_KEYS, MATTE_ENCODE, write_board
+from ..session_store.names import MATTE_DIR
 from .mesh import grid_line_fracs, meshes_for_boards
 from .progress import PROGRESS_EVERY, say_progress
 

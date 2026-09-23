@@ -15,11 +15,12 @@ import numpy as np
 
 from .. import config
 from ..ioutil import read_jsonl, write_json
+from ..session_store.names import CORRECTIONS_FILE, UNUSABLE_CELLS_FILE
 from . import packs
 from .pack import decode_crop
 
 #: The human ledgers a pack freezes at cut time; `dataset_build` compares this stamp before it cites.
-LEDGERS = ("unusable-cells.jsonl", "corrections.jsonl")
+LEDGERS = (UNUSABLE_CELLS_FILE, CORRECTIONS_FILE)
 LEDGER_STAMP = "ledgers.json"
 
 

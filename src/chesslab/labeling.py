@@ -39,9 +39,16 @@ from .calibration import (
 from .cell_rule import PIECE_VISIBLE_MAX
 from .imgops import resize_keep_aspect
 from .ioutil import mtime_size, read_jsonl
-from .matte_store import read_matte
-from .matte_store import read_rows as read_matte_rows
 from .session_store.log import read_log as _read_log
+from .session_store.matte import read_matte
+from .session_store.matte import read_rows as read_matte_rows
+from .session_store.names import (
+    CORRECTIONS_FILE,
+    corrections_path,
+    log_path,
+    matte_path,
+    unusable_cells_path,
+)
 from .session_store.paths import read_session_meta
 from .state import GameState
 from .work_audit import current as current_work_audit
@@ -327,7 +334,7 @@ def load_corrections(path: Path, into: Corrections | None = None) -> Corrections
 MATTE_DIRTY = PIECE_VISIBLE_MAX
 
 
-def ledger_paths(name: str = "corrections.jsonl", paths=None) -> list[Path]:
+def ledger_paths(name: str = CORRECTIONS_FILE, paths=None) -> list[Path]:
     """Jedes Ledger dieses Namens — auch das einer GEPARKTEN Aufnahme.
 
     Eine archivierte Session verlaesst den Pool, ihre Zeilen bleiben aber in jedem Datensatz, der
@@ -351,7 +358,7 @@ def read_corrections(session_dir: Path) -> dict[tuple[str, str, str], str]:
     it. Every row here is an identity — `occluded` stopped being a label when the scheme went to
     13 + coverage, and the writer refuses it (`platform/app/lib/corrections.ts`).
     """
-    return load_corrections(Path(session_dir) / "corrections.jsonl")
+    return load_corrections(corrections_path(session_dir))
 
 
 def read_unusable_cells(session_dir: Path) -> set[tuple[str, str, str]]:
@@ -360,7 +367,7 @@ def read_unusable_cells(session_dir: Path) -> set[tuple[str, str, str]]:
     13 Identitaeten ist; gelesen wie jedes Ledger: letzte Zeile gewinnt, `unusable: false` nimmt
     zurueck. Der Schluessel ist derselbe `(session_id, frame, square)`.
     """
-    path = Path(session_dir) / "unusable-cells.jsonl"
+    path = unusable_cells_path(session_dir)
     if not path.exists():
         return set()
     out: set[tuple[str, str, str]] = set()
@@ -382,7 +389,7 @@ def clean_frames(session_dir: Path) -> set[str]:
     """
     from .ioutil import read_jsonl
 
-    log = Path(session_dir) / "log.jsonl"
+    log = log_path(session_dir)
     if not log.is_file():
         return set()
     hat_zeile = {str(row.get("frame")) for row in read_matte_rows(session_dir)}
@@ -792,7 +799,7 @@ def run_slice(
                             # Die Kette VERGLEICHT den Stempel, `read_matte` reduzierte ihn nur
                             # weg: ein direktes `slice` trug sonst die Coverage eines aelteren
                             # Schnitts ins Manifest, waehrend die Lane "Matte neu schneiden" zeigt.
-                            provenance.check(session_dir, session_dir / "matte.jsonl")
+                            provenance.check(session_dir, matte_path(session_dir))
                             meta = read_session_meta(session_dir)
                             prof = _profile_for_session(meta, profile)
                             stats = slice_session(

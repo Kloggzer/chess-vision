@@ -14,7 +14,8 @@ from tests.test_store_straightening import (  # noqa: E402
 )
 
 from chesslab.realgames.boards import straighten_boards  # noqa: E402
-from chesslab.session_store.boards import MATTE_DIR  # noqa: E402
+from chesslab.session_store.names import MATTE_DIR  # noqa: E402
+from conftest import write_jsonl  # noqa: E402
 
 
 def _matte(sdir, stem: str):
@@ -58,12 +59,37 @@ def test_the_first_pass_still_pulls_both(tmp_path):
     assert line_spread(_matte(sdir, stems[0])) <= 2
 
 
-def test_write_boards_session_asks_for_boards_only():
-    # Die Naht selbst: der Schalter nuetzt nichts, solange der Aufrufer ihn nicht setzt. Ein
-    # echter Durchlauf braucht Video und Frames, die diese Session per Konstruktion nicht hat.
-    import inspect
+def test_write_boards_session_asks_for_boards_only(tmp_path, monkeypatch):
+    # Die Naht selbst, am echten Aufruf: der Schalter nuetzt nichts, solange der Aufrufer ihn
+    # nicht setzt. Video und Frames fehlen hier, also schneidet ein Stellvertreter die Bretter.
+    from chesslab import config, labeling, session_boards
+    from chesslab.realgames import boards as rg_boards
+    from chesslab.session_store.recording import game_dir
 
-    from chesslab.session_boards import write_boards_session
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    rows = [_row(i, TILT) for i in (0, 3)]
+    for row in rows:
+        row["corners"] = [[0, 0], [1, 0], [1, 1], [0, 1]]
+    sdir = game_dir("rec")
+    sdir.mkdir(parents=True)
+    write_jsonl(sdir / "log.jsonl", rows)
+    asked = []
 
-    src = inspect.getsource(write_boards_session)
-    assert "mattes=False" in src, "write_boards_session zieht die Matten ein zweites Mal"
+    def spy(_sdir, _rows, **kwargs):
+        asked.append(kwargs)
+        return {"straightened": 0}
+
+    def cut(job):
+        return {"board": f"boards/{job[1][-10:-4]}.webp"}
+
+    monkeypatch.setattr(session_boards, "missing_source_frames", lambda *_a: None)
+    monkeypatch.setattr(labeling, "_profile_for_session", lambda *_a: None)
+    monkeypatch.setattr(labeling, "read_session_meta", lambda *_a: {})
+    monkeypatch.setattr(rg_boards, "board_from_frame", cut)
+    monkeypatch.setattr(rg_boards, "straighten_boards", spy)
+
+    out = session_boards.write_boards_session("rg-rec")
+
+    assert out["written"] == len(rows)
+    assert len(asked) == 1 and asked[0].get("mattes") is False, (
+        "write_boards_session zieht die Matten ein zweites Mal")

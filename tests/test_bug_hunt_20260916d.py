@@ -19,7 +19,7 @@ from tests.test_store_straightening import (  # noqa: E402
 from chesslab import matte as matte_mod  # noqa: E402
 from chesslab.realgames.boards import straighten_boards  # noqa: E402
 from chesslab.realgames.decode import decode_frames  # noqa: E402
-from chesslab.session_store.boards import MATTE_DIR  # noqa: E402
+from chesslab.session_store.names import MATTE_DIR  # noqa: E402
 
 
 def _frames(tmp_path):

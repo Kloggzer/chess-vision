@@ -14,6 +14,7 @@ from .session_store.log import (
     read_log,
     write_interval_checks,
 )
+from .session_store.names import CANDIDATE_FILE, log_path
 from .session_store.paths import session_dir
 from .sessions import NothingToDo, missing_source_frames
 
@@ -113,7 +114,7 @@ def settle_scan_session(session_id: str) -> dict:
     fens = {int(ply): by_ply[ply][0]["fen"] for ply in plies if ply is not None}
     checks = interval_moves(refs, fens)
     write_interval_checks(sdir, checks)
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     _write_log(sdir, rows)
     return {"session_id": session_id, "scored": len(scored), "of": len(rows),
             "plies": len(jobs), "too_short": short, "backup": backup,
@@ -174,7 +175,7 @@ def write_boards_session(session_id: str) -> dict:
     # otherwise this repair would quietly hand the cutters a board nobody pulls straight any more.
     # Der Flag ist laut `straighten_boards` das EINZIGE zwischen einem abgebrochenen Lauf und
     # einem zweimal gezogenen Store — also muss er unterwegs auf die Platte, nicht erst am Ende.
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     # `mattes=False`: die Bretter sind frisch (gebogen) aus den Frames geschnitten, die Matten
     # daneben liegen vom vorigen Lauf schon gerade — sie ein zweites Mal zu ziehen verschiebt sie.
     with mark_export(sdir):
@@ -203,7 +204,7 @@ def rewarp_boards_session(session_id: str) -> dict:
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir, under_export=True)
     name = session_id[3:] if session_id.startswith("rg-") else session_id
-    candidate = game_dir(name) / "candidate.json"
+    candidate = game_dir(name) / CANDIDATE_FILE
     if not candidate.is_file():
         raise NothingToDo(f"{session_id}: no candidate.json — nothing says how it was warped")
     video = video_path(name)
@@ -217,7 +218,7 @@ def rewarp_boards_session(session_id: str) -> dict:
     receipt = game_dir(name) / "lens.json"
     lens = LensModel.from_receipt(
         json.loads(receipt.read_text(encoding="utf-8")) if receipt.is_file() else None)
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     # Von hier bis zum Log-Schreiben sind die Bretter neu und das Log alt; der Marker ist das
     # Einzige, was das danach noch sieht (`straighten_boards_session` liest ihn).
     with mark_export(sdir):
@@ -247,7 +248,7 @@ def straighten_boards_session(session_id: str) -> dict:
             f"{session_id}: an export was interrupted ({EXPORT_MARKER}) — the boards may already "
             f"be straight while the log does not say so. Re-run the export or `session rewarp`.")
     rows = read_log(sdir)
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     # Backed up FIRST and rewritten as it goes: the boards are being overwritten in place, and a
     # run that dies with the flags unwritten would leave a later run to correct them twice.
     with mark_export(sdir):

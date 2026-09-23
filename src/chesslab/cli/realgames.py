@@ -9,6 +9,7 @@ import typer
 from .. import config
 from .. import hand_flags as hand_flags_mod
 from ..ioutil import write_json
+from ..session_store.names import log_path
 from ._common import LOOKUP_ERRORS, _exit_on_bulk_failures, _one_or_all, csv_list, fail_on
 
 realgames_app = typer.Typer(
@@ -223,7 +224,7 @@ def realgames_adopt_dirty(
     from ..realgames import export as rg_export
 
     _one_or_all(name, all_recordings)
-    names = [p.name for p in sorted(config.DATA.recordings.glob("*")) if (p / "log.jsonl").exists()]
+    names = [p.name for p in sorted(config.DATA.recordings.glob("*")) if log_path(p).exists()]
     total = 0
     failed = 0
     for target in (names if all_recordings else [name]):

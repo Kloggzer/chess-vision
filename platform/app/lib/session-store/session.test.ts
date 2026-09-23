@@ -136,7 +136,7 @@ test("the session cache follows candidate geometry even while log.jsonl is uncha
   ).toBe(1008);
 });
 
-// `realgames.py` stroemt in `log.jsonl`: die halbe LETZTE Zeile ist ein laufender Export, kein Defekt.
+// `realgames/export.py` stroemt in `log.jsonl`: die halbe LETZTE Zeile ist ein laufender Export, kein Defekt.
 test("eine halb geschriebene letzte Zeile kostet die Seite nicht", async () => {
   await write(row(110), row(190));
   await appendFile(path.join(dir, "log.jsonl"), '{"frame": "frames/0099', "utf8");

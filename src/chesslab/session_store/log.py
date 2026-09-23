@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 
 from ..ioutil import read_jsonl, stamp_of, write_rows, write_rows_guarded
+from .names import INTERVAL_FILE, META_FILE, log_path
 from .paths import session_dir
 from .recording import base_time
 
@@ -61,12 +62,12 @@ def read_log(
     a human verdict (`flag_frame`), which the running export carries over (`HUMAN_KEYS`)."""
     if not under_export:
         refuse_interrupted_export(sdir)
-    log_path = sdir / "log.jsonl"
-    if not log_path.exists():
+    log_file = log_path(sdir)
+    if not log_file.exists():
         message = missing_message or "Session '{name}' has no log.jsonl."
         raise FileNotFoundError(message.format(name=sdir.name, session_dir=sdir))
-    stamp = stamp_of(log_path) if with_stamp else None
-    rows = read_jsonl(log_path)
+    stamp = stamp_of(log_file) if with_stamp else None
+    rows = read_jsonl(log_file)
     if not rows and not allow_empty:
         raise FileNotFoundError(f"Session '{sdir.name}' has no captured frames.")
     if not with_stamp:
@@ -108,16 +109,16 @@ def _write_log(sdir: Path, rows: list[dict], *, stamp=_FROM_ROWS) -> None:
     A long run wrote its minutes-old snapshot back over a human `unusable` set meanwhile; now that
     is `Contested`. A checkpointing caller keeps writing: the rows take the stamp they left behind.
     """
-    log_path = sdir / "log.jsonl"
+    log_file = log_path(sdir)
     if stamp is _FROM_ROWS:
         if not isinstance(rows, LogRows):
             raise TypeError("_write_log needs the stamp of the read: pass read_log rows or stamp=")
         stamp = rows.stamp
-    write_rows_guarded(log_path, rows, stamp, default=str,
-                       what=f"{log_path}: waehrend des Laufs geschrieben (ein Urteil?) — "
+    write_rows_guarded(log_file, rows, stamp, default=str,
+                       what=f"{log_file}: waehrend des Laufs geschrieben (ein Urteil?) — "
                             "Lauf wiederholen, nichts ueberschrieben")
     if isinstance(rows, LogRows):
-        rows.stamp = stamp_of(log_path)
+        rows.stamp = stamp_of(log_file)
 
 
 def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
@@ -134,7 +135,7 @@ def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
     rows[idx]["unusable"] = bool(unusable)
     # Gesichert wie jede andere Schreibfunktion dieses Abschnitts: es ist ein
     # Lesen-Aendern-Schreiben des GANZEN Logs, und eine dabei verlorene Zeile ist sonst weg.
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     _write_log(sdir, rows)
     return {"session_id": session_id, "index": idx, "unusable": bool(unusable), "backup": backup}
 
@@ -143,9 +144,6 @@ def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
 
 EXPORT_PROFILE = "desktop"
 
-
-#: Per session, one row per ply: did the move that opened this interval show up on the board?
-INTERVAL_FILE = "interval-check.jsonl"
 
 
 #: Was ein MENSCH an eine Log-Zeile schreibt (`session_store.log.flag_frame`, `lib/frame-flag.ts`). Kein
@@ -207,16 +205,16 @@ def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict
                   drop_verdicts: bool = False) -> Path:
     """`session.yaml` + `log.jsonl` in the §2 shape of `docs/data-pipeline.md`, nothing else."""
 
-    log_path = session_dir / "log.jsonl"
-    stamp = stamp_of(log_path)
+    log_file = log_path(session_dir)
+    stamp = stamp_of(log_file)
     # Frisch gelesen, nicht vom Planungsbeginn: ein Urteil aus der Minute davor muss mit.
-    old = read_jsonl(log_path) if stamp is not None else []
+    old = read_jsonl(log_file) if stamp is not None else []
     refuse_orphaned_verdicts(carry_human_verdicts(old, [dict(r) for r in rows]), drop_verdicts)
     carry_human_verdicts(old, rows)
     # A re-export REPLACES a log that may hold hand-set quads or a review's verdicts. Same
     # `log.jsonl.bak.<stamp>` convention `session scan|autofix|adopt` use, for the same reason.
     if stamp is not None:
-        print(f"  previous log backed up as {backup_log(log_path)}")
+        print(f"  previous log backed up as {backup_log(log_file)}")
     meta = {
         # The id keeps the `rg-` prefix the DIRECTORY dropped: it is the join key in every
         # manifest and in `session_store.paths.session_dir`, so it must not follow the folder rename.
@@ -229,9 +227,9 @@ def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict
         "reviewed": True,
     }
     session_dir.mkdir(parents=True, exist_ok=True)
-    with (session_dir / "session.yaml").open("w", encoding="utf-8") as fh:
+    with (session_dir / META_FILE).open("w", encoding="utf-8") as fh:
         yaml.safe_dump(meta, fh, sort_keys=False, allow_unicode=True)
-    write_rows_guarded(log_path, rows, stamp,
-                       what=f"{log_path}: waehrend des Exports geschrieben — Export wiederholen, "
+    write_rows_guarded(log_file, rows, stamp,
+                       what=f"{log_file}: waehrend des Exports geschrieben — Export wiederholen, "
                             "das Log ist unveraendert")
     return session_dir

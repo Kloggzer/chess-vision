@@ -21,6 +21,7 @@ from .realgames import boards as rg_boards
 from .recording import Recording
 from .session_store import log as store_log
 from .session_store import recording as store_rec
+from .session_store.names import META_FILE, log_path, meta_path
 
 #: Was eine Buendel-Zeile mitnimmt. `move_san` bleibt draussen: eine Erfassung hat keine Zuege.
 CARRIED = ("ply", "fen", "corners", "ts")
@@ -148,7 +149,7 @@ def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str,
     """
     import yaml
 
-    src = bundle / "session.yaml"
+    src = bundle / META_FILE
     carried = yaml.safe_load(src.read_text(encoding="utf-8")) if src.is_file() else None
     meta = {**(carried or {}),
             "session_id": f"rg-{session_dir.name}",
@@ -157,9 +158,9 @@ def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str,
             "frame_size": [int(v) for v in prof.frame_size],
             "notes": f"imported from data/recordings/{name}/{bundle.name} (plan/04-capture)"}
     session_dir.mkdir(parents=True, exist_ok=True)
-    with (session_dir / "session.yaml").open("w", encoding="utf-8") as fh:
+    with meta_path(session_dir).open("w", encoding="utf-8") as fh:
         yaml.safe_dump(meta, fh, sort_keys=False, allow_unicode=True)
-    return session_dir / "session.yaml"
+    return meta_path(session_dir)
 
 
 def write_log(session_dir: Path, rows: list[dict]) -> Path:
@@ -167,9 +168,9 @@ def write_log(session_dir: Path, rows: list[dict]) -> Path:
     und `provenance.session_stamp` stempelt auch eine halbe, womit `chain.ts` die Sprosse fuer
     frisch haelt. Derselbe tmp+`os.replace`-Riegel wie in `session_store.log._write_log`.
     """
-    log_path = session_dir / "log.jsonl"
-    write_rows(log_path, rows)
-    return log_path
+    path = log_path(session_dir)
+    write_rows(path, rows)
+    return path
 
 
 def import_capture(name: str, profile: str = store_log.EXPORT_PROFILE) -> dict:
@@ -198,8 +199,8 @@ def import_capture(name: str, profile: str = store_log.EXPORT_PROFILE) -> dict:
     # ein Re-Import darf sie nicht ohne Kopie ueberschreiben.
     from .session_store.log import backup_log
 
-    if (session_dir / "log.jsonl").is_file():
-        backup_log(session_dir / "log.jsonl")
+    if log_path(session_dir).is_file():
+        backup_log(log_path(session_dir))
     write_log(session_dir, rows)
     return {"session_dir": session_dir, "bundle": bundle, "rows": rows,
             "fps": fps, "fit": fit, **made}

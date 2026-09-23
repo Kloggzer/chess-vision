@@ -90,7 +90,7 @@ def test_gate_rows_reads_the_effective_row(paths):
 
 
 def test_one_store_serves_every_reader():
-    from chesslab import matte_store
+    from chesslab.session_store import matte as matte_store
 
     assert labeling.read_matte is matte_store.read_matte
     assert matte.effective_rows is matte_store.effective_rows

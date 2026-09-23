@@ -647,6 +647,38 @@ def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
     assert intervals["video frames"]["avoidable_units"] == 0
 
 
+def test_settle_cluster_reports_the_first_frame_that_already_shows_the_move(monkeypatch):
+    """Der gemessene Frame selbst, nicht nur welche Zuege eine Antwort bekommen."""
+    from chesslab.realgames import settle as rg_settle
+
+    switch = {"e4": 5, "d4": 9, "a1": None, "h8": 3}  # ab diesem Frame zeigt das Feld den Zug
+
+    def value(sq, idx):
+        if sq == "a1":
+            return 7 if idx < 6 else 10  # Anker unter SETTLE_MIN_DELTA: kein Settle-Punkt
+        return 100 if idx >= switch[sq] else 0
+
+    def frames(requests, **_kw):
+        for idx, squares in requests:
+            if idx == 7:
+                continue  # ein fehlender Frame wird uebersprungen, nicht als "vorher" gelesen
+            yield idx, {sq: np.full((2, 2), value(sq, idx), np.int16) for sq in squares}
+
+    monkeypatch.setattr(rg_settle, "_settle_frames", frames)
+    jobs = [
+        {"move": {"ply": 3}, "touched": {"e4", "d4", "a1"}, "commit": 8, "lo": 0, "hi": 10},
+        # Der vordere Anker fehlt (`lo` liegt hinter dem Video): kein Ergebnis fuer diesen Zug.
+        {"move": {"ply": 4}, "touched": {"h8"}, "commit": 30, "lo": 20, "hi": 40},
+    ]
+    monkeypatch.setattr(rg_settle, "_settle_requests",
+                        lambda _jobs: [(i, ("a1", "d4", "e4", "h8")) for i in range(0, 11)])
+
+    out = rg_settle.settle_cluster(jobs, video=None, quad=None, profile=None, rotate=None)
+
+    # e4 wechselt bei 5; d4 erst bei 9, hinter dem Commit 8 — der Commit ist die Obergrenze.
+    assert out == {3: {"e4": 5, "d4": 8}}
+
+
 # --- fit-stored -----------------------------------------------------------------------------
 
 #: The synthetic session's true playing field (a8, h8, h1, a1) and the board rendered into it.

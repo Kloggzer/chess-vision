@@ -15,6 +15,7 @@ from .calibration import profile_path
 from .ioutil import read_jsonl, write_rows
 from .labeling import MATTE_DIRTY, all_squares, read_log, read_matte, read_session_meta
 from .realgames.position import SETTLE_MIN_FRAMES
+from .session_store.names import log_path, meta_path
 from .session_store.paths import session_dir
 from .state import GameState
 
@@ -29,7 +30,7 @@ def source_stamp(recording: Path) -> list:
 Matte changes deliberately do not invalidate a SAM-free measurement: live coverage
 filters the candidates again when the position report is regenerated.
 """
-    files = [recording / "log.jsonl", recording / "session.yaml"]
+    files = [log_path(recording), meta_path(recording)]
     files += [recording / r["board"] for r in read_log(recording) if r.get("board")]
     out = []
     for path in sorted(set(files)):

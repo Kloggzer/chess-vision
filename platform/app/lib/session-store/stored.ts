@@ -47,7 +47,7 @@ export type StoredSession = {
   rows: StoredRow[];
 };
 
-/** `quad-fit.json` (`realgames.py` fit-stored): PLAYING-FIELD corners per frame, and their margin. */
+/** `quad-fit.json` (`realgames/stored.py` fit-stored): PLAYING-FIELD corners per frame, and their margin. */
 type QuadFit = {
   margin: number;
   frames: Record<string, { corners: number[][]; align_worst_px: number; grid_lines?: GridMesh }>;

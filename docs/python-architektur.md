@@ -3,12 +3,14 @@
 `realgames.py` (2357 Zeilen) und `sessions.py` (1438) besassen beide Teile derselben Aufnahme:
 Pfade, `log.jsonl` mit Stempel-Riegel, `candidate.json`, `reference.pgn`, den Export-Marker, die
 Bretter. Vorbild ist die Web-App (`docs/web-architektur.md`, `lib/session-store/`) und im Kleinen
-`matte_store.py`: **jede Datei einer Aufnahme hat EINEN Besitzer im Code.**
+`session_store/matte.py`: **jede Datei einer Aufnahme hat EINEN Besitzer im Code.**
 
 ## Schnitt (Zeilen)
 
 | Modul | Besitzt / tut |
 |---|---|
+| `session_store/names.py` | die EINZIGEN Literale der Aufnahme-Dateinamen und -Ordner (`tests/test_recording_files.py` waecht per Syntaxbaum) |
+| `session_store/matte.py` | `matte.jsonl`-Historie: juengste Zeile je Frame, coverage-lose Zeile = SAM-Absage |
 | `session_store/paths.py` (128) | Session-ID -> Ordner (`session_dir`, `all_sessions`), `frame_path`, `session.yaml` (`read_session_meta`, `session_profile`) |
 | `session_store/log.py` (237) | `log.jsonl`: `read_log`/`_write_log` (Stempel-Riegel), `backup_log`, Export-Marker (`mark_export`, `ExportInterrupted`), `write_session` samt `unusable`-Uebertrag, `flag_frame`, `interval-check.jsonl` |
 | `session_store/recording.py` (229) | `data/recordings/<name>/`: `game_dir`, `video_path`, `candidate.json`, `reference.pgn`, `ui-meta.json`, `corrections.jsonl`/`review-notes.jsonl`, `quad-fit.json` |
@@ -46,12 +48,4 @@ Abhaengigkeiten laufen abwaerts: `realgames/*`, `sessions`, `session_*` -> `sess
 
 ## Offen
 
-- `platform/app/lib/lcs.ts` und Kotlin-Kommentare nennen noch `realgames.py` (nicht unser Bereich).
-- `test_write_boards_session_asks_for_boards_only` prueft `"mattes=False" in getsource(...)` —
-  der Kommentar daneben erfuellt das schon; die Gegenprobe biss dort nicht.
-- Der Substring-Zaehler in `session_lifecycle.deletion_cost` steht nicht mehr in
-  `jsonl_readers.txt`: die Ratsche zaehlt nur Dateien mit `json.loads(`, und die kam mit
-  `rewarp_boards_session` nach `session_boards.py`. Der Schnitt ist unveraendert da.
-- `settle.settle_cluster`: nur die Fenster-Zusammenlegung ist getestet, nicht der Settle-Frame.
-- Kein Namens-Waechter wie `lib/recording-files.test.ts`: `"log.jsonl"` steht weiter an vielen
-  Stellen ausserhalb von `session_store`.
+- nichts

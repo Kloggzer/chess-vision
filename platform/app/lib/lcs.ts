@@ -1,7 +1,7 @@
 /**
  * Order-preserving match of candidate SANs against the truth SANs.
  *
- * A line-by-line mirror of `src/chesslab/realgames.py:lcs_report` — including the tie-break
+ * A line-by-line mirror of `src/chesslab/realgames/confirm.py:lcs_report` — including the tie-break
  * (`table[i+1][j] >= table[i][j+1]` advances TRUTH first), so a move committed out of order
  * counts as invented instead of quietly matching a later identical SAN backwards. The Python
  * CLI and this view report the same three numbers about the same file, or one of them is lying.

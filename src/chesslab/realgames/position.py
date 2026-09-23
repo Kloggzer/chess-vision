@@ -8,7 +8,8 @@ from typing import Any
 import cv2
 
 from ..labeling import all_squares
-from ..session_store.boards import BOARD_SUFFIX, MATTE_DIR
+from ..session_store.boards import BOARD_SUFFIX
+from ..session_store.names import MATTE_DIR
 from .timeline import changed_squares
 
 #: The settle score's shape. `SETTLE_CELL_PX` is small on purpose — the question is whether the

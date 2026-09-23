@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from .ioutil import Contested, stamp_of, write_json_guarded
+from .session_store.names import CANDIDATE_FILE
 from .training.occlusion import PIECE_VISIBLE_MAX
 
 STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -194,7 +195,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
 
     # Vor dem Lesen gestempelt: bestaetigt ein Mensch waehrend der Minuten unten, ersetzte der
     # alte Lesestand sonst sein Urteil (`_write_candidate` prueft dagegen).
-    stamp = stamp_of(game_dir(name) / "candidate.json")
+    stamp = stamp_of(game_dir(name) / CANDIDATE_FILE)
     candidate = load_candidate(name)
     moves = candidate["moves"]
     if not moves:
@@ -334,7 +335,7 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
         "weak": result["weak"],
     }
     what = f"{name}: candidate.json wurde waehrend retime geschrieben (Bestaetigung?) — nichts ersetzt, retime neu starten"
-    write_json_guarded(game_dir(name) / "candidate.json", candidate, stamp, what=what)
+    write_json_guarded(game_dir(name) / CANDIDATE_FILE, candidate, stamp, what=what)
 
 
 def staged_name(out: Path, idx: int) -> Path:

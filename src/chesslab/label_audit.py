@@ -14,6 +14,7 @@ import chess
 from . import config
 from .ioutil import read_jsonl, write_rows
 from .labeling import all_squares, load_corrections
+from .session_store.names import CORRECTIONS_FILE, log_path
 
 #: Only the violations OCCLUSION CANNOT CAUSE. A hidden square lowers a count, never raises one, so
 #: "too many" and "pawn on the back rank" stay sound while "no white king" would accuse the hand.
@@ -61,7 +62,7 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
     corrections = {}
     from .labeling import ledger_paths
 
-    for ledger in ledger_paths("corrections.jsonl", paths):
+    for ledger in ledger_paths(CORRECTIONS_FILE, paths):
         load_corrections(ledger, corrections)
     squares = all_squares()
     rows: list[dict] = []
@@ -70,7 +71,7 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
     from .session_store.paths import all_sessions
 
     for sid, session_dir in all_sessions(paths):
-        log = session_dir / "log.jsonl"
+        log = log_path(session_dir)
         if not log.is_file():
             continue
         for entry in read_jsonl(log):

@@ -27,6 +27,7 @@ from pathlib import Path
 
 from . import config, locks
 from .ioutil import write_rows
+from .session_store.names import log_path, meta_path
 from .work_audit import measure, span
 
 _FILES = "abcdefgh"
@@ -113,7 +114,7 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
             "created_at": _now_iso(), "camera_index": -1, "frame_size": [0, 0],
             "notes": f"ingested:{tag}",
         }
-        (sdir / "session.yaml").write_text(
+        meta_path(sdir).write_text(
             yaml.safe_dump(meta, sort_keys=False, allow_unicode=True), encoding="utf-8")
         lines = []
         for i, it in enumerate(its):
@@ -136,7 +137,7 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
             if amb:
                 entry["ambiguous_squares"] = [str(s) for s in amb]
             lines.append(entry)
-        write_rows(sdir / "log.jsonl", lines)
+        write_rows(log_path(sdir), lines)
         session_ids.append(sid)
     return session_ids
 

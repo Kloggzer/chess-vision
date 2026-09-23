@@ -345,7 +345,7 @@ private fun sourceJson(
     put("crop", cropJson(geometry))
 }
 
-/** How the squares were cut — `realgames.py` and the labeling UI read this out of every candidate. */
+/** How the squares were cut — `realgames/` and the labeling UI read this out of every candidate. */
 internal fun cropJson(geometry: BoardGeometry): JsonObject =
     buildJsonObject {
         put("cell", geometry.boardSize / SQUARES_PER_SIDE)

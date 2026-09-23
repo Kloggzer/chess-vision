@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import config
 from .hand_flags import write_flags
+from .session_store.names import LOG_FILE, meta_path
 
 FLAGS_FILE = "frame-hands.jsonl"
 
@@ -57,9 +58,9 @@ def frame_hands() -> dict:
 
     rows, per_session, scanned, without, interrupted = [], {}, [], [], []
     blind: dict[str, int] = {}
-    for path in sorted(config.DATA.recordings.glob("*/log.jsonl")):
+    for path in sorted(config.DATA.recordings.glob(f"*/{LOG_FILE}")):
         session_dir = path.parent
-        if not (session_dir / "session.yaml").is_file():
+        if not meta_path(session_dir).is_file():
             continue
         session_id = read_session_meta(session_dir)["session_id"]
         scan = read_scan(session_dir.name)

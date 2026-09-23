@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from .. import config
+from .names import LOG_FILE, meta_path
 
 
 def _safe_id(session_id: str) -> str:
@@ -17,7 +18,7 @@ def _safe_id(session_id: str) -> str:
 
 
 def read_session_meta(session_dir: Path, *, missing_ok: bool = False) -> dict | None:
-    p = session_dir / "session.yaml"
+    p = meta_path(session_dir)
     if not p.exists():
         if missing_ok:
             return {}
@@ -39,10 +40,10 @@ def all_sessions(paths: config.Paths | None = None) -> list[tuple[str, Path]]:
     """
     paths = paths or config.DATA
     out = [(f"rg-{d.name}", d) for d in sorted(paths.recordings.iterdir())
-           if d.is_dir() and (d / "log.jsonl").exists()] if paths.recordings.exists() else []
+           if d.is_dir() and (d / LOG_FILE).exists()] if paths.recordings.exists() else []
     if paths.sessions.exists():
         out += [(d.name, d) for d in sorted(paths.sessions.iterdir())
-                if d.is_dir() and (d / "log.jsonl").exists()]
+                if d.is_dir() and (d / LOG_FILE).exists()]
     return out
 
 
@@ -102,8 +103,8 @@ def session_profile(sdir: Path, *, allow_standin: bool = True):
     """
     from .. import calibration
 
-    meta_path = sdir / "session.yaml"
-    meta = yaml.safe_load(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    meta_file = meta_path(sdir)
+    meta = yaml.safe_load(meta_file.read_text(encoding="utf-8")) if meta_file.exists() else {}
     profile_name = (meta or {}).get("profile")
     if profile_name:
         try:

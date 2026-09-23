@@ -15,6 +15,7 @@ from pathlib import Path
 
 from . import config
 from .ioutil import write_json
+from .session_store.names import MATTE_FILE, log_path
 
 #: Ab dieser Fläche (in Feldern) ist SAMs Fund eine Hand und kein Maskenrand. Darunter liegt ein
 #: unklarer Streifen von 125 der 11.110 Bretter — der taugt als Prüfung, nicht als Lehrer.
@@ -68,17 +69,17 @@ def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dic
     """
     from .ioutil import read_jsonl
     from .labeling import all_squares, read_session_meta
-    from .matte_store import effective_rows, read_rows
+    from .session_store.matte import effective_rows, read_rows
 
     tally = Counter() if skipped is None else skipped
     squares = all_squares()
     verdicts = human_verdicts()
 
     out = []
-    for path in sorted(config.DATA.recordings.glob("*/matte.jsonl")):
+    for path in sorted(config.DATA.recordings.glob(f"*/{MATTE_FILE}")):
         session_dir = path.parent
         session = read_session_meta(session_dir)["session_id"]
-        log = read_jsonl(session_dir / "log.jsonl")
+        log = read_jsonl(log_path(session_dir))
         boards = {Path(r["frame"]).stem: r.get("board") for r in log}
         borders = {Path(r["frame"]).stem: r.get("board_border") for r in log}
         # Die HISTORIE je Frame auf ihre juengste Zeile (Punkt 28): roh gelesen lehrte eine
@@ -593,7 +594,7 @@ def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:
 
     session_dir = game_dir(name)
     model, card, device = load_gate(tag)
-    rows = [r for r in read_jsonl(session_dir / "log.jsonl") if r.get("board")]
+    rows = [r for r in read_jsonl(log_path(session_dir)) if r.get("board")]
     said = read_gate(model, device, [session_dir / r["board"] for r in rows], card["size"], batch,
                      borders=[int(r.get("board_border") or 0) for r in rows])
     squares = all_squares()

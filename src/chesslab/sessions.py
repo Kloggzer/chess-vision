@@ -12,6 +12,7 @@ from statistics import median
 
 from . import config
 from .session_store.log import _write_log, backup_log, read_log
+from .session_store.names import log_path
 from .session_store.paths import all_sessions, frame_path, session_dir, session_profile
 
 # ---------------------------------------------------------------------------
@@ -56,8 +57,8 @@ def write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
     unanswerable question of exactly this kind (which camera took it) because nobody wrote it
     down.
     """
-    log_path = sdir / "log.jsonl"
-    backup = backup_log(log_path)
+    log_file = log_path(sdir)
+    backup = backup_log(log_file)
     stamp = datetime.now(UTC).isoformat()
     for i in indices:
         # Keep what is being replaced: it is what a before/after view compares against, and
@@ -184,7 +185,7 @@ def scan_alignment(session_id: str) -> dict:
         if w == w:
             r["align_worst_px"] = round(float(w), 2)
             measured += 1
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     _write_log(sdir, rows)
     vals = sorted(r["align_worst_px"] for r in rows if r.get("align_worst_px") is not None)
     return {"session_id": session_id, "measured": measured, "of": len(rows),
@@ -351,7 +352,7 @@ def fit_mesh_session(session_id: str) -> dict:
         stages["curved" if "cx" in mesh else "tilted"] += 1
     repaired, static = _repair_mesh_outliers(rows)
     carried = _fill_mesh_gaps(rows)
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     _write_log(sdir, rows)
     return {"session_id": session_id, "measured": measured, "carried": carried,
             "repaired": repaired, "static_rig": static, "of": len(rows), **stages,
@@ -405,7 +406,7 @@ def mark_hands_session(session_id: str) -> dict:
         added += not r.get("dirty")
         r["dirty"] = True
         moves.append(place_board(sdir, r))
-    backup = backup_log(sdir / "log.jsonl")
+    backup = backup_log(log_path(sdir))
     _write_log(sdir, rows)
     move_boards(moves)
     return {"session_id": session_id, "hands": seen, "newly_dirty": added, "of": len(rows),
@@ -416,7 +417,7 @@ def mark_hands_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict
     """`mark_hands_session` over every session with a log — minutes long, so it reports per session."""
     out = []
     for sid, sdir in all_sessions(paths):
-        if not (sdir / "log.jsonl").is_file():
+        if not log_path(sdir).is_file():
             continue
         try:
             r = mark_hands_session(sid)
@@ -442,7 +443,7 @@ def repair_mesh_session(session_id: str) -> dict:
     if not any(r.get("grid_lines") for r in rows):
         return {"session_id": session_id, "error": "no grid_lines stored — run fit-mesh first"}
     repaired, static = _repair_mesh_outliers(rows)
-    backup = backup_log(sdir / "log.jsonl") if repaired else None
+    backup = backup_log(log_path(sdir)) if repaired else None
     if repaired:
         _write_log(sdir, rows)
     return {"session_id": session_id, "repaired": repaired, "static_rig": static,
@@ -453,7 +454,7 @@ def repair_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dic
     """`repair_mesh_session` over every active session that has a log."""
     out = []
     for sid, sdir in all_sessions(paths):
-        if not (sdir / "log.jsonl").is_file():
+        if not log_path(sdir).is_file():
             continue
         try:
             r = repair_mesh_session(sid)
@@ -473,7 +474,7 @@ def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
     """
     out = []
     for sid, sdir in all_sessions(paths):
-        if not (sdir / "log.jsonl").is_file():
+        if not log_path(sdir).is_file():
             continue
         try:
             r = fit_mesh_session(sid)
@@ -530,7 +531,7 @@ def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
     # first CLI call that trusted the keys to be there.
     backup = None
     if changed:
-        backup = backup_log(sdir / "log.jsonl")
+        backup = backup_log(log_path(sdir))
         stamp = datetime.now(UTC).isoformat()
         for i in changed:
             rows[i]["corners_set_at"] = stamp

@@ -14,6 +14,7 @@ import cv2
 import yaml
 
 from .ioutil import append_rows, write_rows
+from .session_store.names import LOG_FILE, META_FILE, log_path, meta_path
 
 
 def _now_iso() -> str:
@@ -64,7 +65,7 @@ class SessionWriter:
         self.jpeg_quality = jpeg_quality
         self.dir = Path(session_dir)
         self.frames_dir = self.dir / "frames"
-        self.log_path = self.dir / "log.jsonl"
+        self.log_path = log_path(self.dir)
         self.frames_dir.mkdir(parents=True, exist_ok=True)
         self.session_id = session_id
         self.profile = profile
@@ -120,7 +121,7 @@ class SessionWriter:
                 del meta[k]                 # unknown is unknown — do not invent a source
         if self.mode == "pgn" and self.source_pgn:
             meta["source_pgn"] = self.source_pgn
-        with (self.dir / "session.yaml").open("w", encoding="utf-8") as fh:
+        with meta_path(self.dir).open("w", encoding="utf-8") as fh:
             yaml.safe_dump(meta, fh, sort_keys=False, allow_unicode=True)
 
     def capture(self, frame, ply: int, fen: str, move_san: str | None = None,
@@ -208,7 +209,7 @@ class SessionWriter:
             return False
         if self.frames_dir.is_dir() and any(self.frames_dir.iterdir()):
             return False
-        known = {"session.yaml", "log.jsonl", "frames"}
+        known = {META_FILE, LOG_FILE, "frames"}
         if {p.name for p in self.dir.iterdir()} - known:
             return False
         shutil.rmtree(self.dir, ignore_errors=True)

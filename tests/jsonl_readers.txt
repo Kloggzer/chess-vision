@@ -6,16 +6,12 @@
 # `for i, line in enumerate(fh)` (Tupel-Ziel). Fuenf so gefundene Stellen sind umgestellt; die
 # zwei Zahlen, die dabei STEIGEN, sind alte Schnitte, die der Zaehler nie sah - kein neuer Nachbau.
 #
+# 2026-09-23: der Erkenner geht ueber die FORM (Syntaxbaum): `.splitlines()`, `.split(NL)`,
+# `readlines()`, ein offenes Handle — wenn die Zeile JSONL ist (`json.loads`, JSON-Schluessel im
+# Zeilentext, `.jsonl` im Pfad). Die Textsuche zaehlte `__doc__.splitlines()` und `.log`-Text mit.
+#
 # Beim Bau der Ratsche waren es 30 Schnitte in src/chesslab und 61 in scripts.
-1 src/chesslab/meshprep.py  # schneidet eine .obj-Datei
-2 scripts/audit_disk_damage.py  # IST der Schadens-Auditor: braucht die rohe Zeile, ihren Index und das fehlende Umbruchzeichen
-3 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
-3 scripts/phone_candidate_offset.py  # .log-Text mit Regex, Subprozess-Ausgabe und eine Glob-Schleife ueber ganze .json-Dateien
-1 scripts/commit_lag.py  # .log-Text
-1 scripts/commit_truth.py  # .log-Text
-1 scripts/mine_hard_empty.py  # braucht den Zeilen-INDEX beim Zurueckschreiben
-1 scripts/pack_parity.py  # vergleicht ZEILEN bytegleich, nicht Inhalte
-1 scripts/phone_vs_pc.py  # session.yaml
-1 scripts/sweep_infer_size.py  # zeilenweise geflushtes .log, damit ein Hang sichtbar ist WAEHREND er haengt
+1 scripts/audit_disk_damage.py  # IST der Schadens-Auditor: braucht die rohe Zeile, ihren Index und das fehlende Umbruchzeichen
+1 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
 1 src/chesslab/labeling.py  # schreibt die ROHEN Zeilen weiter, die es liest - geparst waeren sie nicht mehr bytegleich
 1 scripts/board_grid_probe.py  # NICHT ANFASSEN (Nutzer-Verbot)

@@ -6,22 +6,11 @@ from pathlib import Path
 
 import cv2
 
-#: The session's working picture: the board, rectified with the row's FINAL quad and the crop
-#: border, as WebP. It replaces the 3.3 MB source frame — 82 GB of PNG for 12.7 GB of video — at
-#: 115 KB per board, and it is the exact raster `crop_square` cuts from, so the label view and the
-#: training crop stop being two independent cuts of the same frame. Written by `fit_rows_to_grid`
-#: because the quad is only final there; a later quad change must rewrite it (`session boards`).
-BOARD_DIR = "boards"
-
-
-#: The dirty pile lives apart so `boards/` is literally the p8 stock — readers follow
-#: `row["board"]`, so a second directory costs them nothing (`docs/frame-scan.md`).
-DIRTY_DIR = "dirty"
-
-
-#: SAM 3's alpha per frame, in the BOARD's raster — so it follows the board through everything.
-MATTE_DIR = "mattes"
-
+# `boards/` is the session's working picture: the board, rectified with the row's FINAL quad and
+# the crop border, as WebP — 115 KB against a 3.3 MB source frame, and the exact raster
+# `crop_square` cuts from. Written by `fit_rows_to_grid` because the quad is only final there; a
+# later quad change must rewrite it (`session boards`). Names: `names.py`.
+from .names import BOARD_DIR, DIRTY_DIR
 
 BOARD_SUFFIX = ".webp"
 

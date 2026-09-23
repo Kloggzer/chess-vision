@@ -25,7 +25,8 @@ from .labeling import (
     read_session_meta,
     usable_board,
 )
-from .matte_store import effective_rows, measured_coverage, read_matte
+from .session_store.matte import effective_rows, measured_coverage, read_matte
+from .session_store.names import log_path, matte_path, mattes_dir
 
 SAM3_REPO = "facebook/sam3"
 
@@ -340,7 +341,7 @@ def alpha_for(session_dir: Path, row: dict) -> Path:
     und `<stem>.webp` ist das des Drei-Bilder-Sensors. Fuer jede Zeile `<stem>.webp` zu nehmen gab
     SAMs Zeile die Zahlen des Sensors: 68 Zeilen im Korpus (gemessen 2026-09-16).
     """
-    mattes = session_dir / "mattes"
+    mattes = mattes_dir(session_dir)
     if (row.get("source") or "sam") == "sam":
         own = mattes / f"{row['frame']}.sam.webp"
         if own.is_file():
@@ -425,7 +426,7 @@ def recut_coverage(
     from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
-    path = session_dir / "matte.jsonl"
+    path = matte_path(session_dir)
     if not path.exists():
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
     profile = load_profile(read_session_meta(session_dir)["profile"])
@@ -486,10 +487,7 @@ def recut_fixed(
 
     session_dir = game_dir(name)
 
-    path = (
-        session_dir
-        / "matte.jsonl"
-    )
+    path = matte_path(session_dir)
 
     if not path.exists():
         raise FileNotFoundError(
@@ -517,8 +515,7 @@ def recut_fixed(
 
     for row in read_jsonl(path):
         fixed = (
-            session_dir
-            / "mattes"
+            mattes_dir(session_dir)
             / f"{row['frame']}{FIXED_SUFFIX}"
         )
 
@@ -628,7 +625,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
-    path = session_dir / "matte.jsonl"
+    path = matte_path(session_dir)
     if not path.exists():
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
     profile = load_profile(read_session_meta(session_dir)["profile"])
@@ -722,7 +719,7 @@ def flagged_frames(name: str, *, reported: bool = False, wanted: bool = False,
     if wanted:
         return {f"{index:06d}" for index in reported_dirty(f"rg-{name}", verdict="matte-wanted")}
     if temporal:
-        path = game_dir(name) / "matte.jsonl"
+        path = matte_path(game_dir(name))
         return {r["frame"] for r in read_jsonl(path) if r.get("source") == "temporal"}
     return None
 
@@ -866,10 +863,7 @@ def alpha_worker(
 
     session_dir = game_dir(name)
 
-    if not (
-        session_dir
-        / "log.jsonl"
-    ).exists():
+    if not log_path(session_dir).exists():
         raise FileNotFoundError(
             f"{name}: no exported session at {session_dir}"
         )
@@ -878,10 +872,7 @@ def alpha_worker(
         read_session_meta(session_dir)["profile"],
     )
 
-    path = (
-        session_dir
-        / "matte.jsonl"
-    )
+    path = matte_path(session_dir)
 
     rows = read_log(
         session_dir,
@@ -952,10 +943,7 @@ def alpha_worker(
             :target_remaining
         ]
 
-    out_dir = (
-        session_dir
-        / "mattes"
-    )
+    out_dir = mattes_dir(session_dir)
 
     out_dir.mkdir(
         exist_ok=True,
@@ -1033,7 +1021,7 @@ def alpha_worker(
                     board,
                 )
 
-                matte_path = out_dir / f"{stem}.webp"
+                matte_file = out_dir / f"{stem}.webp"
 
                 matte = (
                     np.clip(
@@ -1047,12 +1035,12 @@ def alpha_worker(
                 )
 
                 if not cv2.imwrite(
-                    str(matte_path),
+                    str(matte_file),
                     matte,
                 ):
                     raise OSError(
                         f"{name}: failed to write matte: "
-                        f"{matte_path}"
+                        f"{matte_file}"
                     )
 
                 coverage = coverage_of(
