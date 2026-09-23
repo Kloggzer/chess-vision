@@ -669,7 +669,7 @@ def build_dataset(
         max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
         # The second exception after `class_mode`: where the pixels are stored is not part of the
         # donor's policy, and the migration off the monolithic memmaps is exactly "same rows, same
-        # split, packs instead" (`docs/session-packs.md`). A pack donor still forces packs.
+        # split, packs instead" (`docs/packs.md`). A pack donor still forces packs.
         from_packs = from_packs or pol["from_packs"]
         pack_size = pack_size or pol["pack_size"]
         print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "

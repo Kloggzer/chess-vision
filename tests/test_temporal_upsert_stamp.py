@@ -1,9 +1,4 @@
-"""`temporal-upsert` liest den Herkunftsstempel nicht, den `propose_session` schreibt.
-
-`adopt_proposals` prueft ihn (`proposals.meta.json` gegen `source_stamp`) und verweigert, wenn
-Log, Bretter oder Geometrie sich seit dem Vorschlag geaendert haben. `upsert_proposals` schreibt
-in dieselbe `matte.jsonl` und ERSETZT dort ganze Frames — ohne jede Pruefung.
-"""
+"""`temporal-upsert` prueft den Herkunftsstempel, den `propose_session` schreibt."""
 from __future__ import annotations
 
 import json

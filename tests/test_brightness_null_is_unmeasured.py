@@ -1,9 +1,4 @@
-"""Ausgeschriebenes `brightness: null` heisst UNGEMESSEN — und das lasen drei Stellen anders.
-
-`occlusion.classification_eligible` hat die Regel und nennt sie ("`None` ist UNGEMESSEN, nicht
-dunkel"). `torch_data._target` starb daran im Worker, `train.py` machte ueber `nan` eine zu dunkle
-Zelle daraus und nahm sie still aus der Metrik. `backfill_brightness.py` schreibt das `null`.
-"""
+"""Ausgeschriebenes `brightness: null` heisst UNGEMESSEN, an allen Lesestellen."""
 
 from __future__ import annotations
 

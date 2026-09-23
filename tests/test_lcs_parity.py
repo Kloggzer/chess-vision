@@ -1,9 +1,4 @@
-"""`lcs_report` against the fixture `lib/lcs.test` reads too — the CLI and the web view report
-the same three numbers about the same file, or one of them is lying.
-
-The interesting rows are the transpositions: the tie-break advances TRUTH first, so a move
-committed out of order must read as one missed plus one invented, never as a backwards match.
-"""
+"""`lcs_report` against the fixture `lib/lcs.test` reads too, including transpositions."""
 from __future__ import annotations
 
 import json

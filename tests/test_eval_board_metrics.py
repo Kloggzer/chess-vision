@@ -1,9 +1,4 @@
-"""`board_acc` und `visible_board_acc` sind in `evaluate_dataset` dieselbe Rechnung.
-
-Beide entstehen aus `items`, und `items` ist schon durch `eligible` gefiltert — die HARTE Zahl
-ueber alle Zellen wird nirgends mehr gebildet. Gemeldet wird sie trotzdem, als Kopfzahl in
-`evaluate.run_eval` und in der `model_card.json`.
-"""
+"""`board_acc` und `visible_board_acc` in `evaluate_dataset` und was gemeldet wird."""
 from __future__ import annotations
 
 import pytest

@@ -1,12 +1,4 @@
-"""Eine SAM-Zeile gehoert zu SAMs Alpha — nach einem Upsert liegt das unter `.sam.webp`.
-
-`upsert_proposals` schiebt SAMs Datei nach `<stem>.sam.webp` und schreibt das Alpha des
-Drei-Bilder-Sensors unter `<stem>.webp`. `recut_coverage` nahm fuer JEDE Zeile `<stem>.webp` und
-gab SAMs Zeile damit die Zahlen des Sensors unter SAMs Namen.
-
-Gemessen 2026-09-16 am Korpus: 139 SAM-Zeilen sind gefaehrdet, bei **68** ist es passiert — ihre
-Coverage laesst sich exakt aus dem Temporal-Alpha nachrechnen, nicht aus SAMs.
-"""
+"""`recut_coverage` rechnet eine SAM-Zeile aus SAMs Alpha (`.sam.webp` nach einem Upsert)."""
 from __future__ import annotations
 
 import json

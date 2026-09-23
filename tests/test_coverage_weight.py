@@ -1,10 +1,4 @@
-"""Das Gewicht je Zelle folgt der GEMESSENEN Lesbarkeit, nicht einer harten Kante.
-
-Gemessen 2026-09-16 auf `augval-eager-s42` gegen `real13-mix-v6-80`, val+test, 84 608 Zellen:
-die Figurengenauigkeit faellt von 0,930 bei freier Sicht ueber 0,742 im Band 0,15-0,25 und 0,667
-bei 0,25-0,40 auf 0,038 ab 0,6 — dort liegt sie UNTER Zufall. Zahlen, Vorbehalte und warum diese
-Kurve und keine strengere: `docs/coverage-weight-2026-09-16.md`.
-"""
+"""Das Gewicht je Zelle folgt der gemessenen Lesbarkeit (`docs/class-scheme.md`)."""
 from __future__ import annotations
 
 import pytest

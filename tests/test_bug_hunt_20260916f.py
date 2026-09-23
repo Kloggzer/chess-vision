@@ -1,31 +1,15 @@
-"""Rote Belege aus dem Skript-Audit 2026-09-16f: `scripts/`, die Zahlen erzeugen.
-
-Alle Funde derselben Form: was NICHT gemessen wurde, liest das Skript als gemessenen Normalwert
-— und die Kurve, die Bilanz oder das p90 entsteht darauf.
-"""
+"""Skript-Audit 2026-09-16f: `scripts/`, die Ungemessenes als Normalwert lesen."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
 
 from chesslab.training.pack import PackedIndex
+from conftest import load_script, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"_script_{name}", ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _jsonl(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
 def test_coverage_errors_refuses_reads_without_a_coverage_column(tmp_path, monkeypatch, capsys):
@@ -34,11 +18,11 @@ def test_coverage_errors_refuses_reads_without_a_coverage_column(tmp_path, monke
     Ergebnis waere null FP bei null TP — makellose Precision, auf einem Lauf, der die Groesse gar
     nicht kennt. `occlusion_gate.py` verweigert denselben Fall laut.
     """
-    ce = _load("coverage_errors")
+    ce = load_script("coverage_errors")
     monkeypatch.setattr(ce, "ROOT", tmp_path)
     sess = tmp_path / "s1"
-    _jsonl(sess / "matte.jsonl", [{"frame": "000100", "coverage": {"e4": 0.9, "e5": 0.9}}])
-    _jsonl(sess / "reads.jsonl", [{"frame": "000100", "square": sq, "fen_label": "wP"}
+    write_jsonl(sess / "matte.jsonl", [{"frame": "000100", "coverage": {"e4": 0.9, "e5": 0.9}}])
+    write_jsonl(sess / "reads.jsonl", [{"frame": "000100", "square": sq, "fen_label": "wP"}
                                   for sq in ("e4", "e5")])
     monkeypatch.setattr(sys, "argv", ["coverage_errors", "reads.jsonl", "s1"])
 
@@ -53,14 +37,14 @@ def test_coverage_errors_counts_clean_frames_in_its_denominator(tmp_path, monkey
     Die Zeile heisst "Frames mit Matte" und ist der Nenner des Hand-Anteils. Ohne die sauberen
     Frames misst dieser Anteil nicht "wie oft je Frame", sondern "wie oft unter den Fehlern".
     """
-    ce = _load("coverage_errors")
+    ce = load_script("coverage_errors")
     monkeypatch.setattr(ce, "ROOT", tmp_path)
     sess = tmp_path / "s1"
-    _jsonl(sess / "matte.jsonl", [
+    write_jsonl(sess / "matte.jsonl", [
         {"frame": "000100", "coverage": {"e4": 0.0, "e5": 0.0}},
         {"frame": "000200", "coverage": {"e4": 0.0, "e5": 0.0}},
     ])
-    _jsonl(sess / "reads.jsonl", [
+    write_jsonl(sess / "reads.jsonl", [
         {"frame": "000100", "square": "e4", "model_cov": 0.0},
         {"frame": "000100", "square": "e5", "model_cov": 0.0},
         {"frame": "000200", "square": "e4", "model_cov": 0.9},
@@ -80,12 +64,12 @@ def test_mine_hard_coverage_skips_rows_the_matte_never_measured(tmp_path, monkey
     Jede Modellmeldung ueber `--high` wird darauf zum "Phantom". Genau die Falle, die CLAUDE.md
     als "Coverage Matte Trap" fuehrt; die Bilanz "entschiedene Widersprueche" ist dann erfunden.
     """
-    mine = _load("mine_hard_coverage")
+    mine = load_script("mine_hard_coverage")
     dd = tmp_path / "ds"
     rows = [{"path": "a.webp", "session_id": "s", "frame": "f", "square": "e4", "label": "wP"},
             {"path": "b.webp", "session_id": "s", "frame": "f", "square": "e5", "label": "wP",
              "coverage": 0.0}]
-    _jsonl(dd / "manifest.jsonl", rows)
+    write_jsonl(dd / "manifest.jsonl", rows)
     import numpy as np
 
     img = tmp_path / "packed_images.u8"
@@ -112,9 +96,9 @@ def test_compare_arms_rejects_a_run_whose_epochs_appear_twice(tmp_path):
     Ein fortgesetzter Lauf schreibt Epochen doppelt; der Schwanz mittelt dann ueber die letzten
     `tail` ZEILEN, also ueber weniger Epochen als gedacht, und der gepaarte Abstand daneben.
     """
-    arms = _load("compare_arms")
+    arms = load_script("compare_arms")
     run = tmp_path / "p4a-s42"
-    _jsonl(run / "metrics.jsonl", [{"epoch": e, "val_loss": v} for e, v in
+    write_jsonl(run / "metrics.jsonl", [{"epoch": e, "val_loss": v} for e, v in
                                    ((0, 1.0), (1, 0.9), (2, 0.8), (1, 0.5), (2, 0.4))])
 
     assert arms.tail_mean(run, "val_loss", 3, 3) is None
@@ -142,7 +126,7 @@ def test_settle_lag_does_not_read_an_unmeasured_roi_as_board_motion(tmp_path, mo
     Genau die Achse, die das Skript entscheiden soll. Ungemessen gehoert in eine eigene Spalte,
     nicht auf die Seite des Bretts.
     """
-    lag = _load("settle_lag")
+    lag = load_script("settle_lag")
     monkeypatch.setattr(lag, "ROOT", tmp_path)
     dump = _settle_fixture(tmp_path)
 
@@ -160,7 +144,7 @@ def test_commit_budget_p90_is_the_ninth_of_ten_values(tmp_path, capsys):
     `commit_lag.py`, das die richtige Formel seit 2026-09-14 hat. Der Fix bewegt also keine
     veroeffentlichte Zahl.
     """
-    budget = _load("commit_budget")
+    budget = load_script("commit_budget")
     budget.ROOT = tmp_path
     rec = tmp_path / "data" / "recordings" / "rec"
     rec.mkdir(parents=True)
@@ -184,13 +168,13 @@ def test_commit_budget_p90_is_the_ninth_of_ten_values(tmp_path, capsys):
 def test_emission_lag_ignores_reads_without_a_coverage_column(tmp_path, monkeypatch, capsys):
     """Ohne `model_cov` gilt jede Zelle als sichtbar — die Korrelation entstuende auf Haenden.
 
-    `docs/emission-correlation.md` nimmt verdeckte Zellen ausdruecklich aus; auf einem Lauf ohne
+    `docs/tracker-flow.md` nimmt verdeckte Zellen ausdruecklich aus; auf einem Lauf ohne
     Occlusion-Kopf tat `or 0.0` das Gegenteil, ohne dass eine Zeile es sagt.
     """
-    lag = _load("emission_lag")
+    lag = load_script("emission_lag")
     monkeypatch.setattr(lag, "ROOT", tmp_path)
     (tmp_path / "s").mkdir()
-    _jsonl(tmp_path / "s" / "model-reads.jsonl", [
+    write_jsonl(tmp_path / "s" / "model-reads.jsonl", [
         {"frame": f, "square": "e4", "fen_label": "wP", "probs": {"wP": 0.9}}
         for f in (100, 101)])
     monkeypatch.setattr(sys, "argv", ["emission_lag", "s"])

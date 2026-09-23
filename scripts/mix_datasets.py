@@ -1,7 +1,7 @@
 """Zwei Datensaetze zu einem Trainingssatz zusammenlegen — der Gast geht NUR in train.
 
 Warum es das braucht: alle Rezept-Hebel verteilen eine feste Informationsmenge um, keiner
-erzeugt welche (`docs/measurement-floor.md`). Der echte Trainingssplit kennt 183 (Figur,Feld)-
+erzeugt welche (`docs/evaluation.md`). Der echte Trainingssplit kennt 183 (Figur,Feld)-
 Kombinationen, `wK` davon auf drei Feldern. `comp13-v4-80` bringt 108 neue, +59 %, und trifft
 genau die ausgehungerten Klassen.
 

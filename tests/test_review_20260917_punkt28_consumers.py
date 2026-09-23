@@ -1,25 +1,13 @@
-"""Punkt 28 ("die juengere Zeile gewinnt") hat drei Stellen bekommen und zwei ausgelassen.
-
-`labeling.read_matte`, `temporal_matte.sam_matte` und `hand_flags.measured_coverage` verwerfen
-eine fruehere Messung, wenn SAM den Frame spaeter absagt. `matte.matte_status` und
-`temporal_matte.adopt_proposals` fragen weiterhin nur, OB irgendeine Zeile `coverage` traegt.
-Beide Tests hier fallen auf dem Code von heute.
-"""
+"""Punkt 28 ("die juengere Zeile gewinnt") in `matte_status` und `adopt_proposals`."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import yaml
 
 from chesslab import config
-
-
-def _write_log(directory: Path, rows: list[dict]) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "log.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+from conftest import write_jsonl
 
 
 def test_matte_status_counts_a_measured_then_cancelled_frame_as_matted(tmp_path, monkeypatch):
@@ -34,7 +22,7 @@ def test_matte_status_counts_a_measured_then_cancelled_frame_as_matted(tmp_path,
     monkeypatch.setattr(config, "DATA", paths)
     name = "2026-01-02-00-00-00"
     d = paths.recordings / name
-    _write_log(d, [{"frame": "frames/000001.png", "board": "dirty/000001.webp",
+    write_jsonl(d / "log.jsonl", [{"frame": "frames/000001.png", "board": "dirty/000001.webp",
                     "dirty": True, "dirty_reason": "occluded", "ply": 1, "fen": "f"}])
     (d / "session.yaml").write_text(
         yaml.safe_dump({"session_id": f"rg-{name}", "mode": "track", "profile": "export"}),

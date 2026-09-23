@@ -5,6 +5,7 @@ import json
 import pytest
 
 from chesslab import config
+from conftest import write_jsonl
 
 
 def _session(tmp_path, monkeypatch, *, extra=None):
@@ -19,7 +20,7 @@ def _session(tmp_path, monkeypatch, *, extra=None):
     (sdir / "dirty").mkdir()
     for r in rows:
         (sdir / r["board"]).write_bytes(b"x")
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     notes = config.DATA.labels / "review-notes.jsonl"
     notes.parent.mkdir(parents=True, exist_ok=True)
     return sdir, notes

@@ -1,12 +1,7 @@
-"""JSON/JSONL-Audit 2026-09-16, Rest-Bereich: `src/chesslab/` ohne die Matte-Module, plus `scripts/`.
-
-Die Prueflisten-Nummer steht je Test im Docstring. Gemeinsame Regel fuer `.jsonl`: der
-ZEILENUMBRUCH entscheidet (`ioutil.read_jsonl`, `platform/app/lib/jsonl.ts`).
-"""
+"""JSON/JSONL-Audit, Rest-Bereich: `src/chesslab/` ohne Matte-Module, plus `scripts/`."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -16,15 +11,7 @@ import pytest
 import yaml
 
 from chesslab import capture_import, composite, config, hand_gate
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"_script_{name}", ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from conftest import load_script, write_jsonl
 
 
 def _dies_after(n: int):
@@ -73,7 +60,7 @@ def test_the_watchdog_survives_a_metrics_file_that_is_still_being_written(tmp_pa
     des Laufs und starb an der halben letzten Zeile — genau dann, wenn sie da sein soll."""
     from chesslab.ioutil import read_jsonl
 
-    watchdog = _load("train_watchdog")
+    watchdog = load_script("train_watchdog")
     # Der Nachbau ist weg; was bleibt, ist der Name, den die Wache benutzt. Ein eigener Leser
     # unter diesem Namen faellt hier auf — genau so kam der Nachbau ueberhaupt zustande.
     assert watchdog.read_jsonl is read_jsonl
@@ -137,7 +124,7 @@ def test_a_killed_gate_scan_leaves_the_previous_gate_intact(tmp_path, monkeypatc
 
 def test_a_killed_brightness_backfill_leaves_the_shared_manifest_intact(tmp_path, monkeypatch):
     """Prueflist 2. `backfill_brightness` schrieb das GETEILTE Manifest mit `open("w")` neu."""
-    backfill = _load("backfill_brightness")
+    backfill = load_script("backfill_brightness")
     dd, rows = _brightness_corpus(tmp_path, monkeypatch, backfill)
     before = (dd / "manifest.jsonl").read_text(encoding="utf-8")
 
@@ -155,7 +142,7 @@ def test_a_killed_brightness_backfill_leaves_the_shared_manifest_intact(tmp_path
 
 def test_the_texture_match_does_not_report_success_on_a_write_that_failed(tmp_path, monkeypatch):
     """Prueflist 3. `cv2.imwrite` WIRFT NICHT — und geschrieben wird hier die Textur selbst."""
-    tone = _load("match_texture_tone")
+    tone = load_script("match_texture_tone")
     img = np.full((4, 4, 3), 120, dtype=np.uint8)
     dst, ref = tmp_path / "dst.png", tmp_path / "ref.png"
     tone.cv2.imwrite(str(dst), img)
@@ -171,7 +158,7 @@ def test_the_texture_match_does_not_report_success_on_a_write_that_failed(tmp_pa
 def test_sams_refusal_does_not_crash_the_clear_view_audit(tmp_path):
     """Prueflist 5. Eine `skipped`-Zeile traegt `coverage: null` (CLAUDE.md, 2026-09-15);
     `.get("coverage", {})` gab dann `None`, und `complete(None)` starb an `None.keys()`."""
-    audit = _load("clear_view_audit")
+    audit = load_script("clear_view_audit")
     rec = tmp_path / "r1"
     rec.mkdir()
     (rec / "matte.jsonl").write_text(
@@ -224,7 +211,7 @@ def test_the_gate_teacher_set_says_what_it_dropped(tmp_path, monkeypatch):
 def test_the_damage_auditor_counts_the_damage_it_exists_to_find(tmp_path):
     """Prueflist 7. `except JSONDecodeError: pass` verschluckte genau die kaputten Zeilen, die
     der Bericht zaehlen soll — und meldete dann "nichts gefunden"."""
-    damage = _load("audit_disk_damage")
+    damage = load_script("audit_disk_damage")
     damage.BROKEN_LINES.clear()
     path = tmp_path / "matte.jsonl"
     path.write_text(json.dumps({"frame": "a"}) + "\n" + '{"frame": "b' + "\n"
@@ -243,7 +230,7 @@ def test_the_damage_auditor_counts_the_damage_it_exists_to_find(tmp_path):
 def test_the_brightness_backfill_says_how_many_rows_it_never_found(tmp_path, monkeypatch, capsys):
     """Prueflist 7. Eine Zeile, deren Schluessel nicht im Pack steht, behielt `brightness: None`
     und wurde ungezaehlt uebersprungen — `[OK]` las sich wie ein vollstaendiger Nachtrag."""
-    backfill = _load("backfill_brightness")
+    backfill = load_script("backfill_brightness")
     dd, _ = _brightness_corpus(tmp_path, monkeypatch, backfill)
     monkeypatch.setattr(sys, "argv", ["backfill", "--dataset", "ds"])
 
@@ -260,7 +247,7 @@ def test_the_brightness_backfill_says_how_many_rows_it_never_found(tmp_path, mon
 
 def test_the_matte_audit_does_not_report_zero_of_zero_as_a_result(tmp_path, monkeypatch, capsys):
     """Prueflist 9. Ohne eine einzige blinde Matte druckte der Lauf "0 von 0" und gab 0 zurueck."""
-    audit = _load("matte_audit")
+    audit = load_script("matte_audit")
     (tmp_path / "recordings" / "r1").mkdir(parents=True)
     (tmp_path / "recordings" / "r1" / "matte.jsonl").write_text(
         json.dumps({"frame": "000001", "dirty_reason": "occluded",
@@ -278,7 +265,7 @@ def test_the_cell_audit_does_not_turn_nothing_measured_into_zero_percent(tmp_pat
                                                                         capsys):
     """Prueflist 9. `100 * x / max(1, 0)` druckte "0.0 % der geflaggten Felder" auch dann, wenn
     nie ein Feld geflaggt wurde."""
-    cell = _load("matte_cell_audit")
+    cell = load_script("matte_cell_audit")
     (tmp_path / "recordings").mkdir()
     out = tmp_path / "cells.jsonl"
     monkeypatch.setattr(sys, "argv", ["matte_cell_audit", "--recordings",
@@ -300,8 +287,7 @@ def _brightness_corpus(tmp_path, monkeypatch, backfill):
              "path": "mm://s-80/000001/a1"},
             {"session_id": "s", "frame": "000002", "square": "a1",
              "path": "mm://s-80/000002/a1"}]
-    (dd / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     pack = tmp_path / "data" / "packs" / "s-80"
     pack.mkdir(parents=True)
     (pack / "packed_meta.json").write_text(

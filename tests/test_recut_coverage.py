@@ -1,10 +1,4 @@
-"""Die gespeicherte `coverage` muss zum Alpha UND zur heutigen Geometrie passen.
-
-Gemessen 2026-09-16: bei 13 von 24 Aufnahmen laesst sie sich nicht mehr aus Alpha plus aktuellem
-Log nachrechnen — ein Re-Export verschiebt die Ecken, die Coverage bleibt stehen. 35 von 35 392
-Stichprobenzellen kippen dabei ueber `PIECE_VISIBLE_MAX`, fast alle auf der Grundreihe und von
-0,000 auf 1,000. Der Crop zeigt dann eine Hand, das Label nennt die Figur darunter.
-"""
+"""Die gespeicherte `coverage` passt zum Alpha UND zur heutigen Geometrie."""
 from __future__ import annotations
 
 import json

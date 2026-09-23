@@ -9,6 +9,7 @@ from PIL import Image
 from chesslab import config
 from chesslab.realgames import game_dir
 from chesslab.sessions import missing_source_frames, park_frames_session
+from conftest import write_jsonl
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ def session(tmp_path, monkeypatch):
             Image.fromarray(np.full((44, 44, 3), 128, np.uint8)).save(sdir / "boards" / f"{stem}.webp")
             row |= {"board": f"boards/{stem}.webp", "board_size": 40, "board_border": 2}
         rows.append(row)
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     return sdir
 
 

@@ -1,9 +1,4 @@
-"""Der Vertrag hinter `mm://` ist NUR das erste Segment: dort steht der Pack-Name.
-
-Drei Schreiber bauen den Pfad, und einer davon ist Kotlin — dessen Form sichert sonst nichts.
-Was hinter dem Kopf steht, unterscheidet sich absichtlich je Schreiber; wer es zerlegt, erfindet
-einen Vertrag, den es nie gab.
-"""
+"""Der Vertrag hinter `mm://` ist NUR das erste Segment: der Pack-Name."""
 
 from __future__ import annotations
 

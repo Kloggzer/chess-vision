@@ -1,9 +1,4 @@
-"""Background work announces its failure — a dead pump must not look like slow work.
-
-`tile_stream` pumps from its own thread. When that thread raised, nothing reached the consumer
-and `q.get()` blocked forever: the composite build hung with no message, which is the defect the
-standing rule names (memory: "Hintergrundarbeit meldet ihr Scheitern").
-"""
+"""`tile_stream` announces a failure of its pump thread instead of blocking forever."""
 
 import threading
 

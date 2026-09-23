@@ -11,6 +11,7 @@ from PIL import Image
 
 from chesslab import config
 from chesslab.training import pack as pack_mod
+from conftest import write_jsonl
 
 CROP = 8
 
@@ -23,13 +24,6 @@ def serial_pool(monkeypatch):
     from test_pack import _SerialPool
 
     monkeypatch.setattr(multiprocessing, "Pool", _SerialPool)
-
-
-@pytest.fixture
-def paths(tmp_path, monkeypatch):
-    p = config.Paths(root=tmp_path)
-    monkeypatch.setattr(config, "DATA", p)
-    return p
 
 
 def _mixed_dataset(paths):
@@ -50,8 +44,7 @@ def _mixed_dataset(paths):
         p = dd / "squares" / f"f{i:04d}.png"
         Image.fromarray(np.full((CROP, CROP, 3), 9 + i, dtype=np.uint8)).save(p)
         rows.append({"path": p.as_posix(), "out_size": [CROP, CROP], "label": "empty"})
-    (dd / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     return dd, rows
 
 

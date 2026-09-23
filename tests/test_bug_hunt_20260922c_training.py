@@ -1,9 +1,4 @@
-"""Mutationsprobe vom 2026-09-22 auf dem Trainings- und Metrikweg.
-
-Zwei Sorten Test stehen hier: die FUNDE (ohne ihren Fix rot) und die Wachen, die die Probe als
-TRAGEND, aber UNGEDECKT gemessen hat — eine ausgehebelte Wache lief gruen durch den ganzen
-Trainings-Testsatz.
-"""
+"""Mutationsprobe 2026-09-22 auf Trainings- und Metrikweg: Funde und ungedeckte Wachen."""
 from __future__ import annotations
 
 import pytest

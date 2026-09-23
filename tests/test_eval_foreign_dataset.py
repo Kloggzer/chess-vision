@@ -1,18 +1,12 @@
-"""`chesslab eval --dataset X` — measuring a run against a corpus it was not trained on.
-
-`run_eval` only ever read `cfg["dataset"]`, so the "validate with the pretrain" step had no CLI
-and kept producing throwaway scripts.
-"""
+"""`chesslab eval --dataset X`: measuring a run against a corpus it was not trained on."""
 
 from __future__ import annotations
 
 import json
 
 import numpy as np
-import pytest
 from PIL import Image
 
-from chesslab import config
 from chesslab.training.data import per_session_metrics
 from chesslab.training.evaluate import run_eval
 
@@ -55,13 +49,6 @@ def _run(tmp_path, dataset, *, classes=CLASSES, name="run_a", head="combined"):
         "backbone": "smallcnn", "classes": classes, "out_size": [CROP, CROP],
         "norm": "batchnorm", "head": head, "dataset": dataset}), encoding="utf-8")
     return run_dir
-
-
-@pytest.fixture
-def paths(tmp_path, monkeypatch):
-    p = config.Paths(root=tmp_path)
-    monkeypatch.setattr(config, "DATA", p)
-    return p
 
 
 def test_a_foreign_dataset_is_measured_without_touching_the_runs_own_numbers(tmp_path, paths):

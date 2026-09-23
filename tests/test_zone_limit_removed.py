@@ -1,11 +1,4 @@
-"""Ein stark verdecktes Brett ist ein LABEL, keine Ablehnung.
-
-`MAX_ZONE_FRAC = 0.60` verwarf jede SAM-Maske, die mehr als 60 % des Bretts deckte — begruendet mit
-"past this share it is not an arm reaching in". Gemessen 2026-09-16: die Grenze ist im ganzen Korpus
-NIE gefeuert (8 328 Matte-Zeilen, null Absagen). Sie hat also nichts gefangen und wartete nur auf
-das erste wirklich schwere Material — und genau das steht an (von Schwarz gespielt, im Dunkeln).
-Entscheidung des Nutzers: was SAM findet, wird geglaubt.
-"""
+"""Ein stark verdecktes Brett ist ein LABEL, keine Ablehnung: keine Zonengrenze fuer SAM."""
 from __future__ import annotations
 
 import json

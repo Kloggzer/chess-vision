@@ -1,10 +1,5 @@
-"""Skript-Jagd 2026-09-20b: vier Nenner und ein Cache, die mehr behaupten als sie messen.
-
-Drei Skripte teilten dieselbe Wurzel wie die Fallen in CLAUDE.md: eine uebersprungene Zeile blieb
-im Nenner stehen, also las sich NICHT GEMESSEN wie gemessen. Der vierte Fall ist der
-`--probs-cache` von `sweep_prior_lambda`, der nur die Zeilenzahl prueft. Jeder Test hier war vor
-seinem Fix rot.
-"""
+"""Skript-Jagd 2026-09-20b: Nenner mit uebersprungenen Zeilen und der `--probs-cache` von
+`sweep_prior_lambda`."""
 from __future__ import annotations
 
 import json
@@ -13,12 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
+from conftest import write_jsonl
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-
-def _write(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
 class _FakeCv2:
@@ -35,14 +27,14 @@ def test_matte_audit_nennt_nur_die_geprueften_matten(tmp_path, monkeypatch, caps
     import matte_audit
 
     rec = tmp_path / "recordings" / "20-19"
-    _write(rec / "matte.jsonl",
+    write_jsonl(rec / "matte.jsonl",
            [{"frame": f, "dirty_reason": "occluded"} for f in ("f1", "f2", "f3")])
     for f in ("f1", "f2"):
         (rec / "boards").mkdir(parents=True, exist_ok=True)
         (rec / "boards" / f"{f}.webp").write_bytes(b"")
     # Die Zellmasse stehen in der Log-Zeile, nicht in der Bildform: `gray.shape[0]` ist 952 bei
     # `board_size` 928, und ohne die zwei Zahlen rastert der Sensor mit 119 statt 116 px.
-    _write(rec / "log.jsonl",
+    write_jsonl(rec / "log.jsonl",
            [{"frame": f"{f}.jpg", "board": f"boards/{f}.webp", "board_size": 928,
              "board_border": 12} for f in ("f1", "f2", "f3")])
 
@@ -94,7 +86,7 @@ def test_scan_ply_offset_meldet_den_nenner_der_GEPRUEFTEN_frames(tmp_path, monke
     for r in man:
         if r["frame"] != "f1" and r["square"] not in ("a1", "b1", "c1"):
             r["coverage"] = 1.0
-    _write(dd / "manifest.jsonl", man)
+    write_jsonl(dd / "manifest.jsonl", man)
 
     monkeypatch.setattr(scan_ply_offset, "dataset_dir", lambda _n: dd)
     monkeypatch.setattr(scan_ply_offset, "open_packed_rows",
@@ -191,7 +183,7 @@ def test_hand_audit_druckt_ohne_manifest_zeile_keine_quote(tmp_path, monkeypatch
     (dd / "split-pin.json").write_text(json.dumps({"splits": {"train": ["rg-20-19"]}}),
                                        encoding="utf-8")
     # Keine Manifest-Zeile dieser Aufnahme: der Nenner ist 0, nicht 1.
-    _write(dd / "manifest.jsonl", [{"session_id": "rg-andere", "frame": "f1", "square": "e4"}])
+    write_jsonl(dd / "manifest.jsonl", [{"session_id": "rg-andere", "frame": "f1", "square": "e4"}])
 
     monkeypatch.setattr(hand_audit, "REC", rec)
     monkeypatch.setattr("chesslab.dataset_build.dataset_dir", lambda _n: dd)
@@ -209,11 +201,11 @@ def test_audit_sessions_druckt_ohne_situation_keine_quote(tmp_path, monkeypatch,
 
     dd = tmp_path / "ds"
     man = [{"path": "a", "session_id": "rg-20-19", "square": "e4", "label": "wP", "coverage": 0.0}]
-    _write(dd / "manifest.jsonl", man)
+    write_jsonl(dd / "manifest.jsonl", man)
     (dd / "split-f1.json").write_text(json.dumps({"splits": {"test": ["rg-20-19"]}}),
                                       encoding="utf-8")
     folds = tmp_path / "_folds" / "run-f1"
-    _write(folds / "metrics.jsonl", [{"epoch": i} for i in range(60)])
+    write_jsonl(folds / "metrics.jsonl", [{"epoch": i} for i in range(60)])
 
     monkeypatch.setattr(audit_sessions, "dataset_dir", lambda _n: dd)
     monkeypatch.setattr(audit_sessions, "open_packed_rows",

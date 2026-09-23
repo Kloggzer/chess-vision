@@ -1,10 +1,4 @@
-"""Ein SAM-Ladevorgang fuer viele Aufnahmen — auch fuer die GEMELDETEN Frames.
-
-`alpha_worker_all` haelt die Gewichte fuer den ganzen Lauf resident, nahm aber nur `limit` und
-`reason` entgegen; `--reported`, `--wanted` und `--temporal` lagen ausschliesslich im
-Einzelsession-Zweig (`cli.py`). Gemessen 2026-09-15: 7-9 min Laden gegen 54 s Arbeit, also ~2 h
-Laden fuer ~12 min Arbeit bei 186 gemeldeten Frames ueber 14 Aufnahmen.
-"""
+"""`alpha_worker_all` nimmt `--reported`, `--wanted` und `--temporal` mit einem SAM-Ladevorgang."""
 from __future__ import annotations
 
 import pytest

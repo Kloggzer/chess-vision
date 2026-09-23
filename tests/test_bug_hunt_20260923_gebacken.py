@@ -1,8 +1,4 @@
-"""Gebackener Pack an den Lesestellen neben `train`/`run_eval` — je ein Test, der OHNE den Fix rot ist.
-
-`gradcam._crop_reader` und die Auswerter unter `scripts/` lasen Pack-Pixel und bauten die
-Transformation aus `config.json`: auf einem mit CLAHE gebackenen Pack lief CLAHE ein zweites Mal.
-"""
+"""Gebackene Packs an den Lesestellen neben `train`/`run_eval`: CLAHE nicht zweimal."""
 from __future__ import annotations
 
 import json
@@ -16,10 +12,10 @@ pytest.importorskip("torchvision")
 from PIL import Image  # noqa: E402
 from torchvision.transforms.functional import to_pil_image, to_tensor  # noqa: E402
 
-from chesslab import config  # noqa: E402
 from chesslab.training import gradcam  # noqa: E402
 from chesslab.training.pack import load_packed  # noqa: E402
 from chesslab.training.torch_data import _Clahe, eval_transform_for  # noqa: E402
+from conftest import write_jsonl  # noqa: E402
 
 #: Band bis 255: mit dem Band 25-40 aus `test_pack_bake` faellt die gebackene Zelle aus dem Band,
 #: und ein zweites CLAHE waere zufaellig die Identitaet — der Test saehe den Fehler nicht.
@@ -39,21 +35,13 @@ def _baked_pair(paths):
     mm.flush()
     del mm
     rows = [{"path": f"data/crops/default/empty/c{i}.webp", "label": "empty"} for i in range(4)]
-    (dd / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     (dd / "split.json").write_text(json.dumps({"classes": ["empty"]}), encoding="utf-8")
     (dd / "packed_meta.json").write_text(json.dumps(
         {"n": 4, "h": 80, "w": 80, "digest": pack_mod._manifest_digest(rows),
          "paths": [r["path"] for r in rows]}), encoding="utf-8")
     bake_pack("src", "dst", dict(PARAMS), paths=paths)
     return PARAMS
-
-
-@pytest.fixture
-def paths(tmp_path, monkeypatch):
-    p = config.Paths(root=tmp_path)
-    monkeypatch.setattr(config, "DATA", p)
-    return p
 
 
 def _run_cfg(params: dict, dataset: str) -> dict:

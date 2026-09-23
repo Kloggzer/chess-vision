@@ -1,8 +1,4 @@
-"""Tests for training/packs.py — the pack layout contract and the mm:// resolver.
-
-Everything here is fake pixels: a pack is a meta file plus a zero-filled image of the size the
-meta claims, which is all `read_pack`/`resolve_packs` ever look at.
-"""
+"""Tests for training/packs.py: the pack layout contract and the mm:// resolver."""
 
 from __future__ import annotations
 
@@ -15,6 +11,7 @@ import pytest
 
 from chesslab import config
 from chesslab.training import packs as packs_mod
+from conftest import write_jsonl
 
 CROP = 8
 
@@ -133,7 +130,7 @@ def _pack_built_dataset(paths: config.Paths, name: str, rows: list[dict], packs:
 
     dd = dataset_dir(name, paths)
     dd.mkdir(parents=True)
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     (dd / "dataset.yaml").write_text(f"{packs_mod.PACKS_KEY}: {packs}\n", encoding="utf-8")
     return dd
 

@@ -1,10 +1,5 @@
-"""Die Qualitaetswache der Scan-Einfuhr sieht nie eine Zahl, meldet aber jedes Mal Alarm.
-
-`prepare_scan` ist seit dem Verbatim-Umbau der EINZIGE Produzent, und sein Bericht traegt nur
-`piece`, `variant`, `verbatim` (plus `smooth_iters`/`tris`). `assess_report` prueft `verts`,
-`boundary_edges`, `nonmanifold_edges`, `height_ratio` und `center_component_frac` — vier Zweige
-sind damit unerreichbar, und der fuenfte liest `verts` als 0 und warnt bei JEDER Einfuhr.
-"""
+"""Die Qualitaetswache der Scan-Einfuhr (`assess_report`) passt zum Bericht von
+`prepare_scan`."""
 from __future__ import annotations
 
 from pathlib import Path

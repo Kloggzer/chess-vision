@@ -2,7 +2,7 @@
 
 Vergleiche laufen ueber das MITTEL der letzten 20 Epochen, nicht ueber `best`: das ist das
 Maximum ueber 60 verrauschte Ziehungen und liegt konstruktionsbedingt 2,3-2,9 sd ueber dem
-Niveau des Laufs (`docs/compiled-batch-aug.md`).
+Niveau des Laufs (`docs/training-speed.md`).
 
     uv run python scripts/thin_arms_report.py
 """

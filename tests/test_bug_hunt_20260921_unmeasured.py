@@ -1,10 +1,4 @@
-"""Punkt 28 an zwei Stellen, die ihn nicht anwenden: eine Zeile OHNE `coverage` ist SAMs Absage.
-
-Beide lesen `matte.jsonl` roh. `close_seams` schreibt einer Absage eine frisch gerechnete
-Coverage zu, `upsert_proposals` laesst eine ZURUECKGEZOGENE Messung als "SAM fand eine Hand"
-gelten. Die Geschwister derselben Datei (`recut_coverage`, `sam_matte`, `matted_frames`) pruefen
-genau das schon.
-"""
+"""Punkt 28 in `close_seams` und `upsert_proposals`: eine Zeile OHNE `coverage` ist SAMs Absage."""
 from __future__ import annotations
 
 import json

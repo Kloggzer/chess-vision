@@ -1,9 +1,4 @@
-"""Ein Brett-Netz und ein CLAHE-Lauf muessen durch `predict_arrays` gehen — beides ging nicht.
-
-Bis 2026-09-07 hat `model-read` nur Zell-Modelle gesehen; der erste Brett-Lauf starb an
-`BoardNet erwartet (B, 64, C, H, W)`. Und der Schnellpfad fuer bereits passend grosse Crops
-normalisiert von Hand, haette CLAHE also still weggelassen.
-"""
+"""Brett-Netz und CLAHE-Lauf durch `predict_arrays`."""
 
 import json
 

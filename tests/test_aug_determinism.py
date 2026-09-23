@@ -1,11 +1,4 @@
-"""Die neuen Augmentierungen muessen aus dem Seed reproduzierbar sein.
-
-Sie ziehen aus ZWEI Quellen: die eigenen Klassen aus Pythons `random`, die von torchvision aus
-torchs RNG. Beide werden von PyTorch je Dataloader-Worker geseedet — aber nur, solange niemand
-eine Transformation mit eigener Entropie dazwischenschiebt. Der Test haelt das fest, weil ohne
-Determinismus jeder gepaarte Vergleich seinen Hebel verliert (`docs/measurement-floor.md`:
-gepaart faellt die Streuung von 0,027 auf 0,003).
-"""
+"""Die Augmentierungen sind aus dem Seed reproduzierbar (`docs/evaluation.md`)."""
 
 from __future__ import annotations
 

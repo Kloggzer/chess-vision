@@ -1,12 +1,4 @@
-"""Label corrections and the label-override path `slice` reads.
-
-These lived in `test_web.py` and are not web tests: `load_corrections` is read by
-`labeling.slice_session`, and the override is what lets a human label beat the
-FEN for one square. They were rescued when the web UI was deleted.
-
-The WRITE side is gone with it: no Python writes the file any more (`docs/data-pipeline.md`), so
-the format is readable and currently unwritable. That is a gap for the new UI to close.
-"""
+"""Label corrections and the label-override path `slice` reads."""
 
 import json
 

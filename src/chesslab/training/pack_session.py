@@ -2,7 +2,7 @@
 
 A session with a directory is cut from its BOARDS (`write_session_pack`), one without — composite,
 turntable — from its crop pool, which is all it has (`write_pool_pack`). `import_pack` adopts what
-the Kotlin writers produce. Why each takes the source it takes: `docs/session-packs.md`."""
+the Kotlin writers produce. Why each takes the source it takes: `docs/packs.md`."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def write_pool_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *, poo
     """Pack `session_id` from crop pool `pool` — the way for a session with no directory.
 
     The pool file IS the source for these, and `decode_crop` is what read it into the monolithic
-    pack, so the bytes match. It also freezes whatever the slice resampled (`docs/session-packs.md`).
+    pack, so the bytes match. It also freezes whatever the slice resampled (`docs/packs.md`).
     `pool` stays explicit: 54 composites sit in two pools at once."""
     from ..dataset import load_manifest
 

@@ -1,9 +1,4 @@
-"""`write_boards_session` straightens the store it just rewrote — without persisting the flag.
-
-`straighten_boards` says the flag is the ONLY thing between a killed run and a twice-corrected
-store, and `straighten_boards_session` hands it a `checkpoint`. This verb does not, and it writes
-the log once, at the very end.
-"""
+"""`write_boards_session` persists `board_straightened` when it straightens the store."""
 from __future__ import annotations
 
 import json
@@ -12,7 +7,7 @@ import numpy as np
 import pytest
 
 from chesslab import config, labeling, realgames, sessions
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 BS, BORDER = 64, 4
 EIGHTHS = [k / 8.0 for k in range(9)]
@@ -44,7 +39,7 @@ def test_a_killed_write_boards_leaves_the_straightened_flag_on_disk(tmp_path, mo
     for row in rows:
         cv2.imwrite(str(sdir / row["frame"]), np.zeros((BS, BS, 3), np.uint8))
     (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
 
     monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))
     monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, name: _profile())

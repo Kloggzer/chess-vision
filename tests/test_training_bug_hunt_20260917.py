@@ -1,12 +1,5 @@
-"""Drei Funde in `src/chesslab/training/` (2026-09-17).
-
-1. `config.json` unterschied `--coverage-weight hard` von `soft` NICHT, nannte aber unter `soft`
-   eine `visible_max`, die der Verlust dort gar nicht liest.
-2. Die gepackten Loader lasen `coverage`/`brightness` anders als `_target` und
-   `classification_eligible`: ein ausgeschriebenes `null` warf dort einen `TypeError`.
-3. Der Spender-Pool in `PackedSquareDataset` zieht ohne `neighbour_p > 0` aus `random` —
-   ein Val-Datensatz verschiebt damit die Zufallsfolge des Laufs (xfail, Rezept-Entscheidung).
-"""
+"""Funde in `src/chesslab/training/`: `coverage-weight` in `config.json`, `null`-Coverage
+in den gepackten Loadern, Zufallsfolge des Spender-Pools."""
 from __future__ import annotations
 
 import pytest

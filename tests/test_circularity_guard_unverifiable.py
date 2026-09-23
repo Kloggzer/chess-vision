@@ -1,9 +1,5 @@
-"""A guard that cannot check must refuse, not wave through.
-
-`real13-mix-v4` — the dataset THREE bundled models name, `p4a-80-clahe` (the DEFAULT) among
-them — is not on disk. `trained_on` returned an empty set for it, so `check_not_circular`
-found no hits and allowed every session, including the ones the model was trained on.
-"""
+"""A circularity guard that cannot check must refuse, not wave through; it reads the split
+embedded in the run's `config.json` first."""
 
 import json
 
@@ -11,6 +7,8 @@ import pytest
 
 from chesslab import config
 from chesslab.occluded_model import check_not_circular, trained_on
+
+EMBEDDED = {"seed": 42, "splits": {"train": ["occ-rg-gone-a", "rg-gone-b"], "val": ["rg-v"]}}
 
 
 def _run(tmp_path, monkeypatch, cfg):
@@ -44,3 +42,23 @@ def test_trained_on_still_reads_a_split_that_is_there(tmp_path, monkeypatch):
 
     assert trained_on(run) == {"rg-a"}
     check_not_circular(run, "rg-b")
+
+
+def test_the_embedded_split_is_read_when_the_dataset_is_gone(tmp_path, monkeypatch):
+    run = _run(tmp_path, monkeypatch, {"dataset": "real13-mix-v4", "split": EMBEDDED})
+
+    assert trained_on(run) == {"occ-rg-gone-a", "rg-gone-b"}
+    with pytest.raises(ValueError, match="TRAINED on"):
+        check_not_circular(run, "rg-gone-a")
+    check_not_circular(run, "rg-held-out")
+
+
+def test_the_embedded_split_wins_over_a_rebuilt_dataset(tmp_path, monkeypatch):
+    """The directory's split.json can be rebuilt after the run; the config cannot."""
+    run = _run(tmp_path, monkeypatch, {"dataset": "d", "split": EMBEDDED})
+    ds = tmp_path / "data" / "datasets" / "d"
+    ds.mkdir(parents=True)
+    (ds / "split.json").write_text(
+        json.dumps({"splits": {"train": ["rg-something-else"]}}), encoding="utf-8")
+
+    assert trained_on(run) == {"occ-rg-gone-a", "rg-gone-b"}

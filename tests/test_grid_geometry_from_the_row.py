@@ -1,13 +1,4 @@
-"""Wer `missing_edges` fuettert, nimmt die Geometrie aus der LOG-ZEILE, nicht aus dem Bild.
-
-`scripts/matte_audit.py` uebergab `board_size=gray.shape[0]` und `pad=0`. Das gespeicherte Brett
-traegt seinen Rand aber MIT: 952 px bei `board_size` 928 und `board_border` 12. Der Sensor rasterte
-damit mit 119 px Zellweite statt 116 und ohne Rand-Offset — und benannte Felder daneben.
-
-Gemessen an 120 echten Brettern von `2026-09-19-15-50-28`: **31 (26 %) nennen andere Felder**,
-darunter ein erfundenes `a8` und verlorene `c7`/`g1`. Geprueft wird hier die FORM, weil ein
-synthetisches Brett den Unterschied nicht zuverlaessig erzeugt.
-"""
+"""Wer `missing_edges` fuettert, nimmt die Geometrie aus der LOG-ZEILE, nicht aus dem Bild."""
 
 from __future__ import annotations
 

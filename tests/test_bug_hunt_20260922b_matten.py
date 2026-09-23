@@ -1,12 +1,7 @@
-"""Bugjagd 2026-09-22b — vier Hypothesen um die Matten-Kette und die leere Menge.
-
-Jede Zahl im Bericht ist an `data/recordings/*/matte.jsonl` bzw. `data/occluders/occluders.json`
-gemessen; hier steht nur der rote Test je Befund.
-"""
+"""Bugjagd 2026-09-22b: Hypothesen um die Matten-Kette und die leere Menge."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -15,6 +10,7 @@ from typer.testing import CliRunner
 from chesslab import config, ioutil, temporal_matte
 from chesslab.cli import app
 from chesslab.labeling import MATTE_DIRTY
+from conftest import write_jsonl
 
 
 def _recording(tmp_path: Path) -> Path:
@@ -25,7 +21,7 @@ def _recording(tmp_path: Path) -> Path:
 
 def _matte(rec: Path, rows: list[dict]) -> Path:
     path = rec / "matte.jsonl"
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(path, rows)
     return path
 
 

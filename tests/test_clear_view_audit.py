@@ -1,14 +1,10 @@
 """The audit must not turn absent or malformed sensor data into a clear board."""
 
-import importlib.util
 import unittest
-from pathlib import Path
 
-spec = importlib.util.spec_from_file_location(
-    "clear_view_audit", Path(__file__).parents[1] / "scripts" / "clear_view_audit.py",
-)
-audit = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(audit)
+from conftest import load_script
+
+audit = load_script("clear_view_audit")
 
 
 class ClearViewAuditTest(unittest.TestCase):

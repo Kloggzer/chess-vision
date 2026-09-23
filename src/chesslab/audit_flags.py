@@ -59,7 +59,7 @@ def confident_class(probs: dict[str, float], thresholds: dict[str, float],
     """Eqn. 1: the argmax over the classes that reach their own threshold, `None` if none does.
 
     The given label competes in that argmax — dropping it would flag every cell where any other
-    class passes. `known` bounds it to what the MODEL outputs (`docs/audit-classes.md`).
+    class passes. `known` bounds it to what the MODEL outputs (`docs/cross-labeling-literature.md`).
     """
     items = thresholds.items() if known is None else [(c, t) for c, t in thresholds.items() if c in known]
     passing = [(probs.get(c, 0.0), c) for c, t in items if probs.get(c, 0.0) >= t]

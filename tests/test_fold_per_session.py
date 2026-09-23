@@ -1,14 +1,10 @@
 """Die Fold-Tabelle darf weder eine Session verschlucken noch unsortiert dastehen."""
 
-import importlib.util
 import unittest
-from pathlib import Path
 
-spec = importlib.util.spec_from_file_location(
-    "fold_per_session", Path(__file__).parents[1] / "scripts" / "fold_per_session.py",
-)
-fold = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(fold)
+from conftest import load_script
+
+fold = load_script("fold_per_session")
 
 NAN = float("nan")
 

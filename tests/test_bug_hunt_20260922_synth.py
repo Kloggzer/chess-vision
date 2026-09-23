@@ -1,13 +1,7 @@
-"""Bug hunt 2026-09-22, Bereich `synth/` + `synth_build.py`/`composite.py`/`meshprep.py`.
-
-Gemeinsame Familie: etwas UNGEMESSENES wird als gemessener Normalwert weitergereicht — eine
-Zeilennummer statt der deklarierten Pack-Ordnung, ein Prozess-Hash statt eines Seeds, ein
-Debug-Muster statt der Scan-Textur.
-"""
+"""Bug hunt 2026-09-22: `synth/`, `synth_build.py`, `composite.py`, `meshprep.py`."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
 import sys
@@ -19,15 +13,9 @@ import pytest
 
 from chesslab.ioutil import write_json
 from chesslab.training.pack import _manifest_digest
+from conftest import load_script, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _synth(name: str):
-    spec = importlib.util.spec_from_file_location(f"_synth_{name}", ROOT / "synth" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 # --- 1. measure_noise: die Pack-Ordnung steht in `meta["paths"]`, nicht in der Zeilennummer ----
@@ -38,8 +26,7 @@ def _tiny_dataset(tmp_path: Path, *, link_owner: str | None = None) -> Path:
     ds.mkdir()
     rows = [{"path": "mm://p/f_a1.png", "label": "empty", "session_id": "s"},
             {"path": "mm://p/f_b1.png", "label": "keep", "session_id": "s"}]
-    (ds / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(ds / "manifest.jsonl", rows)
     meta = {"n": 2, "h": 4, "w": 4, "digest": _manifest_digest(rows),
             "paths": [rows[1]["path"], rows[0]["path"]]}        # gepackt: b1 zuerst
     if link_owner:
@@ -55,20 +42,20 @@ def _tiny_dataset(tmp_path: Path, *, link_owner: str | None = None) -> Path:
 
 
 def test_measure_noise_reads_the_pack_by_path_not_by_row_number(tmp_path):
-    mn = _synth("measure_noise")
+    mn = load_script("measure_noise", "synth")
     got = mn.crops_from_dataset(_tiny_dataset(tmp_path), "empty", 0, 42)
     assert len(got) == 1
     assert int(got[0].mean()) == 50, "die Zeile a1 hat die Pixel von b1 bekommen"
 
 
 def test_measure_noise_follows_a_link_to_its_owner(tmp_path):
-    mn = _synth("measure_noise")
+    mn = load_script("measure_noise", "synth")
     ds = _tiny_dataset(tmp_path, link_owner="owner")
     assert int(mn.crops_from_dataset(ds, "empty", 0, 42)[0].mean()) == 50
 
 
 def test_measure_noise_refuses_a_pack_that_is_not_current(tmp_path):
-    mn = _synth("measure_noise")
+    mn = load_script("measure_noise", "synth")
     ds = _tiny_dataset(tmp_path)
     meta = json.loads((ds / "packed_meta.json").read_text(encoding="utf-8"))
     meta["digest"] = "stale"
@@ -94,7 +81,7 @@ def test_degrade_seed_is_the_same_in_two_processes():
 
 
 def test_degrade_seed_still_reads_a_numeric_name_as_its_number():
-    assert _synth("degrade")._seed_from_name("shard-0/000123.jpg") == 123
+    assert load_script("degrade", "synth")._seed_from_name("shard-0/000123.jpg") == 123
 
 
 # --- 3. meshprep: der Debug-Filter darf abwaehlen, nie die Figur nackt lassen -----------------
@@ -169,7 +156,7 @@ def test_a_verbatim_import_without_any_texture_says_so(tmp_path):
 # --- 4. Mutationsprobe: Sperren, die ohne Test durchgingen ------------------------------------
 
 def test_degrade_gives_two_names_two_seeds():
-    d = _synth("degrade")
+    d = load_script("degrade", "synth")
     assert d._seed_from_name("a.png") != d._seed_from_name("b.png")
 
 
@@ -212,7 +199,7 @@ def test_a_given_pieces_path_that_does_not_exist_is_an_error(tmp_path):
     for m in ("bpy", "bpy.ops", "bpy_extras", "bpy_extras.object_utils", "mathutils", "bmesh"):
         _sys.modules.setdefault(m, MagicMock())
     _sys.path.insert(0, str(ROOT / "synth"))
-    rmc = _synth("render_move_clip")
+    rmc = load_script("render_move_clip", "synth")
     assert rmc._given_path(None, "--pieces") is None
     assert rmc._given_path(tmp_path, "--pieces") == str(tmp_path)
     with pytest.raises(SystemExit, match="--pieces"):

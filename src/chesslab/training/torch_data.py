@@ -200,7 +200,7 @@ class _ToUint8:
     """CHW-uint8 statt normalisiertem float: `batch_aug` rechnet den Rest auf dem Geraet.
 
     Spart ToTensor und Normalize je Crop (177 us von 208) und schickt ein Viertel der Bytes
-    ueber PCIe — 4,9 statt 19,7 MB je Schritt (`docs/batch-aug.md`)."""
+    ueber PCIe — 4,9 statt 19,7 MB je Schritt (`docs/training-speed.md`)."""
 
     def __call__(self, img):
         # `np.array`, nicht `asarray`: PIL gibt einen schreibgeschuetzten Puffer, und
@@ -227,7 +227,7 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ops += [_RandomRot90()]
     # Auf Staerke 0 gestellt ist NICHT weg: `T.ColorJitter(0,0,0)` zieht weiter Zufallszahlen
     # und wendet die Identitaet an. Gemessen 2026-09-07 kostet der Leerlauf 470 us je Crop, mehr
-    # als die Haelfte dessen, was die vier Ops ueberhaupt kosten (`docs/pack-bake.md`).
+    # als die Haelfte dessen, was die vier Ops ueberhaupt kosten (`docs/packs.md`).
     if train:
         if policy.brightness or policy.contrast or policy.color_jitter:
             ops += [ColorJitter(brightness=policy.brightness, contrast=policy.contrast,
@@ -764,7 +764,7 @@ class PackedBoardDataset(Dataset):
         self.idx = idx.reshape(-1, CELLS, 2)
         # Ein Brett liegt im Pack am Stueck: `a1..h8` eines Frames sind 64 aufeinanderfolgende
         # Zeilen (gemessen auf real13-mix-v4: 9218 von 9218). Dann ist EIN Schnitt 2,8x schneller
-        # als 64 Griffe — und kalt ist es ein Seek statt 64 (`docs/batch-aug.md`).
+        # als 64 Griffe — und kalt ist es ein Seek statt 64 (`docs/training-speed.md`).
         same = (self.idx[:, :, 0] == self.idx[:, :1, 0]).all(axis=1)
         step = self.idx[:, :, 1] - self.idx[:, :1, 1]
         self._run = same & (step == np.arange(CELLS)).all(axis=1)

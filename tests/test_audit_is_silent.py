@@ -1,9 +1,4 @@
-"""A library generator must not write to stdout; the CLI decides what gets printed.
-
-`sensor_audit.audit` is consumed by `temporal_flags.scan_session`, which produces a JSON
-report — a stray "Skipped frames:" line on stdout belongs to the `main` that a human runs,
-not to every caller.
-"""
+"""A library generator (`sensor_audit.audit`) must not write to stdout."""
 
 import inspect
 

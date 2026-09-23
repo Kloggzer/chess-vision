@@ -1,13 +1,4 @@
-"""Fangen die Ratschen, was sie behaupten? Je eine EINGEPFLANZTE Gegenprobe.
-
-Das Projekt verlangt sie ausdrücklich, und heute Nacht hat sie sich zweimal ausgezahlt: der
-TypeScript-Zwilling der JSONL-Ratsche suchte VIER Schreibweisen des Zeilenumbruchs und liess drei
-weitere durch, und sein Kommentarzähler schaltete an einem `/*` in einem STRING in den Blockmodus.
-Eine Ratsche ohne Gegenprobe ist eine Behauptung.
-
-Geprüft wird der ERKENNER, nicht die Liste: jede Probe pflanzt einen Verstoss und verlangt, dass
-er gezählt wird — und einen erlaubten Fall, der NICHT gezählt werden darf.
-"""
+"""Je eine eingepflanzte Gegenprobe: fangen die Ratschen-Erkenner, was sie behaupten?"""
 
 from __future__ import annotations
 

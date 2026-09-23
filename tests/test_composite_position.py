@@ -1,13 +1,4 @@
-"""Ein Komposit ist EINE Stellung.
-
-Gedreht wird auf dem Turntable, die Haende kommen per 2.5D-Komposition dazu (Nutzer, 2026-09-18) —
-die Figuren bewegen sich nie. Daraus folgt beides: das Label eines Feldes ist ueber alle Frames
-eines Komposits konstant, und ueber alle Schnitte derselben Quelle auch.
-
-Das ist kein Schoenheitsfehler, sondern die AUDIT-Regel: ein Modell, das dasselbe Feld ueber
-hundert Frames falsch liest, liefert EINEN Widerspruch, nicht hundert. Am 2026-09-18 meldete ich
-5 908 Komposit-Widersprueche, die auf 49 Entscheidungen zusammenfielen.
-"""
+"""Ein Komposit ist EINE Stellung: Feldlabels konstant ueber Frames und Schnitte einer Quelle."""
 
 from __future__ import annotations
 

@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import pytest
 
-from chesslab.calibration import CalibrationProfile, CropParams
+from chesslab.calibration import CropParams
 from chesslab.labeling import (
     CROP_SUFFIX,
     _fen_labels,
@@ -143,10 +143,6 @@ def test_run_slice_publishes_completed_batch_on_keyboard_interrupt(tmp_path, mon
     assert published == [{"first": ['{"session_id": "first"}']}]
 
 
-def _identity_profile(board_size: int = 800) -> CalibrationProfile:
-    return make_profile(board_size)
-
-
 def _frame_with_markers(board_size=800):
     """Frame mit 4 ArUco-Markern an den Ecken (Slicing ist jetzt marker-basiert)."""
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -181,7 +177,7 @@ def test_slice_start_position(tmp_path):
     sdir = _make_session(tmp_path)
     manifest = tmp_path / "manifests" / "crops.jsonl"
     squares_root = tmp_path / "squares"
-    stats = slice_session(sdir, profile=_identity_profile(), manifest_path=manifest, squares_root=squares_root)
+    stats = slice_session(sdir, profile=make_profile(), manifest_path=manifest, squares_root=squares_root)
 
     assert stats["session_id"] == "sess1" and stats["frames"] == 1 and stats["crops"] == 64
     rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -209,7 +205,7 @@ def test_crop_square_is_square_and_undistorted():
     from chesslab.calibration import square_center
     from chesslab.labeling import crop_square
 
-    prof = _identity_profile(800)
+    prof = make_profile(800)
     # Pin a zero-pad square crop: this tests the pure undistortion invariant, independent of the
     # config default.
     prof.crop = CropParams(cell=800 / 8.0, pad_side=0.0, out_size=(128, 128))
@@ -240,7 +236,7 @@ def test_slice_uses_explicit_labels_incl_occluded(tmp_path):
         "mode": "inference", "created_at": "t", "camera_index": 0, "frame_size": [640, 480]}), encoding="utf-8")
 
     manifest = tmp_path / "manifests" / "crops.jsonl"
-    stats = slice_session(sdir, profile=_identity_profile(board_size), manifest_path=manifest,
+    stats = slice_session(sdir, profile=make_profile(board_size), manifest_path=manifest,
                           squares_root=tmp_path / "squares")
     rows = {r["square"]: r["label"] for r in
             (json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip())}
@@ -267,7 +263,7 @@ def test_slice_uses_stored_corners_without_markers(tmp_path):
         encoding="utf-8")
 
     manifest = tmp_path / "manifests" / "crops.jsonl"
-    stats = slice_session(sdir, profile=_identity_profile(board_size), manifest_path=manifest,
+    stats = slice_session(sdir, profile=make_profile(board_size), manifest_path=manifest,
                           squares_root=tmp_path / "squares")
     assert stats["crops"] == 64 and stats["skipped"] == 0
 
@@ -276,7 +272,7 @@ def test_reslice_with_new_params_is_reproducible(tmp_path):
     sdir = _make_session(tmp_path)
     manifest = tmp_path / "manifests" / "crops.jsonl"
     squares_root = tmp_path / "squares"
-    prof = _identity_profile()
+    prof = make_profile()
     slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares_root)
 
     # Re-slice with different crop params; no re-capture needed.

@@ -1,10 +1,4 @@
-"""Ein Frame ist kein entzerrtes Brett — die Verzweigung gehoert an EINE Stelle.
-
-`iter_session_crops` fuehrt sie richtig: ein gespeichertes Brett nur, wenn es das Raster DIESES
-Profils ist, sonst der Frame als Quelle. Zwei Mess-Skripte hatten sie als
-`row.get("board") or row["frame"]` nachgebaut und das Ergebnis als `board=` durchgereicht — ein
-roher Frame wurde damit behandelt, als waere er schon gerade gezogen.
-"""
+"""Ein Frame ist kein entzerrtes Brett; die Quellenwahl liegt an EINER Stelle."""
 
 from __future__ import annotations
 

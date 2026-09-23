@@ -1,9 +1,4 @@
-"""`PrimitiveBatchNorm2d` verspricht Austauschbarkeit mit `nn.BatchNorm2d` — auch bei den Flags.
-
-`_primitive_bn_replacement` reicht `affine` und `track_running_stats` treu weiter, die Arithmetik
-las die Parameter aber unbedingt. Ein Backbone mit nicht-affiner BatchNorm wandelt sauber um und
-stirbt beim ersten Vorwaertslauf.
-"""
+"""`PrimitiveBatchNorm2d` honours `affine` and `track_running_stats` like `nn.BatchNorm2d`."""
 from __future__ import annotations
 
 import pytest

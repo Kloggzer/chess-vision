@@ -2,26 +2,15 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
+from conftest import load_script, write_jsonl
+
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"_script_{name}", ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _manifest(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
 def test_thin_per_position_does_not_repeat_the_dirtiest_board_as_clean(tmp_path, monkeypatch):
@@ -30,10 +19,10 @@ def test_thin_per_position_does_not_repeat_the_dirtiest_board_as_clean(tmp_path,
     `head` ist im Rueckfallzweig `ordered` statt `ordered[:c]`, also gilt auch das verdeckteste
     Brett als sauber und wird `--clean-repeat` mal in den Datensatz geschrieben.
     """
-    thin = _load("thin_per_position")
+    thin = load_script("thin_per_position")
     dirs = {"src": tmp_path / "src", "dst": tmp_path / "dst"}
     monkeypatch.setattr(thin, "dataset_dir", lambda name: dirs[name])
-    _manifest(dirs["src"] / "manifest.jsonl", [
+    write_jsonl(dirs["src"] / "manifest.jsonl", [
         {"session_id": "s", "ply": 1, "frame": f, "coverage": cov, "path": f"{f}.webp"}
         for f, cov in (("f0", 0.0), ("f1", 0.02), ("f2", 0.91))
     ])
@@ -49,7 +38,7 @@ def test_thin_per_position_does_not_repeat_the_dirtiest_board_as_clean(tmp_path,
 
 def test_commit_lag_p90_is_the_ninth_of_ten_values_not_the_maximum(tmp_path, monkeypatch, capsys):
     """`allv[int(n * 0.9)]` ist bei n = 10 der Index 9 — also das Maximum, nicht das p90."""
-    lag = _load("commit_lag")
+    lag = load_script("commit_lag")
     monkeypatch.setattr(lag, "ROOT", tmp_path)
     rec = "2026-09-05-00-00-00"
     (tmp_path / "tmp" / "retime").mkdir(parents=True)
@@ -79,7 +68,7 @@ def test_occlusion_gate_does_not_read_a_missing_occlusion_head_as_coverage_zero(
     `r.get("cov") or 0.0` macht daraus gemessene Null; alle Reads fallen ins erste Band und das
     Skript leitet eine Schwelle fuer ein Modell ab, das Verdeckung nie gemessen hat.
     """
-    gate = _load("occlusion_gate")
+    gate = load_script("occlusion_gate")
     monkeypatch.setattr(gate, "ROOT", tmp_path)
     s = tmp_path / "sess"
     s.mkdir()
@@ -104,7 +93,7 @@ def test_coverage_arms_feeds_the_hand_student_a_board_without_its_border(tmp_pat
 
     from chesslab import config, hand_gate, occluded_model
 
-    arms = _load("coverage_arms")
+    arms = load_script("coverage_arms")
     border, side = 10, 100
     board = np.zeros((side, side, 3), np.uint8)
     board[..., 2] = 255                                    # Rand: rot
@@ -146,11 +135,11 @@ def test_mix_datasets_refuses_a_PACKED_host_not_only_a_packed_guest(tmp_path, mo
     Geprueft wird nur der Gast. Ein Host mit `mm://`-Zeilen kommt durch, der Mischsatz wird
     geschrieben, und erst das empfohlene `dataset pack` faellt darueber.
     """
-    mix = _load("mix_datasets")
+    mix = load_script("mix_datasets")
     dirs = {n: tmp_path / n for n in ("host", "guest", "out")}
     monkeypatch.setattr(mix, "dataset_dir", lambda name: dirs[name])
     for name, path in (("host", "mm://real-80/000001/e4"), ("guest", "comp/e4.webp")):
-        _manifest(dirs[name] / "manifest.jsonl",
+        write_jsonl(dirs[name] / "manifest.jsonl",
                   [{"path": path, "label": "wP", "square": "e4", "session_id": name}])
         (dirs[name] / "split.json").write_text(json.dumps(
             {"classes": ["wP"], "splits": {"train": [name], "val": [], "test": []}}),

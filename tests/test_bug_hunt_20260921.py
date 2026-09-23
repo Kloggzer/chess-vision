@@ -1,13 +1,5 @@
-"""Der Geberpool fuers Mesh und der Riegel gegen das zweite Geradeziehen.
-
-Gemessen 2026-09-21 ueber die 13 archivierten Logs: 315 von 1 228 Mesh-Gebern sind Zeilen, die
-ein Sensor als Hand fuehrt (212 davon `occluded`), und 28 von 475 Luecken wuerden ihr Mesh aus
-einer MEHRHEIT von Handframes erben. Der Marker `.export-running` hatte ausserhalb seiner eigenen
-Tests keinen Leser.
-"""
+"""Der Geberpool fuers Mesh (ohne Handframes) und der Riegel gegen das zweite Geradeziehen."""
 from __future__ import annotations
-
-import json
 
 import cv2
 import numpy as np
@@ -15,6 +7,7 @@ import pytest
 
 from chesslab import config, sessions
 from chesslab.realgames import EXPORT_MARKER, meshes_for_boards
+from conftest import write_jsonl
 
 BS, BORDER, TILT, SHIFT = 400, 20, 0.04, 0.02
 EIGHTHS = [k / 8.0 for k in range(9)]
@@ -69,7 +62,7 @@ def _store(tmp_path, monkeypatch, rows: list[dict]):
         cv2.imwrite(str(sdir / row["board"]),
                     np.zeros((BS + 2 * BORDER, BS + 2 * BORDER, 3), np.uint8))
     (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))
     return sdir
 

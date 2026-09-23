@@ -1,30 +1,12 @@
-"""Der Label-Audit prueft jedes Feld jeder Partie — die drei Stufen einzeln festgehalten.
-
-Gemessen 2026-09-17 auf `2026-09-06-21-29-35`: Stufe 1 (Schwelle je Ply-Fenster) fand c2 und c6,
-Stufe 2 (der SPUR der Figur folgen) erst c8 bei 61 %, und Stufe 3 (Bestand) sah, dass das FEN ab
-Ply 40 keinen weissen Springer mehr fuehrt, waehrend beide Folds einen lesen.
-"""
+"""Der Label-Audit ueber jedes Feld jeder Partie, die drei Stufen einzeln."""
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
-
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+from conftest import load_script
 
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"_script_{name}", ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-audit = _load("heldout_label_audit")
+audit = load_script("heldout_label_audit")
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 

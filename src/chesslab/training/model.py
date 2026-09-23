@@ -270,7 +270,7 @@ class SmallCNN(nn.Module):
 #: und ein entzerrter Zellcrop braucht keine ImageNet-Kantenbank. Messwerte: `docs/`-Bericht.
 #: Dritter Eintrag: auf wie viel die Zelle am Ende gepoolt wird. 1 ist der Global-Average-Pool,
 #: 2 haelt ein 2x2-Raster - der einzige Architekturkandidat mit Bezug zur gemessenen Fehlermechanik
-#: (Blickrichtung IN der Zelle, `docs/plan-98/00-plan.md`).
+#: (Blickrichtung IN der Zelle, `docs/evaluation.md`).
 CELLNET_PRESETS = {
     "cellnet_p4":    ((32, 64, 64, 128, 128, 192), 4, 1),
     "cellnet_p4g2":  ((32, 64, 64, 128, 128, 192), 4, 2),

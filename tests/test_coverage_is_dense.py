@@ -1,10 +1,4 @@
-"""Eine `coverage` traegt IMMER alle 64 Felder — ein fehlendes Feld heisst nie "ungemessen".
-
-`coverage_of` zippt `all_squares()` mit den Masken unter `strict=True`, kann also gar nichts
-auslassen. Ohne diese Zusage muesste jeder Leser raten, was ein fehlendes Feld bedeutet, und
-`scripts/occlusion_gate.py` filtert seine Wahrheit genau darueber (`.get(square) is None`).
-Nachgezaehlt am Korpus 2026-09-16: 9 386 Zeilen, jede mit 64 Feldern.
-"""
+"""Eine `coverage` traegt IMMER alle 64 Felder."""
 
 from __future__ import annotations
 

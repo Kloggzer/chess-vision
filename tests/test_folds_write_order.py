@@ -1,10 +1,4 @@
-"""`make_folds` schreibt erst alle Fold-Dateien und wirft dann.
-
-Die Fehler werden ueber alle k Folds gesammelt (`errors`) und erst NACH der Schleife geworfen —
-zu dem Zeitpunkt liegen `split-f0.json` … `split-fk-1.json` schon auf der Platte. Der zweite
-Versuch scheitert dann an „exists — pass --force", also an einer ganz anderen Sache, und
-`train --split split-f2.json` liest einen Fold, den die Pruefung verworfen hat.
-"""
+"""`make_folds` prueft alle Folds, bevor es eine Fold-Datei schreibt."""
 from __future__ import annotations
 
 import json

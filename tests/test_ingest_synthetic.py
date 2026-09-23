@@ -1,13 +1,4 @@
-"""Safety-net tests for the synthetic ingest adapter — headless, no GPU/camera.
-
-Fixtures: `tests/data/synth_sample/000000.json` (irregular quadrilateral, no symmetry).
-The PNG is generated in the test, never checked in.
-
-**Contract sentinel:** The `synth/render_chessboard.py` renderer writes the JSON format
-`{fen, corners: [[a8],[h8],[h1],[a1]]}`. Dieser Test prüft, dass die volle Ingest→Slice-Kette
-that the full ingest→slice chain preserves correct orientation — a swapped corner order would **silently** rotate/mirror **all** synthetic
-labels.
-"""
+"""Synthetic ingest adapter: the ingest->slice chain keeps the corner order and orientation."""
 
 from __future__ import annotations
 

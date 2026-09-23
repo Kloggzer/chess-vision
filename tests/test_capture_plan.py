@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
-from pathlib import Path
 
 import pytest
 
@@ -26,11 +24,9 @@ from chesslab.capture_plan import (
     square_colour,
     square_stats,
 )
+from conftest import load_script
 
-_spec = importlib.util.spec_from_file_location(
-    "coverage_gaps", Path(__file__).resolve().parents[1] / "scripts" / "coverage_gaps.py")
-COVERAGE = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(COVERAGE)
+COVERAGE = load_script("coverage_gaps")
 
 #: Je Farbe drei Felder, eines in `hell`, `mittel` und `dunkel` der ZIELDOMAENE.
 #: Die Farben sind die des echten Bretts — a1 dunkel, b1 hell, a3 dunkel.

@@ -1,9 +1,4 @@
-"""The gate is a measurement that arrives AFTER staging, so it must be stampable.
-
-`stage_model_asset.py` could only lay a run down fresh: it needs the run's `model.onnx`, and six
-of the seven bundled models have no run directory left. Their `coverage_gate` was measured on
-2026-09-14 and had nowhere to go.
-"""
+"""`stage_model_asset.py` can stamp a measured gate onto an already staged model."""
 
 import json
 import subprocess

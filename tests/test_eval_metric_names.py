@@ -1,10 +1,4 @@
-"""Die unqualifizierten Namen in `eval_*.json` muessen korpusweit sein — sonst luegen sie.
-
-`board_acc` im selben Dict IST korpusweit, `piece_acc` und `occupied_acc` waren bitgleich mit
-ihren `visible_*`-Zwillingen. Und `eval_test.json` geht woertlich in `model_card.json["metrics"]`:
-wer `piece_acc` als korpusweit liest, liegt falsch — genau der Fehler, den CLAUDE.md 2026-08-26
-schon einmal korrigiert hat.
-"""
+"""Die unqualifizierten Metriknamen in `eval_*.json` sind korpusweit."""
 from __future__ import annotations
 
 import json

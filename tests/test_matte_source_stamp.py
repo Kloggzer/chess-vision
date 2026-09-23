@@ -1,9 +1,4 @@
-"""`matte.jsonl` sagt jetzt, gegen WELCHEN Export ihre Alphas geschnitten wurden.
-
-`pass.json` und `model-reads.jsonl` tragen den Stempel seit 2026-09-15, die Matte nicht — die
-Sprosse schloss also auch auf Alphas von vor dem letzten Re-Export. Genau dort driftet die
-gespeicherte `coverage` gegen ihre Crops (13 von 24 Aufnahmen, `docs/coverage-weight-2026-09-16.md`).
-"""
+"""`matte.jsonl` traegt den Stempel des Exports, gegen den ihre Alphas geschnitten wurden."""
 from __future__ import annotations
 
 import json

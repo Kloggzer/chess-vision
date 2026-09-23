@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from chesslab.temporal_matte import alpha_proposal, bracketing
+from conftest import write_jsonl
 
 
 def background():
@@ -181,7 +182,7 @@ def test_adopt_writes_matte_rows_only_for_frames_sam_never_cut(tmp_path, monkeyp
     (rec / "session.yaml").write_text("session_id: rg-t\nprofile: p\n", encoding="utf-8")
     rows = [{"frame": f"frames/{s}.png", "ply": 1, "board": f"boards/{s}.webp"}
             for s in ("000001", "000002", "000003", "000004")]
-    (rec / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "log.jsonl", rows)
     (rec / "matte.jsonl").write_text(json.dumps({"frame": "000001", "coverage": {"a1": .9}}) + "\n", encoding="utf-8")
     proposals = tmp_path / "reports" / "temporal-mattes" / "t" / "local"
     proposals.mkdir(parents=True)
@@ -223,7 +224,7 @@ def test_upsert_replaces_only_frames_where_sam_found_nothing(tmp_path, monkeypat
     (rec / "session.yaml").write_text("session_id: rg-t\nprofile: p\n", encoding="utf-8")
     rows = [{"frame": f"frames/{s}.png", "ply": 1, "board": f"boards/{s}.webp"}
             for s in ("000001", "000002", "000003")]
-    (rec / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "log.jsonl", rows)
     # SAM found nothing on 000001, a hand on 000002; 000003 is the pen's.
     for stem in ("000001", "000002"):
         cv2.imwrite(str(rec / "mattes" / f"{stem}.webp"), np.zeros((8, 8), np.uint8))
@@ -270,7 +271,7 @@ def test_prune_drops_only_temporal_rows_sam_has_since_re_cut(tmp_path, monkeypat
             {"frame": "000001", "concepts": {"hand": .9}, "coverage": {"a": .8}},
             {"frame": "000003", "concepts": {}, "coverage": {"a": 0.}},
             {"frame": "000003", "source": "upsert", "coverage": {"a": 1.}}]
-    (rec / "matte.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "matte.jsonl", rows)
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
     result = temporal_matte.prune_dead_rows("rg-t")
     left = [json.loads(s) for s in (rec / "matte.jsonl").read_text().splitlines()]

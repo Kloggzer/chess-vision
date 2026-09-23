@@ -1,8 +1,4 @@
-"""The confident-learning audit producer (`docs/cross-labeling-literature.md`, CONCEPT.md 4.2).
-
-The thresholds are checked against a hand computation, not against a second implementation of the
-same formula, and the boundary `p̂(j) == t_j` is pinned because the literature's Eqn. 1 says `≥`.
-"""
+"""The confident-learning audit producer (`docs/cross-labeling-literature.md`)."""
 
 import json
 
@@ -39,13 +35,6 @@ def _write_proposals(name, rows, *, model=MODEL, header_model=True):
 
 #: One flaggable cell (wP read as wB) plus the wB cell that gives `t_wB` its support set.
 _GOOD = [_row("001", "a1", "wP", {"wP": 0.1, "wB": 0.9}), _row("001", "b1", "wB", {"wB": 0.3})]
-
-
-@pytest.fixture
-def data_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    config.DATA.reports.mkdir(parents=True)
-    return config.DATA.root
 
 
 def test_threshold_is_the_mean_self_confidence_of_the_cells_labelled_that_class():

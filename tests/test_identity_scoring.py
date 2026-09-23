@@ -1,33 +1,19 @@
-"""The sweep must score an identity model the way the TRACKER reads one (specs/29, phase 00).
-
-`scripts/sweep_infer_size.py` is the measurement of record. It once refused any run whose classes
-were not exactly `["empty", "occupied"]`, which made a 13-class candidate unmeasurable; that
-2-class family is gone (2026-08-20). P(occupied) may only be the definition that already exists
-twice — `serving.observation_from_probs` and its Kotlin port — because a metric that disagrees
-with the tracker measures a model nobody runs. These tests pin that.
-"""
+"""The sweep scores an identity model the way the tracker reads it: P(occupied) as in
+`serving.observation_from_probs` (specs/29, phase 00)."""
 
 from __future__ import annotations
-
-import importlib.util
-from pathlib import Path
 
 import pytest
 
 from chesslab import config
 from chesslab.dataset_build import class_list_for, collapse_labels
 from chesslab.serving import observation_from_probs
-
-_ROOT = Path(__file__).resolve().parent.parent
+from conftest import load_script
 
 
 @pytest.fixture(scope="module")
 def sweep():
-    spec = importlib.util.spec_from_file_location("sweep_infer_size",
-                                                  _ROOT / "scripts" / "sweep_infer_size.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    return load_script("sweep_infer_size")
 
 
 def _vector(classes: list[str], mass: dict[str, float]) -> list[float]:

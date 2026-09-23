@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $spike = Join-Path $project 'tmp/compile-spike'
 $python = Join-Path $spike '.venv/Scripts/python.exe'
-if (-not (Test-Path -LiteralPath $python)) { throw 'Install the spike environment documented in docs/training-stack-spike.md first.' }
+if (-not (Test-Path -LiteralPath $python)) { throw 'Install the spike environment documented in docs/training-speed.md first.' }
 $names = @('PATH', 'PYTHONPATH', 'OPENBLAS_NUM_THREADS', 'CC', 'TORCHINDUCTOR_CACHE_DIR',
            'TRITON_CACHE_DIR', 'MIOPEN_USER_DB_PATH', 'MIOPEN_CUSTOM_CACHE_DIR', 'TORCHINDUCTOR_COMPILE_THREADS')
 $previous = @{}

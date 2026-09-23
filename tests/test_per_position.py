@@ -1,8 +1,4 @@
-"""Boards per POSITION, not per second — the rig records every 0.1 s while the board stands still.
-
-Measured over the corpus: 246 positions across 9 386 boards, so 38 near-identical takes each.
-Keeping 16 per position beat all of them on macro recall (0.79 vs 0.71), see `docs/sampling.md`.
-"""
+"""Boards sampled per POSITION, not per second (`docs/frame-scan.md`)."""
 
 from chesslab.dataset_build import keep_per_position
 

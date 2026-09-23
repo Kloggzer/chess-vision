@@ -1,8 +1,4 @@
-"""The crop pool takes ONE writer.
-
-Two `slice --all` runs overwrote the same 425k crops for 18 minutes on 2026-08-21 and the first
-thing to notice was a pack reading the pool mid-rewrite (`chesslab dataset pack` threw away 8.2 GB).
-"""
+"""The crop pool takes ONE writer."""
 
 from __future__ import annotations
 

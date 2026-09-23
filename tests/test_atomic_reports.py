@@ -1,11 +1,4 @@
-"""Ein abgebrochener Lauf darf keine halbe Datei hinterlassen, die als fertig gelesen wird.
-
-`hand_flags.write_flags` schreibt den GLOBALEN Bericht — eine getoetete Ausfuehrung beschaedigt die
-Strittig-Lane fuer ALLE Sessions, und `present: true` verbirgt es. `occluded_model.read_session`
-schreibt `model-reads.jsonl`, und die Kette prueft davon nur die EXISTENZ (`chain.ts`): eine halbe
-Datei haelt die Sprosse fuer immer geschlossen. Beide gehen seit 2026-09-16 durch `ioutil`,
-also trifft der Abbruch die Nebendatei — die Naht ist `Path.write_text`, nicht mehr `json.dumps`.
-"""
+"""Ein abgebrochener Lauf hinterlaesst keine halbe Berichtsdatei (`hand_flags`, `model-reads`)."""
 from __future__ import annotations
 
 import json

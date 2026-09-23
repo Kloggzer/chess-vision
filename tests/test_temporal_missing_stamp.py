@@ -1,9 +1,4 @@
-"""Ein Vorschlagssatz ohne `proposals.meta.json` kommt durch die Frische-Wache.
-
-`propose_session` schreibt `proposals.jsonl` per tmp+replace und die Meta ERST DANACH. Stirbt der
-Lauf dazwischen, liegt ein vollstaendig aussehender Satz ohne Herkunft da — und
-`require_fresh_proposals` kehrt bei fehlender Datei wortlos zurueck, statt zu verweigern.
-"""
+"""Ein Vorschlagssatz ohne `proposals.meta.json` wird von der Frische-Wache verweigert."""
 from __future__ import annotations
 
 import json

@@ -1,9 +1,4 @@
-"""The visual filter must run BEFORE the per-cell cap.
-
-The other way round, the cap decides what phash is even allowed to judge: a cell whose 227 crops
-differ only because the light moved gets cut to 4 before anything looks at them, and "the piece
-never moved" is indistinguishable from "the light did".
-"""
+"""The visual filter runs BEFORE the per-cell cap."""
 from chesslab import dataset_build as db
 
 

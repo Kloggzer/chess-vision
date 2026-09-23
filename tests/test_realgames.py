@@ -1,10 +1,4 @@
-"""`chesslab realgames confirm` — the candidate is checked against the game that was played.
-
-The comparison has to behave exactly like `RealGameScore.scoreMoves` on the Kotlin side, because
-both sides report the same three numbers about the same runs; and the write has to leave
-everything the tracker owns alone, because `moves[]`, `geometry` and `effective_config` are the
-record of what happened, not of what a human thought about it.
-"""
+"""`realgames confirm`: scoring like `RealGameScore.scoreMoves`, tracker fields untouched."""
 
 import json
 from pathlib import Path

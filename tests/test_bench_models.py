@@ -1,9 +1,4 @@
-"""Zwei Modelle duerfen sich einen Batch nur teilen, wenn sie ihn gleich vorverarbeitet haetten.
-
-`signature()` ist die einzige Sicherung dagegen. Faellt ein Feld heraus, das
-`eval_transform_for` liest, misst ein Modell still auf fremden Pixeln — und das Ergebnis sieht
-aus wie eine Messung.
-"""
+"""`signature()`: zwei Modelle teilen einen Batch nur bei gleicher Vorverarbeitung."""
 
 from __future__ import annotations
 

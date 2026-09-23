@@ -1,8 +1,4 @@
-"""Was der Komposit-Pfad misst, statt was er behauptet.
-
-Die Luecke der Mutationsprobe vom 2026-09-22: `composite_frame`s `coverage` auf `0.0` mutiert
-blieb gruen, weil keine Probe ein echtes Brett plus Profil baute.
-"""
+"""Was der Komposit-Pfad misst: `composite_frame`s `coverage` auf echtem Brett plus Profil."""
 from __future__ import annotations
 
 from pathlib import Path

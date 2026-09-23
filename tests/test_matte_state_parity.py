@@ -1,10 +1,4 @@
-"""Die fuenf Zustaende einer `matte.jsonl`-Zeile — dasselbe Fixture wie die TS-Seite.
-
-`parity/_matte/matte_states.json` wird von KEINER Seite geschrieben und von beiden gelesen, wie
-`parity/_geometry/mesh_crop_parity.json`. Grund: die Zustaende zu verwechseln war am 2026-09-15
-und -16 vier Mal ein Bug — SAMs Absage als sauberes Brett, eine fehlende Matte als `coverage 0`.
-Ein Fixture, das beide Seiten binden, faengt die fuenfte Instanz vor dem Fund.
-"""
+"""Die fuenf Zustaende einer `matte.jsonl`-Zeile gegen `parity/_matte/matte_states.json`."""
 from __future__ import annotations
 
 import json
@@ -12,6 +6,7 @@ from pathlib import Path
 
 from chesslab.labeling import read_matte
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+from conftest import write_jsonl
 
 FIXTURE = (Path(__file__).resolve().parents[1]
            / "android/core-engine/src/test/resources/parity/_matte/matte_states.json")
@@ -24,8 +19,7 @@ def _case() -> dict:
 def _session(tmp_path: Path, rows: list[dict]) -> Path:
     sdir = tmp_path / "s"
     sdir.mkdir()
-    (sdir / "matte.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "matte.jsonl", rows)
     return sdir
 
 

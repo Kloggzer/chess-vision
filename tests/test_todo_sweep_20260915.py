@@ -1,8 +1,4 @@
-"""TODO sweep 2026-09-15 — the defects the `# TODO:` markers in `src/chesslab` named.
-
-One case per fund, each red before its fix. Ordered like the report: the four that destroy data
-first, the smaller ones after.
-"""
+"""TODO sweep 2026-09-15: the defects the `# TODO:` markers in `src/chesslab` named."""
 
 from __future__ import annotations
 
@@ -13,6 +9,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
+from conftest import write_jsonl
 
 # --- occluders._sample: a failed decode must not enter the median -----------------------
 
@@ -170,7 +168,7 @@ def test_adopt_corners_refuses_an_out_of_range_from_index(tmp_path, monkeypatch)
     sdir.mkdir()
     rows = [{"frame": "frames/0000.png", "corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
             {"frame": "frames/0001.png"}]
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     monkeypatch.setattr(sessions, "session_dir", lambda _s: (sdir, False))
 
     with pytest.raises(ValueError, match="out of range"):
@@ -300,7 +298,7 @@ def test_trim_session_reports_the_matte_rows_it_dropped(tmp_path, monkeypatch):
     (sdir / "frames").mkdir(parents=True)
     rows = [{"frame": "frames/0000.png", "ply": 0, "fen": "x"},
             {"frame": "frames/0001.png", "ply": 1, "fen": "x"}]
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "matte.jsonl").write_text("".join(json.dumps({"frame": f"{i:04d}"}) + "\n"
                                               for i in (0, 1)), encoding="utf-8")
     monkeypatch.setattr(sessions, "session_dir", lambda _sid, _p=None: (sdir, False))

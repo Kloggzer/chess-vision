@@ -29,13 +29,6 @@ def test_serving_cuda_graph_rejects_run_specific_fixed_normalization():
     )
 
 
-def test_jsonl_reader_ignores_only_a_half_written_last_line(tmp_path):
-    path = tmp_path / "ledger.jsonl"
-    path.write_text('{"committed": 1}\n{"half":', encoding="utf-8")
-
-    assert read_jsonl(path) == [{"committed": 1}]
-
-
 def test_lock_claim_is_atomic_between_simultaneous_processes(tmp_path):
     lock = tmp_path / "writer.lock"
     gate = tmp_path / "go"

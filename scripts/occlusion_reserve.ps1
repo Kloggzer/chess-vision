@@ -6,7 +6,7 @@
 # schwelle. Der Champion hob sie von 80 auf 138; `desktop fuzz check` misst dafuer synthetisch
 # 42 % weniger `veto:occlusion`. Hier laeuft dieselbe Frage auf Aufnahmen: derselbe Satz, einmal
 # mit der ausgelieferten Schwelle und einmal mit der alten, und gezaehlt wird aus dem Trace.
-# Ein Job zur Zeit — der Nutzer ist nicht am Rechner (`docs/champion-2026-09-20.md`).
+# Ein Job zur Zeit — der Nutzer ist nicht am Rechner (`docs/regression-reference.md`).
 param(
     [string]$Tag = "occl-reserve",
     [double]$Alt = 20.0

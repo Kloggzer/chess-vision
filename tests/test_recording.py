@@ -1,11 +1,5 @@
-"""A segmented phone recording is ONE stream — the seam every video consumer reads through.
-
-Since 2026-08-13 the recorder rotates its container once a minute (`video.mp4`, `video-001.mp4`,
-…) while the frame indices in `candidate.json` count the whole recording. Opening only the first
-file truncates every export at minute one and the counts still look healthy, which is the failure
-class this repo names the worst kind — so the boundary is pinned here, from both directions:
-walking across it and seeking past it.
-"""
+"""A segmented phone recording reads as ONE stream: walking across and seeking past a
+segment boundary."""
 
 import cv2
 import numpy as np

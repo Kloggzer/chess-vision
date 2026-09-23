@@ -1,8 +1,4 @@
-"""Was das Schema zusagt — gegen die laufende Datenbank, nicht gegen den Text des SQL.
-
-Eine `CHECK`-Bedingung beweist man, indem man sie verletzt. Ohne Container wird uebersprungen
-(`docker compose up -d`); jede Einfuegung wird zurueckgerollt.
-"""
+"""Die Schema-Zusagen gegen die laufende Datenbank; ohne Container uebersprungen."""
 from __future__ import annotations
 
 import os

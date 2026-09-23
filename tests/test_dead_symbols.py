@@ -1,10 +1,4 @@
-"""Zwei Symbole, die am 2026-09-14 niemand las, bleiben entfernt.
-
-`Recording._frame_counts` hatte null Aufrufer — `_locate` sondiert selbst lazy. `CaptureSession`
-wurde nie gebaut und nie annotiert; `CaptureStep` lebte nur, weil `CaptureSession` es nannte, war
-also transitiv mit tot. Die Autorität über die Form von `capture.json` ist ohnehin
-`docs/capture-session.schema.json`, nicht ein TypedDict, das keiner benutzt.
-"""
+"""Entfernte tote Symbole (`Recording._frame_counts`, `CaptureSession`) bleiben entfernt."""
 from __future__ import annotations
 
 import pytest

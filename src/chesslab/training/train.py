@@ -200,7 +200,7 @@ def _occlusion_provenance(occluding: bool, vmax: float | None, dmin: float | Non
     """Was der Verlust WIRKLICH maskiert hat — `hard` und `soft` sahen in der config.json gleich aus.
 
     Unter `soft` liest `occlusion.coverage_weight` `visible_max` nicht; die Zahl dort zu nennen
-    behauptete eine Kante, die der Lauf nie hatte (`docs/coverage-weight-2026-09-16.md`).
+    behauptete eine Kante, die der Lauf nie hatte (`docs/class-scheme.md`).
     """
     if not occluding:
         return {"visible_max": None, "dark_min": None, "coverage_weight": None}
@@ -890,7 +890,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if compile_model:
         # Fuses PrimitiveBatchNorm2d's hand-derived arithmetic back into single kernels, which is
         # where ROCm-Windows loses its throughput. Needs Triton — the pinned stack has none and
-        # fails loudly here rather than falling back (docs/training-stack-spike.md).
+        # fails loudly here rather than falling back (docs/training-speed.md).
         # `reduce-overhead` replays the whole step as ONE launch instead of 463 dispatches, which
         # is what the remaining fixed cost per step is made of. It captures CUDA graphs, so the
         # returned tensors are reused on the next replay — read the loss before stepping again.
@@ -983,7 +983,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
             print(f"[occ] Klassen-Gewicht je Zelle: {coverage_weight} — die harte Kante bei "
                   f"{vmax:g} faellt weg, Gewicht 0 erst ab {COVERAGE_ZERO_AT:g} "
-                  "(docs/coverage-weight-2026-09-16.md)")
+                  "(docs/class-scheme.md)")
         if dmin:
             dark = sum(brightness_of(r) < dmin for r in train_rows)
             print(f"[occ] Trainingsmaske zusaetzlich bei Helligkeit < {dmin:g}: "
@@ -1009,7 +1009,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
           + f", effective weights: {dict(zip(classes, [round(float(w), 4) for w in weights.tolist()], strict=True))}")
     # AdamW = Adam with decoupled weight decay (docs/references.md#loshchilov-2017). Bis 2026-08-26
     # lief jeder Lauf auf PyTorchs Default 0,01 — bei train_loss 0,03 gegen val_loss 1,33
-    # (`docs/measurement-floor.md`) ist das der erste Knopf, nicht der letzte.
+    # (`docs/evaluation.md`) ist das der erste Knopf, nicht der letzte.
     wd = 0.01 if weight_decay is None else weight_decay
     # `fused` also takes the GradScaler off its per-step `found_inf.item()`, and THAT is the
     # expensive half: without it every step drains the queue before the next can be filled
@@ -1046,7 +1046,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
     # Mit `--batch-aug` kostet der Feed 76 statt 985 us je Crop, und 2 Worker liegen damit unter
     # dem GPU-Budget (kalt 79 us gegen 127). Die 8 des Defaults waeren dann reine Verschwendung —
-    # und Worker sind die Stellschraube, an der die Speicher-Abstuerze hingen (`docs/batch-aug.md`).
+    # und Worker sind die Stellschraube, an der die Speicher-Abstuerze hingen (`docs/training-speed.md`).
     lean_default = BATCH_AUG_WORKERS if photometric is not None else config.DEFAULT_NUM_WORKERS
     nw = num_workers if num_workers is not None else lean_default
     if num_workers is None and photometric is not None:
@@ -1160,7 +1160,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if board_mode and sampler is not None:
         # Ein Brett so oft ziehen, wie der Zell-Sampler es getroffen HAETTE: die Summe der
         # Zellgewichte ist genau diese Randwahrscheinlichkeit. Exakt zwischen den Brettern,
-        # nicht innerhalb — jeder Besuch trainiert alle 64 Zellen (`docs/measurement-floor.md`).
+        # nicht innerhalb — jeder Besuch trainiert alle 64 Zellen (`docs/evaluation.md`).
         by_path = dict(zip((r["path"] for r in train_rows), sample_weights.tolist(), strict=True))
         cells = [by_path[r["path"]] for r in train_ds.rows]
         board_w = torch.tensor(

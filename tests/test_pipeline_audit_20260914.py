@@ -1,7 +1,4 @@
-"""Rote Belege aus dem Audit der Session-/Export-Module (2026-09-14).
-
-Jeder Test faellt OHNE den Fix, den sein Docstring nennt. Nichts hier repariert etwas.
-"""
+"""Audit der Session-/Export-Module (2026-09-14)."""
 
 from __future__ import annotations
 
@@ -13,17 +10,12 @@ import yaml
 
 from chesslab import config
 from chesslab import sessions as S
-
-
-def _write_log(directory: Path, rows: list[dict]) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "log.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+from conftest import write_jsonl
 
 
 def _recording(paths: config.Paths, name: str) -> Path:
     d = paths.recordings / name
-    _write_log(d, [{"frame": "frames/000000.png", "ply": 1, "fen": "8/8/8/8/8/8/8/8",
+    write_jsonl(d / "log.jsonl", [{"frame": "frames/000000.png", "ply": 1, "fen": "8/8/8/8/8/8/8/8",
                     "corners": [[0, 0], [10, 0], [10, 10], [0, 10]]}])
     (d / "session.yaml").write_text(
         yaml.safe_dump({"session_id": f"rg-{name}", "mode": "track", "profile": "export"}),
@@ -71,7 +63,7 @@ def test_trim_session_also_purges_unusable_cells(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA", paths)
     sid = "s1"
     d = paths.sessions / sid
-    _write_log(d, [{"frame": "frames/0000.png", "ply": 0, "fen": "f"},
+    write_jsonl(d / "log.jsonl", [{"frame": "frames/0000.png", "ply": 0, "fen": "f"},
                    {"frame": "frames/0001.png", "ply": 1, "fen": "f"}])
     (d / "session.yaml").write_text(yaml.safe_dump({"session_id": sid}), encoding="utf-8")
     for name, key in (("corrections.jsonl", {"label": "wK"}), ("unusable-cells.jsonl", {"unusable": True})):
@@ -105,7 +97,7 @@ def test_matte_status_counts_a_skipped_row_as_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA", paths)
     name = "2026-01-02-00-00-00"
     d = paths.recordings / name
-    _write_log(d, [{"frame": "frames/000001.png", "board": "dirty/000001.webp",
+    write_jsonl(d / "log.jsonl", [{"frame": "frames/000001.png", "board": "dirty/000001.webp",
                     "dirty": True, "dirty_reason": "occluded", "ply": 1, "fen": "f"}])
     (d / "matte.jsonl").write_text(
         json.dumps({"frame": "000001", "ply": 1, "skipped": "zone too big"}) + "\n",

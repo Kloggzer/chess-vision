@@ -1,10 +1,4 @@
-"""`reliance_for_run` misst unter der Vorverarbeitung des LAUFS, nicht unter ImageNet von Hand.
-
-`eval_transform_for` sagt im eigenen Docstring, es sei die eine Stelle, aus der Auswertung,
-Kalibrierung und Serving ihre Transformation holen — „reconstructing it by hand is how they
-drift". `reliance_for_run` baute sie nach: ein `gray+sobel`-Lauf fuettert 2 Kanaele in einen Stamm,
-der 3 bekam, und ein CLAHE-Lauf (das Standardmodell) wurde in einer fremden Domaene gemessen.
-"""
+"""`reliance_for_run` misst unter der Vorverarbeitung des Laufs (`eval_transform_for`)."""
 from __future__ import annotations
 
 import json

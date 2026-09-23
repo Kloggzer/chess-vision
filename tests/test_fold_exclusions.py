@@ -1,10 +1,4 @@
-"""Was nie trainiert werden darf, gehoert aus dem Fold-Schnitt — beide Sperren, nicht nur eine.
-
-`frozen` heisst "genau einmal messen", `benchmark` heisst "beliebig oft messen, nie trainieren".
-Fuer den Fold ist der Unterschied egal: er legt jede Aufnahme in k-1 Trainingssaetze, und danach
-ist sie als Massstab tot. Am 2026-09-18 wanderte `test-v1` von `frozen` nach `benchmark` und fiel
-damit aus der einzigen Pruefung, die es gab.
-"""
+"""`frozen`- und `benchmark`-Aufnahmen bleiben aus dem Fold-Schnitt."""
 
 from __future__ import annotations
 

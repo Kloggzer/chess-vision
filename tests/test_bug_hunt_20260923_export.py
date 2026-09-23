@@ -1,12 +1,8 @@
-"""Codex-Review 2026-09-23 auf dem Weg Checkpoint -> ONNX -> Android-Asset: sechs Hypothesen.
-
-Jeder Test faehrt den echten Einstieg (`run_export`, `run_quantize`, `stage_model_asset.main`).
-`run_train` braucht eine GPU; dort haelt ein Syntaxbaum-Test den Aufruf am echten Ort fest.
-"""
+"""Der Weg Checkpoint -> ONNX -> Android-Asset (`run_export`, `run_quantize`,
+`stage_model_asset.main`)."""
 from __future__ import annotations
 
 import ast
-import importlib.util
 import inspect
 import json
 import re
@@ -17,6 +13,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from conftest import load_script, write_jsonl
+
 torch = pytest.importorskip("torch")
 pytest.importorskip("onnxruntime")
 
@@ -26,10 +24,7 @@ CLASSES = ["empty", "wP"]
 
 
 def _stage_module(monkeypatch, assets: Path):
-    spec = importlib.util.spec_from_file_location("stage_model_asset",
-                                                  ROOT / "scripts" / "stage_model_asset.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = load_script("stage_model_asset")
     monkeypatch.setattr(mod, "ASSETS", assets)
     return mod
 
@@ -108,8 +103,7 @@ def _dataset_with_pad(tmp_path, monkeypatch, pad):
     dd = tmp_path / "ds"
     dd.mkdir()
     rows = [{"path": "x.png", "label": "empty", "pad_side": pad}]
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
-                                       encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     monkeypatch.setattr("chesslab.dataset_build.dataset_dir", lambda name, paths=None: dd)
 
 
@@ -214,8 +208,7 @@ def _calibration_dataset(tmp_path, monkeypatch):
         p = dd / f"c{i}.png"
         Image.fromarray(np.full((CROP, CROP, 3), 40 * i % 255, dtype=np.uint8)).save(p)
         rows.append({"path": str(p), "label": label, "session_id": "s1"})
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
-                                       encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     (dd / "split.json").write_text(json.dumps(
         {"classes": CLASSES, "splits": {"train": ["s1"], "val": [], "test": []}}),
         encoding="utf-8")

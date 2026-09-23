@@ -1,7 +1,5 @@
-"""Der Stand der `matte.jsonl` fuer die Kette, der gestagte Upsert, und EINE Zellregel (2026-09-23).
-
-Befunde H6/H3-Matte, H5-Upsert und H4 aus `docs/architektur-review-python-2026-09-23.md`.
-"""
+"""Stand der `matte.jsonl` fuer die Kette, gestagter Upsert, EINE Zellregel.
+Befunde aus `docs/architektur-review-python-2026-09-23.md`."""
 
 from __future__ import annotations
 
@@ -15,6 +13,7 @@ import numpy as np
 import pytest
 
 from chesslab import cell_rule, config, ioutil, provenance, temporal_flags, temporal_matte
+from conftest import write_jsonl
 
 
 def _recording(tmp_path: Path, monkeypatch, frames=("000001",)) -> Path:
@@ -25,12 +24,12 @@ def _recording(tmp_path: Path, monkeypatch, frames=("000001",)) -> Path:
     config.DATA.calibration.mkdir(parents=True)
     (config.DATA.calibration / "p.yaml").write_text("margin: 0.045\n", encoding="utf-8")
     rows = [{"frame": f"frames/{f}.png", "ply": 1, "board": f"boards/{f}.webp"} for f in frames]
-    (rec / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "log.jsonl", rows)
     return rec
 
 
 def _matte(rec: Path, rows: list[dict]) -> None:
-    (rec / "matte.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "matte.jsonl", rows)
 
 
 # H6 / H3-Matte: der echte Weg ist `session temporal-pass` -----------------------------------------

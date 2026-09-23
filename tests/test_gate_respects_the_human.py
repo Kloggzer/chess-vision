@@ -1,8 +1,4 @@
-"""Das Wort des Menschen ist das letzte — auch fuer den Schueler.
-
-`matte-bad` heisst "diese Matte ist falsch": dann taugt weder ihr Ja noch ihr Nein als Lehre.
-Umgekehrt buergt ein `matte-ok` fuer eine adoptierte Temporal-Zeile, die sonst draussen bleibt.
-"""
+"""Das Wort des Menschen ist das letzte, auch fuer den Schueler (`matte-bad`, `matte-ok`)."""
 
 from __future__ import annotations
 
@@ -12,6 +8,7 @@ import pytest
 import yaml
 
 from chesslab import config
+from conftest import write_jsonl
 
 
 def _corpus(tmp_path, rows: list[dict], notes: list[dict]):
@@ -23,7 +20,7 @@ def _corpus(tmp_path, rows: list[dict], notes: list[dict]):
     (rec / "log.jsonl").write_text("".join(
         json.dumps({"frame": f"frames/{r['frame']}.png", "board": f"boards/{r['frame']}.webp",
                     "board_border": 0}) + "\n" for r in rows), encoding="utf-8")
-    (rec / "matte.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "matte.jsonl", rows)
     ledger = paths.root / "labels"
     ledger.mkdir(parents=True)
     (ledger / "review-notes.jsonl").write_text("".join(

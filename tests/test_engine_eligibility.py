@@ -1,13 +1,5 @@
-"""Die Metrik-Maske haengt an der ZEILE, nicht am Kopf.
-
-`evaluate_dataset` filterte nur, wenn der Datensatz Coverage-Ziele traegt; `data.per_session_metrics`
-und `visible_board_items` filtern unbedingt. Bei einem Lauf OHNE Occlusion-Kopf rechneten Korpuszahl
-und Zahl je Aufnahme damit in EINEM Ausdruck ueber verschiedene Zellmengen. Seit 2026-09-16 gibt es
-laut Nutzer kein Modell ohne Occlusion mehr, also faellt der Sonderfall weg.
-
-Die Zahlen unten sind VOR der Aenderung gemessen: fuer einen Occlusion-Datensatz muss sich nichts
-bewegen, denn dort griff der Filter schon.
-"""
+"""Die Metrik-Maske haengt an der ZEILE, nicht am Kopf: Korpus- und Aufnahmezahlen auf
+derselben Zellmenge."""
 from __future__ import annotations
 
 import pytest

@@ -1,14 +1,7 @@
-"""Skript-Jagd 2026-09-22c: sechs Zahlen aus `scripts/`, die niemand nachgerechnet hat.
-
-Alle sechs reichen etwas UNGEMESSENES als gemessenen Normalwert weiter: ein Pack, dessen
-Zeilenzahl nicht zu seinen Pixeln passt; ein Lernkurvenpunkt, den es nicht gibt; eine Sitzung
-ohne Lesarten und eine ohne Quad, die stumm aus der Summe fallen; ein Median ueber eine
-unbekannte Teilmenge; und eine nie gemattete Zelle, die sich als sichtbar ausgibt.
-"""
+"""Skript-Jagd 2026-09-22c: Zahlen aus `scripts/`, die Ungemessenes als Messwert weiterreichen."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 import types
@@ -18,17 +11,7 @@ import numpy as np
 import pytest
 
 from chesslab.ioutil import write_json, write_rows
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"_s22c_{name}", ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
+from conftest import load_script
 
 # --- 1. `eval_packed_13c`: Pixel und Zeilen aus zwei verschiedenen Staenden -------------------
 
@@ -74,7 +57,7 @@ def test_eval_packed_13c_refuses_a_pack_whose_rows_do_not_match_its_pixels(tmp_p
     Bericht verraet es."""
     monkeypatch.setitem(sys.modules, "onnxruntime",
                         types.SimpleNamespace(InferenceSession=_FakeSession))
-    script = _load("eval_packed_13c")
+    script = load_script("eval_packed_13c")
     cfg = tmp_path / "config.json"
     write_json(cfg, {"classes": [f"c{i}" for i in range(12)] + ["empty"]})
     pack = _pack(tmp_path, rows=6, n=4)
@@ -88,7 +71,7 @@ def test_eval_packed_13c_refuses_a_pack_whose_rows_do_not_match_its_pixels(tmp_p
 def test_eval_packed_13c_still_runs_when_the_pack_matches(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "onnxruntime",
                         types.SimpleNamespace(InferenceSession=_FakeSession))
-    script = _load("eval_packed_13c")
+    script = load_script("eval_packed_13c")
     cfg = tmp_path / "config.json"
     write_json(cfg, {"classes": [f"c{i}" for i in range(12)] + ["empty"]})
     pack = _pack(tmp_path, rows=6, n=6)
@@ -113,7 +96,7 @@ def test_learning_curve_refuses_a_k_larger_than_the_training_set(tmp_path, monke
     """`order[:k]` kuerzt still. Mit weniger Aufnahmen als gefragt schreibt das Skript zwei
     Splits mit IDENTISCHEM Inhalt unter verschiedenen Namen — die Lernkurve bekommt einen
     waagerechten Abschnitt geschenkt, und genau ihre Steigung ist die Entscheidung."""
-    script = _load("learning_curve")
+    script = load_script("learning_curve")
     dd = _dataset(tmp_path, [f"s{i}" for i in range(5)])
     monkeypatch.setattr(script, "dataset_dir", lambda _n: dd)
     monkeypatch.setattr(sys, "argv", ["lc", "--dataset", "x", "--k", "4,8"])
@@ -124,7 +107,7 @@ def test_learning_curve_refuses_a_k_larger_than_the_training_set(tmp_path, monke
 
 
 def test_learning_curve_writes_the_points_it_can(tmp_path, monkeypatch):
-    script = _load("learning_curve")
+    script = load_script("learning_curve")
     dd = _dataset(tmp_path, [f"s{i}" for i in range(5)])
     monkeypatch.setattr(script, "dataset_dir", lambda _n: dd)
     monkeypatch.setattr(sys, "argv", ["lc", "--dataset", "x", "--k", "2,5"])
@@ -155,7 +138,7 @@ def test_persist_by_class_names_a_session_it_could_not_read(tmp_path, monkeypatc
     (tmp_path / "data" / "recordings" / "fehlt").mkdir(parents=True)
     _reads(tmp_path / "data" / "recordings" / "da" / "model-reads.jsonl", wrong=False)
     monkeypatch.setattr(sys, "argv", ["persist", "da", "fehlt"])
-    _load("persist_by_class")
+    load_script("persist_by_class")
     out = capsys.readouterr().out
     assert "fehlt" in out, "die uebersprungene Sitzung muss im Bericht stehen"
     assert "da" not in out.split("fehlt")[0].split("\n")[-1]
@@ -168,7 +151,7 @@ def test_straighten_ab_report_shows_how_many_frames_its_median_rests_on(capsys):
     Handframes, aus denen die Haelfte der Stichprobe besteht (`sample_rows`). `np.nanmedian`
     wirft die stumm weg: ein Arm, der auf einem von zwoelf Frames messbar war, steht mit
     derselben Autoritaet in der Tabelle wie einer mit zwoelf."""
-    script = _load("straighten_ab")
+    script = load_script("straighten_ab")
     arms = {"roh": {"sauber": [(3.0, 0), (5.0, 0)], "Hand": [(4.0, 1), (6.0, 1)]},
             "mesh-session": {"sauber": [(1.0, 0), (float("nan"), 18)],
                              "Hand": [(float("nan"), 18), (float("nan"), 18)]}}
@@ -187,7 +170,7 @@ def test_survey_alignment_names_a_session_without_corners(tmp_path, monkeypatch,
     """Das Skript existiert, damit ueber den KORPUS entschieden wird und nicht ueber die eine
     Aufnahme, die falsch aussah. Eine Aufnahme, deren `log.jsonl` keinen einzigen Quad traegt,
     fiel stumm heraus — ungemessen, aber nicht von einer sauberen zu unterscheiden."""
-    script = _load("survey_alignment")
+    script = load_script("survey_alignment")
     ohne, mit = tmp_path / "ohne", tmp_path / "mit"
     for d in (ohne, mit):
         d.mkdir()
@@ -216,7 +199,7 @@ def test_show_errors_counts_unmeasured_coverage_instead_of_calling_it_visible():
     ELF Datensaetze tragen heute keine einzige Coverage-Zahl — allein die fuenf groessten
     (`labeled-rg-2026-08-08-00-39-57-80`, drei `turntable-13bn-*`, `turntable80-test-092133`)
     sind 380 214 Zeilen. Der Kontaktbogen nannte sie 'sichtbare Zellen'."""
-    script = _load("show_errors")
+    script = load_script("show_errors")
     rows = [{"coverage": None, "label": "wP", "square": "a1", "session_id": "s"},
             {"coverage": 0.0, "label": "wP", "square": "a2", "session_id": "s"},
             {"coverage": 0.9, "label": "wP", "square": "a3", "session_id": "s"}]

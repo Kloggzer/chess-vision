@@ -1,9 +1,4 @@
-"""Wer eine `.json`/`.jsonl` selbst schreibt, beantwortet den Abbruch mitten im Schreiben neu.
-
-`chesslab.ioutil` ist die eine Antwort — Nebendatei, dann umhaengen, und bei einem zweiten
-Schreiber `Contested` statt stiller Ueberschreibung. Diese Liste sind die Stellen davor und darf
-nur SCHRUMPFEN. Hinter jedem Pfad steht, WARUM die Stelle bleibt; ohne Grund gehoert sie umgestellt.
-"""
+"""Wer `.json`/`.jsonl` selbst schreibt statt ueber `chesslab.ioutil`; die Liste schrumpft nur."""
 from __future__ import annotations
 
 import ast

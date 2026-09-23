@@ -1,9 +1,4 @@
-"""Ein Lauf muss aus seiner `config.json` reproduzierbar sein.
-
-`weight_cap` und `class_weight` fehlten, bis der Architektur-Sweep zwei Rezepte vergleichen
-wollte und beide als `None` las — obwohl der eine mit `--weight-cap 1 --class-weight bB=3` lief.
-Nur `effective_class_weights` verriet es noch (Spanne 1,0 statt 12,4).
-"""
+"""Ein Lauf muss aus seiner `config.json` reproduzierbar sein."""
 
 from __future__ import annotations
 

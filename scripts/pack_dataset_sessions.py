@@ -3,7 +3,7 @@
 The migration step from a monolithic `packed_images.u8` to `dataset build --from-packs`: the
 donor dataset names both the sessions and the crop pools they came from, so each session is
 routed to the writer that matches its source. Already-packed sessions are skipped, which makes
-the run resumable — a pack is immutable, nothing is ever rewritten (`docs/session-packs.md`).
+the run resumable — a pack is immutable, nothing is ever rewritten (`docs/packs.md`).
 
 Usage:
     python scripts/pack_dataset_sessions.py --dataset real13-mix-v6-128 --size 128
@@ -76,7 +76,7 @@ def main() -> int:
     at = pool_index(pools_of(cfg), paths)
 
     # Urteile prueft der Ledger-Stempel wie beim Bau. Fuer PIXEL gibt es keinen: `rg-…-11-59-12-80`
-    # trug 3 333 Zeilen eines frueheren Slice (`docs/session-packs.md` §5), bleibt also die Mtime.
+    # trug 3 333 Zeilen eines frueheren Slice (`docs/packs.md` §5), bleibt also die Mtime.
     donor_at = (paths.datasets / args.dataset / "manifest.jsonl").stat().st_mtime
     plan, verdicts = [], []
     for sid in cfg["session_ids"]:

@@ -1,10 +1,4 @@
-"""Ein nicht lesbares Brett ist KEIN schwarzes Brett.
-
-`BoardSet.__getitem__` ersetzte es durch Nullen und behielt Label und Coverage — der Schueler
-lernte damit "schwarz heisst Hand" auf Bildern, die es nie gab. Dieselbe Klasse wie SAMs Absage,
-die als sauberes Brett gelesen wurde. Gemessen 2026-09-16: 0 von 11 647 Brettern fehlen, das
-Abweisen kostet also nichts und schliesst die Falle.
-"""
+"""Ein nicht lesbares Brett wird abgewiesen, nicht als schwarzes Brett gelesen."""
 
 from __future__ import annotations
 

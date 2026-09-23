@@ -1,10 +1,4 @@
-"""Metrik-Jagd 2026-09-17: drei Zahlen, die ihren Namen nicht halten.
-
-Gemessen an den echten Laeufen unter `data/models/` und am Manifest von
-`real13-mix-v7-128` (979 363 Zeilen): 12,43 % der Zellen sind nicht benotungsfaehig
-(`classification_eligible`), und 55,22 % der Bretter tragen mindestens eine solche Zelle.
-Wo zwei Namen ueber verschiedene Zellmengen rechnen, ist das der Abstand.
-"""
+"""Metrik-Jagd 2026-09-17: Metriknamen gegen die Zellmenge, ueber die sie rechnen."""
 from __future__ import annotations
 
 import pytest

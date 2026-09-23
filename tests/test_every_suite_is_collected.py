@@ -1,9 +1,4 @@
-"""Eine Testdatei, die kein Sammler findet, ist die stillste Luege im Projekt.
-
-Gemessen 2026-09-21: Python 230 von 230, Web 174 von 174, alle sieben Kotlin-Module eingebunden.
-Der Waechter haelt die Faelle, die das brechen koennten, ohne dass eine Suite rot wird — ein
-Kotlin-Modul, das aus `settings.gradle.kts` faellt, und ein `exclude` in der vitest-Konfiguration.
-"""
+"""Jede Testdatei wird gesammelt: Kotlin-Module in `settings.gradle.kts`, kein vitest-`exclude`."""
 
 from __future__ import annotations
 

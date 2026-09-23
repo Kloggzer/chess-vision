@@ -1,13 +1,4 @@
-"""Der Session-Pack schnitt Bretter mit dem PROFIL, ohne zu pruefen, ob es ihr Massstab ist.
-
-`usable_board` ist die Wache, an der jeder andere Brettleser haengt (`matte`, `temporal_matte`,
-`labeling`, `occluded_model` seit heute) — `_cut_session` haengt als einziger nicht daran. Ein
-Brett mit eigenem `board_size`/`board_border` wird sonst bis zu 59 px daneben geschnitten, und
-diese Pixel sind die, aus denen das Modell lernt.
-
-Gemessen 2026-09-16: 11 647 Bretter auf der Platte, **null** mit abweichendem Massstab. Laut
-abweisen kostet also heute nichts.
-"""
+"""Der Session-Pack schneidet nur Bretter, deren Massstab das Profil ist (`usable_board`)."""
 
 from __future__ import annotations
 

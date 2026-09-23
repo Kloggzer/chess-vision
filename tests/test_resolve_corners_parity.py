@@ -1,9 +1,4 @@
-"""Die Eckenreihenfolge `[a8, h8, h1, a1]` ueber die Naht gepinnt, nicht nur behauptet.
-
-`parity/_geometry/resolve_corners.jsonl` deckt die Marker-Leiter 4/3/2 samt Ablehnung ab und lag
-seit seiner Entstehung im Baum, gelesen NUR von Kotlin (`HomographyTest`). Damit war jede Seite
-gegen ihre eigene Wahrheit getestet und die gemeinsame gegen nichts.
-"""
+"""Die Eckenreihenfolge `[a8, h8, h1, a1]` gegen `parity/_geometry/resolve_corners.jsonl`."""
 from __future__ import annotations
 
 import json

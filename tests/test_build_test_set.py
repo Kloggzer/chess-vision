@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import build_test_set as bts  # noqa: E402
 
+from conftest import write_jsonl
+
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
@@ -77,8 +79,7 @@ def test_explicit_sessions_cannot_bypass_the_check(repo, monkeypatch, capsys):
 def _fake_pack(packs: Path, session: str, size: int, rows: list[dict]) -> None:
     d = packs / f"{session}-{size}"
     d.mkdir(parents=True)
-    (d / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(d / "manifest.jsonl", rows)
 
 
 def test_built_yaml_names_its_packs(repo, monkeypatch, tmp_path):

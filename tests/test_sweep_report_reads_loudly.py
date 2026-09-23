@@ -1,9 +1,4 @@
-"""Eine kaputte Zeile in `metrics.jsonl` fiel lautlos aus `n`, `last5` und `best`.
-
-`read_run` fing `JSONDecodeError` JE ZEILE ab und zaehlte die Zeile einfach nicht mit — die
-Sweep-Tabelle meldete den Lauf als kuerzer, ohne ein Wort. Dieselbe Form wie SAMs Absage, die
-als sauberes Brett gelesen wurde: nicht gemessen, gelesen als Normalwert.
-"""
+"""Eine kaputte Zeile in `metrics.jsonl` faellt nicht lautlos aus `read_run`."""
 
 from __future__ import annotations
 

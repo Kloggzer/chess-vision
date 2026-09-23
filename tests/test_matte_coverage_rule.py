@@ -1,11 +1,4 @@
-"""CLAUDE.md: "wer `matte.jsonl` liest, prueft `coverage` auf `None`."
-
-SAMs Absage traegt WEDER `concepts` NOCH `coverage`; eine leere Coverage dagegen heisst
-"gemessen, nichts verdeckt". Ein truthy-Test wirft beide in denselben Topf. Heute ist das latent
-(9 386 Matte-Zeilen im Korpus, alle mit 64 Feldern, null leere), aber die Regel steht in
-CLAUDE.md und wurde nur zur Haelfte befolgt. Diese Liste sind die Stellen, die sie noch brechen,
-und sie darf nur SCHRUMPFEN.
-"""
+"""Leser von `matte.jsonl` pruefen `coverage` auf `None`; die Liste der Verstoesse schrumpft nur."""
 
 from __future__ import annotations
 

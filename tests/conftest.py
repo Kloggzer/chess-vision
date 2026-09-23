@@ -1,13 +1,11 @@
-"""Shared builders for the Python suites: one calibration profile, one session on disk.
-
-The session builder writes the BOARD STORE by default, because that is what the exporter has
-written since 2026-08-17 and `frames/` no longer exists in a real recording. The pre-store shape
-is `boards=False` — the fallback in `iter_session_crops`, not the normal case.
-"""
+"""Shared builders for the Python suites: profile, session on disk, script loader, JSONL rows.
+`write_session` writes the board store by default; `boards=False` is the pre-store fallback."""
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,10 +17,29 @@ import yaml
 from chesslab import config
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 
+ROOT = Path(__file__).resolve().parents[1]
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 #: The quad the labeling suites cut: a 128-px board inside a 320x240 frame.
 SMALL_CORNERS = [[20, 20], [300, 20], [300, 220], [20, 220]]
+
+
+def load_script(name: str, folder: str = "scripts", *, alias: str | None = None):
+    """Load `<folder>/<name>.py` as a module without making the folder a package."""
+    spec = importlib.util.spec_from_file_location(alias or f"_script_{name}",
+                                                  ROOT / folder / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def write_jsonl(path: Path, rows) -> Path:
+    """One JSON object per line, parents created; the raw shape a recording carries."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return path
 
 
 def identity_corners(board_size: int) -> list[list[float]]:
@@ -72,8 +89,7 @@ def write_session(session_dir: Path, rows: list[dict], *, profile: CalibrationPr
         else:
             (session_dir / "frames").mkdir(exist_ok=True)
             cv2.imwrite(str(session_dir / "frames" / f"{stem}.png"), image)
-    (session_dir / "log.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(session_dir / "log.jsonl", rows)
     (session_dir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": session_id, "profile": profile.profile, "mode": "track",
                         **(meta or {})}), encoding="utf-8")
@@ -81,10 +97,35 @@ def write_session(session_dir: Path, rows: list[dict], *, profile: CalibrationPr
 
 
 @pytest.fixture
+def paths(tmp_path, monkeypatch) -> config.Paths:
+    """`config.DATA` rooted at `tmp_path` itself."""
+    p = config.Paths(root=tmp_path)
+    monkeypatch.setattr(config, "DATA", p)
+    return p
+
+
+@pytest.fixture
+def data_root(tmp_path, monkeypatch) -> Path:
+    """`config.DATA` rooted at `tmp_path / "data"`, with its reports folder in place."""
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    config.DATA.reports.mkdir(parents=True)
+    return config.DATA.root
+
+
+@pytest.fixture
 def small_profile() -> CalibrationProfile:
     """The 128-px board the `slice_session` suites cut: 16-px cells, 32-px crops."""
     return make_profile(128, corners=SMALL_CORNERS, frame_size=(320, 240), profile="p",
                         camera_index=-1, cell=16.0, pad_side=0.05, out_size=(32, 32))
+
+
+def slice_small(session, **kw):
+    """Slice a `slice_fixture` session into 32-px crops beside it."""
+    from chesslab.labeling import slice_session
+
+    sdir, prof, root = session
+    return slice_session(sdir, profile=prof, manifest_path=root / "m.jsonl",
+                         squares_root=root / "squares", out_size=(32, 32), **kw)
 
 
 @pytest.fixture

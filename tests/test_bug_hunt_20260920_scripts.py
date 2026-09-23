@@ -1,9 +1,4 @@
-"""Skript-Jagd 2026-09-20: zehn Stellen in `scripts/`, die ihren Namen nicht halten.
-
-Der rote Faden ist derselbe wie in CLAUDE.md "Known Pitfalls": ein `or`, ein `except: continue`
-oder ein geklammertes `-1` macht aus NICHT GEMESSEN eine Messung. Jeder Test hier war vor dem
-zugehoerigen Fix rot.
-"""
+"""Skript-Jagd 2026-09-20: Stellen in `scripts/`, die NICHT GEMESSEN als Messung lesen."""
 from __future__ import annotations
 
 import importlib
@@ -13,12 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from conftest import write_jsonl
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-
-def _write(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
 def test_plan_setups_faerbt_a1_dunkel_wie_der_rest_des_projekts():
@@ -46,7 +38,7 @@ def test_chain_decode_verweigert_lesungen_ohne_coverage(tmp_path, monkeypatch):
     import chain_decode
 
     monkeypatch.setattr(chain_decode, "ROOT", tmp_path)
-    _write(tmp_path / "s" / "model-reads.jsonl",
+    write_jsonl(tmp_path / "s" / "model-reads.jsonl",
            [{"frame": "1", "square": "e4", "probs": {"empty": 0.9, "wP": 0.1}}])
 
     with pytest.raises(SystemExit):
@@ -58,9 +50,9 @@ def test_occlusion_gate_loescht_die_messung_die_sam_zurueckzieht(tmp_path, monke
     import occlusion_gate
 
     monkeypatch.setattr(occlusion_gate, "ROOT", tmp_path)
-    _write(tmp_path / "s" / "matte.jsonl",
+    write_jsonl(tmp_path / "s" / "matte.jsonl",
            [{"frame": "1", "coverage": {"e4": 0.0}}, {"frame": "1", "skipped": "zone too big"}])
-    _write(tmp_path / "s" / "model-reads.jsonl",
+    write_jsonl(tmp_path / "s" / "model-reads.jsonl",
            [{"frame": "1", "square": "e4", "fen_label": "wP", "model_cov": 0.2,
              "probs": {"wP": 0.9, "empty": 0.1}}])
 
@@ -71,7 +63,7 @@ def test_heldout_label_audit_loescht_die_zurueckgezogene_messung(tmp_path):
     """Dieselbe Absage, derselbe Fehler: `if cells:` uebersprang sie, statt sie wirken zu lassen."""
     import heldout_label_audit
 
-    _write(tmp_path / "matte.jsonl",
+    write_jsonl(tmp_path / "matte.jsonl",
            [{"frame": "1", "coverage": {"e4": 0.9}}, {"frame": "1", "skipped": "zone too big"}])
 
     assert heldout_label_audit.coverage_of(tmp_path) == {}

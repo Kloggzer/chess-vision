@@ -1,9 +1,4 @@
-"""Die Wachen-Nebenbedingung des Latenz-Optimierers.
-
-Der Regressionssatz misst diese Achse nicht — er lieferte 396/3/0/171 mit UND ohne
-Verdeckungsschutz. Latenz gewinnt man, indem man Tore aufmacht, also braucht die Freigabe
-eine eigene Achse dafuer (`docs/engine-fuzz.md`).
-"""
+"""Die Wachen-Nebenbedingung des Latenz-Optimierers (`docs/engine-fuzz.md`)."""
 
 from __future__ import annotations
 

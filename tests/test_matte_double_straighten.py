@@ -1,12 +1,4 @@
-"""Eine Matte darf nicht zweimal geradegezogen werden — auch nicht, wenn ihr Brett es wird.
-
-`straighten_boards` haengt seinen Riegel an `board_straightened` der LOG-ZEILE. `write_boards_session`
-poppt genau den und schneidet die Bretter frisch (also wieder gebogen) aus den Frames — das Brett
-gehoert dann gezogen. Die Matte daneben wurde beim vorigen Lauf schon gezogen und liegt gerade auf
-der Platte; sie wird trotzdem ein zweites Mal korrigiert. CLAUDE.md fuehrt "Never straighten a
-second time" als harte Regel, und `straighten_boards` sagt im eigenen Docstring: "a twice-corrected
-one is neither".
-"""
+"""Eine Matte wird nicht zweimal geradegezogen, auch wenn ihr Brett neu geschnitten wird."""
 from __future__ import annotations
 
 import pytest

@@ -9,7 +9,7 @@ import numpy as np
 from chesslab import matte
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography, crop_border_px
 from chesslab.ioutil import Contested
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 SIDE = 320
 CELL = SIDE // 8
@@ -38,7 +38,6 @@ def test_coverage_lands_on_the_squares_the_alpha_covers():
 
 def _session(tmp_path, monkeypatch, rows):
     """A session carrying a dirty pile, the shape `alpha_worker` reads."""
-    import json
 
     import yaml
 
@@ -49,7 +48,7 @@ def _session(tmp_path, monkeypatch, rows):
     (sdir / "dirty").mkdir(parents=True)
     for r in rows:
         cv2.imwrite(str(sdir / r["board"]), np.full((SIDE, SIDE, 3), 128, np.uint8))
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "rg-s1", "profile": "t", "mode": "track"}), encoding="utf-8")
     return sdir
@@ -183,7 +182,7 @@ def test_a_hand_the_tracker_missed_still_takes_the_frame_out(tmp_path, monkeypat
     for stem in ("000001", "000002"):
         cv2.imwrite(str(sdir / "frames" / f"{stem}.png"), np.full((240, 320, 3), 128, np.uint8))
         rows.append({"frame": f"frames/{stem}.png", "fen": fen, "ply": 1, "corners": corners})
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "s1", "profile": "p", "mode": "track"}), encoding="utf-8")
     (sdir / "matte.jsonl").write_text(

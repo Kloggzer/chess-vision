@@ -1,18 +1,5 @@
-"""The store is where the board is pulled straight — once, and never by a hand's own measurement.
-
-`straighten_boards` is the only straightening left in the pipeline: `crop_square` cuts plain
-rectangles afterwards. Two things therefore have to hold, and both were bugs waiting to happen —
-it must not correct a board twice, and it must not use the mesh of a frame whose grooves a hand
-was lying across (measured 2026-08-21: such a mesh leaves the board at 15.6 px against 16.1 raw,
-i.e. worse than doing nothing).
-
-The boards here are drawn with their grid lines TILTED by a known amount, so the check is
-structural — where the lines end up — rather than a pixel comparison the store's lossy WebP could
-never satisfy.
-"""
+"""The store pulls the board straight once, never twice and never with a hand-covered mesh."""
 from __future__ import annotations
-
-import json
 
 import cv2
 import numpy as np
@@ -27,6 +14,7 @@ from chesslab.realgames import (
     meshes_for_boards,
     straighten_boards,
 )
+from conftest import write_jsonl
 
 BS, BORDER, TILT = 400, 20, 0.04
 EIGHTHS = [k / 8.0 for k in range(9)]
@@ -68,7 +56,7 @@ def _session(tmp_path, rows: list[dict], mattes: tuple[str, ...] = ()):
         cv2.imwrite(str(sdir / row["board"]), board)
     for stem in mattes:
         cv2.imwrite(str(sdir / MATTE_DIR / f"{stem}.webp"), board)
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     return sdir, board
 
 

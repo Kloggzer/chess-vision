@@ -1,10 +1,4 @@
-"""Der Regel-Audit muss die Aufnahmen finden, in denen die Ledger heute liegen.
-
-`audit_corrections` laeuft ueber `paths.sessions` und schluesselt mit dem VERZEICHNISNAMEN.
-Seit der Zusammenlegung (2026-08-20) liegen die Logs unter `paths.recordings`, und die Zeilen
-sind mit `rg-<name>` geschluesselt (`config.Paths.recordings`). Beides zusammen macht den
-Audit, der PRUEFEN soll, zu einem Lauf ueber die leere Menge.
-"""
+"""`audit_corrections` findet die Ledger unter `paths.recordings` mit `rg-`-Schluesseln."""
 from __future__ import annotations
 
 import json

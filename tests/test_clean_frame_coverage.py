@@ -1,13 +1,4 @@
-"""Ein sauberer Frame ist GEMESSEN, SAMs Absage ist es nicht — beides hiess `None`.
-
-`read_matte` laesst eine Zeile ohne `coverage` weg (SAMs Absage, "zone too big"), und ein Frame
-ganz ohne Zeile taucht dort ebenfalls nicht auf. `crops_for_frame` schrieb daraufhin in beiden
-Faellen gar keine `coverage` — und `occlusion.classification_eligible` las das ueber `or 0.0` als
-"voll sichtbar". Damit galt das VERDECKTESTE Material des Korpus als frei.
-
-Der Hand-Gate hat den sauberen Frame dagegen gemessen: er liegt im sauberen Stapel, `boards/`,
-ohne `dirty_reason`. Dort ist 0.0 eine Aussage und keine Annahme.
-"""
+"""Ein sauberer Frame traegt gemessene `coverage` 0.0; SAMs Absage bleibt ungemessen."""
 
 from __future__ import annotations
 

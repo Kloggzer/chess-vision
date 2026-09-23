@@ -1,9 +1,4 @@
-"""Ingestion of corner-annotated datasets (chesslab.ingest + adapters), headless.
-
-Proves the full chain WITHOUT real download: synthetic board image + known corners + FEN →
-synthetic session → existing `slice_session` → 64 correctly labeled crops, and — via color-coded
-squares — the correct **orientation** (a1 bottom-left, h8 top-right).
-"""
+"""Ingestion of corner-annotated datasets (chesslab.ingest + adapters): labels and orientation."""
 
 from __future__ import annotations
 

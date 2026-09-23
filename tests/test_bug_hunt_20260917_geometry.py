@@ -1,7 +1,6 @@
 """Bug hunt 2026-09-17, Achse Geometrie und Zuschnitt: Leser des Brett-Stores, die ihre eigene
 Skala annehmen statt die der Zeile. Jeder Test hier faellt auf dem Code von vorher."""
 
-import json
 
 import cv2
 import numpy as np
@@ -9,7 +8,7 @@ import yaml
 
 from chesslab import config, realgames, sessions
 from chesslab.calibration import CalibrationProfile, crop_border_px
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 SIDE = 320
 
@@ -36,7 +35,7 @@ def _session(tmp_path, monkeypatch, rows, side, border):
     (sdir / "boards").mkdir(parents=True)
     for row in rows:
         cv2.imwrite(str(sdir / row["board"]), _board(side, border))
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "rg-s1", "profile": "t", "mode": "track"}), encoding="utf-8")
     return sdir

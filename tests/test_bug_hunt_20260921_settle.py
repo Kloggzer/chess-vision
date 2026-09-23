@@ -9,7 +9,7 @@ import yaml
 
 from chesslab import config, realgames, sessions
 from chesslab.calibration import CalibrationProfile, crop_border_px
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 SIDE = 320
 CELL = SIDE // 8
@@ -48,7 +48,7 @@ def test_the_settle_scan_keeps_an_unmeasured_hand_frame_out_of_the_reference(
                      "fen": "8/8/8/8/8/8/8/8 w - - 0 1", "corners": prof.image_corners,
                      "board_size": SIDE, "board_border": pad,
                      **({"dirty": True, "dirty_reason": "occluded"} if hand else {})})
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "rg-s1", "profile": "t", "mode": "track"}), encoding="utf-8")
     # SAM hat nur die sauberen gemessen; die Hand-Frames fehlen in der Datei.
@@ -111,7 +111,7 @@ def test_the_alignment_scan_drops_the_number_it_could_not_measure(tmp_path, monk
                            np.full((SIDE, SIDE, 3), 90, np.uint8))
         rows.append({"frame": f"frames/{i:06d}.png", "corners": prof.image_corners,
                      "align_worst_px": 99.0})
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "rg-s1", "profile": "t", "mode": "track"}), encoding="utf-8")
     monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: prof)
@@ -130,7 +130,7 @@ def _geometry_session(tmp_path, monkeypatch, rows):
     (sdir / "frames").mkdir(parents=True)
     for r in rows:
         assert cv2.imwrite(str(sdir / r["frame"]), np.full((SIDE, SIDE, 3), 90, np.uint8))
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "rg-s1", "profile": "t", "mode": "track"}), encoding="utf-8")
     monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: prof)

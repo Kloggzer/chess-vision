@@ -1,10 +1,4 @@
-"""`packs.write_meta` computes a manifest digest for every session pack — nobody compares it.
-
-The monolith pack guards exactly this (`pack.load_packed` refuses a `digest` mismatch, "the one
-failure mode that produces a plausible-looking but wrong model"). The session packs write the same
-field beside the same manifest and read it nowhere, so a relabelled or re-sliced manifest keeps
-serving the pixels the pack was cut from.
-"""
+"""Session packs must check the manifest digest `packs.write_meta` writes."""
 from __future__ import annotations
 
 import json
@@ -13,6 +7,7 @@ import pytest
 
 from chesslab import config
 from chesslab.training import packs as packs_mod
+from conftest import write_jsonl
 
 CROP = 8
 
@@ -22,8 +17,7 @@ def _pack(paths: config.Paths, name: str, n: int):
     d.mkdir(parents=True)
     rows = [{"path": f"mm://{name}/f{i:03d}/e4.png", "label": "empty",
              "out_size": [CROP, CROP], "session_id": name} for i in range(n)]
-    (d / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(d / "manifest.jsonl", rows)
     packs_mod.write_meta(d, rows, CROP, CROP)
     with open(d / "packed_images.u8", "wb") as fh:
         fh.truncate(n * CROP * CROP * 3)
@@ -36,8 +30,7 @@ def test_a_pack_whose_manifest_moved_on_is_refused(tmp_path):
     paths = config.Paths(root=tmp_path)
     d, rows = _pack(paths, "a-80", 3)
     rows[1]["label"] = "wK"
-    (d / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(d / "manifest.jsonl", rows)
 
     with pytest.raises(ValueError, match="digest"):
         packs_mod.read_pack("a-80", paths)

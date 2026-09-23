@@ -1,9 +1,4 @@
-"""Ein Abbruch von `close_seams` darf keinen halben Zustand hinterlassen.
-
-Die Pixel gingen VOR dem Nebenlaeufigkeits-Waechter auf die Platte. Brach er danach ab, trugen N
-Alphas die geschlossenen Pixel und `matte.jsonl` die alte `coverage` — und ein zweiter Lauf
-reparierte das NICHT, weil `gained` dann 0 ist. Die Meldung forderte trotzdem dazu auf.
-"""
+"""Ein Abbruch von `close_seams` hinterlaesst keinen halben Zustand."""
 from __future__ import annotations
 
 import json

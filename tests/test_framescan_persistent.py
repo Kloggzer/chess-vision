@@ -1,10 +1,4 @@
-"""`_persistent` fragt „irgendeine Zelle weicht ab", nicht „DIESE Zelle weicht weiter ab".
-
-`all(off[j] for j in tail[n:])` prueft je Frame nur, dass die Menge NICHT LEER ist. Eine Zelle,
-die in Frame 1 flackert, und eine andere in Frame 2 erfuellen das zusammen — obwohl keine einzige
-Zelle durchgehend abweicht. `classify` erklaert daraufhin den ganzen Rest des Intervalls zu
-`stale`/`changed`, und diese Frames fallen aus dem sauberen Vorrat.
-"""
+"""`_persistent` verlangt, dass DIESELBE Zelle weiter abweicht, nicht irgendeine."""
 from __future__ import annotations
 
 import numpy as np

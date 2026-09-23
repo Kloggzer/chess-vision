@@ -8,7 +8,7 @@ Zwei Stufen. GESUCHT wird auf fuenf Aufnahmen (20 572 Frames), BESTAETIGT auf al
 (`--voll`). Racing sortiert dabei nach Aussieben je Sekunde, nicht nach Laenge — gemessen erledigt
 `222741` sechs von sieben Fehlversuchen, und an siebter Stelle kostete ein Abbruch 37 072 Frames
 statt 9 576. Der Suchraum kommt aus `scripts/screen_knobs.py`: 4 von 47 Knoepfen tragen die
-Groessenordnung (`docs/knopf-screening.md`).
+Groessenordnung (`docs/engine-fuzz.md`).
 
 **Ein gescheiterter Versuch wird nicht geprunet, sondern schliesst ab.** Optunas Constrained-TPE
 lernt die unzulaessige Region aus genau diesen Werten; ein `TrialPruned` wuerfe die teuerste
@@ -37,7 +37,7 @@ TRIALS = OUT / "trials.jsonl"
 #: Die visuellen Beobachtungen EINER Aufnahme, einmal gebaut und von allen Versuchen gelesen.
 #: Gemessen 42,7 -> 12,5 s je Lauf (3,4x), 6 MB je Aufnahme. Der Kopf traegt Video, Modell und
 #: eine Signatur ueber Geometrie, Quad und Ausrichtung — ein fremder Cache kann nicht still
-#: gelesen werden. `docs/visual-cache-2026-09-20.md`.
+#: gelesen werden. `docs/desktop-replay.md`.
 VISUAL = OUT / "visual"
 
 #: Racing sortiert nach AUSSIEBEN je Sekunde, nicht nach Laenge: `222741` erledigte 6 von 7

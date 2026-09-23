@@ -2,24 +2,14 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
-from pathlib import Path
 
 from typer.testing import CliRunner
 
 from chesslab import config
 from chesslab.cli import app
-
-
-def _load_script(name: str):
-    path = Path(__file__).parents[1] / "scripts" / name
-    spec = importlib.util.spec_from_file_location(f"bug_hunt_{path.stem}", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from conftest import load_script
 
 
 def test_ingest_default_uses_the_configured_synthetic_warp_size(tmp_path, monkeypatch):
@@ -154,7 +144,7 @@ def test_session_trim_requires_confirmation_before_dropping_the_tail(monkeypatch
 
 
 def test_stage_model_asset_refuses_to_overwrite_an_existing_asset(tmp_path, monkeypatch):
-    script = _load_script("stage_model_asset.py")
+    script = load_script("stage_model_asset")
     run = tmp_path / "run"
     run.mkdir()
     (run / "config.json").write_text(
@@ -185,7 +175,7 @@ def test_stage_model_asset_refuses_to_overwrite_an_existing_asset(tmp_path, monk
 
 
 def test_thin_per_position_refuses_to_overwrite_an_existing_dataset(tmp_path, monkeypatch):
-    script = _load_script("thin_per_position.py")
+    script = load_script("thin_per_position")
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()

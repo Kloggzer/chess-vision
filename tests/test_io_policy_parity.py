@@ -1,7 +1,5 @@
-"""Die Politik der drei Treuhaender, Zusicherung fuer Zusicherung — hier die Python-Seite.
-
-Zwillinge: `platform/app/lib/io-policy-parity.test.ts` und `JsonlPolicyParityTest.kt`.
-Wer eine Antwort hier aendert, aendert sie dort mit, sonst laufen die drei auseinander."""
+"""Die Politik der drei Treuhaender, Python-Seite. Zwillinge:
+`platform/app/lib/io-policy-parity.test.ts` und `JsonlPolicyParityTest.kt`."""
 from __future__ import annotations
 
 import json

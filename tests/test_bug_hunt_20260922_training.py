@@ -1,9 +1,4 @@
-"""Funde vom 2026-09-22 im Trainingsweg — je ein Test, der OHNE den Fix rot ist.
-
-Alle drei sitzen in `training/gradcam.py`, dem Messweg hinter `chesslab reliance`: eine
-Coverage-Spalte wird als Klasse gelesen, der Zuschnitt kommt vom Profil statt vom Lauf, und
-benotet werden Zellen, die der Verlust maskiert hat.
-"""
+"""Funde in `training/gradcam.py`, dem Messweg hinter `chesslab reliance`."""
 from __future__ import annotations
 
 import json

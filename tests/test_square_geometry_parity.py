@@ -1,12 +1,5 @@
-"""Square geometry at PRODUCTION scale, against the fixture Kotlin and TS read too.
-
-`_geometry/meta.json` already pins `cropBoxes`, but every one of its geometries has `pad_side *
-cell` land on a whole pixel, so the rounding was never exercised — and the rounding is where a
-port slips (`int(round(...))` is half-to-EVEN, `Math.round` in Kotlin and JS is half-up).
-`square_geometry_parity.json` carries 928/1080/720/576 and an 80 that puts the endpoint on
-exactly .5. Twins: `SquareGeometryParityTest.kt`, `SquareRegionParityTest.kt`,
-`lib/square-geometry-parity.test.ts`.
-"""
+"""Square geometry and its rounding at production scale, against
+`square_geometry_parity.json` shared with Kotlin and TS."""
 from __future__ import annotations
 
 import json

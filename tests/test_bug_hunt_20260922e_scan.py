@@ -1,8 +1,4 @@
-"""Punkt 43: ein Intervall ohne Zeugen nannte seine ruhigen Frames `clean`.
-
-Gemessen ueber 27 Aufnahmen mit `scan.jsonl` (1 173 Intervalle, 65 671 Frames in Intervallen):
-14 Intervalle tragen hoechstens drei ruhige Frames und erklaerten 24 davon zu `clean`.
-"""
+"""Ein Intervall ohne Zeugen nennt seine ruhigen Frames nicht `clean`."""
 
 from chesslab import framescan as fs
 

@@ -1,12 +1,4 @@
-"""Der Analyse-Umfang muss unter das Kontingent passen — sonst faellt der Scan still aus.
-
-SonarCloud (Organisation `kloggzer`) zaehlt 50 000 `ncloc`. Das ganze Repo traegt rund 141 600,
-also analysiert `sonar-project.properties` nur den Weg aufs Geraet plus den Datenkern. Ohne
-diesen Test faellt das erst auf, wenn ein Scan abgelehnt wird — und dann steht keine Messung mehr.
-
-Die Zaehlung ist eine NAEHERUNG (keine Leerzeile, keine reine Kommentarzeile); gegen den echten
-Bericht lag sie 10 % zu hoch. Die Schwelle hat deshalb Luft nach unten, nicht nach oben.
-"""
+"""Der SonarCloud-Analyseumfang (`sonar-project.properties`) passt unter das ncloc-Kontingent."""
 
 from __future__ import annotations
 

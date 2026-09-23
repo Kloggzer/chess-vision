@@ -1,9 +1,4 @@
-"""`packed_meta.json` hat EINEN Schreiber.
-
-Vorher schrieben vier Stellen das Objekt von Hand, mit vier verschiedenen Schluesselmengen. Der
-Unterschied ist lasttragend: `_rewritten_since_pack` liest `meta.get("crop_fingerprint")`, und
-FEHLEND heisst dort "Altpack, nimm die Mtime" — nicht "nichts zu vergleichen".
-"""
+"""`packed_meta.json` hat EINEN Schreiber."""
 
 from __future__ import annotations
 

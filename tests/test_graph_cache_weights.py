@@ -1,10 +1,4 @@
-"""The CUDA-graph cache must key on the checkpoint, like the model cache already does.
-
-A run holds several checkpoints (`swa.pt`, `best_piece.pt`) and the training picks no winner.
-`load_run` puts `weights` in its key for exactly that reason; the graph cache did not, so on
-GPU a graph captured for the run's DEFAULT replayed for every later `--weights` call — the
-wrong model, silently, with no fallback to notice it.
-"""
+"""The CUDA-graph cache keys on the checkpoint, like the model cache."""
 
 from pathlib import Path
 

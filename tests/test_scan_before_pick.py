@@ -1,8 +1,4 @@
-"""Der Scan gehoert VOR die Auswahl — und er muss messen, was die Auswahl braucht.
-
-Sechs Aufnahmen liefen ohne `scan.jsonl` durch den Export und planten nach Margin-Fenstern, die
-gemessen 23 % Haende durchlassen (`docs/frame-scan.md`). Diese Tests halten die Naht fest.
-"""
+"""Der Scan gehoert VOR die Auswahl (`docs/frame-scan.md`)."""
 
 import json
 
@@ -10,13 +6,6 @@ import pytest
 
 from chesslab import config
 from chesslab import framescan as fs
-
-
-@pytest.fixture
-def data_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    config.DATA.reports.mkdir(parents=True)
-    return config.DATA.root
 
 
 def test_the_stride_grid_and_the_extras_both_answer_in_place():

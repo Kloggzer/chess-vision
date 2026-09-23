@@ -1,8 +1,4 @@
-"""Ein Brett, das der Schueler nicht lesen konnte, FEHLT in `gate.jsonl` — richtig so.
-
-Der Bericht muss es aber sagen. Ohne die Zahl liest sich ein halber Lauf wie ein ganzer, und
-`docs/sensor-audit.md` vergleicht genau diese Zeilenzahlen gegen die Matte.
-"""
+"""Unlesbare Bretter fehlen in `gate.jsonl`, und der Bericht nennt ihre Zahl."""
 
 from __future__ import annotations
 

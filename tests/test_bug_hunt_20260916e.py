@@ -1,8 +1,4 @@
-"""Bug-Jagd 2026-09-16 (e): ingest, occluded_model, meshprep.
-
-Ein Test je Fund. Wo der Fix das Verhalten, ein Dateiformat oder ein Trainingsrezept aendern
-wuerde, steht ein `xfail(strict=True)` mit Begruendung statt eines Fixes.
-"""
+"""Bug-Jagd 2026-09-16 (e): ingest, occluded_model, meshprep."""
 from __future__ import annotations
 
 import json

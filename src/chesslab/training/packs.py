@@ -1,4 +1,4 @@
-"""Das SESSION-PACK (`docs/pack-arten.md`), nicht das Datensatz-Pack in `pack.py` daneben.
+"""Das SESSION-PACK (`docs/packs.md`), nicht das Datensatz-Pack in `pack.py` daneben.
 
 Eine Aufnahme EINMAL nach `data/packs/<session>-<size>/`: `packed_images.u8` (N, H, W, 3) uint8
 RGB, `packed_meta.json`, `manifest.jsonl` aus `mm://<pack>/…`. Kotlins `labeled-video-pack` auch.

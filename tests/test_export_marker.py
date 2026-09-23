@@ -1,11 +1,4 @@
-"""Ein getoeteter Export hinterlaesst das ALTE Log neben teilweise NEUEN Brettern.
-
-`export_session` ueberschreibt `boards/<stem>.webp` waehrend des Laufs an Ort und Stelle, schreibt
-`log.jsonl` aber erst ganz am Schluss. Fuer jeden Stem, den alter und neuer Plan enthalten,
-beschreiben die Ecken im Log danach nicht mehr die Pixel auf der Platte — derselbe Schaden wie die
-Coverage-Drift, nur ohne dass irgendwer den Ausloeser kennt. Die Kette sieht nur in die erste
-Log-Zeile (`chain.ts:exportedSession`) und haelt die Sprosse fuer erledigt.
-"""
+"""Ein getoeteter Export hinterlaesst kein altes Log neben teilweise neuen Brettern."""
 from __future__ import annotations
 
 import pytest

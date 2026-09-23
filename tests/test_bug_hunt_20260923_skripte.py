@@ -1,12 +1,8 @@
-"""Bug-Hunt 2026-09-23: die bis dahin unberuehrten Skripte, nach Entscheidungsgewicht.
-
-Jeder Test ist gegen den ungefixten Stand rot gesehen worden (Gegenprobe im Bericht).
-"""
+"""Bug-Hunt 2026-09-23: die bis dahin unberuehrten Skripte, nach Entscheidungsgewicht."""
 
 from __future__ import annotations
 
 import dataclasses
-import importlib.util
 import json
 import sys
 import types
@@ -15,27 +11,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from conftest import load_script, write_jsonl
+
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"bh23_{name}", SCRIPTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _jsonl(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
 # --- profile_training_kernels: die Rezeptzahl kommt aus dem Lauf, und der Anfang wird wiederholt --
 
 def test_profile_kernels_fits_its_own_line_and_repeats_the_first_arm():
-    mod = _load("profile_training_kernels")
+    mod = load_script("profile_training_kernels")
     # `tmp/compile-spike/kernels-new.json`, die Quelle von "59 %" und "2 611 Aufrufe".
     scaling = [{"crops": c, "ms_per_step": m} for c, m in
                ((64, 14.038), (128, 15.254), (256, 20.073), (512, 32.742), (1024, 46.171))]
@@ -50,7 +34,7 @@ def test_profile_kernels_fits_its_own_line_and_repeats_the_first_arm():
 
 def test_profile_gpu_fixture_needs_no_dataset():
     torch = pytest.importorskip("torch")
-    mod = _load("profile_training_gpu")
+    mod = load_script("profile_training_gpu")
     x, y = torch.zeros((4, 64, 3, 8, 8)), torch.zeros((256, 3))
     cfg = {"dataset": "gibt-es-nicht", "split": {"splits": {"train": []}}}
     got_x, got_y = mod.resident_batch(cfg, {"x": x, "y": y})
@@ -66,10 +50,10 @@ def _disk_damage_env(tmp_path, monkeypatch, matte_rows):
     import chesslab.labeling as labeling
     import chesslab.matte as matte
 
-    mod = _load("audit_disk_damage")
+    mod = load_script("audit_disk_damage")
     monkeypatch.setattr(mod.config, "DATA", dataclasses.replace(mod.config.DATA, root=tmp_path))
     sdir = tmp_path / "recordings" / "s"
-    _jsonl(sdir / "matte.jsonl", matte_rows)
+    write_jsonl(sdir / "matte.jsonl", matte_rows)
     (sdir / "mattes").mkdir(parents=True)
     cv2.imwrite(str(sdir / "mattes" / "f1.png"), np.zeros((4, 4), np.uint8))
     (sdir / "mattes" / "f1.png").rename(sdir / "mattes" / "f1.webp")
@@ -101,11 +85,11 @@ def test_disk_damage_a_later_refusal_takes_the_frame_out(tmp_path, monkeypatch):
 # --- gradcam_summary: `Path.exists` warf jede `mm://`-Zeile weg und meldete Erfolg ----------------
 
 def test_gradcam_summary_refuses_packed_rows(tmp_path, monkeypatch):
-    mod = _load("gradcam_summary")
+    mod = load_script("gradcam_summary")
     dd = tmp_path / "ds"
     dd.mkdir()
     (dd / "split.json").write_text(json.dumps({"splits": {"val": ["s1"]}}), encoding="utf-8")
-    _jsonl(dd / "manifest.jsonl", [{"path": f"mm://s1-80/000001/{sq}", "label": "wP",
+    write_jsonl(dd / "manifest.jsonl", [{"path": f"mm://s1-80/000001/{sq}", "label": "wP",
                                     "session_id": "s1"} for sq in ("a1", "b1")])
     monkeypatch.setattr(mod, "dataset_dir", lambda _n: dd)
     monkeypatch.setattr(mod, "collect",
@@ -120,7 +104,7 @@ def test_gradcam_summary_refuses_packed_rows(tmp_path, monkeypatch):
 # --- settle_lag: ein Ply, das nie ruhig wird, fiel still aus dem Median ---------------------------
 
 def test_settle_lag_names_plies_that_never_settle(tmp_path, monkeypatch, capsys):
-    mod = _load("settle_lag")
+    mod = load_script("settle_lag")
     monkeypatch.setattr(mod, "ROOT", tmp_path)
     rec = tmp_path / "data" / "recordings" / "r"
     rec.mkdir(parents=True)
@@ -142,7 +126,7 @@ def test_settle_lag_names_plies_that_never_settle(tmp_path, monkeypatch, capsys)
 # --- ingest_video_session: der Ausrichtungsbericht nennt seinen Nenner ----------------------------
 
 def test_ingest_alignment_report_names_its_denominator(tmp_path, monkeypatch, capsys):
-    mod = _load("ingest_video_session")
+    mod = load_script("ingest_video_session")
     monkeypatch.setattr(mod.config, "DATA", dataclasses.replace(mod.config.DATA, root=tmp_path))
     monkeypatch.setattr(mod.labeling, "read_log", lambda _d: [
         {"frame": "frames/0000.jpg", "corners": [[0, 0]] * 4},
@@ -160,7 +144,7 @@ def test_ingest_alignment_report_names_its_denominator(tmp_path, monkeypatch, ca
 
 
 def test_ingest_refuses_an_existing_session_dir(tmp_path, monkeypatch):
-    mod = _load("ingest_video_session")
+    mod = load_script("ingest_video_session")
     monkeypatch.setattr(mod.config, "DATA", dataclasses.replace(mod.config.DATA, root=tmp_path))
     (tmp_path / "sessions" / "20260923-120000").mkdir(parents=True)
     monkeypatch.setattr(mod.time, "strftime", lambda _f: "20260923-120000")
@@ -195,7 +179,7 @@ def test_ingest_refuses_an_existing_session_dir(tmp_path, monkeypatch):
 # --- worker_probe: "s/Epoche" mittelte die Kompilier-Epoche mit hinein ----------------------------
 
 def test_worker_probe_reports_warm_epochs(monkeypatch, capsys):
-    mod = _load("worker_probe")
+    mod = load_script("worker_probe")
     rows = [{"train_loss": 0.7, "t_train_s": 70.0, "t_val_s": 0.0, "t_data_s": 9.0},
             {"train_loss": 0.6, "t_train_s": 10.7, "t_val_s": 0.0, "t_data_s": 7.0},
             {"train_loss": 0.5, "t_train_s": 10.7, "t_val_s": 0.0, "t_data_s": 7.0}]
@@ -211,7 +195,7 @@ def test_worker_probe_reports_warm_epochs(monkeypatch, capsys):
 # --- profile_training_gpu: A/B abwechselnd statt fester Reihenfolge, Paritaet ohne Bezug ungemessen -
 
 def test_profile_gpu_ab_cancels_linear_drift():
-    mod = _load("profile_training_gpu")
+    mod = load_script("profile_training_gpu")
     calls = []
 
     def arm(true_ms):
@@ -227,7 +211,7 @@ def test_profile_gpu_ab_cancels_linear_drift():
 
 def test_profile_gpu_fused_parity_without_reference_is_unmeasured():
     torch = pytest.importorskip("torch")
-    mod = _load("profile_training_gpu")
+    mod = load_script("profile_training_gpu")
     got = mod.parity(None, {"w": torch.ones(3)})
     assert got["parameters_equal"] is None and got["max_parameter_error"] is None
 
@@ -235,8 +219,8 @@ def test_profile_gpu_fused_parity_without_reference_is_unmeasured():
 # --- thin_per_position: ungemessene Coverage ist nicht sauber, Kompositen tragen keinen `ply` ------
 
 def _thin_env(tmp_path, monkeypatch, rows):
-    mod = _load("thin_per_position")
-    _jsonl(tmp_path / "src" / "manifest.jsonl", rows)
+    mod = load_script("thin_per_position")
+    write_jsonl(tmp_path / "src" / "manifest.jsonl", rows)
     monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / name)
     monkeypatch.setattr(sys, "argv", ["thin", "src", "dst", "--clean", "1", "--dirty", "0"])
     return mod
@@ -272,9 +256,9 @@ def _read(path: Path) -> list[dict]:
 # --- mix_datasets: zwei FEHLENDE Klassenlisten sind keine gleichen ---------------------------------
 
 def test_mix_refuses_when_no_side_names_its_classes(tmp_path, monkeypatch):
-    mod = _load("mix_datasets")
+    mod = load_script("mix_datasets")
     for name in ("host", "guest"):
-        _jsonl(tmp_path / name / "manifest.jsonl",
+        write_jsonl(tmp_path / name / "manifest.jsonl",
                [{"session_id": f"{name}-s", "path": "x.webp", "label": "wP", "square": "a2"}])
         (tmp_path / name / "split.json").write_text(
             json.dumps({"splits": {"train": [f"{name}-s"], "val": [], "test": []}}), encoding="utf-8")
@@ -288,8 +272,8 @@ def test_mix_refuses_when_no_side_names_its_classes(tmp_path, monkeypatch):
 # --- benchmark_export_warp: `uncached` lief immer zuerst, `cached` gegen den warmen Cache ----------
 
 def test_export_warp_benchmark_alternates_its_arms(tmp_path, monkeypatch):
-    mod = _load("benchmark_export_warp")
-    _jsonl(tmp_path / "log.jsonl", [{"frame": "frames/000001.png"}])
+    mod = load_script("benchmark_export_warp")
+    write_jsonl(tmp_path / "log.jsonl", [{"frame": "frames/000001.png"}])
     realgames, calibration = mod.realgames, mod.calibration
     for attr, value in (("game_dir", lambda name: tmp_path), ("video_path", lambda name: None),
                         ("load_candidate", lambda name: {}), ("detect_rotation", lambda *a: None),
@@ -317,9 +301,9 @@ def test_border_probe_warps_the_frame_its_corners_belong_to(tmp_path, monkeypatc
 
     from chesslab import realgames
 
-    mod = _load("border_probe")
+    mod = load_script("border_probe")
     sdir = tmp_path / "rec"
-    _jsonl(sdir / "log.jsonl", [{"frame": "frames/000007.png", "board": "boards/000007.webp",
+    write_jsonl(sdir / "log.jsonl", [{"frame": "frames/000007.png", "board": "boards/000007.webp",
                                  "board_border": 12, "corners": [[0, 0]] * 4}])
     monkeypatch.setattr(mod, "config", types.SimpleNamespace(DATA=types.SimpleNamespace(recordings=tmp_path)))
 
@@ -360,18 +344,18 @@ def test_border_probe_warps_the_frame_its_corners_belong_to(tmp_path, monkeypatc
 # --- move_strip: die Kachel schrieb eine ungemessene Coverage als `cov=0.00` -----------------------
 
 def test_move_strip_caption_marks_unmeasured_coverage(tmp_path, monkeypatch):
-    mod = _load("move_strip")
+    mod = load_script("move_strip")
     manifest = [{"session_id": "rg-s", "ply": 4, "square": "d1", "frame": f, "label": "wQ",
                  "path": f"mm://s/{f}/d1", "coverage": cov} for f, cov in (("000001", None),
                                                                             ("000002", 0.3))]
-    _jsonl(tmp_path / "ds" / "manifest.jsonl", manifest)
+    write_jsonl(tmp_path / "ds" / "manifest.jsonl", manifest)
     monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / "ds")
     pixels = np.zeros((2, 8, 8, 3), np.uint8)
     monkeypatch.setattr(mod, "open_packed_rows",
                         lambda name, rows: (pixels, {r["path"]: i for i, r in enumerate(rows)}))
     monkeypatch.setattr(mod, "Path", lambda *a: tmp_path.joinpath(*a) if a[0] == "data/recordings"
                         else Path(*a))
-    _jsonl(tmp_path / "data/recordings" / "s" / "interval-check.jsonl", [{"ply": 4, "moved": []}])
+    write_jsonl(tmp_path / "data/recordings" / "s" / "interval-check.jsonl", [{"ply": 4, "moved": []}])
     texts = []
     real_draw = mod.ImageDraw.Draw
 
@@ -394,16 +378,16 @@ _E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 
 
 def _ply_offset_env(tmp_path, monkeypatch, coverage, reviewed):
-    mod = _load("fix_ply_offset")
+    mod = load_script("fix_ply_offset")
     rec = tmp_path / "recordings" / "s"
-    _jsonl(tmp_path / "hits.jsonl", [{"session_id": "rg-s", "frame": "000010", "ply": 0,
+    write_jsonl(tmp_path / "hits.jsonl", [{"session_id": "rg-s", "frame": "000010", "ply": 0,
                                       "better_at": 1, "match_better": 64, "match_own": 62}])
     manifest = [{"session_id": "rg-s", "frame": "000010", "ply": 0, "fen": _START, "square": sq,
                  "label": "wP" if sq == "e2" else "empty", "path": f"mm://s/000010/{sq}",
                  "coverage": coverage} for sq in ("e2", "e4")]
     manifest.append({**manifest[0], "frame": "000020", "ply": 1, "fen": _E4})
-    _jsonl(tmp_path / "ds" / "manifest.jsonl", manifest)
-    _jsonl(rec / "reviewed.jsonl", reviewed)
+    write_jsonl(tmp_path / "ds" / "manifest.jsonl", manifest)
+    write_jsonl(rec / "reviewed.jsonl", reviewed)
     monkeypatch.setattr(mod, "ROOT", tmp_path / "recordings")
     monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / "ds")
     monkeypatch.setattr(mod, "ledger_paths", lambda name: sorted((tmp_path / "recordings").glob(f"*/{name}")),
@@ -444,12 +428,12 @@ def test_ply_offset_still_corrects_a_clean_unjudged_cell(tmp_path, monkeypatch):
 def test_matte_montage_marks_the_square_the_audit_named(tmp_path, monkeypatch):
     from PIL import Image
 
-    mod = _load("matte_audit_montage")
+    mod = load_script("matte_audit_montage")
     monkeypatch.chdir(tmp_path)
     rec = tmp_path / "data" / "recordings" / "rec"
     (rec / "boards").mkdir(parents=True)
     Image.new("RGB", (952, 952)).save(rec / "boards" / "000005.webp")
-    _jsonl(tmp_path / "audit.jsonl", [{"session": "rec", "frame": "000005", "ply": 3, "squares": ["a1"]}])
+    write_jsonl(tmp_path / "audit.jsonl", [{"session": "rec", "frame": "000005", "ply": 3, "squares": ["a1"]}])
     entry = {"frame": "frames/000005.png", "board_size": 928, "board_border": 12}
     monkeypatch.setattr(mod, "read_log", lambda d: [entry], raising=False)
     monkeypatch.setattr(mod, "read_session_meta", lambda d: {}, raising=False)
@@ -477,14 +461,14 @@ def test_matte_montage_marks_the_square_the_audit_named(tmp_path, monkeypatch):
 # --- audit_montage: das Beispiel je Fall war auch ein ungemessener oder dunkler Crop ---------------
 
 def test_audit_montage_picks_a_measured_visible_crop(tmp_path, monkeypatch):
-    mod = _load("audit_montage")
+    mod = load_script("audit_montage")
     (tmp_path / "audit.json").write_text(json.dumps(
         {"rg-s": {"faelle": [{"square": "a8", "label": "bR", "model": "bN", "conf": 0.9, "n": 5}]}}),
         encoding="utf-8")
     rows = [{"session_id": "rg-s", "square": "a8", "label": "bR", "path": f"mm://s/{i}/a8", **extra}
             for i, extra in enumerate(({"coverage": None}, {"coverage": 0.0, "brightness": 10.0},
                                        {"coverage": 0.0, "brightness": 90.0}))]
-    _jsonl(tmp_path / "ds" / "manifest.jsonl", rows)
+    write_jsonl(tmp_path / "ds" / "manifest.jsonl", rows)
     monkeypatch.setattr(mod, "dataset_dir", lambda name: tmp_path / "ds")
     taken = []
 
@@ -506,10 +490,10 @@ def test_audit_montage_picks_a_measured_visible_crop(tmp_path, monkeypatch):
 # --- sweep_report: Rauschen aus dem Sweep selbst, gemittelt ueber 20 statt 5 Epochen --------------
 
 def _sweep(tmp_path, monkeypatch, capsys, arms: dict[str, list[float]]) -> dict[str, str]:
-    mod = _load("sweep_report")
+    mod = load_script("sweep_report")
     axis = "val_visible_piece_acc"
     for arm, vals in arms.items():
-        _jsonl(tmp_path / arm / "metrics.jsonl", [{"epoch": i, axis: v} for i, v in enumerate(vals)])
+        write_jsonl(tmp_path / arm / "metrics.jsonl", [{"epoch": i, axis: v} for i, v in enumerate(vals)])
     monkeypatch.setattr(sys, "argv", ["sweep_report", "--dir", str(tmp_path)])
     assert mod.main() == 0
     lines = capsys.readouterr().out.splitlines()
@@ -535,7 +519,7 @@ def test_sweep_noise_comes_from_the_sweep_not_from_one_old_set(tmp_path, monkeyp
 # --- benchmark_batch_aug: Varianten verschraenkt statt Block fuer Block ---------------------------
 
 def test_batch_aug_benchmark_interleaves_its_variants(monkeypatch):
-    mod = _load("benchmark_batch_aug")
+    mod = load_script("benchmark_batch_aug")
     clock, order = [0.0], []
 
     def arm(name):
@@ -563,11 +547,11 @@ def _pack_donor(tmp_path, monkeypatch):
     paths = _pack_paths(tmp_path, monkeypatch)
     (paths.datasets / "ds").mkdir(parents=True)
     (paths.datasets / "ds" / "dataset.yaml").write_text("session_ids: [sess1]\n", encoding="utf-8")
-    _jsonl(paths.datasets / "ds" / "manifest.jsonl", [])
+    write_jsonl(paths.datasets / "ds" / "manifest.jsonl", [])
     pack_session.write_session_pack("sess1", paths=paths)   # juenger als das Spender-Manifest
     monkeypatch.setattr(config, "DATA", paths)
     monkeypatch.setattr(sys, "argv", ["pack", "--dataset", "ds", "--size", "80", "--dry-run"])
-    return _load("pack_dataset_sessions"), lambda: _unusable(sdir)
+    return load_script("pack_dataset_sessions"), lambda: _unusable(sdir)
 
 
 def test_pack_sessions_names_a_pack_a_verdict_overtook(tmp_path, monkeypatch, capsys):
@@ -607,7 +591,7 @@ class _NoFpsCapture:
 
 
 def _reduce_env(monkeypatch):
-    mod = _load("reduce_video")
+    mod = load_script("reduce_video")
     writers = []
 
     class Writer:

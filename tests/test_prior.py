@@ -1,7 +1,4 @@
-"""The legal-placement prior: what chess allows per square, folded onto the softmax.
-
-Kotlin twin: `android/core-cnn/src/test/kotlin/com/chesslab/cnn/PriorTest.kt`.
-"""
+"""The legal-placement prior folded onto the softmax. Kotlin twin: `PriorTest.kt`."""
 
 import chess
 

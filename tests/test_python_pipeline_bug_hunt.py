@@ -9,6 +9,7 @@ from chesslab import dataset as dataset_mod
 from chesslab.training import packs
 from chesslab.training.data import checkpoint_score
 from chesslab.training.pack_session import _write_rows
+from conftest import write_jsonl
 
 
 def test_zero_holdout_fractions_leave_every_session_in_train():
@@ -48,8 +49,7 @@ def test_eval_records_visible_metrics_when_every_cell_is_visible(tmp_path, monke
         {"path": "unused-b", "label": "wP", "session_id": "s", "frame": "1",
          "square": "a2", "out_size": [8, 8], "coverage": 0.0},
     ]
-    (dataset_dir / "manifest.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    write_jsonl(dataset_dir / "manifest.jsonl", rows)
     (dataset_dir / "split.json").write_text(json.dumps({
         "classes": ["empty", "wP"],
         "splits": {"train": [], "val": [], "test": ["s"]},

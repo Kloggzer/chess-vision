@@ -1,7 +1,7 @@
 """Ein abgeleiteter Pack, schon durch den FESTEN Teil der Kette gedreht.
 
 Fest je Crop sind nur `Resize` und CLAHE; Augmentation wuerfelt je Epoche und bleibt im Loader.
-Was das kostet, was es bringt und warum `config.json` CLAHE trotzdem behaelt: `docs/pack-bake.md`.
+Was das kostet, was es bringt und warum `config.json` CLAHE trotzdem behaelt: `docs/packs.md`.
 """
 
 from __future__ import annotations

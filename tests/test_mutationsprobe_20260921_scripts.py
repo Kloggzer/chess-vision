@@ -1,12 +1,4 @@
-"""Mutationsprobe 2026-09-21 ueber `scripts/`: Sperren neutralisiert, Tests gefahren.
-
-Vier Sperren gab es gar nicht (Fix + roter Test hier), sieben trugen, waren aber ungedeckt —
-ihre Mutation blieb gruen. Beides steht nebeneinander, weil eine ungedeckte Sperre so lange
-haelt, bis jemand sie "vereinfacht".
-
-Der rote Faden ist derselbe wie in CLAUDE.md: eine fehlende Zahl als gemessene 0, zwei Laeufe
-ueber verschiedene Grundgesamtheiten, ein Raster ohne den Rand aus der Log-Zeile.
-"""
+"""Mutationsprobe 2026-09-21 ueber `scripts/`: fehlende und ungedeckte Sperren."""
 
 from __future__ import annotations
 
@@ -16,6 +8,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from conftest import write_jsonl
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -28,18 +22,13 @@ def _log(d: Path, name: str, text: str) -> None:
     (d / f"{name}.log").write_text(text, encoding="utf-8")
 
 
-def _rows(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-
-
 # --- Fehlende Sperren: gefunden, gefixt, hier rot nachgewiesen ------------------------------
 
 
 def _lag_tag(root: Path, tag: str, recs: dict[str, int]) -> None:
     for rec, run in recs.items():
         _log(root / "tmp" / "batch" / tag, rec, f"    e2e4 label frame 10 run frame {run} (ok)\n")
-        _rows(root / "tmp" / "retime" / f"{rec}.json", [])
+        write_jsonl(root / "tmp" / "retime" / f"{rec}.json", [])
         (root / "tmp" / "retime" / f"{rec}.json").write_text(
             json.dumps({"plies": [{"frame_phone": 10, "frame": 10, "held": 3}]}), encoding="utf-8")
         cand = root / "data" / "recordings" / rec / "candidate.json"
@@ -134,7 +123,7 @@ def test_occlusion_reserve_zaehlt_die_fehlende_achse_als_ungemessen(tmp_path):
     import occlusion_reserve
 
     trace = tmp_path / "t.jsonl"
-    _rows(trace, [{"kind": "frame", "changed": 1},
+    write_jsonl(trace, [{"kind": "frame", "changed": 1},
                   {"kind": "frame", "occlVetoed": 0, "shadowVetoed": 0, "changed": 1}])
 
     got = occlusion_reserve.zaehle(trace)
@@ -148,7 +137,7 @@ def test_occlusion_arms_zaehlt_den_frame_ohne_achse_nicht_als_stillen_arm(tmp_pa
     import occlusion_arms
 
     trace = tmp_path / "t.jsonl"
-    _rows(trace, [{"kind": "frame", "cnnHandSquares": 2},
+    write_jsonl(trace, [{"kind": "frame", "cnnHandSquares": 2},
                   {"kind": "frame", "cnnHandSquares": 0, "occlVetoed": 0}])
 
     c = occlusion_arms.zaehle(trace)
@@ -174,7 +163,7 @@ def test_sweep_report_nennt_die_unvollstaendigen_laeufe(tmp_path, monkeypatch, c
 
     axis = "val_visible_piece_acc"
     for arm, n in (("a-lang", 6), ("b-kurz", 2)):
-        _rows(tmp_path / arm / "metrics.jsonl",
+        write_jsonl(tmp_path / arm / "metrics.jsonl",
               [{"epoch": i, axis: 0.9 + i / 1000} for i in range(n)])
     monkeypatch.setattr(sys, "argv", ["sweep_report.py", "--dir", str(tmp_path)])
 

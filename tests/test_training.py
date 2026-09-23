@@ -1,8 +1,4 @@
-"""Stage 5 — torch-free training logic (board accuracy, split filtering, model card).
-
-The actual train/eval/export need torch (ROCm build) and run on the rig; these cover the
-logic that must be correct regardless of hardware.
-"""
+"""Torch-free training logic: board accuracy, split filtering, model card."""
 
 import pytest
 

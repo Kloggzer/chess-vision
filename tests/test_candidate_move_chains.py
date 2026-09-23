@@ -1,14 +1,4 @@
-"""Every recording's label must be a playable game.
-
-A `candidate.json` carries the same game twice: as a SAN list and as a chain of `fen_after`
-positions. They can disagree, and on 2026-08-23 three of them did — each broke on a `cnn_pair`
-commit that wrote one row for two moves, so a ply existed in the FEN chain and nowhere in the SAN
-list. The engine bug is fixed (`9f08b117`, 2026-08-09) and the seven dropped plies were put back;
-this keeps the artefacts honest, which the engine fix alone does not.
-
-The check is the cheapest one that catches it: push the SAN list from `start_fen` and see whether
-chess accepts it. A dropped ply flips the side to move, so the very next SAN is refused.
-"""
+"""Every recording's `candidate.json` SAN list is a playable game from `start_fen`."""
 
 import json
 

@@ -1,8 +1,4 @@
-"""Zweite Bug-Jagd vom 2026-09-16: elf Spuren geprueft, die haltenden hier als roter Test.
-
-Jeder Test ist `xfail(strict=True)` — der Fix steht aus, die Suite bleibt gruen, und sobald
-jemand repariert, schlaegt der Test als XPASS an.
-"""
+"""Zweite Bug-Jagd vom 2026-09-16; offene Funde als `xfail(strict=True)`."""
 
 from __future__ import annotations
 
@@ -17,6 +13,7 @@ import pytest
 import yaml
 
 from chesslab import config
+from conftest import write_jsonl
 
 
 def _paths(tmp_path: Path) -> config.Paths:
@@ -148,7 +145,7 @@ def _recording_with_matte(paths: config.Paths, rows: list[dict]) -> Path:
     (rec / "log.jsonl").write_text(
         "".join(json.dumps({"frame": f"frames/{r['frame']}.png", "board": f"boards/{r['frame']}.webp",
                             "board_border": 0}) + "\n" for r in rows), encoding="utf-8")
-    (rec / "matte.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "matte.jsonl", rows)
     return rec
 
 

@@ -1,10 +1,4 @@
-"""Ein ehrlicher `bpy`-Ersatz, damit die RECHENTEILE der Blender-Skripte pruefbar werden.
-
-Nachgebildet ist genau so viel Blender, wie Kamera, Projektion und Szene-Aufloesung brauchen:
-Objekte mit Ort/Drehung, `scene.render.resolution_*` und `world_to_camera_view`. Jede andere
-Stelle wirft `StubGap` — ein Stub, der still einen Standardwert liefert, erfindet Messwerte.
-`sensor_fit` bleibt AUTO, also entscheidet die groessere Bildkante ueber `sensor_width`.
-"""
+"""Ein ehrlicher `bpy`-Ersatz fuer die Rechenteile der Blender-Skripte; Luecken werfen `StubGap`."""
 
 from __future__ import annotations
 

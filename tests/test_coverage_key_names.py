@@ -1,10 +1,4 @@
-"""`cov` hiess in zwei Nachbarberichten das Gegenteil — beide liest dieselbe Strittig-Lane.
-
-`hand_flags` schrieb den MODELL-Sigmoid als `cov`, `position_flags` die SAM-Matte. Nur eine Seite
-trug einen Doc-Kommentar, und der beschrieb die Nachbardatei. `audit_flags` taufte dieselbe
-Modellzahl ein drittes Mal um. Seit 2026-09-16 heisst die Modellzahl ueberall `model_cov` und die
-Matte `matte_cov`; `cov` wird nur noch GELESEN, fuer Dateien, die schon auf der Platte liegen.
-"""
+"""Modell- und Matte-Coverage heissen `model_cov` und `matte_cov`; `cov` wird nur gelesen."""
 from __future__ import annotations
 
 from chesslab.hand_flags import session_flags

@@ -1,15 +1,11 @@
-"""`unusable-cells.jsonl` reaches the SLICE: a crop a human called unlabelable is no manifest row.
-
-Its own ledger beside `corrections.jsonl`, because every row THERE is one of the 13 identities and
-`read_corrections` promises that to each of its readers.
-"""
+"""`unusable-cells.jsonl` reaches the SLICE: an unlabelable crop is no manifest row."""
 
 import json
 
 import pytest
 
 from chesslab.labeling import CROP_SUFFIX, read_unusable_cells, slice_session
-from conftest import START_FEN
+from conftest import START_FEN, write_jsonl
 
 
 @pytest.fixture
@@ -18,8 +14,7 @@ def session(slice_fixture):
 
 
 def _ledger(sdir, rows):
-    (sdir / "unusable-cells.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "unusable-cells.jsonl", rows)
 
 
 def _mark(square, unusable=True):

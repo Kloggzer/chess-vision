@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from chesslab.calibration import CropParams, compute_homography
-from conftest import make_profile
+from conftest import load_script, make_profile, write_jsonl
 
 FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -124,7 +124,7 @@ def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path,
         rows.append({"frame": f"frames/{i:06d}.png", "corners": quad, "board": rel,
                      "board_size": bs, "board_border": border, "board_straightened": True})
     (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
 
     corners = [[0.0, 0.0], [float(bs), 0.0], [float(bs), float(bs)], [0.0, float(bs)]]
     prof = make_profile(bs, corners=corners, profile="t", camera_index=-1, source="test")
@@ -176,21 +176,17 @@ def test_a_plate_pool_without_an_index_is_not_silently_declared_1920(tmp_path):
 
 def test_the_watchdog_replay_refuses_an_occlusion_run_by_name(tmp_path):
     """`--replay` traegt laut Docstring das Ergebnis des Werkzeugs — auf jedem heutigen Lauf stirbt es."""
-    import importlib.util
 
     from chesslab.training.train import _compact_metrics
 
-    root = __import__("pathlib").Path(__file__).resolve().parents[1]
-    spec = importlib.util.spec_from_file_location("_wd", root / "scripts" / "train_watchdog.py")
-    watchdog = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(watchdog)
+    watchdog = load_script("train_watchdog")
 
     full = [{"epoch": e, "val_occupied_acc": 0.9, "val_macro_recall": 0.8,
              "val_checkpoint_score": 0.7, "val_occ_mae": 0.1} for e in range(1, 25)]
     occ = [_compact_metrics(dict(r)) for r in full]
     run = tmp_path / "run"
     run.mkdir()
-    (run / "metrics.jsonl").write_text("".join(json.dumps(r) + "\n" for r in occ), encoding="utf-8")
+    write_jsonl(run / "metrics.jsonl", occ)
     # Laut statt KeyError: SD_OCC und SD_MACRO sind gegen `val_occupied_acc`/`val_macro_recall`
     # geeicht, und die streicht `_compact_metrics` aus jedem Occlusion-Lauf. Eine
     # `visible_`-Spalte einzusetzen misst etwas anderes unter derselben Schwelle — das braucht

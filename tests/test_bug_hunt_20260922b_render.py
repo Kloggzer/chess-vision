@@ -1,9 +1,4 @@
-"""Bug hunt 2026-09-22b: der Blender-Renderer, gemessen statt geglaubt.
-
-`synth/render_board_v2.py` importiert `bpy` und war deshalb im uv-Env nicht ladbar — kein Test
-beruehrte die Achse, die entscheidet, wie viele Pixel ein Feld bekommt. `tests/bpy_stub` macht die
-Rechenteile ladbar; gepinnt werden hier ZAHLEN (102,4 / 72,4 / ~79 px je Feld), nicht Symbole.
-"""
+"""Der Blender-Renderer `synth/render_board_v2.py` ueber `tests/bpy_stub`: Pixel je Feld."""
 
 from __future__ import annotations
 

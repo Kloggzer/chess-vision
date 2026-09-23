@@ -1,9 +1,5 @@
-"""Beide Ketten-Artefakte sagen, zu welchem Export sie gehoeren.
-
-Ohne Stempel haelt ein Reads-Lauf von VOR dem letzten Re-Export die Sprosse genauso geschlossen
-wie ein frischer — derselbe Riss wie bei der driftenden `coverage`. `platform/app/lib/chain.ts`
-rechnet genau diese Form nach.
-"""
+"""Beide Ketten-Artefakte tragen den Stempel ihres Exports (`platform/app/lib/chain.ts`);
+eine Gate-Messung ueberschreibt die kanonische `model-reads.jsonl` nicht."""
 from __future__ import annotations
 
 import json
@@ -67,3 +63,19 @@ def test_the_pass_report_names_the_export_it_ran_on(session, tmp_path, monkeypat
     report = json.loads(Path(path).read_text(encoding="utf-8"))
     assert report["upserted"] == 3
     assert report["_source"] == {"log": provenance.session_stamp(session)}
+
+
+def test_reads_can_be_written_beside_the_canonical_file(session, tmp_path):
+    canonical = session / occluded_model.READS_FILE
+    canonical.write_text('{"_model": "haendisch"}\n', encoding="utf-8")
+
+    res = occluded_model.read_session("s", tmp_path / "run", out="model-reads.p4a-80-clahe.jsonl")
+
+    assert Path(res["path"]).name == "model-reads.p4a-80-clahe.jsonl", (
+        "read_session writes only to the fixed READS_FILE, so measuring the coverage_gate for "
+        "eight bundled models overwrites the canonical reads eight times — the file the "
+        "labeling lane, audit-flags, chain-steps and provenance all read."
+    )
+    assert json.loads(canonical.read_text(encoding="utf-8"))["_model"] == "haendisch", (
+        "the canonical model-reads.jsonl was overwritten by a side measurement"
+    )

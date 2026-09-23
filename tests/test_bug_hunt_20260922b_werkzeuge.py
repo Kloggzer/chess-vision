@@ -1,10 +1,4 @@
-"""Skript-Jagd 2026-09-22b: Nachweise, die "gleich" melden, ohne verglichen zu haben.
-
-Die Leitfrage war, ob ein Paritaetsnachweis Erfolg melden kann, wenn die Schnittmenge leer ist,
-die Schleife ueber null Elemente laeuft oder ein Fall stumm uebersprungen wird. Dazu vier
-Zahlenlieferanten, die ueber eine Teilmenge summierten, die niemand ablesen konnte.
-Jeder Test hier war vor dem zugehoerigen Fix rot.
-"""
+"""Skript-Jagd 2026-09-22b: Nachweise, die "gleich" melden, ohne verglichen zu haben."""
 from __future__ import annotations
 
 import json

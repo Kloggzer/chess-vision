@@ -1,10 +1,4 @@
-"""Gegenlesen der Trainings-Aenderungen vom 2026-09-17 — drei Luecken, kein Fix.
-
-Die Null-Regel (`brightness`/`coverage` als UNGEMESSEN) wurde heute an vier Stellen gebraucht und
-an drei repariert. Die vierte steht in `run_train` und entscheidet die KLASSENGEWICHTE.
-Dazu: die gruenen Tests der beiden gepackten Loader rechnen den Ausdruck nach, statt die Loader
-zu bauen — ein Ruecknehmen des Fixes laesst sie gruen.
-"""
+"""Gegenlesen der Trainings-Aenderungen vom 2026-09-17: Null-Regel in `run_train`, Loader-Tests."""
 from __future__ import annotations
 
 import inspect

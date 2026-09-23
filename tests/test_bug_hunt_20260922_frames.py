@@ -1,8 +1,4 @@
-"""Bug-Jagd 2026-09-22 ueber Frame-Auswahl, Hand-Gate und Matte.
-
-Dieselbe Familie wie die Vorfaelle davor: etwas UNGEMESSENES wird als gemessener Normalwert
-weitergereicht. Jeder Test hier faellt auf dem Code von vorher.
-"""
+"""Bug-Jagd 2026-09-22: Frame-Auswahl, Hand-Gate und Matte."""
 
 from __future__ import annotations
 
@@ -16,6 +12,7 @@ import yaml
 
 from chesslab import config
 from chesslab.ioutil import read_jsonl
+from conftest import write_jsonl
 
 
 def _paths(tmp_path: Path) -> config.Paths:
@@ -35,7 +32,7 @@ def _session_for_worker(paths: config.Paths, monkeypatch, stems: list[str]) -> P
         assert cv2.imwrite(str(rec / "boards" / f"{stem}.png"), np.zeros((8, 8, 3), np.uint8))
         rows.append({"frame": f"frames/{stem}.png", "board": f"boards/{stem}.png",
                      "dirty": True, "dirty_reason": "occluded"})
-    (rec / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "log.jsonl", rows)
     monkeypatch.setattr(matte, "read_log", lambda _d: rows)
     monkeypatch.setattr(matte, "read_session_meta", lambda _d: {"profile": "p"})
     monkeypatch.setattr(matte, "usable_board", lambda *_a: True)

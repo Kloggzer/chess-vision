@@ -1,9 +1,4 @@
-"""Bug hunt 2026-09-22 — Datensatzbau, Sessions, Crop-Pool.
-
-Vier Funde derselben Familie: eine Politik, die nirgends steht, ist beim naechsten Bau weg; ein
-Name, der nichts beigetragen hat, wird trotzdem als Beitrag gefuehrt; und zwei Tueren am
-Treuhaender vorbei, die eine tolerierte halbe Zeile in echte Beschaedigung verwandeln.
-"""
+"""Bug hunt 2026-09-22: Datensatzbau, Sessions, Crop-Pool."""
 
 from __future__ import annotations
 
@@ -18,6 +13,7 @@ import yaml
 from chesslab import config, labeling, sessions
 from chesslab import dataset_build as DB
 from chesslab.ioutil import read_jsonl
+from conftest import write_jsonl
 
 
 def _crop_row(paths: config.Paths, label: str, sid: str, frame: str, square: str,
@@ -36,7 +32,7 @@ def _crop_row(paths: config.Paths, label: str, sid: str, frame: str, square: str
 def _pool(paths: config.Paths, rows: list[dict]) -> None:
     mp = paths.crop_pool / "manifest.jsonl"
     mp.parent.mkdir(parents=True, exist_ok=True)
-    mp.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(mp, rows)
 
 
 def _corpus(paths: config.Paths) -> list[dict]:

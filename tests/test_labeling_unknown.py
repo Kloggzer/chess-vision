@@ -3,8 +3,8 @@
 
 import pytest
 
-from chesslab.labeling import CROP_SUFFIX, slice_session
-from conftest import START_FEN
+from chesslab.labeling import CROP_SUFFIX
+from conftest import START_FEN, slice_small, write_jsonl
 
 
 @pytest.fixture
@@ -13,26 +13,10 @@ def session(slice_fixture):
                            "unknown_squares": ["e2", "e4"]}])
 
 
-def _corrections(sdir, by_square, frame):
-    """A correction is a row in the session's own ledger now, not an argument."""
-    import json as _json
-
-    (sdir / "corrections.jsonl").write_text(
-        "".join(_json.dumps({"session_id": "s1", "frame": frame, "square": sq,
-                             "label": lab}) + "\n"
-                for sq, lab in by_square.items()), encoding="utf-8")
-
-
-def _slice(session, **kw):
-    sdir, prof, root = session
-    return slice_session(sdir, profile=prof, manifest_path=root / "m.jsonl",
-                         squares_root=root / "squares", out_size=(32, 32), **kw)
-
-
 def test_a_square_the_fen_cannot_vouch_for_writes_no_crop(session):
     """Until today `slice` did not read the field at all, so these crops went into training under
     a label measured to be stale by up to 4.6 s — always the same wrong label on the same square."""
-    res = _slice(session)
+    res = slice_small(session)
 
     assert res["unknown_dropped"] == 2
     assert res["crops"] == 62, "the other 62 squares are unaffected"
@@ -43,9 +27,11 @@ def test_a_square_the_fen_cannot_vouch_for_writes_no_crop(session):
 def test_a_human_ruling_outranks_the_doubt(session):
     """The between-commit window is where the hands are. A person who names the cell knows
     something the FEN does not, and that ruling outranks the gate."""
-    _corrections(session[0], {"e2": "empty"}, "000001")
+    write_jsonl(session[0] / "corrections.jsonl",
+                [{"session_id": "s1", "frame": "000001", "square": sq, "label": lab}
+                 for sq, lab in [("e2", "empty")]])
 
-    res = _slice(session)
+    res = slice_small(session)
 
     assert res["unknown_dropped"] == 1, "only e4 is still unruled"
     assert res["crops"] == 63

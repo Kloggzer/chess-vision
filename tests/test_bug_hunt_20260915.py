@@ -11,7 +11,7 @@ import pytest
 from chesslab import config, dataset, dataset_build
 from chesslab.ioutil import read_jsonl, write_rows
 from chesslab.training import packs
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 SIDE = 8
 CELLS = (("wP", "0000", "e2"), ("wK", "0001", "e1"), ("empty", "0002", "c4"))
@@ -24,8 +24,7 @@ def _write_pack(paths: config.Paths, name: str, sid: str, side: int) -> None:
              "frame": frame, "ply": int(frame), "square": square, "square_color": "light",
              "fen": "x", "out_size": [side, side], "coverage": 0.0}
             for label, frame, square in CELLS]
-    (d / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
-                                      encoding="utf-8")
+    write_jsonl(d / "manifest.jsonl", rows)
     packs.write_meta(d, rows, side, side)
     (d / packs._IMAGE).write_bytes(b"\x07" * (len(rows) * side * side * 3))
 
@@ -124,7 +123,7 @@ def test_write_boards_keeps_the_store_of_rows_it_never_rewrites(tmp_path, monkey
         cv2.imwrite(str(sdir / row["frame"]), np.zeros((bs, bs, 3), np.uint8))
     cv2.imwrite(str(sdir / "boards" / "000001.webp"), np.zeros((bs + 8, bs + 8, 3), np.uint8))
     (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     _profile_yaml(config.DATA, board_size=bs)
 
     monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))

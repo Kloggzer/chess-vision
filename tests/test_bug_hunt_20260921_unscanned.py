@@ -1,11 +1,5 @@
-"""Zwei Berichte, die UNGEMESSENES als gemessen ausliefern — dieselbe Wurzel wie Punkt 28.
-
-`frame_hands` sagt im Kopf ausdruecklich, nur fuer die Aufnahmen in `_sessions` heisse eine
-fehlende Zeile "keine Hand". Je FRAME gilt das nicht: ein exportierter Frame ohne Scan-Zeile
-faellt still weg und liest sich danach handfrei. `audit_flags --visible` verspricht dasselbe
-und bricht es fuer jede Aufnahme ohne Matte: `covered_cells` ist dort leer, also gilt jede
-Zelle als sichtbar gemessen.
-"""
+"""`frame_hands` und `audit_flags --visible` duerfen UNGEMESSENES nicht als gemessen
+ausliefern."""
 from __future__ import annotations
 
 import json

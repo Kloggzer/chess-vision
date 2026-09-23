@@ -37,15 +37,33 @@ def test_a_visible_cell_that_left_its_position_is_the_card():
 
 
 def test_a_covered_cell_is_never_asked():
-    """Unter der Hand nimmt die Coverage die Zelle aus dem Loss — da ist nichts zu benennen.
-
-    `departures` nimmt sie aus `settle_left` — aber nur mit der Coverage VON DAMALS; die Matte ist
-    juenger (2026-09-21: 4 335 von 4 678 `changed`-Karten lagen ueber 0,15), also filtert
-    `frame_flags` seit dann selbst.
-    """
+    """Unter der Hand nimmt die Coverage die Zelle aus dem Loss, auch ohne `settle_left`."""
     flags = frame_flags(_entry(dev=_dev(E4, SETTLE_LIMIT + 10)), {"e4": MATTE_DIRTY + 0.1}, "rg-x")
 
     assert flags == []
+
+
+def test_a_cell_the_matte_calls_covered_is_no_card_even_when_it_left():
+    """Die Matte ist juenger als `settle_left`: eine seither verdeckte Zelle wird keine Karte."""
+    entry = _entry(left=["e4"], dev=_dev(E4, SETTLE_LIMIT + 10))
+
+    assert frame_flags(entry, {"e4": MATTE_DIRTY + 0.1}, "rg-x") == []
+
+
+def test_a_covered_cell_is_no_card_even_when_it_was_never_readable():
+    """Auch der `unreadable`-Zweig: was der Verlust maskiert, hat der Mensch nicht zu benennen."""
+    seen = [1.0] * 64
+    seen[E4] = 0.2
+
+    assert frame_flags(_entry(left=["e4"], seen=seen), {"e4": 0.9}, "rg-x") == []
+
+
+def test_unmeasured_coverage_still_asks():
+    """`None` heisst UNGEMESSEN, nicht sichtbar und nicht verdeckt — die Karte bleibt."""
+    entry = _entry(left=["e4"], dev=_dev(E4, SETTLE_LIMIT + 10))
+
+    assert [f["square"] for f in frame_flags(entry, None, "rg-x")] == ["e4"]
+    assert [f["square"] for f in frame_flags(entry, {}, "rg-x")] == ["e4"]
 
 
 def test_a_cell_the_alpha_barely_saw_is_asked_as_unreadable():

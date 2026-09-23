@@ -388,7 +388,7 @@ def spread_indices(lo: int, hi: int, n: int) -> list[int]:
 
     This is what `per_position` samples a quiet window with: a position that stood for ten seconds
     and one that stood for two then weigh the same. Positions are what the corpus is short of —
-    246 of them over 9 386 boards (`docs/sampling.md`).
+    246 of them over 9 386 boards (`docs/frame-scan.md`).
     """
     span = hi - lo
     if span <= 0 or n <= 0:

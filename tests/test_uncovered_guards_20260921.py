@@ -1,8 +1,4 @@
-"""Vier Sperren, die eine Mutationsprobe am 2026-09-21 ungedeckt fand.
-
-Jede war von Hand neutralisiert, und die ganze Suite blieb gruen. Hier steht je ein Test, der
-ohne die Sperre den Schaden fasst, den ihr Kommentar beschreibt.
-"""
+"""Sperren, die eine Mutationsprobe ungedeckt fand, je mit einem Test fuer ihren Schaden."""
 
 from __future__ import annotations
 

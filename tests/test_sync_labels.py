@@ -12,11 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import sync_labels as sl  # noqa: E402
 
+from conftest import write_jsonl
+
 
 def _rec(root: Path, session: str, name: str, rows: list[dict]) -> None:
     d = root / session[3:]
     d.mkdir(parents=True, exist_ok=True)
-    (d / name).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(d / name, rows)
 
 
 @pytest.fixture

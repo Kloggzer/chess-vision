@@ -1,9 +1,4 @@
-"""Tests for training/pack.py — memmap packing, chunking and resume.
-
-`pack_dataset` had no coverage at all while it grew the parts that repeatedly broke in practice:
-whole-file mappings blowing the Windows commit limit, and a crash costing the entire multi-hour
-pack. These tests pin the round-trip, the small-chunk behaviour and the resume sidecar.
-"""
+"""Tests for training/pack.py: memmap packing, chunking and resume."""
 
 from __future__ import annotations
 

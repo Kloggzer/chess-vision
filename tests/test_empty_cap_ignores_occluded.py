@@ -1,9 +1,4 @@
-"""`occluded` ist ein Sehzustand, keine Identitaet — auf beiden Seiten der Kappe.
-
-Aus dem MINIMUM ist es schon heraus (sonst zoege es jede echte Figurenklasse herunter). Im
-MAXIMUM stand es noch: auf einem 14-Klassen-Bau ist es die groesste Klasse, und `empty_cap`
-haengt dann an der Verdeckung statt an der groessten echten Figurenklasse.
-"""
+"""`occluded` ist ein Sehzustand, keine Identitaet, auf beiden Seiten von `empty_cap`."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""`chesslab dataset folds` — session-grouped out-of-fold splits over ONE packed corpus.
-
-`train --split` and `check_not_circular` were built for folds (docs/cross-labeling-literature.md
-settles on k = 4); nothing wrote the files, so every audit round hand-rolled them.
-"""
+"""`chesslab dataset folds`: session-grouped out-of-fold splits over ONE packed corpus."""
 
 from __future__ import annotations
 

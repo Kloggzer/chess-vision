@@ -1,8 +1,4 @@
-"""`retime` liest `candidate.json`, rechnet Minuten und ersetzt die Datei aus seinem Lesestand.
-
-Bestaetigt ein Mensch in `/confirm` waehrenddessen, war sein Urteil (`confirmed`,
-`reviewed_plies`) nach dem Ersetzen weg. Ueber `retime.retime`, die Funktion, die die CLI ruft.
-"""
+"""`retime` erhaelt ein gleichzeitiges menschliches Urteil in `candidate.json`."""
 from __future__ import annotations
 
 import json

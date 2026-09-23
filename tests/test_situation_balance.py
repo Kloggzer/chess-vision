@@ -1,9 +1,4 @@
-"""`--balance`: gleiche Ziehungsmasse je Situation — und wahlweise je Session.
-
-Der Korpus traegt 1 643 Situationen auf 184 735 Crops, Gruppen 13,6x ungleich. Ohne Balance
-holen die groessten 10 % der Situationen 30 % aller Ziehungen — und `wK` kennt 22 Platzierungen,
-die es 131-fach je Epoche sieht.
-"""
+"""`--balance`: gleiche Ziehungsmasse je Situation, wahlweise je Session."""
 
 from __future__ import annotations
 

@@ -966,7 +966,7 @@ def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
     homography is built from it, and the map then reads through the barrel still in the file.
     """
     # Kubisch, weil hier BILDDATEN entstehen: bilinear behaelt 63,6 % der Laplace-Energie gegen
-    # 92,1 % (`docs/warp-resampling.md`). Der Gitter-Warp bleibt bilinear — er misst, und eine
+    # 92,1 % (`docs/export-decode.md`). Der Gitter-Warp bleibt bilinear — er misst, und eine
     # kubische Messung verschob das gefittete Quad um 2,78 px.
     return warp_padded(frame, profile, corners, crop_border_px(profile), mesh, lens,
                        interpolation=cv2.INTER_CUBIC)
@@ -983,7 +983,7 @@ def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
 
     [interpolation] steuert NUR den schnellen Zweig; der Mesh-Zweig war immer kubisch. Der
     Crop-Warp bittet um kubisch (Bilddaten), der Gitter-Warp nicht: kubisch gemessen verschob das
-    gefittete Quad um 2,78 px (`docs/warp-resampling.md`).
+    gefittete Quad um 2,78 px (`docs/export-decode.md`).
     """
     bs = profile.board_size
     quad = corners if lens is None else undistort_points(corners, lens)

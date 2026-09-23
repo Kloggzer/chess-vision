@@ -1,9 +1,5 @@
-"""Fuenf Architektur-Hypothesen aus dem Codex-Review, am Code geprueft (2026-09-23).
-
-Belegte Befunde stehen als `xfail(strict=True)`: rot, sobald jemand den Fehler behebt — dann
-entparken. Gruene Tests halten fest, was widerlegt ist oder heute noch zusammenpasst.
-Bericht: `docs/architektur-review-python-2026-09-23.md`.
-"""
+"""Architektur-Hypothesen aus dem Codex-Review; Befunde als `xfail(strict=True)`.
+Bericht: `docs/architektur-review-python-2026-09-23.md`."""
 
 from __future__ import annotations
 
@@ -15,6 +11,7 @@ import numpy as np
 import pytest
 
 from chesslab import config, ioutil, provenance, sessions, temporal_flags, temporal_matte
+from conftest import write_jsonl
 
 
 def _recording(tmp_path: Path, monkeypatch, name: str = "g") -> Path:
@@ -141,7 +138,7 @@ def test_a_refused_upsert_leaves_the_alphas_alone(tmp_path, monkeypatch):
     rec = _recording(tmp_path, monkeypatch)
     rows = [{"frame": "000001", "coverage": {"a1": 0.0}},
             {"frame": "000001", "source": "upsert", "coverage": {"a1": 0.9}}]
-    (rec / "matte.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(rec / "matte.jsonl", rows)
     (rec / "mattes" / "000001.webp").write_bytes(b"upsert-alpha")
     (rec / "mattes" / "000001.sam.webp").write_bytes(b"sam-alpha")
     proposals = tmp_path / "reports" / "temporal-mattes" / "g" / "local"

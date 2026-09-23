@@ -16,7 +16,7 @@ from chesslab.calibration import (
     warp_board_for_crops,
 )
 from chesslab.framescan import cell_sharpness
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 SIDE = 320
 CELL = SIDE // 8
@@ -67,7 +67,7 @@ def test_both_warp_paths_resample_the_same_way():
     War bis 2026-09-14 verletzt: ohne Mesh bilinear, mit Mesh kubisch — 63 Graustufen, zwei
     Schaerfe-Domaenen aus derselben Geometrie. Der GITTER-Warp weicht weiterhin ab, und das
     ist Absicht: kubisch gemessen verschob er das gefittete Quad um 2,78 px
-    (`docs/warp-resampling.md`).
+    (`docs/export-decode.md`).
     """
     prof = _profile()
     pad = crop_border_px(prof)
@@ -93,7 +93,7 @@ def _session(tmp_path, monkeypatch, rows, board_shape):
     (sdir / "dirty").mkdir(parents=True)
     for row in rows:
         cv2.imwrite(str(sdir / row["board"]), np.full((*board_shape, 3), 128, np.uint8))
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "rg-s1", "profile": "t", "mode": "track"}), encoding="utf-8")
     return sdir

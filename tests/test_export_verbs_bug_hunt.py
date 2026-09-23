@@ -1,7 +1,4 @@
-"""Bug hunt over the export / game-record verbs: `session`, `realgames`, the board store, retime.
-
-Every test here FAILS today and its message names the defect.
-"""
+"""Bug hunt over the export / game-record verbs: `session`, `realgames`, board store, retime."""
 
 import json
 
@@ -10,7 +7,7 @@ import numpy as np
 import yaml
 
 from chesslab import config
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 CORNERS = [[10.0, 10.0], [190.0, 10.0], [190.0, 150.0], [10.0, 150.0]]
@@ -44,8 +41,7 @@ def _session(tmp_path, monkeypatch, rows, *, frame=True, board=False):
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "rg-g", "profile": "desktop", "mode": "track"}),
         encoding="utf-8")
-    (sdir / "log.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     if frame:
         cv2.imwrite(str(sdir / "frames" / "000001.png"), _picture())
     if board:

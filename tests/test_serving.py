@@ -1,8 +1,4 @@
-"""Tests für die Serving-Facade (specs/rework/01-serving-facade.md).
-
-Headless, kein echtes Modell nötig — prüft nur, dass die Crop-Pipeline mit dem
-RunSpec-Vertrag übereinstimmt und der slice_session-Umbau byte-identisch bleibt.
-"""
+"""Tests für die Serving-Facade (specs/rework/01-serving-facade.md)."""
 
 from __future__ import annotations
 

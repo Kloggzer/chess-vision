@@ -1,10 +1,4 @@
-"""Skript-Jagd 2026-09-22: fuenf Messwerkzeuge, die Ungemessenes als Messwert weiterreichten.
-
-Dieselbe Familie wie am 2026-09-20/21: ein Lauf OHNE Ergebnisblock wurde als "null Treffer"
-verbucht, fremde Modell-Lesungen als die eigenen, zweimal stand eine erfundene 30-fps-Zeitbasis
-dort, wo die Aufnahme ihre eigene mitbringt, und die Coverage-Sigmoid lief als 14. Klasse mit.
-Jeder Test hier war vor dem zugehoerigen Fix rot.
-"""
+"""Skript-Jagd 2026-09-22: Messwerkzeuge, die Ungemessenes als Messwert weiterreichten."""
 from __future__ import annotations
 
 import json

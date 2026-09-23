@@ -1,7 +1,4 @@
-"""Stage 1 headless tests: profile round-trip + square_to_crop_box geometry.
-
-The interactive new/check flows need a camera + display and are exercised on the rig.
-"""
+"""Headless tests: profile round-trip and square_to_crop_box geometry."""
 
 import cv2
 import numpy as np

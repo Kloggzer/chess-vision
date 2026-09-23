@@ -11,16 +11,16 @@ import pytest
 import yaml
 
 from chesslab import config
-from chesslab.calibration import CalibrationProfile
 from chesslab.labeling import slice_session
 from chesslab.training import pack_session, packs
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
+from test_labeling import _frame_with_markers
 
 START_FEN = chess.Board().fen()
 
 #: Nachgezogen 2026-09-14: der Crop-Warp interpoliert kubisch statt bilinear, also aendern sich die
 #: PIXEL — als einziges. Geometrie und Zeilen blieben, `ROWS_SHA` ist unveraendert und das Quad der
-#: Paritaets-Fixtures wich um 0,0 px ab (`docs/warp-resampling.md`). Davor, seit `feat/session-packs`:
+#: Paritaets-Fixtures wich um 0,0 px ab (`docs/export-decode.md`). Davor, seit `feat/session-packs`:
 #: fccc9558548fc52072acbf33f56b065c9c1e4e98a77cd2a4abe480370f9a4418. `ts` faellt vorm Hashen weg.
 CROPS_SHA = "d3e9b05e7888b090bb56849579991384d2fe4e4fdd88af96c416e20497237b75"
 #: Nachgezogen 2026-09-18: ein Frame, den der Hand-Gate als sauber gemessen hat, traegt jetzt
@@ -28,22 +28,6 @@ CROPS_SHA = "d3e9b05e7888b090bb56849579991384d2fe4e4fdd88af96c416e20497237b75"
 #: stimmt unveraendert, und das ist der Beweis, dass nur die Zeile wuchs. Davor, seit 2026-09-14:
 #: fa07f95118afdd94191cd6e5444832caeaf71d49282100a361a3b920fb755e42.
 ROWS_SHA = "e76970d4c0f810974909a2ac7178f048132496bf3b5408df737ef06c17140b53"
-
-
-def _identity_profile(board_size: int = 800) -> CalibrationProfile:
-    return make_profile(board_size)
-
-
-def _frame_with_markers(board_size=800):
-    """Frame mit 4 ArUco-Markern an den Ecken (Slicing ist jetzt marker-basiert)."""
-    d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-    frame = np.full((board_size, board_size, 3), 255, dtype=np.uint8)
-    s, off = 80, 80
-    for mid, (cx, cy) in {0: (off, off), 1: (board_size - off, off),
-                          2: (board_size - off, board_size - off), 3: (off, board_size - off)}.items():
-        m = cv2.cvtColor(cv2.aruco.generateImageMarker(d, mid, s), cv2.COLOR_GRAY2BGR)
-        frame[cy - s // 2:cy + s // 2, cx - s // 2:cx + s // 2] = m
-    return frame
 
 
 def _make_session(tmp_path, session_id="sess1", board_size=800, bgr=None):
@@ -70,7 +54,7 @@ def test_slice_output_is_byte_identical_after_the_seam(tmp_path):
     sdir = _make_session(tmp_path)
     manifest = tmp_path / "manifests" / "crops.jsonl"
     squares_root = tmp_path / "squares"
-    stats = slice_session(sdir, profile=_identity_profile(), manifest_path=manifest,
+    stats = slice_session(sdir, profile=make_profile(), manifest_path=manifest,
                           squares_root=squares_root)
     assert stats["crops"] == 64 and stats["session_id"] == "sess1"
 
@@ -93,7 +77,7 @@ def _pack_paths(tmp_path, monkeypatch) -> config.Paths:
     from chesslab import labeling
 
     monkeypatch.setattr(labeling, "_profile_for_session",
-                        lambda meta, profile: _identity_profile())
+                        lambda meta, profile: make_profile())
     return config.Paths(root=tmp_path)
 
 
@@ -110,7 +94,7 @@ def test_session_pack_rows_match_slice_rows(tmp_path, monkeypatch):
     sdir = _make_session(tmp_path)
     paths = _pack_paths(tmp_path, monkeypatch)
     manifest = tmp_path / "manifests" / "crops.jsonl"
-    slice_session(sdir, profile=_identity_profile(), manifest_path=manifest,
+    slice_session(sdir, profile=make_profile(), manifest_path=manifest,
                   squares_root=tmp_path / "squares")
     slice_rows = [json.loads(line) for line in
                   manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -182,8 +166,7 @@ def _kotlin_pack(dir_: Path, name: str = "sid", side: int = 4, short: bool = Fal
     dir_.mkdir(parents=True)
     rows = [{"path": f"{packs.MM_PREFIX}{name}/0000/{sq}", "label": "empty",
              "out_size": [side, side]} for sq in ("a1", "a2", "a3")]
-    (dir_ / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dir_ / "manifest.jsonl", rows)
     packs.write_meta(dir_, rows, side, side)
     raw = np.arange(len(rows) * side * side * 3, dtype=np.uint8).tobytes()
     (dir_ / packs._IMAGE).write_bytes(raw[:-1] if short else raw)

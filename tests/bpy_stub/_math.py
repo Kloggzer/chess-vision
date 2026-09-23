@@ -1,9 +1,4 @@
-"""Das Stueck `mathutils`, das die Rechenteile von `synth/render_board_v2.py` anfassen.
-
-Alles hier ist Schulgeometrie (rechtshaendige 4x4-Matrizen, XYZ-Euler) — kein Blender-Verhalten
-wird geraten. Wo eine Blender-Eigenheit gefragt waere (der Kippfall von `to_track_quat`), wirft
-der Stub, statt einen plausiblen Wert zu liefern.
-"""
+"""Das Stueck `mathutils`, das `synth/render_board_v2.py` braucht; Blender-Eigenheiten werfen."""
 
 from __future__ import annotations
 

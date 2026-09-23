@@ -1,13 +1,4 @@
-"""Aufnahmen, die NIE ins Training duerfen — und eine Wache, die es merkt.
-
-`2026-09-15-16-54-44` ist das einzige ganze Spiel, das kein Modell je gesehen hat (Nutzer,
-2026-09-17). Genau daran ist der Label-Audit heute gescheitert: jeder "Zeuge" hatte auf dem
-Material trainiert, das er beurteilen sollte, und drei Modelle aus zwei Architektur-Familien
-lasen denselben Turm zuversichtlich als Springer.
-
-`assign_sessions_to_splits` kennt `force_train`, aber kein Gegenstueck — die Entscheidung haelt
-also nur, solange jemand `--add-test` nicht vergisst. Dieser Test merkt es.
-"""
+"""Aufnahmen, die NIE ins Training duerfen, und eine Wache, die es merkt."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""Bug-Jagd 2026-09-16 (c) — Python-Trainingsweg: `training/` und `dataset_build.py`.
-
-Jeder Test haelt EINEN Fund fest. `xfail(strict=True)` markiert die, deren Fix Verhalten
-aendert und darum nicht gebaut wurde.
-"""
+"""Bug-Jagd 2026-09-16 (c): Python-Trainingsweg, `training/` und `dataset_build.py`."""
 from __future__ import annotations
 
 import json
@@ -14,6 +10,7 @@ from chesslab import config
 from chesslab.dataset_build import _donor_pack_size, _donor_policy
 from chesslab.training.evaluate import eval_summary
 from chesslab.training.train import started_at
+from conftest import write_jsonl
 
 
 def _pack(paths: config.Paths, name: str, h: int, w: int) -> None:
@@ -29,8 +26,7 @@ def _dataset(paths: config.Paths, name: str, rows: list[dict], cfg: dict) -> Non
 
     d = paths.datasets / name
     d.mkdir(parents=True, exist_ok=True)
-    (d / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(d / "manifest.jsonl", rows)
     (d / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
 
 

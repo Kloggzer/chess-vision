@@ -1,10 +1,4 @@
-"""Skript-Jagd 2026-09-21: vier Messwerkzeuge, die eine Luecke als Ergebnis ausgaben.
-
-Dasselbe Muster wie am 2026-09-20, nur eine Ebene hoeher: nicht die fehlende ZAHL wird zur 0,
-sondern der fehlende LAUF zum Vergleich. Zwei abgebrochene Laeufe sind nicht "unveraendert", und
-eine Ablation ueber 10 Aufnahmen ist kein Delta gegen einen Bezug ueber 12.
-Jeder Test hier war vor dem zugehoerigen Fix rot.
-"""
+"""Skript-Jagd 2026-09-21: Messwerkzeuge, die einen fehlenden Lauf als Vergleich ausgaben."""
 from __future__ import annotations
 
 import re

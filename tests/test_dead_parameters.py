@@ -1,14 +1,4 @@
-"""Was am 2026-09-14 als wirkungslos entfernt wurde, bleibt entfernt.
-
-Neun Nur-Schlüsselwort-Parameter trugen immer ihren Default: kein Aufrufer in `src/`, `tests/`
-oder `scripts/` hat sie je gesetzt. Ein Parameter, der nie einen anderen Wert sieht, liest sich
-wie eine Stellschraube und ist keine — und der Zweig dahinter ist toter Code (Nutzer, 2026-09-14:
-"code ohne wirkung brauche ich nämlich nicht").
-
-`method` ist die Ausnahme: dort fehlte der AUFRUFER, nicht die Wirkung. `--method difference`
-schrieb Vorschläge, die kein Verb adoptieren konnte. `temporal-adopt`, `temporal-upsert` und
-`temporal-pass` reichen ihn seitdem durch.
-"""
+"""Als wirkungslos entfernte Parameter bleiben entfernt; `method` wird durchgereicht."""
 from __future__ import annotations
 
 import inspect

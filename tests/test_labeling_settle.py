@@ -1,16 +1,11 @@
-"""`settle_dev` reaches the SLICE: a cell whose pixels left the position it is labelled with.
-
-The exporter's `unknown_squares` covers the NEXT move's footprint. Nothing covered a square that
-already holds what was just played while the FEN still calls it empty — measured over the corpus,
-the 60 worst such cells are fingers and standing pieces on squares labelled `empty`.
-"""
+"""`settle_dev` reaches the SLICE: a cell whose pixels left its labelled position."""
 
 import json
 
 import pytest
 
-from chesslab.labeling import CROP_SUFFIX, SETTLE_LIMIT, all_squares, slice_session
-from conftest import START_FEN
+from chesslab.labeling import CROP_SUFFIX, SETTLE_LIMIT, all_squares
+from conftest import START_FEN, slice_small, write_jsonl
 
 #: a1 is index 0 in `all_squares()`; e4 is the one the tests move.
 E4 = all_squares().index("e4")
@@ -33,25 +28,9 @@ def session(slice_fixture):
     return slice_fixture(rows)
 
 
-def _corrections(sdir, by_square, frame):
-    """A correction is a row in the session's own ledger now, not an argument."""
-    import json as _json
-
-    (sdir / "corrections.jsonl").write_text(
-        "".join(_json.dumps({"session_id": "s1", "frame": frame, "square": sq,
-                             "label": lab}) + "\n"
-                for sq, lab in by_square.items()), encoding="utf-8")
-
-
-def _slice(session, **kw):
-    sdir, prof, root = session
-    return slice_session(sdir, profile=prof, manifest_path=root / "m.jsonl",
-                         squares_root=root / "squares", out_size=(32, 32), **kw)
-
-
 def test_only_the_cell_over_the_limit_is_held_back(session):
     """One cell of one frame — the other 63 of that frame are as good as any other."""
-    res = _slice(session)
+    res = slice_small(session)
 
     assert res["unsettled_dropped"] == 1
     assert res["crops"] == 3 * 64 - 1
@@ -62,7 +41,7 @@ def test_only_the_cell_over_the_limit_is_held_back(session):
 
 def test_a_row_without_a_score_is_not_judged(session):
     """An interval too short for a median writes none, and guessing there would invert the point."""
-    _slice(session)
+    slice_small(session)
 
     written = {p.name for p in (session[2] / "squares").rglob(f"*{CROP_SUFFIX}")}
     assert f"s1_000003_e4{CROP_SUFFIX}" in written
@@ -70,9 +49,11 @@ def test_a_row_without_a_score_is_not_judged(session):
 
 def test_a_human_correction_outranks_the_doubt(session):
     """Same rule as `dirty`: the gate is a doubt, and a person who looked knows more than it."""
-    _corrections(session[0], {"e4": "empty"}, "000002")
+    write_jsonl(session[0] / "corrections.jsonl",
+                [{"session_id": "s1", "frame": "000002", "square": sq, "label": lab}
+                 for sq, lab in [("e4", "empty")]])
 
-    res = _slice(session)
+    res = slice_small(session)
 
     assert res["unsettled_dropped"] == 0
     assert res["crops"] == 3 * 64
@@ -85,7 +66,7 @@ def _rows(sdir):
 
 
 def _write_rows(sdir, rows):
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
 
 
 def _matte(sdir, frame, coverage):
@@ -102,7 +83,7 @@ def test_the_covered_cell_survives_the_gate_because_it_IS_the_target(session):
     _write_rows(sdir, rows)
     _matte(sdir, "000002", {"e4": 0.9})
 
-    res = _slice(session)
+    res = slice_small(session)
 
     assert res["unsettled_dropped"] == 0
     written = {p.name for p in (root / "squares").rglob(f"*{CROP_SUFFIX}")}
@@ -123,7 +104,7 @@ def test_a_cell_the_alpha_barely_saw_is_dropped_even_at_zero(session):
     _write_rows(sdir, rows)
     _matte(sdir, "000001", {"e4": 0.1})
 
-    res = _slice(session)
+    res = slice_small(session)
 
     assert res["unsettled_dropped"] == 2, "the barely seen cell, and the one over the limit"
     written = {p.name for p in (root / "squares").rglob(f"*{CROP_SUFFIX}")}

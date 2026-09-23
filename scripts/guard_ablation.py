@@ -8,7 +8,7 @@ tragen, als Freigabe-Argument taugt der Satz fuer sie nicht.
 
 Der erste so gemessene Fall war `baselineOcclusion` — beide engine-eigenen Verdeckungsarme aus,
 396/3/0 Ziffer fuer Ziffer wie mit, auf allen zehn Aufnahmen
-(`docs/baseline-occlusion-off.md`).
+(`docs/regression-reference.md`).
 """
 
 from __future__ import annotations

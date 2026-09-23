@@ -1,8 +1,4 @@
-"""W4-W5 Nachtrag (2026-09-23): ein Pruefpunkt fuer `.export-running`, Bretter erst nach dem Log.
-
-Jeder Folgeschritt faehrt ueber seine CLI-Funktion gegen eine Aufnahme mit liegendem Marker; nur
-Profil, Modell und SAM sind ersetzt, alles davor und das Lesen des Logs ist der echte Weg.
-"""
+"""Folgeschritte pruefen den Marker `.export-running`; Bretter erst nach dem Log."""
 
 from __future__ import annotations
 

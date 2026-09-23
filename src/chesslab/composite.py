@@ -48,7 +48,7 @@ class Placement:
 #: Threads fuer Encode und Platte. Acht ist gemessen: 4 -> 52 ms, 8 -> 33, 16 -> 36 je 64 Crops.
 WRITE_THREADS = 8
 #: Vorlauf und Lader fuer die Kacheln. Gemessen auf 4K: 1 Lader 130 ms je Brett, 4 -> 120, 8 -> 117;
-#: 12 Bretter Vorlauf brachten nichts mehr und kosteten auf 1080p 20 % (`docs/ingest-speed.md`).
+#: 12 Bretter Vorlauf brachten nichts mehr und kosteten auf 1080p 20 % (`docs/occluder-plates.md`).
 TILE_LOOKAHEAD = 6
 TILE_WORKERS = 8
 #: Dateinamen, die den Clip NICHT benennen — dann steht die Kennung im Ordner darueber.
@@ -232,7 +232,7 @@ def read_forward(video: Path, stride: int, depth: int = 3) -> Iterator[tuple[int
     """Jeden `stride`-ten Frame liefern — vorwaerts gelesen, in einem eigenen Thread.
 
     `grab` spart den uebersprungenen Frames die BGR-Umrechnung: 235 ms je genutztem Frame mit
-    `cap.set`, 39 so. Auch warum die Hardware verliert, misst `docs/ingest-speed.md`.
+    `cap.set`, 39 so. Auch warum die Hardware verliert, misst `docs/occluder-plates.md`.
     """
     q: Queue = Queue(maxsize=depth)
     stop = Event()
@@ -463,7 +463,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                      pad_side: float | None = None) -> dict:
     """A whole clip into crops with TWO targets per cell: the piece, and how much is covered.
 
-    `blocks`, `angle_buckets`, `clean`: `docs/turntable-ingest.md`. `pad_side` uebersteuert das
+    `blocks`, `angle_buckets`, `clean`: `docs/occluder-plates.md`. `pad_side` uebersteuert das
     Profil und muss zum Rand der ECHTEN Crops passen — sonst zwei Rahmungen im Training.
     """
     import json

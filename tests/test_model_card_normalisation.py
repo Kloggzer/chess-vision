@@ -1,9 +1,4 @@
-"""Die Modellkarte ist das Auslieferungsartefakt — sie darf nicht das Gegenteil des Rezepts sagen.
-
-`--crop-norm per-crop` rechnet mean/std gar nicht (`torch_data._PerCropStandardize`). `config.json`
-schreibt `normalize.mode` seit jeher richtig; die Karte behauptete trotzdem die festen
-ImageNet-Werte, und wer NUR die Karte liest, normalisiert danach falsch.
-"""
+"""Die Modellkarte nennt dieselbe Normalisierung wie das Rezept (`--crop-norm`)."""
 
 from __future__ import annotations
 

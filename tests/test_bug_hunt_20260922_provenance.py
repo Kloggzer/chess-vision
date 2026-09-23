@@ -1,9 +1,5 @@
-"""Herkunft an den Python-Tueren, und drei Stellen, die einen Defekt als Erfolg lasen.
-
-Die Kette in `platform/app/lib/chain.ts` VERGLEICHT den `_source`-Stempel; die Python-Verbraucher
-lasen ihn weg. Dazu der stumme Ersatz eines fehlenden Kalibrierprofils bei MESSENDEN Befehlen,
-der Teilausfall im Stapel-Matten und der beschaedigte Archiv-Beleg.
-"""
+"""Herkunftsstempel an den Python-Tueren, fehlendes Kalibrierprofil, Stapel-Matten und
+Archiv-Beleg."""
 
 from __future__ import annotations
 

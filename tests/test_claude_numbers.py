@@ -1,10 +1,4 @@
-"""Die Zahlen in CLAUDE.md gegen die Platte.
-
-Am 2026-09-22 wurden rund 45 Zahlen der Datei nachgezaehlt. Weggedriftet sind AUSNAHMSLOS die,
-die keine Ratsche haelt; die vier Ratschen-Zahlen stimmten Ziffer fuer Ziffer. Diese Datei gibt
-den drift-anfaelligsten Nennern eine Ratsche. Rot heisst hier nicht "kaputt", sondern
-"nachziehen" -- CLAUDE.md wird jede Sitzung ungeprueft gelesen.
-"""
+"""Die drift-anfaelligen Zahlen in CLAUDE.md gegen die Platte; rot heisst nachziehen."""
 
 from __future__ import annotations
 

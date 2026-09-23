@@ -1,15 +1,5 @@
-"""Jede Abweichung zwischen `fen` und `label` braucht eine Korrektur, die sie erklaert.
-
-Eine Manifest-Zeile traegt zwei Wahrheiten: `fen` ist die Stellung des Ply, `label` die Klasse
-der Zelle — und eine menschliche Korrektur ueberschreibt NUR das Label. Sie duerfen also
-auseinandergehen, aber nie unbegruendet.
-
-Warum das ein Test ist: am 2026-08-25 hat eine Auswertung gegen `fen` verglichen statt gegen
-`label` und daraus 304 angeblich falsch gelabelte Frames abgeleitet. Auf denselben Frames stimmte
-das Modell zu 98 % mit dem Label ueberein — sie waren besser gelabelt als der Schnitt. Der Test
-haelt fest, welche der beiden Spalten die Wahrheit ist, und faengt zugleich den echten Defekt:
-eine Abweichung, die KEINE Korrektur erklaert, ist ein verlorener Ueberschreibvorgang.
-"""
+"""Jede Abweichung zwischen `fen` und `label` im Manifest braucht eine Korrektur, die sie
+erklaert; `label` ist die Wahrheit."""
 
 import json
 

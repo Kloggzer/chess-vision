@@ -3,7 +3,7 @@
 Erster Schnitt vor jeder Optimierung — One-at-a-time an den RAENDERN des plausiblen Bereichs,
 nicht Morris. Die Zielgroesse ist eine Zaehlung, viele Knoepfe bewegen sie exakt gar nicht, und
 das beantwortet ein Randlauf abschliessend. Morris lohnt erst auf den Ueberlebenden, wo
-Wechselwirkungen ueberhaupt moeglich sind. Hintergrund: `docs/magische-zahlen.md`.
+Wechselwirkungen ueberhaupt moeglich sind. Hintergrund: `docs/engine-fuzz.md`.
 
 Gefahren wird auf den VIER kuerzesten Aufnahmen (10 996 von 81 110 Frames) — ein Screening darf
 billig sein, die Bestaetigung laeuft danach auf dem vollen Satz. Ein Job zur Zeit.
@@ -64,7 +64,7 @@ def score_of(log: str) -> dict[str, int]:
 def run_one(tag: str, extra: list[str], rec: str) -> dict[str, int]:
     # `trace=` schreibt JEDEN Frame mit `cnnCoverageMax`, `gate` und der Verify-Leiter. Das Log
     # kennt nur Entscheidungen, und genau die Verdeckungs-Achse fehlt dort — sie ist nachtraeglich
-    # nicht zu rekonstruieren. ~15 MB je Arm, `docs/knopf-screening.md`.
+    # nicht zu rekonstruieren. ~15 MB je Arm, `docs/engine-fuzz.md`.
     trace = OUT / "traces" / f"{tag}--{rec}.jsonl"
     trace.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(

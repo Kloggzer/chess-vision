@@ -1,9 +1,4 @@
-"""The circularity guard must see through dataset variant prefixes (2026-08-15).
-
-Crops enter split.json as `occ-rg-<session>`, the proposer asks about `rg-<session>` — the
-literal match let a model propose on exactly the sessions it trained on, while refusing six
-sessions it never saw. The guard's one job is the opposite of that.
-"""
+"""The circularity guard sees through dataset variant prefixes (`occ-rg-` vs `rg-`)."""
 
 import json
 

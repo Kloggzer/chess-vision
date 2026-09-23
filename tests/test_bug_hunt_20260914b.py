@@ -1,8 +1,4 @@
-"""Bug-Hunt 2026-09-14 (zweite Runde, Python-Seite). Jeder Test ist ohne den Fix ROT.
-
-Kein Fix in diesem File — nur der Nachweis. Stil wie `test_dead_parameters.py`: wo der Fund
-"niemand ruft das auf" heisst, ist der Aufrufer-Grep der Test.
-"""
+"""Bug-Hunt 2026-09-14 (zweite Runde, Python-Seite)."""
 from __future__ import annotations
 
 from pathlib import Path

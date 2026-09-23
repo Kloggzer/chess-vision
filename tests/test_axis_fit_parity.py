@@ -1,10 +1,5 @@
-"""Der Grid-Fit existiert zweimal und wurde bis 2026-09-15 von einem Kommentar gehalten.
-
-`alignment._fit_axis` und `AxisFit.kt::fitAxis` sind Zwillinge — gleiche Entwurfsmatrix, gleiches
-Huber-IRLS, gleiche Konstanten. Beide Seiten testeten gegen ihre EIGENE synthetische Wahrheit, nie
-gegeneinander, obwohl der Fit das gesamte Genauigkeitsbudget traegt (Mesh 0,9-1,1 px gegen 15-16 px
-roh). Fixture aus `scripts/emit_axis_fit_parity.py`.
-"""
+"""Parity of the grid fit: `alignment._fit_axis` against `AxisFit.kt::fitAxis`
+(fixture from `scripts/emit_axis_fit_parity.py`)."""
 from __future__ import annotations
 
 import json

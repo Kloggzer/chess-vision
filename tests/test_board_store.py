@@ -9,7 +9,7 @@ import numpy as np
 from chesslab.calibration import CalibrationProfile, crop_border_px
 from chesslab.labeling import crop_square, usable_board
 from chesslab.realgames import write_board
-from conftest import START_FEN, make_profile
+from conftest import START_FEN, make_profile, write_jsonl
 
 
 def _profile(bs: int = 800, pad_side: float = 0.05) -> CalibrationProfile:
@@ -75,7 +75,7 @@ def test_a_stored_board_is_cut_without_asking_the_markers(slice_fixture, tmp_pat
     rows = [json.loads(x) for x in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines()]
     for row in rows:
         row.pop("corners", None)
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
 
     stats = slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
                           squares_root=tmp_path / "sq", out_size=(32, 32))

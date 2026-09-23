@@ -1,9 +1,4 @@
-"""Der Erkenner der JSON-Treuhand sah das ANHAENGEN nicht — und vier Stellen nie.
-
-`_WRITE` kannte `.write_text(`, `.open("w"` und `open(..., "w")`. Rohes Anhaengen an eine
-`.jsonl` klebt die neue Zeile an eine halbe letzte und macht aus dem von `read_jsonl`
-TOLERIERTEN Schwanz eine Beschaedigung MITTENDRIN, auf die danach jedes Lesen wirft.
-"""
+"""Der Erkenner der JSON-Treuhand sieht auch rohes ANHAENGEN an `.jsonl`."""
 from __future__ import annotations
 
 import sys

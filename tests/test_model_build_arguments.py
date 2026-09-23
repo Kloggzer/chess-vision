@@ -1,8 +1,4 @@
-"""Was `build_model` entgegennimmt und was davon ankommt.
-
-Zwei Stellen, an denen ein Argument durchgereicht und nie wirksam wird: `--norm` auf dem
-`cellnet_*`-Zweig, und die Umskalierung des MobileNet-Stems fuer nicht-RGB-Eingaben.
-"""
+"""Was `build_model` entgegennimmt und was davon ankommt (`--norm`, MobileNet-Stem)."""
 from __future__ import annotations
 
 import pytest

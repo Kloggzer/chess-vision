@@ -1,13 +1,8 @@
-"""Bug-Hunt 2026-09-23: drei Skripte lasen keinen Session-Pack-Satz (`mm://`), seit 2026-09-11.
-
-Ein kleiner Satz aus ZWEI Packs, dessen Manifest die Pack-Reihenfolge umdreht: wer nach Position
-statt nach Pfad liest, paart Bild i mit Label j und faellt hier auf.
-"""
+"""Skripte lesen Session-Pack-Saetze (`mm://`) nach Pfad, nicht nach Position."""
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -17,9 +12,9 @@ import pytest
 
 from chesslab import config
 from chesslab.training import packs
+from conftest import load_script, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
 CLASSES = ["empty", "wP", "wK"]
 SIDE = 8
 # (label, square, square_color, coverage, brightness) — Zeile 5 verdeckt, Zeile 6 zu dunkel.
@@ -28,14 +23,6 @@ CELLS = (("wP", "e2", "light", 0.0, 120.0), ("wK", "e1", "dark", 0.0, 120.0),
          ("empty", "f4", "light", None, 150.0), ("wP", "d2", "light", 0.5, 120.0),
          ("wK", "a1", "dark", 0.0, 10.0), ("empty", "b1", "dark", 0.0, 60.0))
 PACKS = {"s1-8": ("s1", 0), "s2-8": ("s2", 1)}
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"bh23p_{name}", SCRIPTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _colour(pack_no: int, row_no: int) -> tuple[int, int, int]:
@@ -50,7 +37,7 @@ def _write_pack(paths: config.Paths, name: str) -> list[dict]:
              "square": sq, "square_color": col, "coverage": cov, "brightness": br,
              "out_size": [16, 16]}                    # der Manifest-Wert, NICHT die Packgroesse
             for lab, sq, col, cov, br in CELLS]
-    (d / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(d / "manifest.jsonl", rows)
     packs.write_meta(d, rows, SIDE, SIDE)
     (d / packs._IMAGE).write_bytes(b"".join(
         np.full((SIDE, SIDE, 3), _colour(pack_no, i), np.uint8).tobytes() for i in range(len(rows))))
@@ -67,7 +54,7 @@ def pack_set(tmp_path, monkeypatch):
     rows = [r for name in PACKS for r in _write_pack(paths, name)][::-1]
     dd = paths.datasets / "ds"
     dd.mkdir(parents=True)
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     (dd / "dataset.yaml").write_text("name: ds\npacks: [s1-8, s2-8]\n", encoding="utf-8")
     counts = {c: sum(r["label"] == c for r in rows) for c in CLASSES}
     (dd / "split.json").write_text(json.dumps({
@@ -84,7 +71,7 @@ def _expected_colour(row: dict) -> tuple[int, int, int]:
 # --- session_colour ---------------------------------------------------------------------------
 
 def test_session_colour_reads_session_packs(pack_set, monkeypatch, capsys):
-    mod = _load("session_colour")
+    mod = load_script("session_colour")
     monkeypatch.setattr(sys, "argv", ["session_colour", "--dataset", "ds", "--per-session", "2"])
     mod.main()
     got = {line.split()[0]: line.split()[1:] for line in capsys.readouterr().out.splitlines()[1:]}
@@ -104,7 +91,7 @@ def test_gradcam_summary_reads_session_packs(pack_set, tmp_path, monkeypatch, ca
     from PIL import Image
     from torch import nn
 
-    mod = _load("gradcam_summary")
+    mod = load_script("gradcam_summary")
     model = nn.Sequential(nn.Conv2d(3, 4, 3, padding=1), nn.AdaptiveAvgPool2d(1),
                           nn.Flatten(), nn.Linear(4, len(CLASSES) + 1))
     with torch.no_grad():
@@ -124,7 +111,7 @@ def test_gradcam_summary_reads_session_packs(pack_set, tmp_path, monkeypatch, ca
 
 
 def test_gradcam_summary_still_refuses_unresolvable_mm_rows(pack_set, tmp_path, monkeypatch):
-    mod = _load("gradcam_summary")
+    mod = load_script("gradcam_summary")
     (config.DATA.datasets / "ds" / "dataset.yaml").write_text("name: ds\n", encoding="utf-8")
     monkeypatch.setattr(sys, "argv", ["gradcam_summary", str(tmp_path / "run"), "--dataset", "ds",
                                       "--out", str(tmp_path / "out")])
@@ -143,7 +130,7 @@ def _range_args(**kw) -> argparse.Namespace:
 
 def test_lr_range_test_reads_packs_by_path_at_the_packs_size(pack_set):
     pytest.importorskip("torch")
-    mod = _load("lr_range_test")
+    mod = load_script("lr_range_test")
     ds, _crit, _classes, train_rows, _board, n_out = mod.prepare(_range_args())
     assert len(train_rows) == len(ds) == 2 * len(CELLS) and n_out == len(CLASSES) + 1
     names = [Path(f).parent.name for f, _ in ds._files]
@@ -157,7 +144,7 @@ def test_lr_range_test_loss_is_the_occlusion_loss_train_runs(pack_set):
     from chesslab.dataset import compute_class_weights
     from chesslab.training.train import visible_class_counts
 
-    mod = _load("lr_range_test")
+    mod = load_script("lr_range_test")
     ds, crit, _classes, train_rows, _board, n_out = mod.prepare(_range_args())
     want = compute_class_weights(visible_class_counts(train_rows), CLASSES)
     assert crit.ce.weight.tolist() == pytest.approx([want[c] for c in CLASSES])
@@ -171,7 +158,7 @@ def test_lr_range_test_combined_head_keeps_the_ce_recipe(pack_set):
     pytest.importorskip("torch")
     from torch import nn
 
-    mod = _load("lr_range_test")
+    mod = load_script("lr_range_test")
     _ds, crit, _classes, _rows, _board, n_out = mod.prepare(_range_args(head="combined"))
     assert isinstance(crit, nn.CrossEntropyLoss) and n_out == len(CLASSES)
 
@@ -186,7 +173,7 @@ def test_the_door_brings_the_digest_guard(pack_set, monkeypatch):
     """Ein Pack, dessen Manifest weitergezogen ist, wird verweigert statt fremd gepaart."""
     man = config.DATA.packs / "s1-8" / "manifest.jsonl"
     man.write_text(man.read_text(encoding="utf-8").replace('"wK"', '"wQ"', 1), encoding="utf-8")
-    mod = _load("session_colour")
+    mod = load_script("session_colour")
     monkeypatch.setattr(sys, "argv", ["session_colour", "--dataset", "ds"])
     with pytest.raises(ValueError, match="digest"):
         mod.main()

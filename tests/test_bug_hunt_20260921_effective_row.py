@@ -1,10 +1,4 @@
-"""Punkt 28 gilt je FRAME, nicht je ZEILE — `matte.jsonl` ist eine HISTORIE.
-
-Der Fix vom 2026-09-21 prueft `coverage is None` an der EINZELNEN Zeile. Bei "aeltere Messung,
-danach SAMs Absage" ist die Absage aber die wirksame Aussage, und die aeltere Zeile darf gar
-nicht mehr verarbeitet werden. `read_matte`, `sam_matte` und `matted_frames` machen es so; diese
-vier Stellen nicht. Jeder Test hier ist ohne den Fix rot.
-"""
+"""Punkt 28 gilt je FRAME, nicht je ZEILE: `matte.jsonl` ist eine Historie."""
 from __future__ import annotations
 
 import json

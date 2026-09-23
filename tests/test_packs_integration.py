@@ -1,12 +1,6 @@
-"""The 02<->03 seam: `dataset build --from-packs` writes `packs:`, the loader reads it back.
-
-Phase 03 owns the key, Phase 02 owns the resolver, and neither test can see the other side. Here
-two packs carry REAL pixels, so the last assertion is what the model would actually be fed.
-"""
+"""The seam: `dataset build --from-packs` writes `packs:`, the loader reads real pixels back."""
 
 from __future__ import annotations
-
-import json
 
 import numpy as np
 
@@ -14,6 +8,7 @@ from chesslab import config, dataset_build
 from chesslab.training import packs
 from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
 from chesslab.training.pack import resolve_dataset_packs
+from conftest import write_jsonl
 
 SIDE = 8
 CELLS = (("wP", "0000", "e2"), ("wK", "0001", "e1"), ("empty", "0002", "c4"))
@@ -35,8 +30,7 @@ def _write_pack(paths: config.Paths, name: str, sid: str, pack_no: int) -> list[
              "frame": frame, "ply": int(frame), "square": square, "square_color": "light",
              "fen": "x", "out_size": [SIDE, SIDE], "coverage": 0.0}
             for label, frame, square in CELLS]
-    (d / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
-                                      encoding="utf-8")
+    write_jsonl(d / "manifest.jsonl", rows)
     packs.write_meta(d, rows, SIDE, SIDE)
     (d / packs._IMAGE).write_bytes(
         b"".join(_pixels(pack_no, i).tobytes() for i in range(len(rows))))

@@ -1,7 +1,7 @@
 """ColorJitter, Gamma, Blur und Cutout als EINE Batch-Operation auf dem Geraet.
 
 Overhead- statt rechengebunden: gebatcht 66x billiger, aber float statt PILs uint8 — statistisch
-dasselbe Rezept, nicht bitgleich (`docs/batch-aug.md`)."""
+dasselbe Rezept, nicht bitgleich (`docs/training-speed.md`)."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class BatchGeometry:
     """Affine und Spiegelungen je BILD, gebatcht — damit die Photometrie wieder DAVOR laeuft.
 
     Bleibt die Geometrie im Loader, kippt `--batch-aug` die Reihenfolge von `build_transform`:
-    beim Blur ist das nicht folgenlos (`docs/batch-aug.md`).
+    beim Blur ist das nicht folgenlos (`docs/training-speed.md`).
     """
 
     def __init__(self, policy) -> None:

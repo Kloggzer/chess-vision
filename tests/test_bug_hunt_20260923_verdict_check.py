@@ -1,8 +1,4 @@
-"""Ein FERTIGER Datensatz hat die Zeilen schon kopiert: `train`/`eval` melden beim Start, welche
-davon ein Mensch seitdem gesperrt oder umgelabelt hat — gefiltert wird nicht (Rezept).
-
-2026-09-23 auf der Platte: 8 Zeilen in `real13-mix-v7-128`, 278 in `real13-mix-v6-128`.
-"""
+"""`train`/`eval` melden Datensatz-Zeilen, die ein Mensch seitdem gesperrt oder umgelabelt hat."""
 
 import json
 
@@ -11,6 +7,7 @@ import pytest
 from chesslab import config, dataset_build
 from chesslab.training import evaluate
 from chesslab.training import train as tr
+from conftest import write_jsonl
 
 SID = "rg-2026-01-01-00-00-00"
 
@@ -32,7 +29,7 @@ def ds(tmp_path, monkeypatch):
             _row(other, "000020", "a1", "wR"), _row("comp-x-00", "000001", "a1", "wR")]
     dd = paths.datasets / "ds"
     dd.mkdir(parents=True)
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     split = {"classes": ["empty", "wK", "wQ", "wR"],
              "splits": {"train": [SID, "comp-x-00"], "val": [], "test": [other]}}
     (dd / "split.json").write_text(json.dumps(split), encoding="utf-8")

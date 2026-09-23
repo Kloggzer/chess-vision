@@ -1,9 +1,4 @@
-"""Ein geparkter Bugtest und sein Eintrag im Audit muessen dasselbe sagen.
-
-Am 2026-09-21 fuehrte `docs/bug-audit-2026-09-13.md` drei Befunde als `[OFFEN]`, die laengst
-gebaut waren — einer mit dem Satz "Kein roter Test: er braucht den Ruecksignal-Pfad, den es nicht
-gibt", waehrend genau dieser Pfad seit `b7a9287d` existiert. Niemand haelt die Statusspalte nach.
-"""
+"""Ein geparkter Bugtest und sein Eintrag in `docs/bug-audit-2026-09-13.md` sagen dasselbe."""
 
 from __future__ import annotations
 

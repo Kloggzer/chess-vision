@@ -1,10 +1,4 @@
-"""`jump_confirm_frames` meint AUFEINANDERFOLGENDE Bilder — auch in Python.
-
-Kotlins `MarkerTracker` raeumt den Kandidaten, sobald ein Marker in einem Bild fehlt (2026-09-14).
-Der Python-Port trug den Fehler treu weiter: ein Kandidat ueberlebte eine beliebig lange Luecke
-und wurde auf ein einziges Wiedersehen hin bestaetigt. Das ist der Export-Pfad, also die Geometrie
-kuenftiger Crops.
-"""
+"""`jump_confirm_frames` meint aufeinanderfolgende Bilder, auch im Python-Port."""
 from __future__ import annotations
 
 from chesslab.calibration import MarkerTracker

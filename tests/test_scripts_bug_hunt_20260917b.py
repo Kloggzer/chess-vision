@@ -1,36 +1,21 @@
-"""Skript-Jagd 2026-09-17, Runde 2: Zahlen, die dem Menschen vorgelegt werden.
-
-Die drei Reste aus Runde 1 (`settle_compare`, `chain_gate` /
-`audit_disk_damage`) und vier neue Funde in den Skripten, die Entscheidungen tragen:
-`coverage_arms`, `compare_arms`, `fold_per_session`, `matte_cell_audit`.
-"""
+"""Skript-Jagd 2026-09-17, Runde 2: Zahlen, die dem Menschen vorgelegt werden."""
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"_script2_{name}", ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
+from conftest import load_script
 
 # --- 1. `settle_compare`: jede Spanne leer riss den Lauf am Ende um ----------------------------
 
 def test_settle_compare_survives_gaps_whose_spans_are_all_empty():
     """Wenn `pc_q == ph_q` ist, hat die Spanne keine Frames — `over_share` bleibt leer und
     `st.median([])` warf `StatisticsError`, NACHDEM die Tabelle schon gedruckt war."""
-    settle_compare = _load("settle_compare")
+    settle_compare = load_script("settle_compare")
 
     line = settle_compare.share_line([], 7)
     assert "n=0 von 7 Plies" in line
@@ -42,7 +27,7 @@ def test_settle_compare_survives_gaps_whose_spans_are_all_empty():
 # --- 3a. `chain_gate`: die uebersprungene Session fehlte in der GESAMT-Zeile --------------------
 
 def _chain_gate_main(tmp_path, monkeypatch, sessions, results, capsys):
-    chain_gate = _load("chain_gate")
+    chain_gate = load_script("chain_gate")
     monkeypatch.setattr(chain_gate, "run", lambda s, *a, **k: results[s]())
     monkeypatch.setattr(sys, "argv", ["chain_gate", "--model", str(tmp_path),
                                       "--sessions", sessions])
@@ -80,7 +65,7 @@ def _raise():
 def test_audit_disk_damage_separates_blind_recordings_from_clean_ones(monkeypatch, capsys):
     """Eine Aufnahme, von der keine einzige Coverage-Zeile pruefbar war, verschwand — der
     Bericht las sich fuer sie wie "sauber"."""
-    audit = _load("audit_disk_damage")
+    audit = load_script("audit_disk_damage")
     audit.UNMEASURED.clear()
     audit.BROKEN_LINES.clear()
     audit.UNMEASURED["rg-2026-01-01"] = "0 von 12 Zeilen pruefbar"
@@ -101,7 +86,7 @@ def test_audit_disk_damage_separates_blind_recordings_from_clean_ones(monkeypatc
 def test_coverage_arms_prints_no_zero_for_an_empty_sample(capsys):
     """Bei `Flags = 0` stand dort `0.000` — die Zeile, auf der "Kopf raus, Spezialist rein"
     entschieden wuerde, las sich wie ein miserabler Arm statt wie eine leere Stichprobe."""
-    arms = _load("coverage_arms")
+    arms = load_script("coverage_arms")
 
     # Kein Flag: Precision hat keinen Nenner. Recall 0 ist dagegen echt gemessen.
     arms.curve(np.array([0.0, 0.0, 0.9, 0.9]), np.zeros(4), "test", (0.5,))
@@ -117,7 +102,7 @@ def test_coverage_arms_prints_no_zero_for_an_empty_sample(capsys):
 
 
 def test_coverage_arms_still_prints_real_numbers(capsys):
-    arms = _load("coverage_arms")
+    arms = load_script("coverage_arms")
     truth = np.array([0.0, 0.0, 0.9, 0.9])
     said = np.array([0.0, 0.9, 0.9, 0.9])
 
@@ -140,7 +125,7 @@ def _run(root: Path, name: str, epochs: int, value: float) -> None:
 def test_compare_arms_says_over_how_many_seeds_it_paired(tmp_path, monkeypatch, capsys):
     """Der Basisarm hat drei Seeds, der Kandidat nur einen — beide Zeilen trugen `gepaart`
     ohne jeden Hinweis, dass die eine ueber ein Drittel der Grundgesamtheit gemittelt ist."""
-    compare_arms = _load("compare_arms")
+    compare_arms = load_script("compare_arms")
     for seed in (42, 43, 44):
         _run(tmp_path, f"base-s{seed}", 2, 1.0)
     _run(tmp_path, "cand-s42", 2, 0.5)
@@ -163,7 +148,7 @@ def test_fold_per_session_names_the_test_sessions_that_never_reached_the_table()
     """`duplicate_sessions` prueft nur "nicht zweimal". Die andere Haelfte der Zusage — jede
     Session GENAU einmal — hatte keine Gegenprobe, und `if not rows: continue` zog keinen
     Zaehler mit."""
-    fps = _load("fold_per_session")
+    fps = load_script("fold_per_session")
     expected = [("s1", "f0"), ("s2", "f0"), ("s3", "f1")]
     out = {("s1", "f0"): (10, 0.9, 0.8)}
 
@@ -178,7 +163,7 @@ def test_matte_cell_audit_share_uses_only_flags_whose_coverage_was_measured():
     trotzdem in den Nenner zu nehmen verduennt die Quote gegen eine fremde Grundgesamtheit."""
     from collections import Counter
 
-    audit = _load("matte_cell_audit")
+    audit = load_script("matte_cell_audit")
     stats = Counter({"Flags gesamt": 100, "flags with unknown coverage": 60,
                      "Flags ohne Coverage": 20})
 

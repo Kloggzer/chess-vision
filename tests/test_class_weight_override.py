@@ -1,9 +1,4 @@
-"""`--class-weight` muss den Occlusion-Neuberechnung UEBERLEBEN.
-
-Bis 2026-08-27 stand das Setzen VOR dem Zweig, der `class_weights` fuer Occlusion-Laeufe aus den
-sichtbaren Zeilen neu rechnet — und wurde dort komplett ueberschrieben. Bei `--head occlusion`,
-also bei jedem Lauf dieses Projekts, tat das Flag damit nichts, ohne es zu sagen.
-"""
+"""`--class-weight` ueberlebt die Neuberechnung der Klassengewichte bei `--head occlusion`."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""Ein Pack ist ein Schnappschuss: ein spaeteres Menschenurteil darf der Bau nicht still ueberlesen.
-
-2026-09-23 auf der Platte: 13 Zellen, die der Nutzer als unbrauchbar gesperrt hat, stehen in 14
-Packs (21 Zeilen), `rg-2026-09-06-20-57-45` 005223/e8 sogar als `bK`.
-"""
+"""Der Bau ueberliest kein spaeteres Menschenurteil ueber Zellen in einem Pack."""
 
 import json
 

@@ -1,14 +1,10 @@
-"""Die Ratsche ueber die Engine-Zahlen: `UNGEPRUEFT` darf nur schrumpfen.
-
-Warum die Liste und nicht die Kommentarpflicht: eine Zahl ohne Herkunft ist nicht falsch, sie ist
-unbelegt — und genau das soll man vor einem Release-Kandidaten aufzaehlen koennen, statt es aus
-63 Feldern zusammenzusuchen. `docs/magische-zahlen.md` nennt die Kosten je Messung.
-"""
+"""Ratsche ueber die Engine-Zahlen: `UNGEPRUEFT` schrumpft nur (`docs/engine-fuzz.md`)."""
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
+
+from conftest import load_script
 
 ROOT = Path(__file__).resolve().parents[1]
 LIST = ROOT / "android/config/tuned-constants.txt"
@@ -18,21 +14,13 @@ LIST = ROOT / "android/config/tuned-constants.txt"
 UNGEPRUEFT_BUDGET = 27
 
 
-def _module():
-    spec = importlib.util.spec_from_file_location(
-        "tuned_constants", ROOT / "android/scripts/tuned_constants.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 def _rows():
-    return _module().classify((ROOT / "android/core-engine/src/main/kotlin/com/chesslab/engine/"
+    return load_script("tuned_constants", "android/scripts").classify((ROOT / "android/core-engine/src/main/kotlin/com/chesslab/engine/"
                                "api/TrackerConfig.kt").read_text(encoding="utf-8"))
 
 
 def test_liste_ist_aktuell():
-    mod = _module()
+    mod = load_script("tuned_constants", "android/scripts")
     assert LIST.read_text(encoding="utf-8") == mod.render(_rows()), (
         "tuned-constants.txt ist veraltet — uv run python android/scripts/tuned_constants.py")
 
@@ -47,7 +35,7 @@ def test_ungeprueft_schrumpft_nur():
 
 
 def test_gegenprobe_eine_neue_zahl_faellt_auf():
-    mod = _module()
+    mod = load_script("tuned_constants", "android/scripts")
     quelle = "data class TrackerConfig(\n    val frischErfunden: Double = 0.42,\n)\n"
     kinds = [k for k, _, _ in mod.classify(quelle)]
     assert kinds == ["UNGEPRUEFT"], f"eingepflanzte Zahl nicht erkannt: {kinds}"

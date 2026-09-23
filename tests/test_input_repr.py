@@ -1,9 +1,4 @@
-"""The input representation (`--input-repr`): the transform, and its parity with OpenCV.
-
-The Kotlin port (`core-cnn/Preprocess.kt`) is pinned to golden numbers generated FROM this
-transform, so if these assertions hold and `PreprocessTest` holds, the phone and the trainer see
-the same tensor.
-"""
+"""The input representation (`--input-repr`): the transform and its parity with OpenCV."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""Mutationsprobe 2026-09-23 auf `src/chesslab/training/`: was keine Suite fing, und die Funde.
-
-Die Tabelle der Mutanten steht im Bericht; hier nur die Tests, die eine ungedeckte tragende
-Wache nachziehen, und die roten Tests zu den Funden.
-"""
+"""Mutationsprobe auf `src/chesslab/training/`: ungedeckte Wachen und Funde."""
 from __future__ import annotations
 
 import json
@@ -11,16 +7,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from chesslab import config
+from conftest import write_jsonl
 
 CROP = 64
-
-
-@pytest.fixture
-def paths(tmp_path, monkeypatch):
-    p = config.Paths(root=tmp_path)
-    monkeypatch.setattr(config, "DATA", p)
-    return p
 
 
 def _dataset(root, name, classes, labels, *, coverage=None):
@@ -36,8 +25,7 @@ def _dataset(root, name, classes, labels, *, coverage=None):
         if coverage is not None:
             row["coverage"] = coverage[i]
         rows.append(row)
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
-                                       encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     (dd / "split.json").write_text(json.dumps({
         "classes": list(classes), "splits": {"train": [], "val": [], "test": ["s1"]}}),
         encoding="utf-8")
@@ -128,8 +116,7 @@ def _two_session_dataset(root):
             Image.fromarray(np.full((CROP, CROP, 3), 60 * i, dtype=np.uint8)).save(p)
             rows.append({"path": p.as_posix(), "label": label, "session_id": sid,
                          "frame": "000001", "square": f"a{i + 1}", "out_size": [CROP, CROP]})
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
-                                       encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     _write_split(dd, "split.json", ["s1"])
     return dd
 
@@ -271,8 +258,7 @@ def test_a_board_model_is_graded_in_the_datasets_row_order(tmp_path, paths, monk
              "coverage": 0.0}]
     dd = tmp_path / "datasets" / "d"
     dd.mkdir(parents=True)
-    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
-                                       encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     _write_split(dd, "split.json", ["s1", "s2"])
     run_dir = tmp_path / "run"
     run_dir.mkdir()

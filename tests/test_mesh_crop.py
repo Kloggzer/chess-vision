@@ -1,8 +1,4 @@
-"""The Python mesh cut against the fixture Kotlin and TS are pinned on.
-
-`parity/_geometry/mesh_crop_parity.json` is written by neither side: MeshCropParityTest.kt and
-`lib/warp.test.ts` read the same file, so all three consumers cut one board identically.
-"""
+"""The Python mesh cut against `parity/_geometry/mesh_crop_parity.json`."""
 from __future__ import annotations
 
 import json
@@ -20,7 +16,7 @@ from chesslab.calibration import (
     smooth_mesh_curvature,
     straighten_board,
 )
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 FIXTURE = (Path(__file__).resolve().parents[1]
            / "android/core-engine/src/test/resources/parity/_geometry/mesh_crop_parity.json")
@@ -264,7 +260,7 @@ def _measured_session(tmp_path, monkeypatch, answers):
         cv2.imwrite(str(sdir / "frames" / f"{i:04d}.png"), np.full((8, 8, 3), 9, np.uint8))
         rows.append({"frame": f"frames/{i:04d}.png", "ply": i, "fen": "f",
                      "corners": [[0, 0], [8, 0], [8, 8], [0, 8]]})
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "carry", "profile": "test", "mode": "live"}), encoding="utf-8")
     it = iter(answers)

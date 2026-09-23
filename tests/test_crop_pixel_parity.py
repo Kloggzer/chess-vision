@@ -1,33 +1,5 @@
-"""Python must cut the SAME PIXELS as Kotlin — the fixture is Kotlin's own output.
-
-`mesh_crop_parity.json` pins the box COORDINATES across Python, Kotlin and TS to 1e-9, and that has
-always been mistaken for parity. A box is not an image: the warp, the crop construction and the
-resize all sit between the box and the bytes a model trains on, and none of them was ever compared.
-
-Each fixture is one frame plus the crops `android :desktop crops` cut from it, with the receipt
-naming the quad it used — so both sides run on the same corners and a disagreement is attributable
-to the cut rather than to corner detection.
-
-Measured when this was written (2026-08-21): **1 920 of 1 920 crops byte-identical** over three
-recordings — a fisheye desktop capture, a portrait phone capture, and a turntable whose board turns
-through the whole circle (edge angles +159 deg to -77 deg, corners up to 860 px off the median
-quad). The bar is exact equality, not a tolerance. Two things had to be right, and both are traps:
-
-* the **margin** (`config.DEFAULT_MARKER_MARGIN`), which the receipt does NOT carry. The ArUco
-  corners are not the playing field's corners — the printed rank/file border sits between them, and
-  at 0.0 the warp keeps that border inside the 8x8 and every crop lands a third of a cell off.
-* the **rotation**: a phone recording decodes portrait in OpenCV while Kotlin reads it landscape.
-
-**What this does NOT cover.** Both sides cut a RAW warp here, because `:desktop crops` is a
-diagnostic verb and warps the frame itself. The production path does not: the board is pulled
-straight once when it is stored (`realgames.straighten_boards`, 2026-08-21) and both sides then cut
-plain rectangles out of that same file. Byte equality on this fixture therefore proves the crop
-CONSTRUCTION agrees, not that a training crop and a device crop agree — the straightening sits
-before it. Do not read this test as covering more than it does; that mistake was made once already.
-
-Regenerate with `scripts/crop_parity.py`. The fixtures live beside the geometry one so a Kotlin test
-can read them too, and cost 3.5 MB.
-"""
+"""Python cuts the SAME PIXELS as Kotlin from a raw warp; fixture is Kotlin's own output.
+Covers crop construction only, not the straightened store. Regenerate: `scripts/crop_parity.py`."""
 
 from __future__ import annotations
 

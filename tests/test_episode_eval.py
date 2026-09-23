@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
+from conftest import load_script
 
-_spec = importlib.util.spec_from_file_location(
-    "episode_eval", Path(__file__).resolve().parents[1] / "scripts" / "episode_eval.py")
-episode_eval = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(episode_eval)
+episode_eval = load_script("episode_eval")
 
 
 def _row(sid: str, square: str, ply: int, label: str) -> dict:

@@ -7,7 +7,7 @@ import pytest
 
 from chesslab import config
 from chesslab.capture_import import import_capture, video_ns_at
-from conftest import make_profile
+from conftest import make_profile, write_jsonl
 
 FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 #: Die wahren Brettecken im Testbild, und das grobe Quad, das das Buendel-Log statt dessen fuehrt
@@ -91,8 +91,7 @@ def _bundle(tmp_path, monkeypatch, *, steps=DEFAULT_STEPS, fps=30, frames=200,
         rows = [{"seq": k, "kind": "video_sync", "elapsedNs": SYNC_BASE + k * NS,
                  "durationNs": k * NS} for k in range(12)] if syncs else []
         rows.append({"seq": 99, "kind": "frame", "elapsedNs": SYNC_BASE})
-        bundle.joinpath("timeline.jsonl").write_text(
-            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        write_jsonl(bundle / "timeline.jsonl", rows)
     _video(bundle / "video.mp4", frames, fps)
     return bundle
 

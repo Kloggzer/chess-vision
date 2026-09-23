@@ -6,7 +6,7 @@
 # Jede boolesche Wache der Engine EINZELN abschalten und den vollen Satz fahren. Was sich dabei
 # nicht ruehrt, ist von diesem Satz nicht abgedeckt — nicht notwendigerweise tot, aber als
 # Freigabe wertlos. Der erste so gemessene Fall war `baselineOcclusion`: beide engine-eigenen
-# Verdeckungsarme aus, 396/3/0 Ziffer fuer Ziffer wie mit (`docs/baseline-occlusion-off.md`).
+# Verdeckungsarme aus, 396/3/0 Ziffer fuer Ziffer wie mit (`docs/regression-reference.md`).
 #
 # Laeuft SEQUENZIELL, ein Regressionslauf nach dem anderen (je zwei JVMs, ~18 min). Ein bereits
 # vorhandenes Ergebnisverzeichnis wird uebersprungen, der Lauf ist also fortsetzbar.

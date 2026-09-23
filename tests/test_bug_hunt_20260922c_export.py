@@ -1,13 +1,7 @@
-"""Mutationsprobe 2026-09-22c auf dem Export- und Label-Weg: Waechter, die niemand hielt.
-
-Jede Wache hier wurde ausgehebelt, und der ganze Export/Label-Testsatz (643 Tests) lief gruen
-durch. Richtig waren sie alle — nur hielt sie nichts fest. Die Gegenproben stehen hier; welche
-Mutation jede einzelne toetet, sagt ihr Docstring.
-"""
+"""Mutationsprobe 2026-09-22c: Gegenproben fuer ungedeckte Waechter auf Export- und Label-Weg."""
 
 from __future__ import annotations
 
-import json
 import math
 
 import cv2
@@ -24,7 +18,7 @@ from chesslab.realgames import (
     meshes_for_boards,
     write_board,
 )
-from conftest import START_FEN
+from conftest import START_FEN, write_jsonl
 
 EIGHTHS = [k / 8.0 for k in range(9)]
 
@@ -135,8 +129,7 @@ def test_a_row_whose_board_is_gone_keeps_its_frame(tmp_path, monkeypatch) -> Non
         if has_file:
             cv2.imwrite(str(sdir / "boards" / f"{stem}.webp"), picture)
         rows.append({"frame": f"frames/{stem}.png", "board": f"boards/{stem}.webp"})
-    (sdir / "log.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "session.yaml").write_text("session_id: s1\n", encoding="utf-8")
 
     assert park_frames_session("s1")["moved"] == 1

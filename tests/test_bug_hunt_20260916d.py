@@ -1,7 +1,5 @@
-"""Bug-Jagd 2026-09-16 (d): halb geschriebene Dateien und Globs, die ihren eigenen Muell einsammeln.
-
-Jeder Test hier war rot, bevor der Fix daneben stand.
-"""
+"""Bug-Jagd 2026-09-16 (d): halb geschriebene Dateien und Globs, die ihren eigenen Muell
+einsammeln."""
 from __future__ import annotations
 
 import json

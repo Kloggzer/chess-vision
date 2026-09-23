@@ -1,8 +1,4 @@
-"""The settle score: a cell that stops matching its own interval's settled board.
-
-The alpha is the second half of it — it says WHERE the board was visible, and only there does a
-deviation mean the position changed rather than that a hand is in the way.
-"""
+"""The settle score: a cell that stops matching its interval's settled board, under the alpha."""
 
 
 import cv2

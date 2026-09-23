@@ -1,33 +1,21 @@
-"""Bug-Hunt 2026-09-23: Auswerter in `scripts/` rechnen auf der Zellmenge des Verlusts.
-
-Der Klassenverlust maskiert verdeckt UND dunkel (`occlusion.classification_eligible`); sechs
-Skripte schnitten nur auf `coverage`. Jeder Test ist gegen den ungefixten Stand rot gesehen worden.
-"""
+"""Auswerter in `scripts/` rechnen auf der Zellmenge des Verlusts."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
+from conftest import load_script
+
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / "scripts"
 
 BRIGHT = {"path": "hell", "coverage": 0.0, "brightness": 156.0}
 DARK = {"path": "dunkel", "coverage": 0.0, "brightness": 10.0}
 HIDDEN = {"path": "verdeckt", "coverage": 0.9, "brightness": 156.0}
 NO_COLUMN = {"path": "alt", "coverage": 0.05}
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"bh23_{name}", SCRIPTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 class _Seen(Exception):
@@ -51,18 +39,18 @@ def _pack(tmp_path: Path, rows: list[dict]) -> Path:
 
 
 def test_episode_eval_grades_the_cells_the_loss_learns():
-    mod = _load("episode_eval")
+    mod = load_script("episode_eval")
     assert mod.graded([BRIGHT, DARK, HIDDEN, NO_COLUMN]) == [0, 3]
 
 
 def test_show_dispute_leaves_dark_cells_out_of_the_dispute():
-    mod = _load("show_dispute")
+    mod = load_script("show_dispute")
     live, unmeasured = mod.disputed([BRIGHT, DARK, {"path": "u"}], [0, 0, 0], [1, 1, 1])
     assert (live, unmeasured) == ([0], 1)
 
 
 def test_crop_redundancy_thins_only_learnable_cells(tmp_path, monkeypatch):
-    mod = _load("crop_redundancy")
+    mod = load_script("crop_redundancy")
     seen: list = []
     monkeypatch.setattr(mod, "runs_of", _spy(seen))
     with pytest.raises(_Seen):
@@ -71,7 +59,7 @@ def test_crop_redundancy_thins_only_learnable_cells(tmp_path, monkeypatch):
 
 
 def test_crop_redundancy_montage_drops_dark_and_unmeasured(tmp_path, monkeypatch):
-    mod = _load("crop_redundancy_montage")
+    mod = load_script("crop_redundancy_montage")
     pack = _pack(tmp_path, [BRIGHT, DARK, HIDDEN, {"path": "ungemessen"}])
     seen: list = []
     monkeypatch.setattr(mod, "PACKS", tmp_path)
@@ -83,7 +71,7 @@ def test_crop_redundancy_montage_drops_dark_and_unmeasured(tmp_path, monkeypatch
 
 
 def test_crop_redundancy_plot_drops_dark_cells(tmp_path, monkeypatch):
-    mod = _load("crop_redundancy_plot")
+    mod = load_script("crop_redundancy_plot")
     pack = _pack(tmp_path, [BRIGHT, DARK, HIDDEN, NO_COLUMN])
     seen: list = []
     monkeypatch.setattr(mod, "PACKS", tmp_path)
@@ -95,7 +83,7 @@ def test_crop_redundancy_plot_drops_dark_cells(tmp_path, monkeypatch):
 
 
 def test_hand_audit_counts_a_dark_cell_as_masked_not_as_risk(tmp_path, monkeypatch, capsys):
-    mod = _load("hand_audit")
+    mod = load_script("hand_audit")
     import chesslab.dataset_build as dataset_build
 
     rec, dd = tmp_path / "rec", tmp_path / "ds"

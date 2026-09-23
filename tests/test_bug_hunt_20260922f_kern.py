@@ -1,8 +1,4 @@
-"""Mutationsprobe 2026-09-22 (f) ueber `src/chesslab/*.py` — ein Test je ungedeckter Wache.
-
-Gefunden, indem je EINE Wache ausgehebelt und der zugehoerige Testsatz gefahren wurde. Hier
-stehen nur die, die das ueberlebt haben: korrekt, aber von keinem Test gehalten.
-"""
+"""Mutationsprobe ueber `src/chesslab/*.py`: ein Test je ungedeckter Wache."""
 from __future__ import annotations
 
 import json

@@ -1,26 +1,13 @@
-"""specs/45 — the crop belongs to the model.
-
-`pad_side` decides what a training example LOOKS like: 128 px of a 1.10-cell box and
-128 px of a 1.20-cell box are different photographs of the same square, and nothing in the
-pipeline notices the difference. These tests pin the CONTRACT that ends that — a crop says how
-it was cut, a run declares it, and serving crops to what the model declares — never the values
-themselves, which are a property of the corpus and may move.
-"""
+"""specs/45: the crop belongs to the model; crops, runs and serving declare how it was cut."""
 
 from __future__ import annotations
 
 import json
 
 from chesslab import config, labeling, serving
-from chesslab.calibration import CalibrationProfile
 from chesslab.training.data import crop_of_rows
 from chesslab.training.evaluate import crop_of_dataset
 from conftest import make_profile
-
-
-def _identity_profile(board_size: int = 800) -> CalibrationProfile:
-    return make_profile(board_size)
-
 
 # --- what a crop row says about itself ---------------------------------------------------
 
@@ -31,7 +18,7 @@ def test_slice_records_the_pads_it_cut_with(tmp_path):
 
     sdir = _make_session(tmp_path)
     manifest = tmp_path / "manifests" / "crops.jsonl"
-    prof = _identity_profile()
+    prof = make_profile()
     prof.crop.pad_side = 0.05
     labeling.slice_session(sdir, profile=prof, manifest_path=manifest,
                            squares_root=tmp_path / "squares")

@@ -1,9 +1,4 @@
-"""Vier Loader-Worker zogen dieselbe Augmentierungs-Folge.
-
-Ein im Elternteil gebauter `default_rng` wird beim Fork mitkopiert, also lief die Helligkeits-
-und Versatz-Folge in jedem Worker identisch: die Augmentierung war ein Viertel so vielfaeltig,
-wie sie aussah, und gegen `seed` nicht reproduzierbar.
-"""
+"""Jeder Loader-Worker des Hand-Gates zieht eine eigene, aus `seed` reproduzierbare Folge."""
 
 from __future__ import annotations
 

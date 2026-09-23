@@ -1,13 +1,8 @@
-"""Der Bericht meldet den ganzen dirty-Stapel, der Standardlauf arbeitet `occluded` zuerst ab.
-
-Das ist eine Reihenfolge und kein Widerspruch — entschieden 2026-09-16, nachdem der Korpus
-gezaehlt war: 3 366 Frames gemattet, 21 offen im Standard-Stapel und 117 im uebrigen, und beide
-Zahlen auf EINER Aufnahme. Falsch war nur, beides als eine Zahl zu melden; das trennt
-`missing`/`missing_other` seit 2026-09-15. Diese Datei haelt die Trennung fest.
-"""
+"""Der Matte-Bericht trennt `missing` (Standard-Stapel) von `missing_other`."""
 from __future__ import annotations
 
 from chesslab.matte import ALPHA_REASON, dirty_pile
+from conftest import write_jsonl
 
 
 def _row(stem: str, reason: str | None, **extra) -> dict:
@@ -42,7 +37,6 @@ def test_the_default_run_leaves_half_the_reported_gap_untouched():
 
 
 def _rows_on_disk(tmp_path):
-    import json
 
     sdir = tmp_path / "s"
     (sdir / "boards").mkdir(parents=True)
@@ -54,7 +48,7 @@ def _rows_on_disk(tmp_path):
         {"frame": "frames/000030.png", "board": "dirty/000030.webp", "dirty": True,
          "dirty_reason": "stale"},
     ]
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     (sdir / "matte.jsonl").write_text("", encoding="utf-8")
     return sdir
 

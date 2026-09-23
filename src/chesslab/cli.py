@@ -2143,13 +2143,13 @@ def train_cmd(
     fused_adamw: bool = typer.Option(False, "--fused-adamw",
                                      help="Fused AdamW. Keeps the model's arithmetic bit-identical "
                                           "and moves the parameter update by ~2e-7; the win is the "
-                                          "per-step sync it removes (docs/training-stack-spike.md)."),
+                                          "per-step sync it removes (docs/training-speed.md)."),
     compile_mode: str | None = typer.Option(None, "--compile-mode",
                                            help="torch.compile mode, e.g. reduce-overhead (CUDA "
                                                 "graphs). Needs --compile-model."),
     compile_model: bool = typer.Option(False, "--compile-model",
                                        help="torch.compile the model forward (triton-windows, "
-                                            "docs/training-stack-spike.md). Off by default: runs "
+                                            "docs/training-speed.md). Off by default: runs "
                                             "with it are not comparable with the archive."),
     compile_batch_aug: bool = typer.Option(False, "--compile-batch-aug",
                                            help="Compile GPU augmentation, preserving RNG draws. Requires "
@@ -2220,7 +2220,7 @@ def train_cmd(
         False, "--batch-aug",
         help="ColorJitter, Gamma, Blur und Cutout als EINE Batch-Operation auf der GPU statt "
              "je Crop in PIL. Gleiche Verteilungen, aber float statt uint8 — statistisch "
-             "dasselbe Rezept, nicht bitgleich (docs/batch-aug.md)."),
+             "dasselbe Rezept, nicht bitgleich (docs/training-speed.md)."),
     blur_sigma_max: float | None = typer.Option(None, "--blur-sigma-max",
                                                 help="Obergrenze des Gaussian Blur (Default 1.5). "
                                                      "<= 0.1 laesst die Op ganz weg."),
@@ -2344,7 +2344,7 @@ def train_cmd(
                                              "hard = harte Kante bei 0,15 (Vorgabe, wie bisher). "
                                              "soft = der gemessenen Lesbarkeit folgend, Gewicht 0 "
                                              "erst ab 0,6. Macht Laeufe mit dem Archiv "
-                                             "unvergleichbar (docs/coverage-weight-2026-09-16.md)."),
+                                             "unvergleichbar (docs/class-scheme.md)."),
     weight_cap: float | None = typer.Option(None, "--weight-cap",
                                             help="Verhaeltnis groesstes/kleinstes Klassengewicht "
                                                  "hoechstens SO. Geglaettet (w ~ 1/n^a), nicht "

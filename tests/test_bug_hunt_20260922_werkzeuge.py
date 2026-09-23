@@ -1,10 +1,4 @@
-"""Skript-Jagd 2026-09-22: vier Werkzeuge, die eine Luecke als Messwert weiterreichten.
-
-Ein gescheiterter `eval` endete mit 0, ein fortgesetzter Lauf kam als vollstaendig durch, eine
-Aufnahme ohne Gegenstueck fiel stumm aus der Summe, und ein neu geschriebenes Manifest liess
-`split.json` mit Zaehlungen stehen, die auf geloeschte Zeilen zeigen. Jeder Test war vor dem
-zugehoerigen Fix rot.
-"""
+"""Skript-Jagd 2026-09-22: Werkzeuge, die eine Luecke als Messwert weiterreichten."""
 from __future__ import annotations
 
 import json
@@ -14,12 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from conftest import write_jsonl
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-
-def _rows(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
 def test_cross_eval_meldet_den_abgestuerzten_lauf_statt_mit_null_zu_enden(monkeypatch):
@@ -45,18 +36,18 @@ def test_thin_arms_verwirft_den_fortgesetzten_lauf(tmp_path):
     import thin_arms_report as tar
 
     ganz = [{"epoch": i, tar.METRIC: 0.9} for i in range(60)]   # das Rezept der Arme
-    _rows(tmp_path / "ganz" / "metrics.jsonl", ganz)
+    write_jsonl(tmp_path / "ganz" / "metrics.jsonl", ganz)
     assert tar.tail_mean(tmp_path / "ganz") == pytest.approx(0.9)
 
-    _rows(tmp_path / "weiter" / "metrics.jsonl", ganz[:5] + ganz)
+    write_jsonl(tmp_path / "weiter" / "metrics.jsonl", ganz[:5] + ganz)
     assert tar.tail_mean(tmp_path / "weiter") is None, "fortgesetzter Lauf ist nicht rangfaehig"
-    _rows(tmp_path / "kurz" / "metrics.jsonl", ganz[:-1])
+    write_jsonl(tmp_path / "kurz" / "metrics.jsonl", ganz[:-1])
     assert tar.tail_mean(tmp_path / "kurz") is None, "abgebrochener Lauf ist nicht rangfaehig"
 
 
 def _trace(d: Path, name: str) -> None:
     d.mkdir(parents=True, exist_ok=True)
-    _rows(d / f"{name}.jsonl", [{"kind": "frame", "index": 1, "timeMs": 100},
+    write_jsonl(d / f"{name}.jsonl", [{"kind": "frame", "index": 1, "timeMs": 100},
                                 {"kind": "decision", "index": 1, "ply": 1, "uci": "e2e4",
                                  "accepted": True}])
     (d / f"{name}.log").write_text("found 1:\nmissed 0:\ninvented 0:\nbeyond 0:\nreordered 0:\n",
@@ -84,7 +75,7 @@ def _dataset(tmp_path: Path) -> tuple[Path, list[dict]]:
     rows = [{"path": f"mm://p-80/{i:06d}/a1", "label": "wP" if i % 2 else "empty",
              "session_id": "s-train" if i < 8 else "s-val"} for i in range(12)]
     ds = tmp_path / "data" / "datasets" / "d"
-    _rows(ds / "manifest.jsonl", rows)
+    write_jsonl(ds / "manifest.jsonl", rows)
     pack = tmp_path / "data" / "packs" / "p-80"
     pack.mkdir(parents=True)
     (pack / "packed_meta.json").write_text(
@@ -146,7 +137,7 @@ def test_coverage_gaps_nennt_die_ungemessenen_zellen_statt_sie_als_sichtbar_zu_b
     import coverage_gaps
 
     man = tmp_path / "manifest.jsonl"
-    _rows(man, [{"label": "wP", "square_color": "light", "brightness": 120.0, "coverage": None},
+    write_jsonl(man, [{"label": "wP", "square_color": "light", "brightness": 120.0, "coverage": None},
                 {"label": "wP", "square_color": "light", "brightness": 120.0, "coverage": 0.0},
                 {"label": "empty", "square_color": "dark", "brightness": 120.0, "coverage": 0.0}])
     seen, denom = coverage_gaps.counts("egal", str(man))
@@ -159,11 +150,11 @@ def test_fold_per_session_haelt_den_fortgesetzten_fold_aus_der_tabelle(tmp_path)
     import fold_per_session as fps
 
     ganz = [{"epoch": i, "val_piece_acc": 0.9} for i in range(60)]
-    _rows(tmp_path / "f0" / "metrics.jsonl", ganz)
+    write_jsonl(tmp_path / "f0" / "metrics.jsonl", ganz)
     assert fps.finished(tmp_path / "f0")
-    _rows(tmp_path / "f1" / "metrics.jsonl", ganz[:10] + ganz)
+    write_jsonl(tmp_path / "f1" / "metrics.jsonl", ganz[:10] + ganz)
     assert not fps.finished(tmp_path / "f1"), "70 Zeilen sind keine 60 Epochen"
-    _rows(tmp_path / "f2" / "metrics.jsonl", ganz[:59])
+    write_jsonl(tmp_path / "f2" / "metrics.jsonl", ganz[:59])
     assert not fps.finished(tmp_path / "f2")
 
 
@@ -176,9 +167,9 @@ def test_rung_predictiveness_nimmt_den_fortgesetzten_lauf_nicht_in_die_kohorte(t
     import rung_predictiveness as rp
 
     ganz = [{"epoch": i, rp.METRIC: 0.9} for i in range(60)]
-    _rows(tmp_path / "a" / "metrics.jsonl", ganz)
+    write_jsonl(tmp_path / "a" / "metrics.jsonl", ganz)
     assert rp._series(tmp_path / "a", rp.METRIC, 60) is not None
-    _rows(tmp_path / "b" / "metrics.jsonl", ganz[:6] + ganz)
+    write_jsonl(tmp_path / "b" / "metrics.jsonl", ganz[:6] + ganz)
     assert rp._series(tmp_path / "b", rp.METRIC, 60) is None
 
 
@@ -187,5 +178,5 @@ def test_audit_sessions_teilt_den_zwilling_die_wache(tmp_path):
     import audit_sessions
 
     ganz = [{"epoch": i} for i in range(60)]
-    _rows(tmp_path / "f1" / "metrics.jsonl", ganz[:10] + ganz)
+    write_jsonl(tmp_path / "f1" / "metrics.jsonl", ganz[:10] + ganz)
     assert audit_sessions.finished(tmp_path / "f1") is False

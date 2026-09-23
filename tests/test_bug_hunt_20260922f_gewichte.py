@@ -1,7 +1,4 @@
-"""Die Klassengewichte zaehlen ueber DIESELBE Zellmenge wie `OcclusionLoss`.
-
-Bis 2026-09-22 liessen sie die Dunkelmaske aus (Punkt 38 der Entscheidungsvorlage).
-"""
+"""Die Klassengewichte zaehlen ueber DIESELBE Zellmenge wie `OcclusionLoss`."""
 
 from __future__ import annotations
 

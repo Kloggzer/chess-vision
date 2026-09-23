@@ -1,12 +1,4 @@
-"""Auch `close_seams` gehoert zum Alpha DIESER Zeile — nicht zu `<stem>.webp` um jeden Preis.
-
-Dieselbe Form wie der gefixte `recut_coverage`: nach einem Upsert liegt SAMs Alpha unter
-`.sam.webp`, und `<stem>.webp` ist das des Drei-Bilder-Sensors. `close_seams` haette SAMs Zeile
-sonst die geschlossenen Naehte des SENSOR-Alphas gegeben.
-
-Dass die Naehte damit in der Ruecksicherung landen, ist richtig: `upsert_proposals` spielt sie
-beim naechsten Lauf als SAMs Alpha zurueck, und eine geschlossene Naht ist dort eine Verbesserung.
-"""
+"""`close_seams` nimmt das Alpha DIESER Zeile (`.sam.webp` nach einem Upsert)."""
 from __future__ import annotations
 
 import json

@@ -1,13 +1,8 @@
-"""Rote Belege aus der Skript-Jagd 2026-09-17: drei Zahlen, die niemand nachrechnet.
-
-Alle drei sitzen in `scripts/`, tragen Entscheidungen und hatten keinen Test:
-der Risiko-Zaehler von `hand_audit`, die p90-Spalte von `phone_vs_pc`/`settle_compare`
-und die Abschlusstabelle von `fold_per_session`.
-"""
+"""Skript-Jagd 2026-09-17: `hand_audit`, p90 von `phone_vs_pc`/`settle_compare`,
+`fold_per_session`."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -16,17 +11,7 @@ import numpy as np
 import pytest
 
 from chesslab.training.pack import PackedIndex
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(f"_script_{name}", ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
+from conftest import load_script, write_jsonl
 
 # --- 1. `hand_audit`: leere `concepts` sind GEMESSEN, nur `coverage is None` ist blind ----------
 
@@ -34,7 +19,7 @@ def test_hand_audit_does_not_call_a_measured_empty_matte_blind():
     """2 320 Korpuszeilen tragen `concepts: {}` mit voll gemessener Coverage, 684 davon mit
     Schmutzgrund. Ueber `concepts` gepruefte Zeilen galten geschlossen als `blind` und damit als
     RISIKO — die Zahl, die das Skript ausrechnet."""
-    hand_audit = _load("hand_audit")
+    hand_audit = load_script("hand_audit")
     measured = {"concepts": {}, "dirty_reason": "occluded",
                 "coverage": {f"{f}{r}": 0.0 for r in range(1, 9) for f in "abcdefgh"}}
 
@@ -52,7 +37,7 @@ def test_hand_audit_does_not_call_a_measured_empty_matte_blind():
 def test_phone_vs_pc_p90_is_not_the_maximum():
     """`int(0,9 * n)` ist bei n = 10 der Index 9, also `max` — die Spalte log neben `max`
     dieselbe Zahl. `commit_lag.py`, `commit_budget.py` und `settle_lag.py` rechnen es richtig."""
-    phone_vs_pc = _load("phone_vs_pc")
+    phone_vs_pc = load_script("phone_vs_pc")
     ten = [float(x) for x in range(1, 11)]
 
     assert phone_vs_pc.p90(ten) == 9.0
@@ -64,7 +49,7 @@ def test_phone_vs_pc_p90_is_not_the_maximum():
 
 
 def test_settle_compare_uses_the_same_p90():
-    settle_compare = _load("settle_compare")
+    settle_compare = load_script("settle_compare")
     assert settle_compare.p90([float(x) for x in range(1, 11)]) == 9.0
 
 
@@ -81,8 +66,7 @@ def _fold_fixture(tmp_path: Path):
         rows += [{"path": f"{sess}/{i}", "session_id": sess, "coverage": 0.0,
                   "label": "wP" if i else "empty", "_packed_idx": len(rows) + i}
                  for i in range(2)]
-    (dd / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
 
     pack = dd / "packed_images.u8"
     np.zeros((len(rows), 4, 4, 3), dtype=np.uint8).tofile(pack)
@@ -97,7 +81,7 @@ def test_fold_per_session_prints_its_summary_table(tmp_path, monkeypatch, capsys
     """Die Abschlusstabelle entpackte einen Dreier in vier Namen und sortierte nach `kv[1][3]`.
     Ein voller Fold-Lauf brach also NACH der ganzen GPU-Arbeit mit `IndexError` ab; die Helfer
     `sorted_rows`/`table_line` lagen daneben und wurden nie gerufen."""
-    fold_per_session = _load("fold_per_session")
+    fold_per_session = load_script("fold_per_session")
     dd, rows, pack, folds = _fold_fixture(tmp_path)
 
     def fake_read_jsonl(path):
@@ -123,7 +107,7 @@ def test_fold_per_session_prints_its_summary_table(tmp_path, monkeypatch, capsys
 
 def test_fold_per_session_reports_a_session_two_folds_held_back(tmp_path, monkeypatch, capsys):
     """`out[(sess, fold)]` verschluckt nichts mehr, aber gemeldet wurde es auch nie."""
-    fold_per_session = _load("fold_per_session")
+    fold_per_session = load_script("fold_per_session")
     dd, rows, pack, folds = _fold_fixture(tmp_path)
     (dd / "split-f1.json").write_text(json.dumps({"splits": {"test": ["s-hoch"]}}),
                                       encoding="utf-8")

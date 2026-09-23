@@ -1,14 +1,4 @@
-"""Alignment on a synthetic board whose true geometry is known exactly.
-
-The board is rendered rectified and then projected through a chosen quad, so "where the grid
-really is" is not an estimate here — it is the quad the frame was built from.
-
-The rendered board carries a BORDER outside the playing field, because the measurement does: since
-2026-08-03 `grid_lines` locates the two outer lines per axis instead of pinning them at 0 and
-`board_size`, and a fixture without a surround would test a code path no real frame takes. The
-border is what makes `test_a_uniform_scale_is_reported_at_its_true_size` possible at all — that
-test asserted the opposite until this change, and recorded the blind spot as structural.
-"""
+"""Alignment on a synthetic board with a border, projected through a known quad."""
 
 import cv2
 import numpy as np

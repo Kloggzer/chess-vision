@@ -1,6 +1,6 @@
 """Wie steil steigt die Guete noch mit der Zahl der Aufnahmen?
 
-Alle Rezept-Hebel sind ausgereizt (`docs/measurement-floor.md`): das Modell kann 99,93 % seiner
+Alle Rezept-Hebel sind ausgereizt (`docs/evaluation.md`): das Modell kann 99,93 % seiner
 Trainingsdaten und 75,85 % einer neuen Session. Damit ist die offene Frage nicht mehr, OB mehr
 Material hilft, sondern wie viel es bringt — und das steht in der Steigung der Lernkurve, nicht
 in einer Meinung.

@@ -1,10 +1,4 @@
-"""Wer eine `.jsonl` selbst in Zeilen schneidet, beantwortet drei Fragen neu.
-
-Die Leerzeile, die halbe LETZTE Zeile (ein Schreiber laeuft noch) und die kaputte Zeile
-MITTENDRIN (Beschaedigung, muss laut sein). `chesslab.ioutil.read_jsonl` ist die eine Antwort;
-diese Liste sind die Stellen davor und darf nur SCHRUMPFEN. Der Zwilling der Web-App steht in
-`platform/app/lib/jsonl-ratchet.test.ts`.
-"""
+"""Wer `.jsonl` selbst in Zeilen schneidet statt `ioutil.read_jsonl`; die Liste schrumpft nur."""
 from __future__ import annotations
 
 import ast

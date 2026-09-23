@@ -1,8 +1,5 @@
-"""W1/W2: die CLI-Bestaetigung stempelt ihre Referenz wie `/confirm`, und sie ersetzt kein fremdes Urteil.
-
-Ueber `chesslab realgames confirm`, den Weg, den ein Mensch am Terminal geht. Der md5 der festen
-PGN (BOM, CRLF) steht wortgleich in `platform/app/lib/confirm-stamp.test.ts`.
-"""
+"""`chesslab realgames confirm` stempelt seine Referenz wie `/confirm` und ersetzt kein
+fremdes Urteil."""
 from __future__ import annotations
 
 import json

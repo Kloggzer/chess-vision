@@ -1,7 +1,4 @@
-"""Markerlose Brettsuche auf einem gerenderten Brett — kein Fixture, keine Aufnahme.
-
-Die echten Zahlen stehen in `docs/markerless.md`; hier steht, was sich ohne Video prüfen lässt.
-"""
+"""Markerlose Brettsuche auf einem gerenderten Brett (`docs/markerless.md`)."""
 
 import cv2
 import numpy as np

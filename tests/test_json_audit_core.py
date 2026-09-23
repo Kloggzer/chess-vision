@@ -1,10 +1,4 @@
-"""JSON/JSONL-Audit der Kern-Module (ioutil, temporal_matte, sessions, retime, occluders).
-
-Jeder Test gehoert zu genau einem Fund; die Begruendung steht am Test, der Fundort als `# TODO:`
-im Quelltext. Zwei Klassen dominieren: ein `write_text` ohne Nebendatei (ein Abbruch laesst eine
-halbe Datei zurueck, die der naechste Leser fuer vollstaendig haelt) und ein `cv2.imwrite`,
-dessen `False` niemand liest.
-"""
+"""JSON/JSONL-Audit der Kern-Module (ioutil, temporal_matte, sessions, retime, occluders)."""
 from __future__ import annotations
 
 import json
@@ -13,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from chesslab import config
+from conftest import write_jsonl
 
 
 def tear_write_text(monkeypatch, target: Path):
@@ -203,7 +198,7 @@ def test_a_torn_trim_leaves_the_log_intact(tmp_path, monkeypatch):
     (sdir / "frames").mkdir(parents=True)
     (sdir / "session.yaml").write_text(yaml.safe_dump({"session_id": "s1"}), encoding="utf-8")
     rows = [{"frame": f"frames/{i:04d}.png", "ply": i, "fen": "f"} for i in range(6)]
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(sdir / "log.jsonl", rows)
     before = (sdir / "log.jsonl").read_text(encoding="utf-8")
     monkeypatch.setattr(sessions, "session_dir", lambda _sid, _p=None: (sdir, False))
     tear_write_text(monkeypatch, sdir / "log.jsonl")
@@ -225,7 +220,7 @@ def test_a_torn_matte_filter_leaves_the_ledger_intact(tmp_path, monkeypatch):
 
     path = tmp_path / "matte.jsonl"
     rows = [{"frame": f"{i:04d}", "coverage": {"a1": 0.5}} for i in range(6)]
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(path, rows)
     before = path.read_text(encoding="utf-8")
     tear_write_text(monkeypatch, path)
 

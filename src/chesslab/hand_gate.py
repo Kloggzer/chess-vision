@@ -1,7 +1,7 @@
 """Das billige Ja/Nein vor der Auswahl: liegt eine Hand auf diesem Brett?
 
 Destilliert aus SAM 3 — dessen Alpha ist der Lehrer, dieser Kopf der Zeuge, der in Millisekunden
-statt Sekunden antwortet. Warum die drei Scan-Sensoren das nicht können: `docs/hand-gate.md`.
+statt Sekunden antwortet. Warum die drei Scan-Sensoren das nicht können: `docs/session-mattes.md`.
 """
 
 from __future__ import annotations

@@ -1,9 +1,4 @@
-"""Ein Backbone-Name, den timm nicht kennt, muss sofort und deutlich abgewiesen werden.
-
-`timm.is_model_pretrained` gibt fuer einen UNBEKANNTEN Namen `False` zurueck, nicht einen Fehler.
-Die Warnung "keine vortrainierten Gewichte — zufaellige Initialisierung" lief deshalb fuer ein
-Modell, das es gar nicht gibt, und `create_model` starb eine Zeile spaeter.
-"""
+"""Ein Backbone-Name, den timm nicht kennt, wird sofort und deutlich abgewiesen."""
 
 from __future__ import annotations
 

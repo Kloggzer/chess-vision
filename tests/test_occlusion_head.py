@@ -1,8 +1,4 @@
-"""The occlusion output must not compete with the pieces, and must not be trained on their crops.
-
-`docs/occluder-plates.md` has the measurement that forced it: as a 14th class it cost `empty`
-recall 0.908 instead of 0.989 and roughly halved both kings.
-"""
+"""The occlusion output does not compete with the pieces (`docs/occluder-plates.md`)."""
 
 import pytest
 

@@ -2,7 +2,7 @@
 
 Die Zahl entscheidet, ob ein Sweep ueberhaupt frueh abbrechen darf. Sie ist NICHT konstant:
 auf weit auseinanderliegenden Armen sagt schon Epoche 5 alles, auf eng beieinanderliegenden
-sagt Epoche 20 nichts. Der Entwurf dazu liegt in der Git-Historie (`docs/plan-98/`, 2026-09-11).
+sagt Epoche 20 nichts. Der Entwurf dazu liegt in der Git-Historie (`docs/evaluation.md`, 2026-09-11).
 
     uv run python scripts/rung_predictiveness.py
     uv run python scripts/rung_predictiveness.py --roots data/models/_arch80v6 --tail 20

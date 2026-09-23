@@ -1,9 +1,4 @@
-"""A grid line found in the wrong place is the failure `mesh_from_lines` cannot see.
-
-It only checks that the lines rise, so a line that locked onto a tall piece's edge instead of the
-board's passes every gate and stretches its rank. Measured on the 4K turntable clip: the 8/7
-boundary scattered 4x wider than any other line and stretched rank 7 by 14 %.
-"""
+"""Repair of a grid line found in the wrong place, which `mesh_from_lines` cannot see."""
 
 import pytest
 

@@ -15,7 +15,7 @@ aussichtsreichsten Regularisierungslauf. Zwei Gruende:
 
 Absolute Boeden helfen nicht: 0,90 auf `occ_acc` trifft 7 legitime Laeufe, und `train_loss` bei
 Epoche 15 ist fuer `wd20` (0,551) hoeher als fuer den wirklich kaputten `wd50` bei Epoche 2
-(0,588). Passt zum Morgenbefund in `docs/measurement-floor.md`: Spearman 0,40 zwischen der
+(0,588). Passt zum Morgenbefund in `docs/evaluation.md`: Spearman 0,40 zwischen der
 Rangfolge nach 15 und nach 60 Epochen.
 
 Der Live-Modus toetet deshalb NUR mit `--arm`; ohne das laeuft er trocken.

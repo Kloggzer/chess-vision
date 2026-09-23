@@ -25,7 +25,7 @@ def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, tor
 
 
 #: Ab hier liest das Modell die Figur schlechter als Zufall — gemessen 2026-09-16,
-#: `docs/coverage-weight-2026-09-16.md`. Der Schwanz darueber ist kein schwaches Signal, er ist
+#: `docs/class-scheme.md`. Der Schwanz darueber ist kein schwaches Signal, er ist
 #: systematisch falsch: dort gehoert eine Null hin und kein kleines Gewicht.
 COVERAGE_ZERO_AT = 0.60
 #: Linksversatz der S-Kurve. Sie startet sonst WAAGERECHT, die Messung faellt dort aber schon

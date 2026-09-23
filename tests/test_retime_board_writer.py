@@ -1,15 +1,4 @@
-"""`cv2.imwrite` waehlt den Codec an der ENDUNG — `.webp.tmp` kennt es nicht.
-
-`_write_boards` legt die Bilder erst daneben und haengt zuletzt um, damit ein Dekoder-Abbruch
-nicht den ganzen Review-Satz kostet. Der Zwischenname war aber `<stem>.webp.tmp`, und OpenCV
-antwortet darauf mit "could not find a writer for the specified extension". Folge: `phone-record`
-stirbt bei der ERSTEN Datei, die alten Bilder bleiben um alte `frame_review`-Werte geschnitten
-liegen, und die Confirm-Ansicht sagt bei jedem Halbzug "Kein Bild auf der Platte fuer dieses
-Fenster". Gemessen am 2026-09-15 auf `2026-09-15-16-54-44`: 111 von 111 Halbzuegen ohne Bild.
-
-Derselbe Fehler stand in `matte.close_seams` und ist dort am selben Tag behoben worden — dies ist
-die zweite Stelle.
-"""
+"""`_write_boards` schreibt ueber einen Zwischennamen, dessen Endung `cv2.imwrite` kennt."""
 from __future__ import annotations
 
 import pytest

@@ -1,4 +1,4 @@
-"""Das DATENSATZ-PACK (`docs/pack-arten.md`), nicht das Session-Pack in `packs.py` daneben.
+"""Das DATENSATZ-PACK (`docs/packs.md`), nicht das Session-Pack in `packs.py` daneben.
 
 Eines gebauten Datensatzes Crops in EINEM memory-mapped uint8-Array. Loading 1M+ individual PNGs
 per epoch (``Image.open`` per item in ``SquareDataset``) is the training bottleneck on this

@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from chesslab import config
 from chesslab.training import pack as pack_mod
+from conftest import write_jsonl
 
 CROP = 8
 
@@ -22,13 +22,6 @@ def serial_pool(monkeypatch):
     from test_pack import _SerialPool
 
     monkeypatch.setattr(multiprocessing, "Pool", _SerialPool)
-
-
-@pytest.fixture
-def paths(tmp_path, monkeypatch):
-    p = config.Paths(root=tmp_path)
-    monkeypatch.setattr(config, "DATA", p)
-    return p
 
 
 @pytest.mark.usefixtures("serial_pool")
@@ -78,8 +71,7 @@ def _baked_pair(paths, monkeypatch):
     mm.flush()
     del mm
     rows = [{"path": f"data/crops/default/empty/c{i}.webp", "label": "empty"} for i in range(4)]
-    (dd / "manifest.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    write_jsonl(dd / "manifest.jsonl", rows)
     (dd / "split.json").write_text(json.dumps({"classes": ["empty"]}), encoding="utf-8")
     (dd / "packed_meta.json").write_text(json.dumps(
         {"n": 4, "h": 80, "w": 80, "digest": pack_mod._manifest_digest(rows),
