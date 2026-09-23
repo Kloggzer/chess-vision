@@ -7,6 +7,7 @@ einmal; `tests/test_json_doors.py` haelt die Liste der Stellen, die noch daran v
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import os
@@ -121,13 +122,14 @@ class Contested(RuntimeError):
     """Jemand anders hat die Datei geschrieben, waehrend wir sie geaendert haben."""
 
 
-def stamp_of(path: Path) -> tuple[int, int] | None:
-    """Mtime und Groesse — die Form, auf die `matte` und `lib/session.ts` schon cachen."""
+def stamp_of(path: Path) -> tuple[int, str] | None:
+    """Groesse und Inhalts-Hash; `None` nur, wenn die Datei FEHLT. Mtime taugt nicht: zwei gleich
+    lange Schreiber im selben Takt tragen dieselbe, auch in ns (gemessen 2026-09-23)."""
     try:
-        st = Path(path).stat()
-    except OSError:
+        data = Path(path).read_bytes()
+    except FileNotFoundError:
         return None
-    return (st.st_mtime_ns, st.st_size)
+    return (len(data), hashlib.sha256(data).hexdigest())
 
 
 def rows_text(rows: Iterable[dict], *, default: Callable[[object], object] | None = None) -> str:
@@ -143,7 +145,7 @@ def write_rows(path: Path, rows: Iterable[dict], *,
     return len(rows)
 
 
-def write_rows_guarded(path: Path, rows: Iterable[dict], stamp: tuple[int, int] | None,
+def write_rows_guarded(path: Path, rows: Iterable[dict], stamp: tuple[int, str] | None,
                        *, what: str, default: Callable[[object], object] | None = None) -> int:
     """Nur schreiben, solange die Datei die ist, an der die Arbeit begann.
 
@@ -170,7 +172,7 @@ def write_json(path: Path, obj: object, *, indent: int | None = 2) -> None:
     write_atomic(path, json.dumps(obj, indent=indent, ensure_ascii=False) + "\n")
 
 
-def write_json_guarded(path: Path, obj: object, stamp: tuple[int, int] | None, *, what: str,
+def write_json_guarded(path: Path, obj: object, stamp: tuple[int, str] | None, *, what: str,
                        indent: int | None = 2) -> None:
     """`write_json` mit dem Riegel von `write_rows_guarded`: `Contested`, statt ein Urteil zu ersetzen."""
     path = Path(path)

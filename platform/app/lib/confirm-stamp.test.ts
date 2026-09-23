@@ -5,11 +5,30 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { expect, test } from "vitest";
-import { referenceDigest } from "@/lib/data";
+import { expect, test, vi } from "vitest";
+import { Contested } from "@/lib/atomic";
+import { keptCards } from "@/lib/confirm-kept";
+import { loadCandidate, referenceDigest, writeConfirmation } from "@/lib/data";
+import { buildReviewCards } from "@/lib/review-cards";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const NAME = "g";
+
+let afterCandidateRead: (() => Promise<void>) | null = null;
+vi.mock("node:fs/promises", async () => {
+  const real = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  const readFile = (async (file: Parameters<typeof real.readFile>[0], options?: unknown) => {
+    const got = await real.readFile(file, options as never);
+    const once = afterCandidateRead;
+    if (once && options === "utf8" && String(file).endsWith("candidate.json")) {
+      afterCandidateRead = null;
+      await once();
+    }
+    return got;
+  }) as typeof real.readFile;
+  const mocked = { ...real, readFile };
+  return { ...mocked, default: mocked };
+});
 // BOM und CRLF: wer normalisiert statt die rohen Bytes zu hashen, rechnet hier etwas anderes.
 const PGN = Buffer.from('﻿[Event "W2"]\r\n\r\n1. e4 e5 *\r\n', "utf8");
 const PGN_MD5 = "5c6da1fbf57ec1d48056dff3958c2080";
@@ -73,4 +92,83 @@ test("ein alter Client ohne reference_md5 bestaetigt wie bisher gegen die Refere
   expect((await confirm({ kept: [] })).status).toBe(200);
   const doc = await candidateOf(dir);
   expect(doc.confirmed_reference).toEqual({ md5: referenceDigest(Buffer.from(OTHER, "utf8")), at: doc.confirmed_at });
+});
+
+const THREE = [...MOVES, { ply: 3, san: "Nf3", frame: 30 }];
+const three = async (prefix: string, name = NAME) =>
+  writeSession({ root: await tempDataRoot(prefix), name, moves: THREE });
+const cardsOf = async (name: string, indices = [0, 1, 2]) =>
+  buildReviewCards({ moves: (await loadCandidate(name)).moves, indices, stems: [] });
+
+// `writeConfirmation` ERSETZT `reviewed_plies`; die Seite muss die vorhandenen Urteile deshalb VORLADEN.
+test("ohne Vorladen verliert der zweite Klick das Urteil — das ist die Form, die der Fix schliesst", async () => {
+  const dir = await three("confirm-keep");
+  expect(await writeConfirmation(NAME, [0, 2])).toEqual([1, 3]);
+  // Genau das schickte die Seite bisher: frisch geoeffnet, nichts angeklickt, Knopf gedrueckt.
+  expect(await writeConfirmation(NAME, [])).toEqual([]);
+  expect((await candidateOf(dir)).reviewed_plies).toEqual([]);
+});
+
+test("die Karten laden die gespeicherten reviewed_plies vor", async () => {
+  await three("confirm-keep");
+  await writeConfirmation(NAME, [0, 2]);
+  expect(keptCards(await cardsOf(NAME), (await loadCandidate(NAME)).reviewed_plies ?? [])).toEqual({ 0: true, 2: true });
+});
+
+test("mit Vorladen ueberlebt das Urteil den zweiten Klick", async () => {
+  await three("confirm-keep");
+  await writeConfirmation(NAME, [0, 2]);
+  const cards = await cardsOf(NAME);
+  const seeded = keptCards(cards, (await loadCandidate(NAME)).reviewed_plies ?? []);
+  const kept = cards.filter((c) => seeded[c.id]).flatMap((c) => c.keep);
+  expect(await writeConfirmation(NAME, kept)).toEqual([1, 3]);
+});
+
+test("ein Frame ohne Nachfolger bleibt auf `keep`, wenn nur ein Teil seiner Plies beurteilt ist", async () => {
+  await three("confirm-keep");
+  // Keine gespeicherte Bestaetigung: nichts ist vorgeladen, sonst waere der Vorschlag erfunden.
+  expect(keptCards(await cardsOf(NAME), [])).toEqual({});
+});
+
+test("eine Ply-Nummer, die keine Karte traegt, erfindet keine Karte", async () => {
+  await three("confirm-keep");
+  expect(keptCards(await cardsOf(NAME, [0]), [2, 3])).toEqual({});
+});
+
+/** Die Frame-losen Karten tragen `keep = members`; auch die muessen sich wiederfinden. */
+test("ein Mehrfach-Commit zaehlt als beurteilt, wenn jede seiner keep-Plies drin steht", async () => {
+  await writeSession({
+    root: await tempDataRoot("confirm-multi"), name: "m",
+    moves: [{ ply: 1, san: "e4", frame: 10 }, { ply: 2, san: "e5", frame: 10 }, { ply: 3, san: "Nf3", frame: 30 }],
+  });
+  const cards = await cardsOf("m");
+  expect(keptCards(cards, [2])).toEqual({ 0: true });
+  expect(keptCards(cards, [1])).toEqual({});
+});
+
+/** Ohne dass `/confirm/[name]` den gespeicherten Stand durchreicht, steht der Fix da und wirkt nicht. */
+test("die Seite reicht den gespeicherten Stand an die Karten durch", async () => {
+  const page = await readFile(path.join(process.cwd(), "app", "confirm", "[name]", "page.tsx"), "utf8");
+  expect(page).toMatch(/reviewedPlies=\{candidate\.reviewed_plies/);
+  expect(page).toMatch(/struckPlies=\{candidate\.struck_plies/);
+  const cards = await readFile(path.join(process.cwd(), "app", "confirm", "[name]", "cards.tsx"), "utf8");
+  expect(cards).toMatch(/useState<Record<number, boolean>>\(\(\) => keptCards\(cards, reviewedPlies\)\)/);
+  expect(cards).toMatch(/useState<Record<number, boolean>>\(\(\) => struckCards\(gallery, struckPlies\)\)/);
+});
+
+// `writeFileAtomic` verhindert nur die HALBE Datei, nicht zwei Schreiber auf demselben Ausgangsstand.
+test("zwei gleichzeitige Streichungen verlieren keine — Gestrichenes bleibt gestrichen", async () => {
+  const dir = await three("confirm-race");
+  await Promise.all([writeConfirmation(NAME, [], [1]), writeConfirmation(NAME, [], [3])]);
+  expect((await candidateOf(dir)).struck_plies).toEqual([1, 3]);
+});
+
+test("ein fremder Schreiber zwischen Lesen und Umhaengen wird nicht ueberrannt", async () => {
+  const dir = await three("confirm-foreign");
+  const file = path.join(dir, "candidate.json");
+  await writeFile(path.join(dir, "reference.pgn"), "1. e4 e5 2. Nf3 *\n", "utf8");
+  const foreign = { ...(await candidateOf(dir)), note: "von aussen geschrieben" };
+  afterCandidateRead = () => writeFile(file, JSON.stringify(foreign), "utf8");
+  await expect(writeConfirmation(NAME, [0])).rejects.toThrow(Contested);
+  expect((await candidateOf(dir)).note).toBe("von aussen geschrieben");
 });

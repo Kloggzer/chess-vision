@@ -1,9 +1,8 @@
 /**
- * `unusable` ueber `/api/frame-verdict` gegen einen fremden Schreiber der `log.jsonl` (Export,
- * Trim — Python bewacht seine Seite seit 2026-09-23 mit `write_rows_guarded`). Ohne Riegel
- * ueberbuegelte das Urteil den Export oder umgekehrt, und beide meldeten Erfolg.
+ * `/api/frame-verdict` gegen einen fremden Schreiber der `log.jsonl` (Export, Trim — Python bewacht
+ * seine Seite seit 2026-09-23 mit `write_rows_guarded`). Ohne Riegel meldeten beide Erfolg.
  */
-import { readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import { type RowSpec, sessionRow, tempDataRoot, writeSession } from "@/lib/test-fixtures";
@@ -14,6 +13,9 @@ const hook: Hook = {};
 vi.mock("node:fs/promises", async () => {
   const real = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   const readFile = (async (file: Parameters<typeof real.readFile>[0], options?: unknown) => {
+    if (options === undefined && hook.statFails?.(String(file))) {
+      throw Object.assign(new Error("EMFILE: too many open files"), { code: "EMFILE" });
+    }
     const text = await real.readFile(file, options as never);
     const once = hook.onRead;
     if (once && String(file).endsWith("log.jsonl")) {
@@ -42,11 +44,11 @@ beforeEach(async () => {
   dir = await writeSession({ root, name: "g", fps: 30, rows: [row(100), row(200)] });
 });
 
-const verdict = async () => {
+const verdict = async (frame = "000200", kind = "unusable") => {
   const { POST } = await import("@/app/api/frame-verdict/route");
   return POST(new Request("http://local/api/frame-verdict", {
     method: "POST",
-    body: JSON.stringify({ session_id: "rg-g", frame: "000200", verdict: "unusable" }),
+    body: JSON.stringify({ session_id: "rg-g", frame, verdict: kind }),
   }));
 };
 
@@ -85,4 +87,18 @@ test("ein fs-Fehler beim Stempeln ist kein Freibrief zum Schreiben", async () =>
   expect(res.status, "BUG: ohne Stempel geschrieben").not.toBe(200);
   expect(await log()).toBe(before);
   expect(await backups()).toEqual([]);
+});
+
+test("ein fs-Fehler auf den Sicherungsnamen ist kein freier Name", async () => {
+  hook.statFails = (file) => file.includes("log.jsonl.bak.");
+  await expect((await import("@/lib/frame-flag")).flagFrame("g", "000100", true)).rejects.toThrow(/EMFILE/);
+});
+
+test("the note names where the verdict really came from", async () => {
+  // Einziger Aufrufer ist der Labeln-Strom; die Strittig-Lane ruft die Route nie an.
+  await verdict("000002", "matte");
+  const text = await readFile(path.join(dir, "..", "..", "labels", "review-notes.jsonl"), "utf8");
+  const note = JSON.parse(text.split("\n")[0]) as { reason: string };
+  expect(note.reason, "BUG: die Strittig-Lane ruft die Route nie").not.toBe("Strittige Frames");
+  expect(note.reason).toMatch(/Labeln/);
 });

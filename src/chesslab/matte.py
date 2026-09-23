@@ -17,7 +17,7 @@ import numpy as np
 
 from . import provenance
 from .cell_rule import PIECE_VISIBLE_MAX
-from .ioutil import append_rows, read_jsonl, write_rows_guarded
+from .ioutil import append_rows, read_jsonl, stamp_of, write_rows_guarded
 from .labeling import (
     all_squares,
     crops_for_frame,
@@ -433,7 +433,7 @@ def recut_coverage(
     """Die `coverage` aus dem Alpha NEU schneiden, mit der heutigen Geometrie.
 
     Ein Re-Export verschiebt die Ecken und laesst die Zahl stehen — 13 von 24 Aufnahmen,
-    `docs/coverage-weight-2026-09-16.md`. SAM laeuft nicht, das ist reine Arithmetik.
+    `docs/class-scheme.md`. SAM laeuft nicht, das ist reine Arithmetik.
     """
     from .calibration import load_profile
     from .realgames import game_dir
@@ -444,7 +444,7 @@ def recut_coverage(
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
     profile = load_profile(read_session_meta(session_dir)["profile"])
     entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
-    stamp = (path.stat().st_mtime_ns, path.stat().st_size)
+    stamp = stamp_of(path)
 
     rows: list[dict] = []
     recut = crossed = restamped = 0
@@ -523,10 +523,7 @@ def recut_fixed(
 
     # This rewrites the file whole while alpha_worker appends to it.
     # A row the worker adds between our read and our write would otherwise die.
-    stamp = (
-        path.stat().st_mtime_ns,
-        path.stat().st_size,
-    )
+    stamp = stamp_of(path)
 
     rows: list[dict] = []
     redone = 0
@@ -651,7 +648,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
     profile = load_profile(read_session_meta(session_dir)["profile"])
     entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
-    stamp = (path.stat().st_mtime_ns, path.stat().st_size)
+    stamp = stamp_of(path)
 
     raw = read_jsonl(path)
     # Je Frame nur die WIRKSAME Zeile: eine ueberholte Messung nachzurechnen ersetzte das Alpha

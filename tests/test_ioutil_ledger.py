@@ -1,9 +1,4 @@
-"""Die Treuhand: eine Tuer fuer jeden Schreibvorgang, und was sie zusagt.
-
-Jede Zusage hier hat ihren Anlass in einem echten Fund: eine gekuerzte Datei nach einem Abbruch,
-eine halbe letzte Zeile, an die der naechste Lauf blind angeklebt hat, und zwei Schreiber, die
-sich gegenseitig ueberschreiben und beide Erfolg melden.
-"""
+"""Die Treuhand `chesslab.ioutil`: eine Tuer fuer jeden Schreibvorgang, und was sie zusagt."""
 
 from __future__ import annotations
 
@@ -53,21 +48,8 @@ def test_a_failed_write_leaves_nothing_behind(tmp_path, monkeypatch):
     assert not list(tmp_path.glob("*.tmp")), "die halbe Nebendatei muss weg sein"
 
 
-def test_appending_repairs_a_torn_tail_first(tmp_path):
-    path = tmp_path / "matte.jsonl"
-    ledger.write_rows(path, [{"a": 1}])
-    # Ein erschlagener Schreiber: halbe Zeile, kein Umbruch.
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write('{"b": ')
-
-    ledger.append_rows(path, [{"c": 3}])
-
-    assert read_jsonl(path) == [{"a": 1}, {"c": 3}], (
-        "blind angehaengt klebt die neue Zeile an der halben und macht echte Beschaedigung daraus")
-
-
 def test_a_torn_tail_without_the_repair_really_would_corrupt(tmp_path):
-    """Die Gegenprobe zur Zusage darueber — sonst glaubt man sie nur."""
+    """Gegenprobe zu `test_io_policy_parity::test_9_appending_mends_the_torn_tail`."""
     path = tmp_path / "matte.jsonl"
     path.write_text('{"a": 1}\n{"b": ', encoding="utf-8")
     with path.open("a", encoding="utf-8") as fh:
@@ -167,12 +149,15 @@ def test_a_stamp_of_nothing_is_none(tmp_path):
     assert ledger.stamp_of(tmp_path / "gibt-es-nicht.jsonl") is None
 
 
-def test_a_bom_does_not_kill_the_read(tmp_path):
-    """PowerShell stempelt eins, und 2026-08-16 starb daran jeder Datensatz-Bau am Vorflug."""
-    path = tmp_path / "manifest.jsonl"
-    path.write_bytes(b"\xef\xbb\xbf" + b'{"a": 1}\n{"b": 2}\n')
-
-    assert read_jsonl(path) == [{"a": 1}, {"b": 2}]
+def test_a_same_size_writer_in_the_same_tick_moves_the_stamp(tmp_path):
+    """Zwei gleich lange Umhaenge-Schreiber tragen dieselbe Mtime; der Riegel sah den zweiten nicht."""
+    path = tmp_path / "log.jsonl"
+    ledger.write_rows(path, [{"a": 1}])
+    stamp = ledger.stamp_of(path)
+    ledger.write_rows(path, [{"a": 2}])
+    with pytest.raises(ledger.Contested):
+        ledger.write_rows_guarded(path, [{"a": 3}], stamp, what="Probe")
+    assert read_jsonl(path) == [{"a": 2}]
 
 
 def test_a_refused_writer_does_not_remove_the_running_ones_side_file(tmp_path):

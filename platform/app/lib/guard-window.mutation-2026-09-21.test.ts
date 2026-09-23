@@ -1,15 +1,9 @@
-/**
- * Der Stempel-Riegel prueft ZWEIMAL, und die zweite Pruefung ist die, die zaehlt: zwischen dem
- * ersten Blick und dem Umhaengen liegt das Serialisieren, und genau in diesem Fenster schreibt
- * der andere. Ohne sie haengt `rename` blind um und das fremde Urteil ist weg — die Mutation
- * (zweite Pruefung entfernt) liess bis 2026-09-21 die ganze Suite gruen.
- */
+/** Die zweite Stempel-Pruefung vor dem Umhaengen; ohne sie blieb die Suite bis 2026-09-21 gruen. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { tempDataRoot } from "@/lib/test-fixtures";
 
-/** Der Fremdschreiber schlaegt zu, waehrend unser Koerper in die Nebendatei geht. */
 let intruder: { file: string; body: string } | null = null;
 
 vi.mock("node:fs/promises", async () => {
@@ -38,4 +32,15 @@ test("ein Schreiber im Serialisier-Fenster wird nicht ueberbuegelt", async () =>
   await expect(writeFileAtomicGuarded(file, "1. c4 c5\n", before, "reference")).rejects.toThrow(Contested);
 
   expect(await readFile(file, "utf8"), "das fremde Urteil wurde ueberschrieben").toBe("1. d4 d5\n");
+});
+
+test("ein gleich langer Schreiber im selben Takt bewegt den Stempel", async () => {
+  const { Contested, stampOf, writeFileAtomic, writeFileAtomicGuarded } = await import("@/lib/atomic");
+  const root = await tempDataRoot("guard-tick");
+  const file = path.join(root, "log.jsonl");
+  await writeFileAtomic(file, '{"a":1}\n');
+  const before = await stampOf(file);
+  await writeFileAtomic(file, '{"a":2}\n');
+  await expect(writeFileAtomicGuarded(file, '{"a":3}\n', before, "log")).rejects.toThrow(Contested);
+  expect(await readFile(file, "utf8")).toBe('{"a":2}\n');
 });
