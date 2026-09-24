@@ -94,3 +94,21 @@ def test_an_unstamped_pack_is_checked_by_content_not_waved_through(packed):
     _unusable(sdir)
     with pytest.raises(ValueError, match="marked unusable"):
         _build(paths)
+
+
+@pytest.mark.parametrize(("shift", "spared"), [(1, True), (2, False)])
+def test_a_ledger_stamp_one_millisecond_off_still_spares_the_read(packed, monkeypatch, shift, spared):
+    """Gespeichert ist `ms:bytes`; eine Millisekunde Rundung gilt als gleich, zwei nicht."""
+    sdir, paths = packed
+    _unusable(sdir, unusable=False)
+    stamp_file = packs.pack_dir("sess1-80", paths) / pack_session.LEDGER_STAMP
+    stamp = json.loads(stamp_file.read_text(encoding="utf-8"))
+    now = pack_session.ledger_stamps(sdir)
+    ms, size = now["unusable-cells.jsonl"].split(":")
+    stamp["ledgers"] = {**now, "unusable-cells.jsonl": f"{int(ms) + shift}:{size}"}
+    stamp_file.write_text(json.dumps(stamp), encoding="utf-8")
+    read = []
+    real = dataset_build._ledger_hits
+    monkeypatch.setattr(dataset_build, "_ledger_hits", lambda *a: read.append(1) or real(*a))
+    _build(paths)
+    assert (not read) is spared

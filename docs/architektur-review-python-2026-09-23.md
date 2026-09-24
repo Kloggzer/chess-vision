@@ -34,9 +34,27 @@ darueber waere nur im Backup-Vergleich sichtbar.
 Scan und Vorschlaege; `training.pack` hat eigene Fingerabdruecke fuer Packs.
 
 - **Behoben:** `pass.json` traegt `_inputs` (`temporal_matte.pass_inputs`): `matte` als `ms:bytes`
-  der `matte.jsonl` und `scan` = `source_stamp`. `provenance.check` prueft beides,
-  `chain.ts::inputsMoved` prueft `matte`, `session.yaml` und Profil. Getrennter Schluessel, damit
-  `_source` seine Form behaelt. Eine Profil-Aenderung macht den Pass jetzt stale wie seinen Scan.
+  der `matte.jsonl` und `scan` = `source_stamp`. Getrennter Schluessel, damit `_source` seine Form
+  behaelt. Eine Profil-Aenderung macht den Pass jetzt stale wie seinen Scan.
+- **Zusammengefuehrt (2026-09-24):** `provenance` ist die EINE Rechenschicht: `version`
+  (`(mtime_ns, Groesse)`, privat), `memo` (Prozess-Caches in `chain_state`, `stream_admission`,
+  `corpus_pool`, `manifest_cache`), `file_stamp`/`ms_stamp`/`same_file` (gespeichertes `ms:bytes`,
+  auch `ledgers.json` der Packs) und `inputs_moved`. `check` und die Kette (`chain_state.pass_state`)
+  urteilen ueber `_inputs` jetzt gleich: Bretter werden nicht ge-`stat`et, das Log deckt sie
+  (`tests/test_freshness.py`). Vorher prueften sie verschieden, `ioutil.mtime_size` ist weg.
+- **Bewusst getrennt, weil sie anderes messen:**
+
+  | Mechanismus | misst | gespeichert | Vergleich |
+  |---|---|---|---|
+  | `_source.log`, `_inputs.matte`, `ledgers.json` | mtime (ms) + Bytes | `ms:bytes` | ms +-1, Bytes exakt |
+  | `temporal_flags.source_stamp` | Log, `session.yaml`, JEDES Brett, Profil: Bytes + mtime_ns | `[name, Bytes, ns]` | Liste exakt |
+  | Pack-`crop_fingerprint` | 256 Stichproben-Crops: `st_mtime` (float s) + Bytes; Altpacks: mtime der Memmap | `{pfad: [s, Bytes]}` | exakt bzw. Uhrvergleich |
+  | Prozess-Caches (`memo`) | `(mtime_ns, Bytes)` | nie | exakt |
+  | `ioutil.stamp_of` (`Contested`) | Bytes + SHA-256 des Inhalts | nie | exakt |
+
+  Der Scan-Stempel muss Bretter tragen (die Flags messen sie); der Pack-Fingerabdruck steht als
+  float-Sekunden in jedem alten Pack, eine Umrechnung aus ns ist nicht bitgleich; `Contested`
+  braucht den Inhalt, weil zwei Schreiber im selben Takt dieselbe mtime tragen.
 - **Offen, Altbestand:** 0 von 8 554 wirksamen Matte-Zeilen tragen `_source`, kein `pass.json`
   traegt `_inputs` — die Kette meldet "Temporal-Pass: Stand unbekannt"
   (`ChainState.passInputsUnknown`), die Drift-Erkennung der Matte ist fuer den Bestand tot. Hebel:

@@ -32,7 +32,7 @@ from .calibration import (
 )
 from .cell_rule import PIECE_VISIBLE_MAX
 from .imgops import resize_keep_aspect
-from .ioutil import mtime_size, read_jsonl
+from .ioutil import read_jsonl
 from .session_store.log import read_log_rows
 from .session_store.matte import read_matte
 from .session_store.matte import read_rows as read_matte_rows
@@ -250,11 +250,10 @@ def _fen_labels(fen: str, squares: tuple[str, ...], cache: dict[str, tuple[str, 
 
 def _read_slice_image(path: Path):
     try:
-        version = mtime_size(path)
-        key = (path.resolve(), *version)
-        size = version[1]
+        version = provenance.version(path)
     except OSError:
-        key, size = path.resolve(), 0
+        version = None
+    key, size = ((path.resolve(), *version), version[1]) if version else (path.resolve(), 0)
     with measure("slice image decodes", key, processed_bytes=size):
         return cv2.imread(str(path))
 

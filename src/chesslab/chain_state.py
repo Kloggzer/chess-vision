@@ -11,26 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from . import config, provenance
-from .ioutil import iter_jsonl, mtime_size, read_jsonl
+from .ioutil import iter_jsonl, read_jsonl
 from .session_store.log import EXPORT_MARKER
 from .session_store.matte import effective_rows
-from .session_store.names import log_path, matte_path, meta_path, reads_path
+from .session_store.names import log_path, matte_path, reads_path
 
-_CACHE: dict[tuple[str, str], tuple[tuple[int, int] | None, Any]] = {}
+_CACHE: dict[tuple[str, str], tuple[tuple, Any]] = {}
 
 
 def parsed(path: Path, tag: str, parse: Callable[[Path], Any]) -> Any:
     """`parse(path)` je (mtime, Groesse) einmal. Nur FEHLEND ist leer; jeder andere Lesefehler wirft."""
-    try:
-        key: tuple[int, int] | None = mtime_size(path)
-    except FileNotFoundError:
-        key = None
-    hit = _CACHE.get((str(path), tag))
-    if hit is not None and hit[0] == key:
-        return hit[1]
-    value = parse(path)
-    _CACHE[(str(path), tag)] = (key, value)
-    return value
+    return provenance.memo(_CACHE, (str(path), tag), (path,), lambda: parse(path))
 
 
 def _stem(value: object) -> str:
@@ -180,18 +171,6 @@ def _pass_head(path: Path) -> dict | None:
     return head if isinstance(head, dict) else None
 
 
-def _scan_file(session_dir: Path, rel: str) -> Path | None:
-    """Nur `session.yaml` und das Profil: jedes Brett-Schreiben schreibt auch das Log, und das
-    prueft schon `_source` — alle Bretter je Startseite zu `stat`en kostete Sekunden."""
-    if rel == meta_path(session_dir).name:
-        return meta_path(session_dir)
-    if rel.startswith("profile:"):
-        from .calibration import profile_path
-
-        return profile_path(rel.removeprefix("profile:"))
-    return None
-
-
 def pass_state(session_dir: Path, name: str, log_stamp: str | None) -> dict:
     """`absent`/`fresh`/`stale`/`matte_moved`/`input_moved`; `inputs_known` fehlt bei Altbestand."""
     path = pass_path(name)
@@ -207,20 +186,8 @@ def pass_state(session_dir: Path, name: str, log_stamp: str | None) -> dict:
         return {"state": "stale", "inputs_known": known}
     if inputs is None:
         return {"state": "fresh", "inputs_known": False}
-    if "matte" in inputs and not _same_file(inputs["matte"], provenance.file_stamp(matte_path(session_dir))):
-        return {"state": "matte_moved", "inputs_known": True}
-    for rel, size, ns in inputs.get("scan") or []:
-        file = _scan_file(session_dir, rel)
-        if file is None:
-            continue
-        stamped = None if size is None or ns is None else f"{ns // 1_000_000}:{size}"
-        if not _same_file(stamped, provenance.file_stamp(file)):
-            return {"state": "input_moved", "inputs_known": True}
-    return {"state": "fresh", "inputs_known": True}
-
-
-def _same_file(stamped: str | None, current: str | None) -> bool:
-    return stamped == current if stamped is None or current is None else provenance.same_log(stamped, current)
+    moved = provenance.inputs_moved(session_dir, inputs)
+    return {"state": {"matte": "matte_moved", "scan": "input_moved"}.get(moved, "fresh"), "inputs_known": True}
 
 
 def confirmed_against(name: str) -> str | None:

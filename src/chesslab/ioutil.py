@@ -112,12 +112,6 @@ def stamp_of(path: Path) -> tuple[int, str] | None:
     return (len(data), hashlib.sha256(data).hexdigest())
 
 
-def mtime_size(path: Path) -> tuple[int, int]:
-    """In-process freshness key; unlike persisted provenance stamps this format is private."""
-    st = Path(path).stat()
-    return st.st_mtime_ns, st.st_size
-
-
 def rows_text(rows: Iterable[dict], *, default: Callable[[object], object] | None = None) -> str:
     """Streng: was `json` nicht kennt, ist ein Fehler und keine Zeichenkette."""
     return "".join(json.dumps(r, ensure_ascii=False, default=default) + chr(10) for r in rows)

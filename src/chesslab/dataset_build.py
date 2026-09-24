@@ -435,7 +435,7 @@ def _stale_packs(chosen: dict[str, tuple[str, list[dict]]], w: int, paths: confi
 
     A matching `ledgers.json` stamp spares the read; an unstamped pack is checked by CONTENT.
     """
-    from .provenance import same_log
+    from .provenance import same_file
     from .training import packs
     from .training.pack_session import LEDGER_STAMP, ledger_stamps
 
@@ -450,9 +450,7 @@ def _stale_packs(chosen: dict[str, tuple[str, list[dict]]], w: int, paths: confi
                               .read_text(encoding="utf-8"))["ledgers"]
         except (OSError, ValueError, KeyError, TypeError):
             then = None
-        if then is not None and all(
-                a == b or (a is not None and b is not None and same_log(a, b))
-                for a, b in ((then.get(n), s) for n, s in ledger_stamps(sdir).items())):
+        if then is not None and all(same_file(then.get(n), s) for n, s in ledger_stamps(sdir).items()):
             continue
         unusable, changed = _ledger_hits(sdir, rows)
         if not (unusable or changed):

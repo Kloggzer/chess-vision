@@ -15,6 +15,7 @@ from .calibration import profile_path
 from .cell_rule import PIECE_VISIBLE_MAX
 from .ioutil import read_jsonl, write_rows
 from .labeling import all_squares
+from .provenance import version
 from .realgames.position import SETTLE_MIN_FRAMES
 from .session_store.log import read_log_rows
 from .session_store.matte import read_matte
@@ -33,18 +34,16 @@ def source_stamp(recording: Path) -> list:
     """
     files = [log_path(recording), meta_path(recording)]
     files += [recording / r["board"] for r in read_log_rows(recording) if r.get("board")]
-    out = []
-    for path in sorted(set(files)):
-        try:
-            st = path.stat()
-            out.append([path.relative_to(recording).as_posix(), st.st_size, st.st_mtime_ns])
-        except FileNotFoundError:
-            out.append([path.relative_to(recording).as_posix(), None, None])
+    entries = [(path.relative_to(recording).as_posix(), path) for path in sorted(set(files))]
     profile = read_session_meta(recording).get("profile")
     if profile:
         path = profile_path(profile)
-        st = path.stat() if path.is_file() else None
-        out.append([f"profile:{profile}", st.st_size if st else None, st.st_mtime_ns if st else None])
+        entries.append((f"profile:{profile}", path if path.is_file() else None))
+    # Gespeichert als `[name, Groesse, mtime_ns]`, fehlend `[name, None, None]`.
+    out = []
+    for name, path in entries:
+        ns, size = (path and version(path)) or (None, None)
+        out.append([name, size, ns])
     return out
 
 

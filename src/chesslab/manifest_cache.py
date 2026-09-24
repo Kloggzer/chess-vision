@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import threading
 from collections import Counter
 from pathlib import Path
 
-from .ioutil import iter_jsonl, mtime_size
+from . import provenance
+from .ioutil import iter_jsonl
 
-_LOCK = threading.Lock()
-_CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
+_CACHE: dict[Path, tuple[tuple, dict]] = {}
 
 
 def _scan(path: Path) -> dict:
@@ -22,18 +21,11 @@ def _scan(path: Path) -> dict:
 def manifest_stats(path: Path) -> dict:
     """Per-session aggregates for a manifest file; cached until the file changes."""
     path = Path(path)
-    try:
-        key = mtime_size(path)
-    except FileNotFoundError:
+    if not path.exists():
         return {"crops_by_session": {}}
-    with _LOCK:
-        hit = _CACHE.get(path)
-    if not (hit and hit[0] == key):
-        hit = (key, _scan(path))
-        with _LOCK:
-            _CACHE[path] = hit
+    stats = provenance.memo(_CACHE, path, (path,), lambda: _scan(path))
     # A copy: handing out the cached dict let one caller's mutation become every later answer.
-    return {"crops_by_session": dict(hit[1]["crops_by_session"])}
+    return {"crops_by_session": dict(stats["crops_by_session"])}
 
 
 def session_crop_count(path: Path, session_id: str) -> int:

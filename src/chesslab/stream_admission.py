@@ -6,9 +6,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import provenance
 from .cell_rule import classification_eligible
 from .chain_state import parsed
-from .ioutil import iter_jsonl, mtime_size, read_jsonl
+from .ioutil import iter_jsonl, read_jsonl
 from .session_store.matte import measured_coverage
 from .session_store.names import log_path, matte_path, reads_path
 
@@ -34,21 +35,9 @@ def read_cells(path: Path) -> dict[str, list[tuple[str, object]]]:
 _DONE: dict[tuple[str, str], tuple[tuple, object]] = {}
 
 
-def _key(path: Path) -> tuple[int, int] | None:
-    try:
-        return mtime_size(path)
-    except FileNotFoundError:
-        return None
-
-
 def _cached(session_dir: Path, part: str, files, compute):
-    key = tuple(_key(f(session_dir)) for f in files)
-    hit = _DONE.get((str(session_dir), part))
-    if hit is not None and hit[0] == key:
-        return hit[1]
-    value = compute(session_dir)
-    _DONE[(str(session_dir), part)] = (key, value)
-    return value
+    return provenance.memo(_DONE, (str(session_dir), part), [f(session_dir) for f in files],
+                           lambda: compute(session_dir))
 
 
 def admission(session_dir: Path) -> dict:

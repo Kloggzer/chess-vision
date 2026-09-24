@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import config
+from . import config, provenance
 from .chain_state import parsed
-from .ioutil import mtime_size, read_jsonl
+from .ioutil import read_jsonl
 from .session_store.names import corrections_path, log_path
 from .session_store.recording import game_dir
 
@@ -28,26 +28,13 @@ def _logs(names: list[str]) -> list[tuple[str, list[tuple[str, str, bool]]]]:
 _POOL: dict[str, tuple[tuple, dict]] = {}
 
 
-def _stamp(path: Path) -> tuple[int, int] | None:
-    try:
-        return mtime_size(path)
-    except FileNotFoundError:
-        return None
-
-
 def corpus_pool(names: list[str]) -> dict:
     """`classes`, `occludedBySession`, `frames`, `cells`, `orphans` — Zellen, keine Crops.
 
     Je Stand aller Logs und Ledger einmal gerechnet: 12 000 FENs aufzuklappen kostet ~250 ms.
     """
-    key = tuple((name, _stamp(log_path(game_dir(name))), _stamp(corrections_path(game_dir(name))))
-                for name in names)
-    hit = _POOL.get(str(config.DATA.root))
-    if hit is not None and hit[0] == key:
-        return hit[1]
-    value = _fold(names)
-    _POOL[str(config.DATA.root)] = (key, value)
-    return value
+    files = [f(game_dir(name)) for name in names for f in (log_path, corrections_path)]
+    return provenance.memo(_POOL, str(config.DATA.root), files, lambda: _fold(names))
 
 
 def _fold(names: list[str]) -> dict:

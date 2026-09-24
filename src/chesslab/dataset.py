@@ -15,7 +15,7 @@ from .ioutil import read_jsonl, write_json
 
 
 def load_manifest(path: Path) -> list[dict]:
-    from .ioutil import mtime_size
+    from .provenance import version as file_version
     from .work_audit import measure
 
     p = Path(path)
@@ -23,7 +23,7 @@ def load_manifest(path: Path) -> list[dict]:
         # A missing manifest is a hard error, not an empty dataset that silently "trains" on
         # nothing.
         raise FileNotFoundError(f"Manifest not found: {p}. Run `chesslab slice` first.")
-    version = mtime_size(p)
+    version = file_version(p) or (0, 0)
     with measure("manifest loads", (p.resolve(), *version), processed_bytes=version[1]):
         return read_jsonl(p)
 
