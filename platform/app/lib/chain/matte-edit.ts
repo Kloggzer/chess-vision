@@ -1,11 +1,11 @@
 /** Der Stift und `occluders recut` bei freiem Slot: ein laufender Job schreibt womoeglich dieselben
- *  Dateien. Die Pixel legt der Store ab (`session-store/matte-fix.ts`), hier wird gefragt und gestartet. */
+ *  Dateien. Die Pixel brennt Python ein (`web_cuts.py`, nur Pixel — Coverage erst mit `recut`). */
 import { busy } from "@/lib/chain/slot";
 import { runChesslabCapture } from "@/lib/chain/spawn";
 import { lastLine } from "@/lib/chain/session-delete";
-import * as fix from "@/lib/session-store/matte-fix";
-import { matteStamp } from "@/lib/session-store/matte";
-import { checkName } from "@/lib/session-store/recordings";
+import { pyCall } from "@/lib/py/worker";
+import { fixedMattePath, matteStamp } from "@/lib/session-store/matte";
+import { checkName, dataDir } from "@/lib/session-store/recordings";
 
 function whileIdle(name: string, stem: string): void {
   checkName(name, "game name");
@@ -13,20 +13,18 @@ function whileIdle(name: string, stem: string): void {
   if (busy()) throw new Error("ein Job läuft gerade — der schreibt womöglich dieselben Dateien");
 }
 
-export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer): Promise<string> {
+async function pen(name: string, stem: string, action: string, mask?: Buffer): Promise<string> {
   whileIdle(name, stem);
-  return fix.saveFixedAlpha(name, stem, maskPng);
+  await pyCall("pen", { root: dataDir(), name, stem, action, mask: mask?.toString("base64") ?? null });
+  return fixedMattePath(name, stem);
 }
 
-export async function clearAlpha(name: string, stem: string): Promise<string> {
-  whileIdle(name, stem);
-  return fix.clearAlpha(name, stem);
-}
+/** Auf die HANDFASSUNG, wenn es sie gibt: der Stift schickt nach `pen.reset()` nur den neuen Strich. */
+export const saveFixedAlpha = (name: string, stem: string, maskPng: Buffer) => pen(name, stem, "stroke", maskPng);
 
-export async function restoreAlpha(name: string, stem: string): Promise<string> {
-  whileIdle(name, stem);
-  return fix.restoreAlpha(name, stem);
-}
+export const clearAlpha = (name: string, stem: string) => pen(name, stem, "clear");
+
+export const restoreAlpha = (name: string, stem: string) => pen(name, stem, "restore");
 
 /**
  * `alpha-worker` APPENDS to the file `recut` rewrites whole. A fresh mtime means one is mid-run,

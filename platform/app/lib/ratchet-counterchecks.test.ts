@@ -197,8 +197,6 @@ test("die am 2026-09-23 umgestellten Stellen zaehlen im jetzigen Code nicht mehr
     ["lib/session-store/corrections.ts", "ledgerRows"],
     ["lib/session-store/review-notes.ts", "bySession"],
     ["lib/session-store/meta.ts", "archivedAt"],
-    ["app/api/board/[name]/[stem]/route.ts", "unexported"],
-    ["lib/session-store/crops.ts", "cutSource"],
     ["lib/ingest/ingest.ts", "sizeOrAbsent"],
     ["lib/ingest/ingest.ts", "present"],
     ["lib/session-store/recordings.ts", "frameSize"],

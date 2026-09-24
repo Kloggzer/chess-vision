@@ -113,6 +113,68 @@ def session_dirty(root: str, names: list[str]) -> list[dict]:
         return corpus_pool.session_dirty(names)
 
 
+def warm_cuts() -> bool:
+    """Imports `web_cuts` (cv2, `labeling`: ~100 ms) at server start instead of on the first cell."""
+    from . import web_cuts  # noqa: F401
+
+    return True
+
+
+def cut_cell(root: str, name: str, stem: str, square: str, size: int, median: bool = False) -> str:
+    from . import web_cuts
+
+    with _rooted(root):
+        return web_cuts.cut_cell(name, stem, square, size, median)
+
+
+def cut_board(root: str, name: str, stem: str, size: int) -> str:
+    from . import web_cuts
+
+    with _rooted(root):
+        return web_cuts.cut_board(name, stem, size)
+
+
+def cut_matte(root: str, name: str, stem: str, size: int) -> str:
+    from . import web_cuts
+
+    with _rooted(root):
+        return web_cuts.cut_matte(name, stem, size)
+
+
+def pen(root: str, name: str, stem: str, action: str, mask: str | None = None) -> None:
+    """`stroke` burns a base64 PNG mask into `mattes/<stem>.fixed.webp`, `clear` empties it, `restore` drops it."""
+    from . import web_cuts
+
+    with _rooted(root):
+        if action == "stroke":
+            return web_cuts.pen_stroke(name, stem, mask or "")
+        if action == "clear":
+            return web_cuts.pen_clear(name, stem)
+        if action == "restore":
+            return web_cuts.pen_restore(name, stem)
+    raise ValueError(f"unknown pen action: {action!r}")
+
+
+#: What the label views read of a `matte.jsonl` row; `coverage` only when measured (absent = SAM refused).
+_MATTE_KEYS = ("ply", "reason", "concepts", "coverage", "alpha", "skipped", "merged_at")
+
+
+def matte_frames(root: str, name: str) -> dict[str, dict]:
+    """Per frame the EFFECTIVE row (`session_store.matte.effective_rows`), empty without a file."""
+    from .ioutil import read_jsonl
+    from .session_store.matte import effective_rows
+    from .session_store.names import matte_path
+
+    with _rooted(root):
+        path = matte_path(recording.game_dir(name))
+        try:
+            rows = read_jsonl(path)
+        except ValueError as exc:
+            raise ValueError(f"{path}: beschaedigte Zeile mittendrin — {exc}") from None
+    return {stem: {k: row[k] for k in _MATTE_KEYS if row.get(k) is not None}
+            for stem, row in effective_rows(rows).items()}
+
+
 def confirmed_against(candidate: dict, reference_md5: str | None) -> str:
     return recording.confirmation_against(candidate, reference_md5)
 
@@ -131,4 +193,10 @@ OPS: dict[str, Callable[..., object]] = {
     "admission": admission,
     "pool": pool,
     "session_dirty": session_dirty,
+    "warm_cuts": warm_cuts,
+    "cut_cell": cut_cell,
+    "cut_board": cut_board,
+    "cut_matte": cut_matte,
+    "pen": pen,
+    "matte_frames": matte_frames,
 }

@@ -55,6 +55,7 @@ test("im Node-Runtime startet EIN Worker, und die erste Seite reiht sich bei ihm
   const seen = await lines(log);
   expect(seen.filter((l) => l === "start")).toHaveLength(1);
   expect(seen.filter((l) => l === "admission").length).toBeGreaterThanOrEqual(2);
+  expect(seen, "die Schnitte importieren cv2 und labeling erst sonst mit der ersten Zelle").toContain("warm_cuts");
 });
 
 test("ausserhalb des Node-Runtimes (Edge) startet nichts", async () => {

@@ -78,10 +78,10 @@ und `iter_session_crops` macht aus einer markierten Zelle keine Manifest-Zeile m
   The rows stay a **global training input** (park them between experiments); only the file moved
   next to the recording it judges, so a re-slice can never carry a human's ruling away. It holds
   identity labels only, and the writer validates rather than trusting the client.
-- Pixels: `/api/board/<name>/<stem>` and `/api/cell/<name>/<stem>/<square>` (`?median=1`) cut the
-  RAW session frames through the per-frame quad (`lib/warp.ts`, calibrated against
-  `data/calibration/desktop.yaml` in `warp.test.ts`). The rectified review PNGs cover only the
-  commit bursts — 60 of 1 729 session frames on rec-20260808-003957 — so they cannot serve here.
+- Pixels: `/api/board/<name>/<stem>`, `/api/cell/<name>/<stem>/<square>` (`?median=1`) and
+  `/api/matte/<name>/<stem>` are cut by the Python worker (`src/chesslab/web_cuts.py`) from the
+  stored board with `labeling.crop_square` — a cell IS the training crop. A bundle without
+  `log.jsonl` falls back to the phone's JPEGs (`files/sessions/`).
 - Without `model-reads.jsonl` a session is NOT MEASURED: the identity lanes print `—` with the
   reason, never `0`. One session of 43 carries reads (2026-08-19); a corpus-wide run waits on a
   retrained model.

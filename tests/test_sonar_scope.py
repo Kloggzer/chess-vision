@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROPS = ROOT / "sonar-project.properties"
 #: Bei 50 000 lehnt SonarCloud ab. Wir schlagen frueher an, weil die Zaehlung nur eine
 #: Naeherung ist und ein Scan-Ausfall teurer waere als ein roter Test.
-LIMIT = 47_000  # Modulaufteilung kostet Kopfzeilen; web-ruft-python baut ~1450 ab
+LIMIT = 46_000
 CODE = {".kt", ".kts", ".py", ".ts", ".tsx", ".js", ".jsx"}
 _COMMENT = re.compile(r"^\s*(//|#|\*|/\*|\*/|<!--|--)")
 

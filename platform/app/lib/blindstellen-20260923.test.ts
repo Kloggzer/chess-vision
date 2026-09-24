@@ -157,14 +157,6 @@ test("GET /api/cell: dieselbe kaputte Zeile ist auch dort kein 404", async () =>
   expect((await res.json()).error).toMatch(/beschaedigte Zeile/);
 });
 
-test("GET /api/board: ein EACCES am Handy-Log ist 500, nicht „kein Frame\"", async () => {
-  const log = await storedLog("bs-board-read", `${row("0000")}\n`);
-  fail.on = (op, file) => (op === "readFile" && same(file, log) ? "EACCES" : null);
-  const res = await board("0000");
-  expect(res.status).toBe(500);
-  expect(await res.text()).toMatch(/EACCES/);
-});
-
 test("GET /api/board: die halbe LETZTE Zeile bleibt verziehen — nur sie fehlt", async () => {
   await storedLog("bs-board-tail", `${row("0000")}\n{"frame": "frames/0001.jpg", "ply":`);
   expect((await board("0001")).status).toBe(404);

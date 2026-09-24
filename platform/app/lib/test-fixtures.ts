@@ -44,7 +44,7 @@ export function stemOf(frame: number): string {
   return String(frame).padStart(6, "0");
 }
 
-/** Ein dirty Frame liegt unter `dirty/`, ein sauberes unter `boards/` (`session.boardPath`). */
+/** Ein dirty Frame liegt unter `dirty/`, ein sauberes unter `boards/` (`realgames.write_board`). */
 export function sessionRow(spec: RowSpec): Record<string, unknown> {
   const stem = stemOf(spec.frame);
   const dirty = spec.dirty ?? false;

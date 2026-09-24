@@ -62,19 +62,6 @@ test("a frame is placed by which commit it is nearer, in frames and seconds", as
   expect(before.to).toBe(10);
 });
 
-test("a dirty row's raster is the one the export stored for it", async () => {
-  await write(row(110), row(115, { dirty: false }));
-  const { byStem } = await loadSession("g");
-
-  expect(byStem.get("000110")!.board).toEqual({ rel: "dirty/000110.webp", size: 928, border: 0, straightened: true });
-  expect(byStem.get("000115")!.board!.rel).toBe("boards/000115.webp");
-});
-
-test("a row from before the board store carries no raster at all", async () => {
-  await write(row(110, { board: false }));
-  expect((await loadSession("g")).byStem.get("000110")!.board).toBeUndefined();
-});
-
 test("a quiet row is `settled` wherever it sits — the exporter's word, not the arithmetic", async () => {
   // Nearer the NEXT commit, so the side arithmetic would say `before`; without a hand in the
   // frame there is no side to be on.
@@ -103,37 +90,20 @@ test("the last ply has no closing commit, so its interval never reads `before`",
   expect(Number.isFinite(last.toS)).toBe(false);
 });
 
-test("a row's grid_lines travel with it, at the stage they hold up to", async () => {
-  const axis = [...Array(9)].map((_, k) => k / 8);
-  const lines = { x: axis, y: axis, tx: Array(9).fill(0.01), ty: Array(9).fill(0) };
-  await write(
-    row(110, { extra: { grid_lines: { ...lines, cx: Array(9).fill(0.02), cy: Array(9).fill(0) } } }),
-    // Tilts over the limit: the row keeps its offsets and loses the stage, never half of it.
-    row(120, { extra: { grid_lines: { ...lines, tx: Array(9).fill(0.9) } } }),
-    row(130),
-  );
-  const { byStem } = await loadSession("g");
-
-  expect(byStem.get("000110")!.mesh!.cx).toEqual(Array(9).fill(0.02));
-  expect(byStem.get("000120")!.mesh!.tx).toBeUndefined();
-  expect(byStem.get("000120")!.mesh!.x).toEqual(axis);
-  expect(byStem.get("000130")!.mesh).toBeUndefined();
-});
-
-test("the session cache follows candidate geometry even while log.jsonl is unchanged", async () => {
+test("the session cache follows candidate.json even while log.jsonl is unchanged", async () => {
   await write(row(110));
-  expect((await loadSession("g")).boardSize).toBe(928);
+  const before = (await loadSession("g")).byStem.get("000110")!.sinceS;
 
   await writeFile(
     path.join(dir, "candidate.json"),
-    JSON.stringify({ name: "g", clock: { fps: 25 }, geometry: { board_size: 1008 }, moves: MOVES }),
+    JSON.stringify({ name: "g", clock: { fps: 50 }, moves: MOVES }),
     "utf8",
   );
 
   expect(
-    (await loadSession("g")).boardSize,
-    "candidate.json changed the crop geometry, so cached session coordinates must be invalidated",
-  ).toBe(1008);
+    (await loadSession("g")).byStem.get("000110")!.sinceS,
+    "candidate.json changed the clock, so cached session seconds must be invalidated",
+  ).toBe(before / 2);
 });
 
 // `realgames/export.py` stroemt in `log.jsonl`: die halbe LETZTE Zeile ist ein laufender Export, kein Defekt.

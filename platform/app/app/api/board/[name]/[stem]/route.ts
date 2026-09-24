@@ -1,15 +1,5 @@
 import { boardPng, CUT_MIME } from "@/lib/session-store/crops";
-import { hasExport } from "@/lib/session-store/recordings";
 import { isMissing } from "@/lib/measurement";
-import { storedBoardPng } from "@/lib/session-store/stored";
-
-/** Nur ein Bundle OHNE Export darf auf sein Handy-JPEG zurueckfallen. Beide Zeugen muessen es
- *  sagen — ENOENT statt „board is missing", und keine `log.jsonl` auf der Platte. */
-async function unexported(name: string, error: unknown): Promise<boolean> {
-  if (!isMissing(error)) return false;
-  // Ein EACCES am Log ist kein fehlender Export: sonst kaeme das Handy-JPEG unter fremdem Namen.
-  return !(await hasExport(name));
-}
 
 /** The rectified playing field of one session frame — the drilldown canvas, a8 top left. */
 export async function GET(
@@ -20,12 +10,8 @@ export async function GET(
   const raw = Number(new URL(request.url).searchParams.get("size"));
   const size = Number.isFinite(raw) && raw >= 128 && raw <= 1024 ? Math.round(raw) : 720;
   try {
-    // Ein kaputter Export ist kein Fallback: fremde Pixel unter der Identitaet des exportierten
-    // Frames wuerden dem Menschen ein Urteil ueber das falsche Bild abverlangen.
-    const png = await boardPng(name, stem, size).catch(async (error) => {
-      if (!(await unexported(name, error))) throw error;
-      return storedBoardPng(name, stem, size);
-    });
+    // Nur ein Bundle OHNE `log.jsonl` faellt auf sein Handy-JPEG zurueck; ein EACCES dort ist 500.
+    const png = await boardPng(name, stem, size);
     return new Response(new Uint8Array(png), {
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });

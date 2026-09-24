@@ -1,8 +1,8 @@
 # Web ruft Python — Bestandsaufnahme und Plan (2026-09-23)
 
 Nutzer, 2026-09-23: "Gerne kannst du dich auf Python beschraenken und die Webanwendung die
-Python/Kotlin Sachen callen, das brauchen wir nicht doppelt warten." Stand: Schritte 0 bis 3
-umgesetzt (Abschnitt 6), 4 und 5 offen.
+Python/Kotlin Sachen callen, das brauchen wir nicht doppelt warten." Stand: Schritte 0 bis 5
+umgesetzt (Abschnitt 6).
 
 ## 1. Inventar: TS rechnet, was Python/Kotlin schon rechnet
 
@@ -94,8 +94,8 @@ zuruecknehmen. Vitest und pytest nie parallel.
 | 1 | Review: Op `review(name)` = LCS, Referenz-SANs (python-chess), Zugfelder; CLI `realgames confirm --keep/--drop/--shown-ref --json` statt `writeConfirmation`; `referenceOrigin` -> Op | ~200 + chess.js | `lcs-parity` -> Vertrag | niedrig, kalter Pfad — beweist den Worker |
 | 2 | Kette: Op `chain_status(names[])` = Provenienz (`provenance.check`), Matte-Census (`matte_status`), `SETTLE_MIN_FRAMES` | ~260 | `matte-state-parity` -> Vertrag; Teile von `chain.test`, `matte.test` | mittel: Liste auf jeder Startseite |
 | 3 | Strom/Korpus: Op `admission(name)` (Slice-Zulassung + `classification_eligible` je Zelle), Op `pool()` | ~140 | `pool.test`, `lanes.test` (Teil) | mittel; schliesst den Dunkel-Befund |
-| 4 | Raster: Ops `cell`, `board`, `matte_png`, `median` schneiden mit `crop_square`/`mesh_point` | ~730 (`warp` + `crops` + `stored`-Schnitt) | `square-geometry-parity`, `warp.test` -> Vertrag | hoch: heissester Pfad. Pixel aendern sich (cv2 statt Bilinear), dafuer IST es dann der Trainings-Crop; Gegenprobe gegen `labeling.crop_square` bytegleich |
-| 5 | Stift: CLI `occluders apply-mask <name> <stem> <maske.png>` + `recut` in EINEM Aufruf | ~127 | `matte-fix.test` -> pytest | niedrig |
+| 4 | **erledigt** (Ops `cut_cell`/`cut_board`/`cut_matte`, JPEG): Raster: Ops `cell`, `board`, `matte_png`, `median` schneiden mit `crop_square`/`mesh_point` | ~730 (`warp` + `crops` + `stored`-Schnitt) | `square-geometry-parity`, `warp.test` -> Vertrag | hoch: heissester Pfad. Pixel aendern sich (cv2 statt Bilinear), dafuer IST es dann der Trainings-Crop; Gegenprobe gegen `labeling.crop_square` bytegleich |
+| 5 | **erledigt als Worker-Op `pen`, `recut` bleibt eigener Knopf**: Stift: CLI `occluders apply-mask <name> <stem> <maske.png>` + `recut` in EINEM Aufruf | ~127 | `matte-fix.test` -> pytest | niedrig |
 
 Nach Hebel allein kaeme 4 zuerst; es steht hinten, weil der Worker vorher auf kalten Pfaden (1, 2)
 bewiesen sein muss, bevor jede Zelle an ihm haengt. Zusammen ~1 450 TS-Zeilen und fuenf
@@ -234,14 +234,98 @@ Paritaetstests weniger; `chess.js` faellt als Abhaengigkeit.
   (4 rot), `load_corrections` durch last-wins ohne Ruecknahme ersetzt (pool.test rot).
 - **Latenz Strom**: gemessen und nachgezogen im Abschnitt "Latenz" unten.
 
-### Offen fuer Schritt 4/5
+### Schritt 4: Zellgeometrie (2026-09-24)
 
-- `loadMatte` (Strom, `verify.ts`) liest `matte.jsonl` weiter in TS; `matte-state-parity.test.ts`
-  haelt ihn am gemeinsamen Fixture. Umzug zusammen mit dem Raster (4).
+- **Ops `cut_cell(root, name, stem, square, size, median)`, `cut_board`, `cut_matte`**
+  (`src/chesslab/web_cuts.py`): Antwort base64-JPEG. Eine exportierte Aufnahme schneidet aus dem
+  gespeicherten Brett mit `labeling.crop_square` — an `board_size`/`board_border` der ZEILE
+  (ein anderer Rand wird auf `crop_border_px` geschoben) und `pad_side` aus `candidate.json`.
+  Das Brett ist das Feld ohne Rand (`resize_keep_aspect`), die Matte dasselbe Feld aus
+  `mattes/<stem>(.fixed).webp`, der Median der Pixelmedian ueber bis zu 5 Frames des Intervalls.
+  Ohne `log.jsonl` schneidet Python aus den Handy-JPEGs (`files/sessions/<id>/`, neueste Sitzung
+  zuerst, `dirty` nie): `warp_board_for_crops` unter dem Quad von `quad-fit.json` (Rand aus der
+  Datei, Mesh mit geheilter Kruemmung) bzw. dem Marker-Quad bei 0,045. Caches (Raster 256 MB,
+  Zellen 96 MB, Log/Kandidat) haengen an `(mtime_ns, Groesse, Inode)` — `os.replace` gibt einer
+  Neuschreibung eine neue Inode, darum faellt `forgetRaster` weg.
+- **Weg**: `lib/warp.ts` (286), `crops.ts` 164 -> 29, `stored.ts` 188 -> 26 (nur
+  `phoneSessionSeconds`), `session.ts` ohne `mesh`/`crop`/`board`/`boardSize`/`boardPath`/
+  `boardToStored`, die Routen ohne Rueckfall-Logik (die Entscheidung "kein Log -> Handy" steht in
+  Python, ein EACCES am Log bleibt 500). Tests weg: `square-geometry-parity`, `warp.test`,
+  `crops.test`, `stored.test`, `bughunt-2026-09-15` (forgetRaster), `raster-cache-abort`,
+  `board-route.bughunt-2026-09-23`, der EACCES-Fall aus `blindstellen`, Fund 1 aus `state-cache`.
+- **Absicherung**: `lib/cut-routes.test.ts` faehrt Route -> Worker -> Python (Farbraster: Feld in
+  der Mitte, Nachbar im Pad; Zeilenrand 40; Brett a8/h1; Median ueber das ganze Intervall;
+  neugeschriebenes Brett; `pad_side`-Wechsel; die drei Re-Export-Fehler als 500; Matte
+  Handfassung vor SAM, 404 ohne; Handy-Bundle inkl. 404) — vor dem Umbau gegen den TS-Stand
+  gruen, danach gegen Python. `tests/test_web_cuts.py`: JEDE Zelle, die `iter_session_crops`
+  ausgibt, ist bytegleich die Antwort der Op (64 von 64); Rand-Verschiebung, Brett, EACCES an
+  Brett/Log/Kandidat/`sessions`, Neuschreibung im selben mtime-Tick, Handy-Quad gefittet/ungefittet.
+- **Gegenproben** (Quelle veraendert, `__pycache__` geloescht, rot, zurueck): Zeilenrand ignoriert
+  (pytest 1, vitest 2 rot), `white_pov` gedreht (2/3), Inode aus dem Schluessel (1), Median mit
+  `round` (1/1 — Pythons Bankrundung machte 6,5 zu 6, der erste Lauf fand das), Fit ignoriert (1),
+  EACCES am Log als "kein Export" (1), `pad_side` fest (vitest 1), ENOENT-Uebersetzung in
+  `crops.ts` weg (5 rot).
+- **Pixel**: jetzt der Trainings-Crop (ganzzahlige Box, `INTER_AREA`) statt TS-Bilinear ueber die
+  gebrochene Box. Handy-Frames: auch ein Mesh ohne Neigungen wirkt jetzt (so wie `meshPoint` in
+  Kotlin), TS nahm es nur mit `tx`/`ty`.
+- **JPEG statt WebP**: cv2 kodiert eine 128-px-Zelle in 0,04 ms statt 1,3 ms (720-px-Brett 1,1
+  statt 39 ms), 4,3 statt 2,7 KB. Der Worker arbeitet seriell, der Kodierer war die halbe Seite
+  (WebP: Seite warm 160 ms gegen 65 ms TS). `CUT_MIME` = `image/jpeg`.
+- **Vorwaermen**: `instrumentation.ts` ruft zusaetzlich `warm_cuts` (Import von cv2/`labeling`,
+  ~120 ms), sonst zahlt die erste Zelle ihn.
+
+**Latenz** (`/api/cell` und `/api/board` direkt ueber die Route-Handler, Aufnahme
+`2026-09-06-21-29-35`; Seite = 60 Zellen 128 px aus 22 Brettern, 6 parallel wie ein Browser;
+je 5 frische Prozesse mit 6 s Pause; "nachher" mit vorgewaermtem Worker wie nach dem Serverstart):
+
+| Pfad | vorher TS | nachher Python |
+|---|---|---|
+| Seite, Bretter kalt | 328-394 ms | 431-440 ms (22 WebP-Dekodierungen seriell, ~20 ms je Brett) |
+| Seite, Bretter warm, neue Zellen | 61-73 ms | 25-30 ms |
+| Seite, alle Zellen im Cache | 9-13 ms | 13-20 ms (60 Roundtrips) |
+| eine Zelle warm (Median von 10) | 3,6-4,4 ms | 0,6-1,0 ms |
+| Brett 720 px, kalt | 84-102 ms | 19-35 ms |
+| Brett 720 px, warm | 60-70 ms | 5-8 ms |
+| Handy-Bundle: 60 Zellen aus 10 Frames | 507-516 ms | 178-208 ms |
+| Handy-Brett 720 px | 71-86 ms | 5-6 ms |
+
+Ohne Vorwaermen kommen einmal ~120 ms Import dazu (Seite kalt 545-584 ms). Der Rest der kalten
+Seite ist das serielle Dekodieren; TS dekodierte in `sharp`s Threadpool. Hebel: `web_serve` nimmt
+Anfragen parallel an (cv2 gibt die GIL frei) — nicht Teil dieses Schritts.
+
+### Schritt 5: Stift und Matte-Lesen (2026-09-24)
+
+- **Op `pen(root, name, stem, action, mask)`** (`web_cuts.pen_stroke`/`pen_clear`/`pen_restore`):
+  der Strich (base64-PNG, RGBA) wird an `board_size`/`board_border` der Zeile in
+  `mattes/<stem>.fixed.webp` gebrannt, auf der Handfassung, wenn es sie gibt; verlustfrei, atomar
+  (`os.replace`). **Abweichung vom Plan**: kein CLI `occluders apply-mask` + `recut` in einem
+  Aufruf. Die Route verspricht "nur Pixel, `recut: false`", `recut` hat seinen Knopf und muss auf
+  einen ruhigen alpha-worker warten (`matte-edit.recutMatte`) — das haette jeden Strich blockiert.
+  Die Slot-Frage bleibt in `chain/matte-edit.ts`, das jetzt direkt den Worker ruft.
+- **Op `matte_frames(root, name)`**: je Frame die wirksame Zeile (`session_store.matte.effective_rows`).
+  `loadMatte` fragt sie, mtime-gekeyt in TS (ein 12 000-Frame-Lauf sind ~7 MB). Eine Zeile ohne
+  `frame` wirft jetzt, wie in Python.
+- **Weg**: `matte-fix.ts` (125) samt `matte-fix.test.ts`, damit auch der Rest von `warp.ts`;
+  `latestFrames`, `cachedSet`, `readOnlyMissingIsEmpty` in `matte.ts` (−59/+23).
+- **Absicherung**: `cut-routes.test.ts` (Strich durch Zeilenmassstab und -rand; clear/restore),
+  `route-audit-bugs` (zweiter Strich auf der Handfassung), `matte-edit.test`, `matte-state-parity`
+  und `matte.test` laufen jetzt ueber Python; `test_web_cuts.py` (Heben/Radieren, Massstab,
+  Handfassung, Ablehnungen, `matte_frames`). Gegenproben: Kanaele vertauscht (pytest 3, vitest 2
+  rot), Rand ignoriert (1/1), immer SAMs Alpha als Grundlage (1/1), aelteste statt juengste Zeile
+  (2), `skipped` nicht weitergereicht (3), kaputte Zeile verschluckt (1).
+
+### Offen
+
 - Der POOL bleibt "jede Zelle jedes Log-Frames", nicht "was ein Slice ergaebe": dafuer muesste die
   Zellregel aus `iter_session_crops` als reine Funktion heraus — `labeling.py` war waehrend dieser
   Arbeit in fremder Bearbeitung, also nur `frame_dirty`.
 - Kaltstart ohne Vorwaermen bleibt ueber den Zielen; mit `instrumentation.ts` siehe "Latenz".
+- Kalte Zellseite +40-100 ms gegen TS (serielles Dekodieren, s. Schritt 4).
+- Stale Verweise ausserhalb dieses Bereichs: `docs/data-pipeline.md` (Z. 77 `lib/crops.ts`
+  `cutSource`, Z. 162 `lib/warp.ts`), `docs/web-architektur.md` (Z. 11, 71 `crops`, `stored`,
+  `matte-fix`), Kommentare in `calibration.py` (`sampleBoxMesh`), `CropBox.kt`,
+  `MeshPointParityTest.kt`, `SquareGeometryParityTest.kt` und `square_geometry_parity.json`
+  (nennen `lib/warp.ts`/`square-geometry-parity.test.ts`).
 
 ## Latenz (2026-09-23)
 

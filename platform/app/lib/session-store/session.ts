@@ -3,7 +3,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir, loadCandidate } from "@/lib/session-store/recordings";
-import { type CropParams, type GridMesh, type Mat3, meshFromLines } from "@/lib/warp";
 import { readJsonl } from "@/lib/jsonl";
 import { stampOrMissing } from "@/lib/measurement";
 
@@ -25,12 +24,6 @@ export type SessionRow = {
   toS: number;
   /** Squares the exporter refuses to vouch for on this frame (the next move's footprint). */
   unknown: string[];
-  /** The frame's 18 measured grid lines. Nur `session.test.ts` liest sie: `crops.ts` schneidet per
-   *  Homographie — umstellen aenderte jeden Crop der Lane, offene Entwurfsfrage, kein Aufraeumen. */
-  mesh?: GridMesh;
-  /** The stored board's own path and scale (`realgames.write_board`). A homography lets board
-   *  coordinates cancel against it; a stored raster does not, so both are read, never assumed. */
-  board?: { rel: string; size: number; border: number; straightened: boolean };
   /** Why the exporter refused to vouch for this frame — `occluded` is the one with an alpha. */
   dirtyReason?: string;
   /** `settle_dev` liegt an: dann entscheidet die ZELLE, ob ein Label gilt, nicht die Frame-Klasse. */
@@ -49,9 +42,6 @@ export type Session = {
    *  AFTER that halfmove, so `moves.get(row.ply)` produced what the frame shows and `ply + 1`
    *  is the one being played into it. */
   moves: Map<number, { san: string; fen: string }>;
-  boardSize: number;
-  crop: CropParams;
-  whitePov: boolean;
 };
 
 export function sessionId(name: string): string {
@@ -68,22 +58,9 @@ export function sessionDir(name: string): string {
   return gameDir(name);
 }
 
-/** The row's OWN `board` path: a dirty frame's raster lives under `dirty/`, a clean one under
- *  `boards/`, and assuming either one serves the wrong pixels for half the session. */
-export function boardPath(name: string, rel: string): string {
-  return path.join(sessionDir(name), ...rel.split("/").map((part) => checkName(part, "board path")));
-}
-
-/** Board coordinates -> pixels of the STORED board. The candidate says 1008 where the export
- *  profile says 928; only a homography absorbed that, so the row's own numbers are read. */
-export function boardToStored(session: Session, board: { size: number; border: number }): Mat3 {
-  const s = board.size / session.boardSize;
-  return [s, 0, board.border, 0, s, board.border, 0, 0, 1];
-}
-
 const cache = new Map<string, { key: string; value: Session }>();
 
-/** Log + the candidate's geometry block — the two files the crops are cut from. */
+/** Log + candidate (moves, fps) — mtime-keyed on both. */
 export async function loadSession(name: string): Promise<Session> {
   const log = path.join(sessionDir(name), "log.jsonl");
   // Beide Dateien im Schluessel: Brettgroesse, Crop-Parameter, fps und die Commit-Grenzen kommen
@@ -120,11 +97,6 @@ export async function loadSession(name: string): Promise<Session> {
       corners: number[][];
       dirty?: boolean;
       unknown_squares?: string[];
-      grid_lines?: unknown;
-      board?: string;
-      board_size?: number;
-      board_border?: number;
-      board_straightened?: boolean;
       dirty_reason?: string;
       settle_dev?: number[];
       unusable?: boolean;
@@ -145,18 +117,11 @@ export async function loadSession(name: string): Promise<Session> {
       sinceS: since / fps,
       toS: to / fps,
       unknown: row.unknown_squares ?? [],
-      mesh: meshFromLines(row.grid_lines),
-      board: row.board && row.board_size
-        ? { rel: row.board, size: row.board_size, border: row.board_border ?? 0,
-            straightened: row.board_straightened === true }
-        : undefined,
       dirtyReason: row.dirty_reason,
       settleMeasured: (row.settle_dev ?? []).length > 0,
       unusable: row.unusable === true,
     });
   }
-  const geometry = candidate.geometry ?? {};
-  const source = candidate.source ?? {};
   const value: Session = {
     name,
     sessionId: sessionId(name),
@@ -164,9 +129,6 @@ export async function loadSession(name: string): Promise<Session> {
     byStem: new Map(rows.map((r) => [r.stem, r])),
     plies: rows.reduce((m, r) => m.set(r.ply, [...(m.get(r.ply) ?? []), r.stem]), new Map()),
     moves: new Map(candidate.moves.flatMap((m) => (m.fen_after ? [[m.ply, { san: m.san, fen: m.fen_after }] as const] : []))),
-    boardSize: geometry.board_size ?? 928,
-    crop: { pad_side: source.crop?.pad_side ?? 0.05 },
-    whitePov: true,
   };
   cache.set(log, { key, value });
   return value;
