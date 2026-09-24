@@ -78,7 +78,7 @@ richtig; **wer `matte.jsonl` liest, prüft `coverage` auf `None`.**
 ## 4. Der Hand-Gate — SAM 3 auf den eigenen Aufbau destilliert
 
 > Ein INGEST-Werkzeug, kein Tracker-Modell. Auf dem Handy bleibt Coverage ein Ausgang am
-> Figuren-CNN (`training/occlusion.py`). Nichts hiervon geht ins APK.
+> Figuren-CNN (`chesslab.cell_rule.PIECE_VISIBLE_MAX`). Nichts hiervon geht ins APK.
 
 **Warum ein Schüler:** auf den 91 `clean`-Frames, auf denen SAM etwas fand (2026-08-22), sahen
 `skin_patch` und Rillen **0 von 91**, und RT-DETRs `person`-Verteilung war deckungsgleich mit der
@@ -136,7 +136,7 @@ wäre schneller, hat in timm aber keine Gewichte.
   ~1,5 %) fallen weg. Bewusst unempfindlich (Nutzer, 2026-09-11): ein schwacher Schleier ist keine
   Hand. `refine_edges` (Closed-Form-Matting, `pymatting`) lässt den Rand der Bildkante folgen.
   Alpha als 8-Bit-PNG. `--workers 4` auf der CPU schlägt `--device cuda`.
-- **`temporal-adopt`** macht Vorschläge mit einer Zelle über `MATTE_DIRTY` zu Matte-Zeilen
+- **`temporal-adopt`** macht Vorschläge mit einer Zelle über `PIECE_VISIBLE_MAX` zu Matte-Zeilen
   (`source: temporal`) — **nur für Frames ohne SAM-Zeile und ohne Matte-Datei**. Danach mattet SAM
   genau diese Frames; seine Zeile gewinnt in `read_matte`. Idempotent, weil der Kandidatenfilter
   die EIGENE Coverage ignoriert (`sam_matte`).

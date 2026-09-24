@@ -69,7 +69,7 @@ Fix: `read_proposals` returns the `_classes` from each `model-reads.jsonl` heade
 (`test_a_class_the_model_cannot_output_never_wins`). After it: 6 259 flags.
 
 Occlusion has one owner: the **matte** measures it (`--visible` drops every cell over
-`MATTE_DIRTY = 0.15`), the model's `model_cov` travels with each flag as a second opinion, and
+`PIECE_VISIBLE_MAX = 0.15`), the model's `model_cov` travels with each flag as a second opinion, and
 hand-painted `occluded` rows are **no candidate**.
 
 ## 4. Narrowing a foreign proposer (measured 2026-08-21)

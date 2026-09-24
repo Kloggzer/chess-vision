@@ -78,7 +78,7 @@ Ply-Intervalls:
 
 | Coverage | Abweichung | Urteil | Was passiert |
 |---|---|---|---|
-| > `MATTE_DIRTY` (0,15) | egal | verdeckt | FEN-Label bleibt, `coverage` nimmt die Zelle aus dem Klassifikations-Loss — kein Kärtchen |
+| > `PIECE_VISIBLE_MAX` (0,15) | egal | verdeckt | FEN-Label bleibt, `coverage` nimmt die Zelle aus dem Klassifikations-Loss — kein Kärtchen |
 | ≤ 0,15, `settle_seen` ≥ 0,5 | < `SETTLE_LIMIT` (45) | unverändert | FEN-Label gilt, Zelle geht in den Pool |
 | ≤ 0,15, `settle_seen` ≥ 0,5 | ≥ 45 | strittig | Karte auf der `Strittig`-Lane |
 | ≤ 0,15, `settle_seen` < 0,5 | nicht messbar | strittig | dito — weder vergleichbar noch vom Loss ausgenommen |

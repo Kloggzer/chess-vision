@@ -18,7 +18,7 @@ export const isIdentity = (label: string): boolean =>
   (IDENTITY_CLASSES as readonly string[]).includes(label);
 
 /**
- * `training/occlusion.PIECE_VISIBLE_MAX`, and `labeling.MATTE_DIRTY` — the same 0.15. Above it a
+ * `chesslab.cell_rule.PIECE_VISIBLE_MAX` — the same 0.15. Above it a
  * crop is no piece example any more and `OcclusionLoss` masks it out of the classification term.
  */
 export const PIECE_VISIBLE_MAX = 0.15;

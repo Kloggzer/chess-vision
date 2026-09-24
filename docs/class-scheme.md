@@ -27,8 +27,8 @@ in den Verlust eingehen. Warum `occluded` ein Ausgang und keine Klasse ist:
 - `train` defaultet auf `--head occlusion`. Das Modell gibt `len(classes) + 1` Werte aus: **13
   Softmax-Logits plus ein unabhängiges Sigmoid** für die Coverage — nicht dasselbe wie 14 Klassen.
 - `PIECE_VISIBLE_MAX = 0.15`: darüber maskiert `OcclusionLoss` den Crop aus dem
-  Klassifikationsterm. Dieselbe Zahl heißt in `labeling.py` `MATTE_DIRTY` und in der Web-UI
-  `PIECE_VISIBLE_MAX`.
+  Klassifikationsterm. Dieselbe Zahl lebt in `chesslab.cell_rule.PIECE_VISIBLE_MAX` und in der
+  Web-UI `PIECE_VISIBLE_MAX`.
 - `export` schreibt `coverage_output: true`, wenn `head == "occlusion"`. Deklariert, nicht geraten:
   wer `classes.size` Logits von einem breiteren Graphen liest, softmaxt die Coverage in jede
   Wahrscheinlichkeit hinein.
@@ -130,7 +130,7 @@ Modell auf 33 % steht).
   Entscheidung A (Nutzer, 2026-09-16): 1,01x Masse, gezielt **10 354 teilverdeckte Zellen** mehr.
 - **Vorgabe bleibt `hard`**, bitgleich zur alten Regel. `soft` ist eine Rezept-Änderung, ein Lauf
   damit ist mit dem Archiv nicht vergleichbar.
-- **Die Metrik wandert NICHT mit**: `classification_eligible`, `val_visible_piece_acc` und
+- **Die Metrik wandert NICHT mit**: `cell_rule.classification_eligible`, `val_visible_piece_acc` und
   `CHECKPOINT_WEIGHTS` bleiben auf der harten 0,15, sonst wird jeder Arm auf seiner eigenen
   Zellmenge benotet.
 - **Dunkelheit bleibt ein harter Ausschluss**; gewichtet wird nur die Verdeckung.
@@ -153,8 +153,8 @@ den neuen, die Zahl bleibt stehen.
 
 ## 6. Klassengewichte: dieselbe Zellmenge wie der Verlust (seit 2026-09-22)
 
-`train.visible_class_counts` zählt über `occlusion.classification_eligible` — genau die Zellmenge,
-die `OcclusionLoss` gewichtet (Coverage **und** `brightness >= CELL_DARK_MIN`). Vorher zählte
+`train.visible_class_counts` zählt über `cell_rule.classification_eligible` — genau die Zellmenge,
+die `OcclusionLoss` gewichtet (Coverage **und** `brightness >= cell_rule.CELL_DARK_MIN`). Vorher zählte
 `train.py` nur die Coverage (`tests/test_bug_hunt_20260922f_gewichte.py` war ohne den Fix rot).
 
 - **Warum aus den sichtbaren Zeilen:** Verdeckung trifft Weiß 11–15 %, Schwarz 2–6 % (gespielt wird

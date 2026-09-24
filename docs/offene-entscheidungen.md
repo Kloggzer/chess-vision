@@ -68,7 +68,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
   `VerdictsWouldDrop`, wenn ein Urteil auf einem nicht mehr gewaehlten Frame laege
   (`--drop-verdicts` nur ausdruecklich); `trim_session` schreibt erst das Log; `lib/frame-flag.ts`
   schreibt bewacht (409). `upsert_proposals` stagt wie `close_seams`.
-- A5 `MATTE_DIRTY` = `PIECE_VISIBLE_MAX`: `chesslab/cell_rule.py` haelt die Regel torch-frei.
+- A5 `PIECE_VISIBLE_MAX` in `chesslab/cell_rule.py` haelt die Regel torch-frei.
   Neu zu entscheiden erst, wenn `--coverage-weight soft` Vorgabe werden soll (26 357 Matte-Zellen
   in (0,15; 0,6] lernt `soft` mit Gewicht ~0,355, die Lane zeigt sie nie).
 - W1–W3 Urteils-Revisionen (2026-09-23): `adoptPgn` schreibt mit `flag: "wx"`; `retime` ueber
@@ -111,7 +111,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
   `lib/confirm-read-errors.test.ts`).
 - Drei Pack-blinde Analyse-Skripte (`gradcam_summary`, `session_colour`, `lr_range_test`): lesen
   wieder, 2026-09-23 (`tests/test_bug_hunt_20260923_packleser.py`).
-- `prune_dead_rows` nutzt `MATTE_DIRTY` statt `any(coverage)`: gebaut 2026-09-22
+- `prune_dead_rows` nutzt `PIECE_VISIBLE_MAX` statt `any(coverage)`: gebaut 2026-09-22
   (`tests/test_bug_hunt_20260922b_matten.py`). Offen nur: nach dem naechsten `temporal-pass` die 27
   betroffenen Zellen (8 Frames) ansehen — steht dort eine Hand, war die alte Regel Labelverlust.
 - Skript-Jagd Runde 2/3 (Punkt 50, `tests/test_bug_hunt_20260923_skripte.py`): `fix_ply_offset`

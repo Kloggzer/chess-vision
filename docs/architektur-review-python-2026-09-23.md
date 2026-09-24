@@ -48,14 +48,13 @@ Scan und Vorschlaege; `training.pack` hat eigene Fingerabdruecke fuer Packs.
 ## H4 — die Zellregel ist im Training zentral, davor nicht
 
 **Behoben:** `chesslab/cell_rule.py` (torch-frei) haelt `PIECE_VISIBLE_MAX`, `CELL_DARK_MIN` und
-`classification_eligible`; `training.occlusion` re-exportiert, `labeling.MATTE_DIRTY` ist dasselbe
-Objekt. **Offen, klein:** `matte.close_seams`/`recut_coverage` importieren weiter lokal aus
-`training.occlusion`; der torch-Import koennte dort entfallen.
+`classification_eligible`. **Offen, klein:** `matte.close_seams`/`recut_coverage` importieren
+weiter lokal aus `training/occlusion.py`; der torch-Import koennte dort entfallen.
 
 **Offen als Entscheidung (A5):** die Leser vor dem Training (Slice, Position-/Audit-Flags,
 Temporal) begruenden "ohnehin maskiert" nur fuer die Vorgabe `hard`. Unter `--coverage-weight soft`
 lernt der Kopf 26 357 Matte-Zellen im Band (0,15; 0,6] mit mittlerem Gewicht 0,355, fuer die keine
-Karte entsteht; und `MATTE_DIRTY` kennt die Helligkeitsmaske des Verlusts nicht.
+Karte entsteht; und `PIECE_VISIBLE_MAX` kennt die Helligkeitsmaske des Verlusts nicht.
 
 ## H5 — Schreibschutz pro Datei, nicht pro Sessionzustand
 
