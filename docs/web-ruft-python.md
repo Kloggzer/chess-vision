@@ -397,6 +397,15 @@ Aufruf neu — je rot.
 und `corpus_pool` (`labeling`) `cv2` und numpy. Jetzt erst in der Op, die sie braucht: Import 190-205
 -> 104-110 ms, 390 -> 200 Module; `ping` meldet `cv2: false` (`tests/test_web_worker.py`).
 
+**Paralleler Worker (2026-09-24)**: `cut_cell`/`cut_board`/`cut_matte` laufen auf 4 Threads
+(`web_ops.PARALLEL_OPS`, cv2 gibt den GIL frei), jede andere Op der Reihe nach auf einem. Antworten
+kommen in Fertig-Reihenfolge, `worker.ts` ordnet ueber `id`. Frischer Worker, 60 Zellen aus 60
+kalten Brettern gleichzeitig: seriell 962-968 ms, parallel 274-286 ms; 64 Felder EINES Bretts
+72-74 gegen 69-70 ms (erst mit Single-Flight auf Log-Parsen und Dekodieren, vorher 188 ms).
+**Windows-Falle**: laedt eine Op im Thread eine DLL (cv2), waehrend der Lesethread auf stdin
+blockiert, haengt der Import. `serve` ruft deshalb vor der ersten Op ausser `ping` `web_ops.preload`
+im Lesethread; Tests mit vorab geschicktem EOF sahen das nicht (`test_web_worker_parallel.py`).
+
 **Die wacklige Suite**: gleichzeitige Python-Starts nach einer Ruhepause dauern auf diesem Rechner
 Sekunden — 8 gleichzeitige `python -c pass` 11,6-13,6 s ueber das venv, 5,0-5,3 s ueber den
 Basis-Interpreter, 8 `node -e 0` 0,5 s; direkt danach 0,3 s. Es sind die Prozessstarts, nicht die

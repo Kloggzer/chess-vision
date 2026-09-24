@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sys
+import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -18,15 +19,29 @@ from . import config
 from .realgames import confirm as rg_confirm
 from .session_store import recording
 
+_root_turn = threading.Condition()
+_root_users = 0
+_root_before: config.Paths | None = None
+
 
 @contextlib.contextmanager
 def _rooted(root: str) -> Iterator[None]:
-    before = config.DATA
-    config.DATA = config.Paths(root=Path(root))
+    """`config.DATA` is global: parallel cuts share one root, a different root waits until they leave."""
+    global _root_users, _root_before
+    with _root_turn:
+        while _root_users and config.DATA.root != Path(root):
+            _root_turn.wait()
+        if not _root_users:
+            _root_before, config.DATA = config.DATA, config.Paths(root=Path(root))
+        _root_users += 1
     try:
         yield
     finally:
-        config.DATA = before
+        with _root_turn:
+            _root_users -= 1
+            if not _root_users:
+                config.DATA = _root_before
+                _root_turn.notify_all()
 
 
 def ping() -> dict:
@@ -113,10 +128,23 @@ def session_dirty(root: str, names: list[str]) -> list[dict]:
         return corpus_pool.session_dirty(names)
 
 
-def warm_cuts() -> bool:
-    """Imports `web_cuts` (cv2, `labeling`: ~100 ms) at server start instead of on the first cell."""
-    from . import web_cuts  # noqa: F401
+def preload() -> None:
+    """Every module an op imports lazily, loaded by the READING thread: on Windows a DLL (cv2) that
+    loads in an op thread hangs while stdin has a read pending (measured 2026-09-24)."""
+    from . import (  # noqa: F401
+        chain_state,
+        corpus_pool,
+        labeling,
+        matte,
+        stream_admission,
+        web_cuts,
+    )
+    from .realgames import position  # noqa: F401
+    from .state import GameState  # noqa: F401
 
+
+def warm_cuts() -> bool:
+    """The server's first call: `serve` preloads before it, so the first cell pays nothing."""
     return True
 
 
@@ -178,6 +206,9 @@ def matte_frames(root: str, name: str) -> dict[str, dict]:
 def confirmed_against(candidate: dict, reference_md5: str | None) -> str:
     return recording.confirmation_against(candidate, reference_md5)
 
+
+#: Read-only and cv2-bound (cv2 drops the GIL): these run side by side, every other op in order.
+PARALLEL_OPS = frozenset({"cut_cell", "cut_board", "cut_matte"})
 
 OPS: dict[str, Callable[..., object]] = {
     "ping": ping,

@@ -8,7 +8,9 @@ import base64
 import json
 import math
 import os
+import threading
 from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
 
 import cv2
@@ -31,7 +33,7 @@ from .session_store.names import log_path, mattes_dir
 from .session_store.recording import QUAD_FIT_NAME, candidate_path, game_dir
 
 #: JPEG q92, not WebP: cv2 encodes a 128 px cell in 0.04 ms against 1.3 (720 px board: 1.1 against
-#: 39) for 4.3 KB against 2.7 — the worker is serial, so the encoder is the page's latency.
+#: 39) for 4.3 KB against 2.7 — sixty cells a page, the encoder is the page's latency.
 CUT_QUALITY = 92
 #: Capped by BYTES: a fixed count held 50 to 600 MB depending on resolution, next to a training run.
 RASTER_BYTES_MAX = 256 * 1024 * 1024
@@ -50,27 +52,43 @@ class BoardUnusable(RuntimeError):
 class _Lru:
     def __init__(self, max_bytes: int):
         self.max_bytes, self.used, self.items = max_bytes, 0, OrderedDict()
+        self.lock = threading.Lock()
 
     def get(self, key):
-        hit = self.items.get(key)
-        if hit is not None:
-            self.items.move_to_end(key)
-        return hit
+        with self.lock:
+            hit = self.items.get(key)
+            if hit is not None:
+                self.items.move_to_end(key)
+            return hit
 
     def put(self, key, value, size: int):
-        old = self.items.pop(key, None)
-        self.used -= 0 if old is None else old[1]
-        self.items[key] = (value, size)
-        self.used += size
-        while self.used > self.max_bytes and len(self.items) > 1:
-            _, (_, dropped) = self.items.popitem(last=False)
-            self.used -= dropped
-        return value
+        with self.lock:
+            old = self.items.pop(key, None)
+            self.used -= 0 if old is None else old[1]
+            self.items[key] = (value, size)
+            self.used += size
+            while self.used > self.max_bytes and len(self.items) > 1:
+                _, (_, dropped) = self.items.popitem(last=False)
+                self.used -= dropped
+            return value
 
 
 _rasters = _Lru(RASTER_BYTES_MAX)
 _cells = _Lru(CELL_BYTES_MAX)
 _parsed: dict[Path, tuple[tuple, object]] = {}
+_flights: dict[tuple, threading.Lock] = {}
+_flights_lock = threading.Lock()
+
+
+@contextmanager
+def _flight(key):
+    """One decode or parse per input: a cold page asks for the same board and log from every cut thread."""
+    with _flights_lock:
+        lock = _flights.setdefault(key, threading.Lock())
+    with lock:
+        yield
+    with _flights_lock:
+        _flights.pop(key, None)
 
 
 def _stamp(path: Path) -> tuple[int, int, int]:
@@ -84,9 +102,13 @@ def _parsed_once(path: Path, parse):
     hit = _parsed.get(path)
     if hit is not None and hit[0] == key:
         return hit[1]
-    value = parse(path)
-    _parsed[path] = (key, value)
-    return value
+    with _flight((path, key)):
+        hit = _parsed.get(path)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        value = parse(path)
+        _parsed[path] = (key, value)
+        return value
 
 
 def _rows(log: Path) -> list[dict]:
@@ -101,10 +123,14 @@ def _raster(path: Path):
     hit = _rasters.get(key)
     if hit is not None:
         return hit[0]
-    image = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError(f"{path}: not a decodable image")
-    return _rasters.put(key, image, image.nbytes)
+    with _flight(key):
+        hit = _rasters.get(key)
+        if hit is not None:
+            return hit[0]
+        image = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError(f"{path}: not a decodable image")
+        return _rasters.put(key, image, image.nbytes)
 
 
 def _encode(image) -> str:
@@ -155,9 +181,12 @@ def _session(name: str) -> tuple[Path, _Session]:
     key = (_stamp(log), _stamp(cand))
     hit = _parsed.get(sdir)
     if hit is None or hit[0] != key:
-        crop = (json.loads(cand.read_text(encoding="utf-8")).get("source") or {}).get("crop") or {}
-        hit = (key, _Session((sdir, key), _rows(log), crop.get("pad_side", config.CROP.pad_side)))
-        _parsed[sdir] = hit
+        with _flight((sdir, key)):
+            hit = _parsed.get(sdir)
+            if hit is None or hit[0] != key:
+                crop = (json.loads(cand.read_text(encoding="utf-8")).get("source") or {}).get("crop") or {}
+                hit = (key, _Session((sdir, key), _rows(log), crop.get("pad_side", config.CROP.pad_side)))
+                _parsed[sdir] = hit
     return sdir, hit[1]
 
 
@@ -280,8 +309,11 @@ def _stored_board(name: str, stem: str):
     key = ("stored", frame_file, _stamp(frame_file), fit_stamp)
     hit = _rasters.get(key)
     if hit is None:
-        warped = warp_board_for_crops(_raster(frame_file), prof, corners, mesh=mesh)
-        hit = (_rasters.put(key, warped, warped.nbytes), 0)
+        with _flight(key):
+            hit = _rasters.get(key)
+            if hit is None:
+                warped = warp_board_for_crops(_raster(frame_file), prof, corners, mesh=mesh)
+                hit = (_rasters.put(key, warped, warped.nbytes), 0)
     return hit[0], prof
 
 
