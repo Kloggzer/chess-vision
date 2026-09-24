@@ -74,7 +74,7 @@ Derived things — crops, datasets, reports — live outside and can be rebuilt 
 `boards/NNNNNN.webp` is the frame rectified under that row's own quad, with the crop border,
 written by the export as it fits the grid (`realgames.fit_rows_to_grid`) or retrofitted by
 `chesslab session boards`. It is the **same raster `crop_square` cuts the training crop from** and
-`/api/cell` reads (`lib/crops.ts` `cutSource`). 115 KB against the frame's 3.3 MB (96 GB → 4.5 GB);
+`/api/cell` reads (through the Python worker, `web_cuts.cut_cell`). 115 KB against the frame's 3.3 MB (96 GB → 4.5 GB);
 the WebP stage moves the softmax by 0.0006, one argmax flip in 998 crops. The export decodes
 forward and warps in memory (`realgames.stream_frames`); frames are written only for `--no-fit`
 and an undistorted set.
@@ -159,7 +159,7 @@ crop of such a session sat up to a fifth of a cell off.
   when **every** line was located, offsets strictly monotone, every |tilt| < 0.05; the curvature
   pair is all-or-nothing on top (|curv| < 0.08) and drops alone when unmeasurable. `mesh_point`
   maps the ideal board onto the measured one, `straighten_board` remaps the raster through it.
-  Parity twins `meshPoint` (CropBox.kt, `lib/warp.ts`), pinned on 100 shared points.
+  Parity twin `meshPoint` (CropBox.kt), pinned on 100 shared points.
 - The file is **derived**: re-running overwrites it atomically; deleting it returns the session
   to the marker quad.
 

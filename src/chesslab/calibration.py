@@ -432,7 +432,7 @@ def mesh_point(u, v, mesh: GridMesh):
 
 def straighten_board(board, mesh: GridMesh, board_size: int, border: int = 0):
     """A bordered board pulled straight GLOBALLY. Replaces the per-cell mesh cut — straightening
-    twice corrects twice. Twin: `sampleBoxMesh`.
+    twice corrects twice.
 
     CUBIC: a bilinear near-identity resample is a low-pass the crop keeps (-44 % against -22 %
     Laplace)."""

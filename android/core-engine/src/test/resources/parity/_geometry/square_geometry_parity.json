@@ -1,6 +1,6 @@
 {
  "kind": "square-geometry-parity",
- "doc": "Square geometry across Python (calibration.py), Kotlin (CropBox.kt, SquareRegion.kt) and TS (lib/warp.ts). Production scales, so the endpoints are FRACTIONAL and the rounding is exercised; boardSize 80 puts pad*cell on exactly .5 to pin half-to-even. `boxExact` is the unrounded box TS carries.",
+ "doc": "Square geometry across Python (calibration.py), Kotlin (CropBox.kt, SquareRegion.kt). Production scales, so the endpoints are FRACTIONAL and the rounding is exercised; boardSize 80 puts pad*cell on exactly .5 to pin half-to-even. `boxExact` is the unrounded box TS carries.",
  "inset": 0.16,
  "cases": [
   {

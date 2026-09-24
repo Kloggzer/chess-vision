@@ -17,7 +17,7 @@ Hitze: **Zelle** = je `<img>` im Raster (60 je Seite), **Liste** = je Aufnahme a
 | 4 | `lib/warp.ts` (304): Homographie 1-69, `squareCropBox` 70-98, Mesh 99-261, `sampleBox` 262-304 | `crops.ts` (204) -> `/api/cell`, `/api/board`, `/api/matte`; `stored.ts` (220) -> dieselben fuer nie exportierte Buendel | **Zelle** | `square-geometry-parity.test.ts` (67), `warp.test.ts` (195) mit `mesh_crop_parity.json`, `curvature_trend_parity.json` | `calibration.py` `square_to_crop_box`, `compute_homography`, `mesh_from_lines`, `smooth_mesh_curvature`, `mesh_point`; `labeling.crop_square`; Kotlin `CropBox.kt`, `LabeledVideoPack.kt` |
 | 5 | `session-store/matte-fix.ts` `applyAlphaMask` (127, Mesh-Inverse) | `/api/matte` POST, danach `occluders recut` (schon CLI) | Klick | `matte-fix.test.ts` | `matte.recut_fixed`, `calibration.mesh_point` |
 | 6 | `session-store/matte.ts` `latestFrames`, `measured`, `matteCensus`, `matteSources` (~150 von 269) | `chainState` (**Liste**), `label-stream`, `verify.ts` | Liste/Strom | `matte-state-parity.test.ts` (66) + `parity/_matte/matte_states.json`, `matte.test.ts` (250) | `labeling.read_matte`, `matte.matte_status`, `matte.dirty_pile` |
-| 7 | `chain/chain.ts` Provenienz: `stampOf`, `headerOf`, `stillCurrent`, `sameLog`, `passOf`, `sameFile`, `inputsMoved` (~110); `exportedSession` mit Literal `>= 5` | `chainState` -> `/`, `/reparatur`, `/api/chain`, `queues.ts` | **Liste** | `chain.test.ts` (kein gemeinsames Fixture) | `provenance.py` `same_log`, `check`, `_check_inputs`; `realgames/position.SETTLE_MIN_FRAMES = 5` |
+| 7 | `chain/chain.ts` Provenienz: `stampOf`, `headerOf`, `stillCurrent`, `sameLog`, `passOf`, `sameFile`, `inputsMoved` (~110); `exportedSession` mit Literal `>= 5` | `chainState` -> `/`, `/reparatur`, `/api/chain`, `queues.ts` | **Liste** | `chain.test.ts` (kein gemeinsames Fixture) | `provenance.py` `same_log`, `check`, `inputs_moved` (erledigt: `chain_status`); `realgames/position.SETTLE_MIN_FRAMES = 5` |
 | 8 | `label/lanes.ts` `reachesPool` (440-448, "Spiegelt `slice_session`"), `visible` (340-344) | `openBoards`/`openCells` -> `/strom/labeln` | **Strom** | `lanes.test.ts` | `labeling._slice_session`; `cell_rule.classification_eligible` |
 | 9 | `corpus/pool.ts` `foldPool`, `dedupCorrections`, `sessionLogs` (~120 von 167) | `/corpus` | Seite | `pool.test.ts` (170) | `labeling.load_corrections` + Slice-Pool |
 | 10 | `lib/classes.ts` `IDENTITY_CLASSES`, `PIECE_VISIBLE_MAX` (34) | Palette (Client), Lanes, Korpus | Konstante | keiner | `config.IDENTITY_CLASSES`, `training/occlusion.PIECE_VISIBLE_MAX` |
@@ -407,8 +407,9 @@ ein Node-Relais (`node -e`, TCP auf 127.0.0.1) darauf. Fake-Worker-Tests setzen 
 Befehl. Ergebnis: `npx vitest run` mit Standardeinstellung 3x hintereinander mit je 30 s Pause gruen,
 Dauer 5 s statt 25-30 s. `maxWorkers` bleibt unangetastet.
 
-**Absicherung**: `test_stream_admission.py` — Schnellweg = JSON-Weg (LF, CRLF, BOM), acht
-Zeilenformen erzwingen den JSON-Weg, unveraenderte Lesarten werden nicht neu geparst. Gegenproben
+**Absicherung**: `test_stream_admission.py` — EIN Leseweg (LF, CRLF, BOM), unveraenderte Lesarten
+werden nicht neu geparst. Der Regex-Schnellweg ist seit 2026-09-24 weg: der geteilte Cache
+(`blocked` an Log+Matte, `ineligible` an Matte+Lesarten) macht ein Brett-Urteil 0,05 s. Gegenproben
 (Quelle veraendert, `__pycache__` geloescht, rot, zurueck): Cache aus (1 rot), Zeilenzaehlung weg
 (6 rot), Helligkeit verschoben (3 rot), Zeilenschluss-Pruefung weg (1 rot).
 

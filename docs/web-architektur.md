@@ -8,7 +8,7 @@ schrieb, baute sich den Pfad selbst, und zwei Seiten/Routen gingen direkt an `no
 
 | Service | Ordner | Besitzt |
 |---|---|---|
-| SessionStore | `lib/session-store/` | alles unter `data/recordings/<name>/`: `log.jsonl`, `matte.jsonl`, `candidate.json`, `reference.pgn`, `model-reads.jsonl`, `ui-meta.json`, `useless.json`, Bretter/Rasters (`crops`, `stored`, `matte-fix`), die Ledger `corrections`/`reviewed`/`unusable-cells`, dazu `data/labels/review-notes.jsonl` |
+| SessionStore | `lib/session-store/` | alles unter `data/recordings/<name>/`: `log.jsonl`, `matte.jsonl`, `candidate.json`, `reference.pgn`, `model-reads.jsonl`, `ui-meta.json`, `useless.json`, Bretter/Rasters (`crops`, `stored` — geschnitten wird in Python, `web_cuts.py`), die Ledger `corrections`/`reviewed`/`unusable-cells`, dazu `data/labels/review-notes.jsonl` |
 | ChainService | `lib/chain/` | die Kette und ihre Jobs: `chain`, `steps`, `run`, `queues`, `drain`, `progress`, `heavy-lock`, `intake`, `backlog`, `adopt-dirty`, `session-delete`, `matte-edit`; die Job-Schlange als `jobs` (Einreihen, Stopp, Ledger-Sicht) mit `slot`, `ledger`, `runners`, `spawn`, `job-log`, `cli-args`, `pack` |
 | Ingest | `lib/ingest/` | Handy-Eingang: `ingest` (Inbox, Staging, `transfers.jsonl`), `mp4`, `capture-plan` |
 | LabelService | `lib/label/` | Lanes, Strom, Seiten, Karten, Historie — fast alles rein (Client-tauglich) |
@@ -68,7 +68,7 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
   `killTree`, `runChesslabCapture`), `job-log` (Log-Senke, `refusalOf`, `lastRunOf`, `jobLogTail`),
   `cli-args` (Binaries und Kommandozeilen, von `cli-parity` gehalten), `pack` (`packInputs`,
   `verifyPack`); `jobs` bleibt Einreihen, Stopp und die Ledger-Sicht (187 Zeilen).
-- `matte-fix` ohne Kette (`chain/matte-edit.ts`), `chain.ts` liest `candidate.json`/`reference.pgn`
+- Der Stift ruft den Worker (`chain/matte-edit.ts` -> `web_cuts.pen`), `chain.ts` liest `candidate.json`/`reference.pgn`
   ueber den Store, `progress.ts` das Handy-`session.yaml` ueber `stored.phoneSessionSeconds`.
 - `label/lanes.ts` und `label-stream.ts` bleiben ungeteilt: `lanes` beantwortet eine Frage (was
   zeigt eine Lane), `label-stream` baut einen Strom; ein Schnitt waere kosmetisch.

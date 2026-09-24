@@ -54,7 +54,7 @@ fun cropBorderPx(geom: BoardGeometry): Int = pyRound(max(CROP_WARP_BORDER_CELLS,
 
 const val GRID_LINES_PER_AXIS: Int = 9
 
-/** A steeper line is a misfit, not a lens — shared with realgames/mesh.py and `lib/warp.ts`. */
+/** A steeper line is a misfit, not a lens — shared with realgames/mesh.py. */
 const val MESH_TILT_LIMIT: Double = 0.05
 
 /** realgames/mesh.py `MESH_CURV_LIMIT` explains the number. */
@@ -135,7 +135,7 @@ private fun lineAt(
 }
 
 /** The two bounding lines of a cell blend linearly and the axes are coupled, so the pair is solved by
- *  [CORNER_ITERATIONS] evaluations. Twins: `calibration.mesh_point`, `lib/warp.ts`. */
+ *  [CORNER_ITERATIONS] evaluations. Twin: `calibration.mesh_point`. */
 fun meshPoint(
     u: Double,
     v: Double,
