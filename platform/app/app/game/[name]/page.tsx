@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GameCard } from "@/app/cards";
 import { PageTitle } from "@/app/page-title";
-import { Badge } from "@/components/ui/badge";
+import { JobBadge } from "@/components/job-badge";
 import { SessionDelete } from "@/components/session-delete";
 import { failureParts } from "@/lib/failure";
 import { gameInfo } from "@/lib/chain/game-info";
@@ -105,9 +105,7 @@ async function JobRow({ job }: { job: Job }) {
     <details className="border-border rounded-lg border px-3 py-2 text-sm">
       <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-mono text-xs">{job.kind ?? "job"}</span>
-        <Badge variant={job.state === "failed" ? "destructive" : job.state === "done" ? "default" : "secondary"}>
-          {job.state}
-        </Badge>
+        <JobBadge state={job.state} />
         <span className="text-muted-foreground font-mono text-xs">
           {(job.finishedAt ?? job.startedAt ?? job.queuedAt).slice(0, 19).replace("T", " ")}
         </span>

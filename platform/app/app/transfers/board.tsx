@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { FailureLine } from "@/components/failure-line";
+import { JobBadge } from "@/components/job-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +12,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { readAnswer } from "@/lib/answer";
-import { failureParts, logName } from "@/lib/failure";
+import { failureParts } from "@/lib/failure";
 import { when } from "@/lib/when";
 import type { TransferRow } from "@/lib/ingest/ingest";
 import type { Job } from "@/lib/chain/slot";
@@ -30,36 +32,6 @@ const size = (bytes: number) =>
 const FRESH = 8;
 const ROW = "flex flex-wrap items-baseline gap-x-3 gap-y-0.5";
 const MUTED = "text-muted-foreground tabular-nums";
-
-const TONE: Record<
-  Job["state"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  queued: "outline",
-  running: "secondary",
-  done: "default",
-  failed: "destructive",
-  skipped: "outline",
-  stopped: "outline",
-};
-
-/** The reason in the words that act on it: no path in the sentence, the log file name beside it. */
-function FailureLine({ reason, tone }: { reason: string; tone: string }) {
-  const { text, log } = failureParts(reason);
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className={`${tone} min-w-0 truncate`}>
-          {text}
-          {log ? (
-            <span className="text-muted-foreground"> · {logName(log)}</span>
-          ) : null}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{reason}</TooltipContent>
-    </Tooltip>
-  );
-}
 
 function Older({
   count,
@@ -116,7 +88,7 @@ function JobLine({
     <li className={ROW}>
       <span className="font-mono">{job.name}</span>
       {job.state === "done" ? null : (
-        <Badge variant={TONE[job.state]}>{job.state}</Badge>
+        <JobBadge state={job.state} />
       )}
       <span className={MUTED} suppressHydrationWarning>
         {when(job.finishedAt ?? job.startedAt ?? job.queuedAt)}
@@ -153,11 +125,7 @@ function JobLine({
       {job.reason ? (
         <FailureLine
           reason={job.reason}
-          tone={
-            job.state === "failed"
-              ? "text-destructive"
-              : "text-muted-foreground"
-          }
+          className={`${job.state === "failed" ? "text-destructive" : "text-muted-foreground"} min-w-0`}
         />
       ) : null}
     </li>

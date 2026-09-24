@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { MissingBox } from "@/components/missing-box";
 import { SquareRing } from "@/components/square-ring";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { CROP } from "@/components/crop-grid";
@@ -179,9 +180,7 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
         }}
       >
         {board && broken.has(boardSrc) ? (
-          <div className="border-destructive/60 bg-destructive/10 text-destructive flex h-full w-full items-center justify-center border p-3 text-center font-mono text-sm">
-            Brett fehlt — {head.stem}
-          </div>
+          <MissingBox>Brett fehlt — {head.stem}</MissingBox>
         ) : board ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element -- ein Brett, vom Server skaliert */}
@@ -194,9 +193,9 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
             <SquareRing passive ring="ring-2 ring-fuchsia-400 ring-inset" square={head.square} />
           </>
         ) : broken.has(cropSrc) ? (
-          <div className="border-destructive/60 bg-destructive/10 text-destructive flex h-full w-full items-center justify-center border p-3 text-center font-mono text-sm">
+          <MissingBox>
             Crop fehlt — {head.square} @ {head.stem}
-          </div>
+          </MissingBox>
         ) : (
           <Image
             alt={`${head.square} @ ${head.stem}`}

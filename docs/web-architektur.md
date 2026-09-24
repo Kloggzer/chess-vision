@@ -116,8 +116,9 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
 ## Offen fuer die naechste Runde
 
 - Die Tastatur-Registrierung ueber einen Ref (`labeln/stream`, `zuege/stream`) steht zweimal;
-  ohne DOM-Testbibliothek nicht absicherbar, deshalb geblieben. Ebenso die zwei
-  "Brett/Crop fehlt"-Kaesten in `mobile-sort` und die beiden `FailureLine` (verschiedenes Markup).
+  ohne DOM-Testbibliothek nicht absicherbar, deshalb geblieben. `FailureLine`, `MissingBox` und
+  `JobBadge` sind je EINE Komponente (`components/`); `crop-grid.tsx` hat noch einen eigenen
+  "Crop fehlt"-Kasten, die Kopfleisten in `app/strom/**` sind leicht auseinandergelaufen.
 - `chain/chain.ts` nennt `log`/`matte`/`modelReads` weiter ueber `recordingFile` zum Stempeln.
 - Ein Service-Eingang je Ordner (`lib/session-store/index.ts`) erst, wenn die Waechter auf den
   Ordner statt auf Dateien zeigen koennen — heute pruefen sie Dateipfade.

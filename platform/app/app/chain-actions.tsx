@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { FailureLine } from "@/components/failure-line";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
@@ -12,7 +13,6 @@ import {
 import { readAnswer } from "@/lib/answer";
 import type { ChainState, ChainStep } from "@/lib/chain/chain";
 import { STEP } from "@/lib/chain/steps";
-import { failureParts, logName } from "@/lib/failure";
 import type { Job } from "@/lib/chain/slot";
 import type { Progress } from "@/lib/chain/progress";
 
@@ -212,7 +212,7 @@ export function ChainActions({
       ) : null}
       {busy ? <Working progress={progress} /> : null}
       {job?.state === "failed" && job.kind === step && job.reason ? (
-        <FailureLine reason={job.reason} />
+        <FailureLine className="text-destructive max-w-sm" reason={job.reason} />
       ) : null}
       {note ? <span className="text-destructive">{note}</span> : null}
     </span>
@@ -260,23 +260,6 @@ function Working({ progress }: { progress: Progress | null }) {
         {tail.at(-1) ?? (bytes > 0 ? "" : "no output yet")}
       </span>
     </span>
-  );
-}
-
-function FailureLine({ reason }: { reason: string }) {
-  const { text, log } = failureParts(reason);
-  if (!log) {
-    return <span className="text-destructive max-w-sm truncate">{text}</span>;
-  }
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="text-destructive max-w-sm truncate">{text}</span>
-      </TooltipTrigger>
-      <TooltipContent>
-        {text} · {logName(log)}
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
