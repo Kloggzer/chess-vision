@@ -18,10 +18,10 @@ from .calibration import load_profile
 from .labeling import (
     all_squares,
     crops_for_frame,
-    read_log,
     read_session_meta,
     usable_board,
 )
+from .session_store.log import read_log_rows
 from .session_store.names import READS_FILE, log_path
 from .state import GameState
 
@@ -145,7 +145,7 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     profile = load_profile(meta["profile"])
     classes = model_classes(model_dir)
     squares = all_squares()
-    rows = [r for r in read_log(session_dir) if r.get("board") or r.get("frame")]
+    rows = [r for r in read_log_rows(session_dir) if r.get("board") or r.get("frame")]
     # A side measurement (`out`, e.g. a `coverage_gate` run) must not overwrite the canonical file
     # the lane, audit-flags and chain read.
     path = game_dir(name) / (out or READS_FILE)

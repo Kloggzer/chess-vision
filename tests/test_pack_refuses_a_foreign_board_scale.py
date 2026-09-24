@@ -24,7 +24,7 @@ def _wire(monkeypatch, d, rows, small_profile):
     from chesslab.session_store import recording as store_rec
 
     monkeypatch.setattr(store_rec, "game_dir", lambda name: d)
-    monkeypatch.setattr(labeling, "read_log", lambda _d: rows)
+    monkeypatch.setattr("chesslab.session_store.log.read_log_rows", lambda _d: rows)
     monkeypatch.setattr(labeling, "read_session_meta", lambda _d: {"profile": "p"})
     monkeypatch.setattr(calibration, "load_profile", lambda _n: small_profile)
 

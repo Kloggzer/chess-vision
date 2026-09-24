@@ -74,7 +74,7 @@ def test_a_row_with_only_a_board_does_not_crash_the_read(tmp_path, monkeypatch):
     monkeypatch.setattr(occluded_model, "check_not_circular", lambda run, sid: None)
     monkeypatch.setattr(occluded_model, "load_profile", lambda name: object())
     monkeypatch.setattr(occluded_model, "model_classes", lambda run: ["empty", "wP"])
-    monkeypatch.setattr(occluded_model, "read_log",
+    monkeypatch.setattr(occluded_model, "read_log_rows",
                         lambda d: [{"board": "boards/000001.webp",
                                     "fen": "8/8/8/8/8/8/8/8 w - - 0 1"}])
     monkeypatch.setattr(occluded_model, "frame_cells",

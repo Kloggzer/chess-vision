@@ -15,11 +15,10 @@ from .labeling import (
     SETTLE_LIMIT,
     SETTLE_SEEN_MIN,
     all_squares,
-    read_log,
     read_matte,
     read_session_meta,
 )
-from .session_store.log import ExportInterrupted
+from .session_store.log import ExportInterrupted, read_log_rows
 from .session_store.names import INTERVAL_FILE, LOG_FILE, interval_path, matte_path, meta_path
 from .state import GameState
 
@@ -110,7 +109,7 @@ def position_flags() -> dict:
         session_id = read_session_meta(session_dir)["session_id"]
         matte = read_matte(session_dir)
         try:
-            entries = read_log(session_dir)
+            entries = read_log_rows(session_dir)
         except ExportInterrupted:
             interrupted.append(session_id)
             continue

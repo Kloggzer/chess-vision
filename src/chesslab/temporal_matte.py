@@ -14,7 +14,8 @@ import numpy as np
 
 from . import config, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
-from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
+from .labeling import _profile_for_session, read_session_meta, usable_board
+from .session_store.log import read_log_rows
 from .session_store.matte import measured_coverage, read_matte
 from .session_store.names import BOARD_DIR, MATTE_DIR, MATTE_FILE
 from .session_store.paths import session_dir
@@ -246,7 +247,7 @@ def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
     recording, _ = session_dir(session_id)
     stamp = source_stamp(recording)
     profile = _profile_for_session(read_session_meta(recording), None)
-    entries = read_log(recording)
+    entries = read_log_rows(recording)
     # Our coverage must not count, or an adopted frame drops out of the next run and `adopt` deletes
     # its own row.
     flags, stale = load_flags(recording, session_id, entries, sam_matte(recording))
@@ -323,7 +324,7 @@ def adopt_proposals(session_id, *, method="local"):
         raise FileNotFoundError(f"{session_id}: no proposals — run session temporal-mattes first")
     require_fresh_proposals(directory, recording)
     profile = load_profile(read_session_meta(recording)["profile"])
-    entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
+    entries = {Path(r["frame"]).stem: r for r in read_log_rows(recording)}
     matte_path = recording / MATTE_FILE
     matte_stamp = stamp_of(matte_path)
     rows_before = read_jsonl(matte_path)
@@ -393,7 +394,7 @@ def upsert_proposals(session_id, *, method="local"):
     # Dieselbe Wache wie `adopt_proposals`; hier werden GANZE Frames ersetzt.
     require_fresh_proposals(directory, recording)
     profile = load_profile(read_session_meta(recording)["profile"])
-    entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
+    entries = {Path(r["frame"]).stem: r for r in read_log_rows(recording)}
     matte_path = recording / MATTE_FILE
     matte_stamp = stamp_of(matte_path)
     rows_before = read_jsonl(matte_path)

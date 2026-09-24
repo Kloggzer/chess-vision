@@ -9,10 +9,14 @@ from chesslab.session_store import paths as store_paths
 
 
 def test_log_readers_keep_their_existing_empty_and_stamp_contracts(tmp_path):
+    with pytest.raises(FileNotFoundError, match="log.jsonl missing in"):
+        store_log.read_log_rows(tmp_path)
+    with pytest.raises(FileNotFoundError, match="has no log.jsonl"):
+        store_log.read_log(tmp_path)
     log = tmp_path / "log.jsonl"
     log.write_text("", encoding="utf-8")
 
-    assert type(labeling.read_log(tmp_path)) is list
+    assert store_log.read_log_rows(tmp_path) == []
     with pytest.raises(FileNotFoundError, match="no captured frames"):
         store_log.read_log(tmp_path)
 

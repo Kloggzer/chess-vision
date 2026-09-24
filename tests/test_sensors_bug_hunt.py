@@ -26,7 +26,7 @@ def test_position_report_does_not_call_an_unmatted_frame_provably_clear(tmp_path
     }
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
     monkeypatch.setattr(position_flags, "read_session_meta", lambda _rec: {"session_id": "rg-g"})
-    monkeypatch.setattr(position_flags, "read_log", lambda _rec: [entry])
+    monkeypatch.setattr(position_flags, "read_log_rows", lambda _rec: [entry])
     monkeypatch.setattr(position_flags, "read_matte", lambda _rec: {"000002": {"a1": 0.0}})
     monkeypatch.setattr("chesslab.temporal_flags.load_flags",
                         lambda _rec, _sid, _entries, _matte: ([], False))

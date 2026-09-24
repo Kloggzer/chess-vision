@@ -34,6 +34,7 @@ from chesslab import config, labeling  # noqa: E402
 from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
+from chesslab.session_store.log import read_log_rows  # noqa: E402
 from chesslab.training.data import filter_rows_by_split  # noqa: E402
 
 #: Outside 48..160 the multi-scale runs were never trained: extrapolation, not deployment.
@@ -207,7 +208,7 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
     logs = {}
     for sid, sdir in sdirs.items():
         profiles[sid] = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
-        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(sdir)}
+        logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
 
     specs = {name: serving.run_spec(run_dir) for name, (run_dir, _, _) in runs.items()}
     if pad_side is not None:

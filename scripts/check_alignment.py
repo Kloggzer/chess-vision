@@ -43,6 +43,7 @@ from chesslab.alignment import (  # noqa: E402
     frame_offsets,
 )
 from chesslab.calibration import warp_from_corners  # noqa: E402
+from chesslab.session_store.log import read_log_rows  # noqa: E402
 
 
 def perturb(quad, dx: float, dy: float, slot: int = 0) -> list:
@@ -261,7 +262,7 @@ def main() -> None:
         if not d.is_dir():
             raise
     prof = labeling._profile_for_session(labeling.read_session_meta(d), None)
-    log = labeling.read_log(d)
+    log = read_log_rows(d)
     gone = sessions.missing_source_frames(d, log)
     if gone:
         print(f"[FAIL] {args.session}: {gone}")

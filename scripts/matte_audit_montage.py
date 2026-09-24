@@ -16,7 +16,8 @@ from PIL import Image, ImageDraw
 
 from chesslab.calibration import _square_to_col_row
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import _profile_for_session, read_log, read_session_meta
+from chesslab.labeling import _profile_for_session, read_session_meta
+from chesslab.session_store.log import read_log_rows
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 from matte_audit import board_path  # noqa: E402
@@ -59,7 +60,7 @@ def main() -> int:
         rec = Path("data/recordings") / c["session"]
         if c["session"] not in sessions:
             sessions[c["session"]] = (_profile_for_session(read_session_meta(rec), None).white_pov,
-                                      {Path(r["frame"]).stem: r for r in read_log(rec)})
+                                      {Path(r["frame"]).stem: r for r in read_log_rows(rec)})
         white_pov, log = sessions[c["session"]]
         entry = log.get(c["frame"], {})
         p = board_path(rec, c["frame"])

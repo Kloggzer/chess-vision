@@ -31,6 +31,7 @@ from chesslab import calibration, config, labeling  # noqa: E402
 from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
+from chesslab.session_store.log import read_log_rows  # noqa: E402
 from chesslab.training.data import filter_rows_by_split  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
@@ -104,7 +105,7 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
     logs = {}
     for sid, sdir in sdirs.items():
         base_profiles[sid] = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
-        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(sdir)}
+        logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
     profiles = {(sid, w): profile_at_warp(base_profiles[sid], w) for sid in sids for w in warps}
 
     acc: dict[tuple[str, int, int], tuple[list[bool], list[bool], list[float]]] = {

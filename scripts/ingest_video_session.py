@@ -17,7 +17,7 @@ import cv2
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 
-from chesslab import config, labeling  # noqa: E402
+from chesslab import config  # noqa: E402
 from chesslab.calibration import (  # noqa: E402
     board_corners_for_frame,
     detect_board_markers,
@@ -25,6 +25,7 @@ from chesslab.calibration import (  # noqa: E402
     make_tracker,
     resolve_board_corners,
 )
+from chesslab.session_store.log import read_log_rows  # noqa: E402
 from chesslab.session_writer import SessionWriter  # noqa: E402
 
 EMPTY_FEN = "8/8/8/8/8/8/8/8 w - - 0 1"
@@ -51,7 +52,7 @@ def report_alignment(sid: str, profile) -> None:
     from check_alignment import frame_offsets, judge
 
     d = config.DATA.sessions / sid
-    log = labeling.read_log(d)
+    log = read_log_rows(d)
     worst = []
     for e in log:
         frame = cv2.imread(str(d / e["frame"])) if e.get("corners") else None

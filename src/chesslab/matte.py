@@ -21,10 +21,10 @@ from .ioutil import append_rows, read_jsonl, stamp_of, write_rows_guarded
 from .labeling import (
     all_squares,
     crops_for_frame,
-    read_log,
     read_session_meta,
     usable_board,
 )
+from .session_store.log import read_log_rows
 from .session_store.matte import effective_rows, measured_coverage, read_matte
 from .session_store.names import log_path, matte_path, mattes_dir
 
@@ -404,7 +404,7 @@ def recut_coverage(
     if not path.exists():
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
     profile = load_profile(read_session_meta(session_dir)["profile"])
-    entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
+    entries = {Path(e["board"]).stem: e for e in read_log_rows(session_dir) if e.get("board")}
     stamp = stamp_of(path)
 
     rows: list[dict] = []
@@ -474,7 +474,7 @@ def recut_fixed(
 
     entries = {
         Path(entry["board"]).stem: entry
-        for entry in read_log(session_dir)
+        for entry in read_log_rows(session_dir)
         if entry.get("board")
     }
 
@@ -560,11 +560,10 @@ def matte_status(name: str) -> dict:
     """Welche dirty-Frames eine Matte haben, und welche Matten keinen Frame mehr. Eine LUECKE ist
     teuer: ohne Matte gilt Coverage 0 — ein freies Feld.
     """
-    from .labeling import read_log
     from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
-    rows = read_log(session_dir)
+    rows = read_log_rows(session_dir)
     want = dirty_pile(rows)
     # Getrennt: `changed` und `stale` holt nur `--reason all`, als EINE Zahl meldete das ewig eine
     # Luecke.
@@ -596,7 +595,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     if not path.exists():
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
     profile = load_profile(read_session_meta(session_dir)["profile"])
-    entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
+    entries = {Path(e["board"]).stem: e for e in read_log_rows(session_dir) if e.get("board")}
     stamp = stamp_of(path)
 
     raw = read_jsonl(path)
@@ -829,7 +828,7 @@ def alpha_worker(
 
     path = matte_path(session_dir)
 
-    rows = read_log(
+    rows = read_log_rows(
         session_dir,
     )
 

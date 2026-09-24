@@ -56,8 +56,9 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
     import numpy as np
 
     from chesslab.calibration import load_profile
-    from chesslab.labeling import read_log, read_session_meta, usable_board
+    from chesslab.labeling import read_session_meta, usable_board
     from chesslab.matte import coverage_of
+    from chesslab.session_store.log import read_log_rows
 
     out = []
     for session in sorted(config.DATA.recordings.glob("*/")):
@@ -75,7 +76,7 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
             profile = load_profile(read_session_meta(session)["profile"])
         except (KeyError, FileNotFoundError, ValueError):
             continue
-        entries = {Path(e["board"]).stem: e for e in read_log(session) if e.get("board")}
+        entries = {Path(e["board"]).stem: e for e in read_log_rows(session) if e.get("board")}
         off = checked = up = down = 0
         for row in rows[:: max(1, len(rows) // sample)][:sample]:
             alpha_path = session / "mattes" / f"{row['frame']}.webp"

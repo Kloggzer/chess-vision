@@ -170,12 +170,12 @@ def debug_overlay(session_id: str, n: int, out_dir: Path, *, profile,
     import cv2
 
     from .calibration import square_center, warp_from_corners
-    from .labeling import read_log
+    from .session_store.log import read_log_rows
     from .state import GameState
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    log = read_log(paths.sessions / session_id)
+    log = read_log_rows(paths.sessions / session_id)
     written: list[Path] = []
     for entry in log[:n]:
         frame = cv2.imread(str(Path(entry["frame"])))

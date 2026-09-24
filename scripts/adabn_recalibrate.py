@@ -106,6 +106,7 @@ from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
+from chesslab.session_store.log import read_log_rows  # noqa: E402
 from chesslab.training.data import filter_rows_by_split  # noqa: E402
 from chesslab.training.evaluate import load_run  # noqa: E402
 from chesslab.training.torch_data import normalize_batch  # noqa: E402
@@ -252,7 +253,7 @@ def crop_batches(cfg: dict, frames: list[tuple[str, str]], size: int,
     for sid, sdir in sdirs.items():
         prof = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
         profiles[sid] = profile_at_warp(prof, warp) if warp else prof
-        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(sdir)}
+        logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
 
     pending: list[np.ndarray] = []
     for sid, frame_id in frames:

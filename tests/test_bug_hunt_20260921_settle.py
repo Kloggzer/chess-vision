@@ -59,7 +59,8 @@ def test_the_settle_scan_keeps_an_unmeasured_hand_frame_out_of_the_reference(
 
     session_boards.settle_scan_session("rg-s1")
 
-    from chesslab.labeling import SETTLE_LIMIT, all_squares, read_log
+    from chesslab.labeling import SETTLE_LIMIT, all_squares
+    from chesslab.session_store.log import read_log_rows as read_log
 
     a8 = all_squares().index("a8")
     first = next(r for r in read_log(sdir) if r["frame"] == "frames/000000.png")

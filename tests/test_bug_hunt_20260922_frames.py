@@ -33,7 +33,7 @@ def _session_for_worker(paths: config.Paths, monkeypatch, stems: list[str]) -> P
         rows.append({"frame": f"frames/{stem}.png", "board": f"boards/{stem}.png",
                      "dirty": True, "dirty_reason": "occluded"})
     write_jsonl(rec / "log.jsonl", rows)
-    monkeypatch.setattr(matte, "read_log", lambda _d: rows)
+    monkeypatch.setattr(matte, "read_log_rows", lambda _d: rows)
     monkeypatch.setattr(matte, "read_session_meta", lambda _d: {"profile": "p"})
     monkeypatch.setattr(matte, "usable_board", lambda *_a: True)
     monkeypatch.setattr("chesslab.calibration.load_profile", lambda _n: object())

@@ -44,33 +44,33 @@ def refuse_interrupted_export(sdir: Path) -> None:
             "two generations. Re-run `realgames export-session` or `session rewarp` first.")
 
 
-def read_log(
-    sdir: Path,
-    *,
-    under_export: bool = False,
-    allow_empty: bool = False,
-    with_stamp: bool = True,
-    missing_message: str | None = None,
-) -> list[dict]:
-    """Every row of `log.jsonl`, in order, carrying the stamp `_write_log` checks.
-    `under_export=True` only for the marker setters and for a human verdict the export carries
-    over.
+def read_log(sdir: Path, *, under_export: bool = False) -> LogRows:
+    """Every row of `log.jsonl`, in order, carrying the stamp `_write_log` checks; an empty log
+    raises. `under_export=True` only for the marker setters and for a human verdict the export
+    carries over.
     """
     if not under_export:
         refuse_interrupted_export(sdir)
+    log_file = _existing_log(sdir, "Session '{name}' has no log.jsonl.")
+    stamp = stamp_of(log_file)
+    rows = LogRows(read_jsonl(log_file))
+    if not rows:
+        raise FileNotFoundError(f"Session '{sdir.name}' has no captured frames.")
+    rows.stamp = stamp
+    return rows
+
+
+def read_log_rows(sdir: Path) -> list[dict]:
+    """The rows for readers that never write back: no stamp, an empty log is `[]`."""
+    refuse_interrupted_export(sdir)
+    return read_jsonl(_existing_log(sdir, "log.jsonl missing in {session_dir}"))
+
+
+def _existing_log(sdir: Path, message: str) -> Path:
     log_file = log_path(sdir)
     if not log_file.exists():
-        message = missing_message or "Session '{name}' has no log.jsonl."
         raise FileNotFoundError(message.format(name=sdir.name, session_dir=sdir))
-    stamp = stamp_of(log_file) if with_stamp else None
-    rows = read_jsonl(log_file)
-    if not rows and not allow_empty:
-        raise FileNotFoundError(f"Session '{sdir.name}' has no captured frames.")
-    if not with_stamp:
-        return rows
-    stamped = LogRows(rows)
-    stamped.stamp = stamp
-    return stamped
+    return log_file
 
 
 def write_interval_checks(sdir: Path, checks: list[dict]) -> None:

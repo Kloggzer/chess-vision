@@ -45,8 +45,8 @@ def unscanned(entries: list[dict], scan: list[dict]) -> int:
 
 def frame_hands() -> dict:
     from .framescan import GATE_THR, SCAN_STRIDE, read_scan
-    from .labeling import read_log, read_session_meta
-    from .session_store.log import ExportInterrupted
+    from .labeling import read_session_meta
+    from .session_store.log import ExportInterrupted, read_log_rows
 
     rows, per_session, scanned, without, interrupted = [], {}, [], [], []
     blind: dict[str, int] = {}
@@ -60,7 +60,7 @@ def frame_hands() -> dict:
             without.append(session_dir.name)
             continue
         try:
-            entries = read_log(session_dir)
+            entries = read_log_rows(session_dir)
         except ExportInterrupted:
             interrupted.append(session_dir.name)
             continue

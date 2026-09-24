@@ -74,7 +74,7 @@ def test_position_report_merges_sources_without_duplicates(tmp_path, monkeypatch
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
     monkeypatch.setattr(position_flags, "read_session_meta", lambda _: {"session_id": "rg-test"})
     monkeypatch.setattr(position_flags, "read_matte", lambda _: {})
-    monkeypatch.setattr(position_flags, "read_log", lambda _: [entry(settle_left=["a2"])])
+    monkeypatch.setattr(position_flags, "read_log_rows", lambda _: [entry(settle_left=["a2"])])
     monkeypatch.setattr(temporal_flags, "load_flags", lambda *args: (flags(), False))
     result = position_flags.position_flags()
     assert result["flags"] == 1

@@ -13,8 +13,9 @@ from pathlib import Path
 from . import config
 from .calibration import profile_path
 from .ioutil import read_jsonl, write_rows
-from .labeling import MATTE_DIRTY, all_squares, read_log, read_matte, read_session_meta
+from .labeling import MATTE_DIRTY, all_squares, read_matte, read_session_meta
 from .realgames.position import SETTLE_MIN_FRAMES
+from .session_store.log import read_log_rows
 from .session_store.names import log_path, meta_path
 from .session_store.paths import session_dir
 from .state import GameState
@@ -29,7 +30,7 @@ def source_stamp(recording: Path) -> list:
     not invalidate it: live coverage filters the candidates again.
     """
     files = [log_path(recording), meta_path(recording)]
-    files += [recording / r["board"] for r in read_log(recording) if r.get("board")]
+    files += [recording / r["board"] for r in read_log_rows(recording) if r.get("board")]
     out = []
     for path in sorted(set(files)):
         try:
@@ -60,7 +61,7 @@ def scan_session(session_id: str, *, cut: float = config.TEMPORAL_AUDIT_CUT) -> 
     header = {"_schema": 1, "_session_id": session_id, "_cut": cut,
               "_source": before, "_written_at": datetime.now(UTC).isoformat()}
     write_rows(path, [header, *rows])
-    flags, _ = load_flags(recording, session_id, read_log(recording), read_matte(recording))
+    flags, _ = load_flags(recording, session_id, read_log_rows(recording), read_matte(recording))
     return {"path": path, "cells": len(rows), "flags": len(flags)}
 
 

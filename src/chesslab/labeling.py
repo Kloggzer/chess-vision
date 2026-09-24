@@ -12,7 +12,6 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +33,7 @@ from .calibration import (
 from .cell_rule import PIECE_VISIBLE_MAX
 from .imgops import resize_keep_aspect
 from .ioutil import mtime_size, read_jsonl
-from .session_store.log import read_log as _read_log
+from .session_store.log import read_log_rows
 from .session_store.matte import read_matte
 from .session_store.matte import read_rows as read_matte_rows
 from .session_store.names import (
@@ -187,14 +186,6 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
         warped = flat_field(warped, int(profile.board_size), crop_border_px(profile), flat_cells)
     return [crop_square(warped, square, profile, out)
             for square in (all_squares() if squares is None else squares)]
-
-
-read_log = partial(
-    _read_log,
-    allow_empty=True,
-    with_stamp=False,
-    missing_message="log.jsonl missing in {session_dir}",
-)
 
 
 def effective_profile(profile: CalibrationProfile, pad_side) -> CalibrationProfile:
@@ -399,7 +390,7 @@ def iter_session_crops(
     session_dir = Path(session_dir)
     meta = read_session_meta(session_dir)
     session_id = meta["session_id"]
-    log = read_log(session_dir)
+    log = read_log_rows(session_dir)
 
     matte = read_matte(session_dir)
     # Gemessen NULL ist nicht ungemessen: sonst las `classification_eligible` auch SAMs Absage ueber
@@ -757,7 +748,7 @@ def _preview_session(session_id: str, profile: str | None) -> int:
     try:
         meta = read_session_meta(session_dir)
         prof = _profile_for_session(meta, profile)
-        log = read_log(session_dir)
+        log = read_log_rows(session_dir)
     except Exception as e:  # noqa: BLE001
         print(f"[FAIL] {e}")
         return 1

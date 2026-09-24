@@ -188,7 +188,7 @@ def _measured_session(tmp_path, monkeypatch, entries):
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
     monkeypatch.setattr(mod, "read_session_meta", lambda _: {"session_id": "rg-test"})
     monkeypatch.setattr(mod, "read_matte", lambda _: {})
-    monkeypatch.setattr(mod, "read_log", lambda _: entries)
+    monkeypatch.setattr(mod, "read_log_rows", lambda _: entries)
     monkeypatch.setattr(temporal_flags, "load_flags", lambda *_a: ([], False))
     return mod.position_flags()
 

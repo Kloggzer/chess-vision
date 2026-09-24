@@ -59,7 +59,7 @@ def _disk_damage_env(tmp_path, monkeypatch, matte_rows):
     (sdir / "mattes" / "f1.png").rename(sdir / "mattes" / "f1.webp")
     monkeypatch.setattr(calibration, "load_profile", lambda _n: object())
     monkeypatch.setattr(labeling, "read_session_meta", lambda _d: {"profile": "p"})
-    monkeypatch.setattr(labeling, "read_log", lambda _d: [{"board": "boards/f1.webp"}])
+    monkeypatch.setattr("chesslab.session_store.log.read_log_rows", lambda _d: [{"board": "boards/f1.webp"}])
     monkeypatch.setattr(labeling, "usable_board", lambda _e, _p: True)
     monkeypatch.setattr(matte, "coverage_of", lambda _a, _e, _p: {"e4": 0.0})
     return mod
@@ -128,7 +128,7 @@ def test_settle_lag_names_plies_that_never_settle(tmp_path, monkeypatch, capsys)
 def test_ingest_alignment_report_names_its_denominator(tmp_path, monkeypatch, capsys):
     mod = load_script("ingest_video_session")
     monkeypatch.setattr(mod.config, "DATA", dataclasses.replace(mod.config.DATA, root=tmp_path))
-    monkeypatch.setattr(mod.labeling, "read_log", lambda _d: [
+    monkeypatch.setattr(mod, "read_log_rows", lambda _d: [
         {"frame": "frames/0000.jpg", "corners": [[0, 0]] * 4},
         {"frame": "frames/0001.jpg"},                              # keine Ecken
         {"frame": "frames/0002.jpg", "corners": [[0, 0]] * 4},     # Datei fehlt
@@ -439,7 +439,7 @@ def test_matte_montage_marks_the_square_the_audit_named(tmp_path, monkeypatch):
     Image.new("RGB", (952, 952)).save(rec / "boards" / "000005.webp")
     write_jsonl(tmp_path / "audit.jsonl", [{"session": "rec", "frame": "000005", "ply": 3, "squares": ["a1"]}])
     entry = {"frame": "frames/000005.png", "board_size": 928, "board_border": 12}
-    monkeypatch.setattr(mod, "read_log", lambda d: [entry], raising=False)
+    monkeypatch.setattr(mod, "read_log_rows", lambda d: [entry], raising=False)
     monkeypatch.setattr(mod, "read_session_meta", lambda d: {}, raising=False)
     monkeypatch.setattr(mod, "_profile_for_session",
                         lambda meta, p: types.SimpleNamespace(white_pov=False), raising=False)
