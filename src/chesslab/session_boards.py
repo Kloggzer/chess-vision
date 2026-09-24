@@ -61,9 +61,11 @@ def settle_scan_session(session_id: str) -> dict:
     from collections import defaultdict
     from concurrent.futures import ProcessPoolExecutor
 
-    from .labeling import _profile_for_session, read_matte, read_session_meta, usable_board
+    from .labeling import _profile_for_session, usable_board
     from .realgames.boards import POOL_WORKERS
     from .realgames.position import SETTLE_MIN_FRAMES, interval_moves, settle_for_ply
+    from .session_store.matte import read_matte
+    from .session_store.paths import read_session_meta
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -121,11 +123,12 @@ def write_boards_session(session_id: str) -> dict:
     """
     from concurrent.futures import ProcessPoolExecutor
 
-    from .labeling import _profile_for_session, read_session_meta
+    from .labeling import _profile_for_session
     from .realgames.boards import POOL_MIN_ROWS, POOL_WORKERS, board_from_frame, straighten_boards
     from .realgames.progress import PROGRESS_EVERY
     from .session_store.boards import BOARD_KEYS
     from .session_store.log import mark_export
+    from .session_store.paths import read_session_meta
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir, under_export=True)
@@ -175,10 +178,11 @@ def rewarp_boards_session(session_id: str) -> dict:
     straightening stored boards, because optics and mesh fold into the warp's map.
     """
     from .calibration import LensModel
-    from .labeling import _profile_for_session, read_session_meta
+    from .labeling import _profile_for_session
     from .realgames.boards import rewarp_boards
     from .realgames.decode import detect_rotation, stream_frames
     from .session_store.log import mark_export
+    from .session_store.paths import read_session_meta
     from .session_store.recording import game_dir, video_path
 
     sdir, _archived = session_dir(session_id)

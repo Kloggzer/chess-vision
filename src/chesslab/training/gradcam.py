@@ -184,7 +184,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     split_data = load_split(split_path)
     # Benotet wird, was der Verlust lernt; Verdeckung trifft Klassen ungleich, sonst liefe jede
     # Klasse auf einer anderen Zellmenge.
-    from .occlusion import classification_eligible
+    from ..cell_rule import classification_eligible
 
     rows = [r for r in filter_rows_by_split(manifest, split_data, split)
             if classification_eligible(r)]

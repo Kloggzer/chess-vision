@@ -179,7 +179,7 @@ def test_survey_alignment_names_a_session_without_corners(tmp_path, monkeypatch,
     monkeypatch.setattr(script.store_paths, "all_sessions",
                         lambda *a, **k: [("ohne", ohne), ("mit", mit)])
     monkeypatch.setattr(script.sessions, "missing_source_frames", lambda *a, **k: None)
-    monkeypatch.setattr(script.labeling, "read_session_meta", lambda _d: {})
+    monkeypatch.setattr(script.store_paths, "read_session_meta", lambda _d: {})
     monkeypatch.setattr(script.labeling, "_profile_for_session",
                         lambda *a, **k: types.SimpleNamespace(board_size=800))
     monkeypatch.setattr(script, "worst_offset", lambda *a, **k: 1.0)

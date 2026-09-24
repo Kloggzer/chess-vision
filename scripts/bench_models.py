@@ -50,13 +50,13 @@ def main() -> int:
 
     import torch
 
+    from chesslab.cell_rule import classification_eligible
     from chesslab.dataset import load_manifest, load_split
     from chesslab.dataset_build import dataset_dir
     from chesslab.training.boardnet import CELLS
     from chesslab.training.data import occupancy_board_acc, occupancy_piece_breakdown
     from chesslab.training.engine import get_device
-    from chesslab.training.evaluate import _load_run
-    from chesslab.training.occlusion import classification_eligible
+    from chesslab.training.evaluate import load_run
     from chesslab.training.packs import cfg_for_pack, resolve_dataset_packs
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
@@ -68,7 +68,7 @@ def main() -> int:
 
     loaded = {}
     for run in args.runs.split(","):
-        model, cfg = _load_run(Path(run))
+        model, cfg = load_run(Path(run))
         loaded[run] = (model.to(device).eval(), cfg)
     groups: dict[tuple, list[str]] = {}
     for run, (_m, cfg) in loaded.items():

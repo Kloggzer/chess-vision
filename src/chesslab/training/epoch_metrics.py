@@ -34,7 +34,7 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     cov_pred = val["coverage_probs"]
     true_cls = val["trues"]
     pred_cls = val["preds"]
-    from .occlusion import CELL_DARK_MIN
+    from ..cell_rule import CELL_DARK_MIN
 
     want, hit = cov_true > 0.5, cov_pred > 0.5
     # Die Metrik haengt an der KONSTANTE, nicht am Lauf-Flag, sonst waeren Laeufe nicht
@@ -95,7 +95,7 @@ def occlusion_diagnostics(val: dict, score_rows: list[dict], classes: list[str],
                           occluding: bool) -> dict:
     occ_diag = {}
     if occluding:
-        from .occlusion import PIECE_VISIBLE_MAX
+        from ..cell_rule import PIECE_VISIBLE_MAX
 
         occ_diag = _occlusion_diagnostics(val, score_rows, classes, PIECE_VISIBLE_MAX)
     return occ_diag

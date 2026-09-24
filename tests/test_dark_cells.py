@@ -3,7 +3,8 @@ verliert ein Brettmodell das ganze Brett — und fallen nur aus dem KLASSENverlu
 
 import torch
 
-from chesslab.training.occlusion import CELL_DARK_MIN, OcclusionLoss, split_targets
+from chesslab.cell_rule import CELL_DARK_MIN
+from chesslab.training.occlusion import OcclusionLoss, split_targets
 
 
 def _loss(dark_min=0.0):

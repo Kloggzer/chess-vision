@@ -20,8 +20,9 @@ import cv2
 
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import _profile_for_session, read_session_meta, usable_board
+from chesslab.labeling import _profile_for_session, usable_board
 from chesslab.session_store.log import read_log
+from chesslab.session_store.paths import read_session_meta
 
 
 def board_path(rec: Path, frame: str) -> Path | None:

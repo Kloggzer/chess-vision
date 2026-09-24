@@ -56,9 +56,10 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
     import numpy as np
 
     from chesslab.calibration import load_profile
-    from chesslab.labeling import read_session_meta, usable_board
+    from chesslab.labeling import usable_board
     from chesslab.matte import coverage_of
     from chesslab.session_store.log import read_log_rows
+    from chesslab.session_store.paths import read_session_meta
 
     out = []
     for session in sorted(config.DATA.recordings.glob("*/")):

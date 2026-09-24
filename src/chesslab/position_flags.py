@@ -8,22 +8,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
+from .cell_rule import PIECE_VISIBLE_MAX
 from .hand_flags import write_flags
 from .ioutil import read_jsonl
-from .labeling import (
-    MATTE_DIRTY,
-    SETTLE_LIMIT,
-    SETTLE_SEEN_MIN,
-    all_squares,
-    read_matte,
-    read_session_meta,
-)
+from .labeling import SETTLE_LIMIT, SETTLE_SEEN_MIN, all_squares
 from .session_store.log import ExportInterrupted, read_log_rows
+from .session_store.matte import read_matte
 from .session_store.names import INTERVAL_FILE, LOG_FILE, interval_path, matte_path, meta_path
+from .session_store.paths import read_session_meta
 from .state import GameState
 
 FLAGS_FILE = "position-flags.jsonl"
-INTERVAL_REPORT = INTERVAL_FILE
 
 #: Frames je Seite einer Ply-Grenze mit ungesichertem Zug-Zeitpunkt; grosszuegiger flutet die Lane.
 TIMING_WINDOW = 3
@@ -46,7 +41,7 @@ def frame_flags(entry: dict, coverage: dict[str, float] | None, session_id: str)
         cov = coverage.get(square) if coverage is not None else None
         # Verdeckt heisst kein Kaertchen; ein Re-Matten kann Zellen ueber die Schwelle heben. `None`
         # ist UNGEMESSEN und bleibt eine Karte.
-        if cov is not None and float(cov) > MATTE_DIRTY:
+        if cov is not None and float(cov) > PIECE_VISIBLE_MAX:
             continue
         i = index[square]
         short = i < len(seen) and seen[i] < SETTLE_SEEN_MIN
@@ -87,7 +82,7 @@ def timing_flags(entries: list[dict], intervals: list[dict],
                 # Was die Coverage maskiert, lernt der Klassenkopf nicht. `None` heisst UNGEMESSEN,
                 # nicht "frei".
                 seen_cov = matte.get(stem, {}).get(square)
-                if seen_cov is not None and float(seen_cov) > MATTE_DIRTY:
+                if seen_cov is not None and float(seen_cov) > PIECE_VISIBLE_MAX:
                     continue
                 out.append({"session_id": session_id, "frame": stem, "square": square,
                             "fen_label": labels.label_for(square), "ply": entry.get("ply"),
@@ -142,7 +137,7 @@ def position_flags() -> dict:
         if found:
             per_session[session_dir.name] = len(found)
     header = {"_settle_limit": SETTLE_LIMIT, "_seen_min": SETTLE_SEEN_MIN,
-              "_visible_max": MATTE_DIRTY, "_unmeasured": unmeasured,
+              "_visible_max": PIECE_VISIBLE_MAX, "_unmeasured": unmeasured,
               "_export_interrupted": interrupted,
               "_written_at": datetime.now(UTC).isoformat()}
     out = write_flags(config.DATA.reports / FLAGS_FILE, rows, header)
@@ -159,5 +154,5 @@ def interval_flags() -> dict:
         session_id = read_session_meta(path.parent)["session_id"]
         rows += [{"session_id": session_id, **r} for r in read_jsonl(path)]
     header = {"_written_at": datetime.now(UTC).isoformat()}
-    out = write_flags(config.DATA.reports / INTERVAL_REPORT, rows, header)
+    out = write_flags(config.DATA.reports / INTERVAL_FILE, rows, header)
     return {"path": out, "plies": len(rows), "unseen": sum(1 for r in rows if not r["seen"])}

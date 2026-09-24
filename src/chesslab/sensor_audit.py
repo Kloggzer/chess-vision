@@ -14,21 +14,20 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.labeling import (
-    MATTE_DIRTY,
     SETTLE_SEEN_MIN,
     _profile_for_session,
     all_squares,
     crop_square,
-    read_matte,
-    read_session_meta,
     usable_board,
 )
 from chesslab.realgames.position import SETTLE_CELL_PX, SETTLE_MIN_FRAMES, cell_deviations
 from chesslab.session_store.log import read_log
+from chesslab.session_store.matte import read_matte
 from chesslab.session_store.names import BOARD_DIR
-from chesslab.session_store.paths import session_dir
+from chesslab.session_store.paths import read_session_meta, session_dir
 
 GROUPS = ('both', 'matte_only', 'grooves_only', 'neither', 'matte_unknown')
 
@@ -117,7 +116,7 @@ def audit(rec, *, temporal=False, seen_min=SETTLE_SEEN_MIN, contrast_floor=8.0,
                 d, s = ds[i] if i < len(ds) else None, ss[i] if i < len(ss) else None
                 value, status = measured_deviation(d, s, seen_min)
                 coverage = cover.get(square)
-                covered = coverage > MATTE_DIRTY if coverage is not None else None
+                covered = coverage > PIECE_VISIBLE_MAX if coverage is not None else None
                 g = square in grooves
                 group = ('matte_unknown' if covered is None else 'both' if g and covered
                          else 'grooves_only' if g else 'matte_only' if covered else 'neither')

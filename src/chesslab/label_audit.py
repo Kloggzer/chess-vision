@@ -13,6 +13,7 @@ from . import config
 from .ioutil import read_jsonl, write_rows
 from .labeling import all_squares, load_corrections
 from .session_store.names import CORRECTIONS_FILE, log_path
+from .state import GameState
 
 #: Only the violations OCCLUSION CANNOT CAUSE. A hidden square lowers a count, never raises one, so
 #: "too many" and "pawn on the back rank" stay sound while "no white king" would accuse the hand.
@@ -44,12 +45,6 @@ def violations(labels: dict[str, str]) -> list[str]:
     return [f.name for f in chess.Status if f.value & status] if status else []
 
 
-def fen_labels(fen: str) -> dict[str, str]:
-    from .state import GameState
-
-    return GameState(fen).labels()
-
-
 def audit_corrections(paths: config.Paths | None = None) -> dict:
     """Every frame whose CORRECTED board breaks a rule, with the corrections that touch it.
 
@@ -77,7 +72,7 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
                        if (sid, stem, sq) in corrections}
             if not applied:
                 continue
-            labels = {**fen_labels(entry["fen"]), **applied}
+            labels = {**GameState(entry["fen"]).labels(), **applied}
             broke = violations(labels)
             if broke:
                 rows.append({"session_id": sid, "frame": stem, "ply": entry.get("ply"),

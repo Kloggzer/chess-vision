@@ -91,7 +91,7 @@ def test_matte_status_counts_a_skipped_row_as_missing(tmp_path, monkeypatch):
     Fix: `have` auf Zeilen mit `coverage` einschraenken, wie `read_matte` es tut.
     """
     from chesslab import matte
-    from chesslab.labeling import read_matte
+    from chesslab.session_store.matte import read_matte
 
     paths = config.Paths(root=tmp_path)
     monkeypatch.setattr(config, "DATA", paths)

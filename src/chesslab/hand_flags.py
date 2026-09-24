@@ -59,8 +59,8 @@ def write_flags(path: Path, rows: list[dict], header: dict) -> Path:
 
 
 def hand_flags(cut: float = DEFAULT_CUT) -> dict:
-    from .occluded_model import READS_FILE
-    from .training.occlusion import PIECE_VISIBLE_MAX
+    from .cell_rule import PIECE_VISIBLE_MAX
+    from .session_store.names import READS_FILE
 
     rows, per_session, without, stale = [], {}, [], []
     for reads_path in sorted(config.DATA.recordings.glob(f"*/{READS_FILE}")):

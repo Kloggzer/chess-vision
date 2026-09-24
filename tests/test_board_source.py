@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from chesslab.labeling import board_source, crop_border_px
+from chesslab.calibration import crop_border_px
+from chesslab.labeling import board_source
 
 
 def _row(**extra) -> dict:

@@ -7,9 +7,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from ..cell_rule import CELL_DARK_MIN as CELL_DARK_MIN
-from ..cell_rule import PIECE_VISIBLE_MAX as PIECE_VISIBLE_MAX
-from ..cell_rule import classification_eligible as classification_eligible
+from ..cell_rule import CELL_DARK_MIN, PIECE_VISIBLE_MAX
 
 
 def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

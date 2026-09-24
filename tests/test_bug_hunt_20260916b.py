@@ -255,4 +255,4 @@ def test_target_reads_a_written_out_null_brightness_as_bright():
     from chesslab.training.torch_data import _target
 
     assert float(_target(3, {"coverage": 0.0, "brightness": None})[2]) == 255.0, (
-        "`occlusion.classification_eligible` liest dieselbe Zeile als hell")
+        "`cell_rule.classification_eligible` liest dieselbe Zeile als hell")

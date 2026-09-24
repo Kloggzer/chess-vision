@@ -12,9 +12,9 @@ import numpy as np
 from chesslab import config
 from chesslab.calibration import load_profile, warp_padded
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import read_session_meta
 from chesslab.realgames import decode as rg_decode
 from chesslab.session_store import recording as store_rec
+from chesslab.session_store.paths import read_session_meta
 
 
 def main():

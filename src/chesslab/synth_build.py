@@ -19,7 +19,6 @@ from .ioutil import write_json
 
 _FILES = "abcdefgh"
 
-SYNTH_BOARD_SIZE = config.SYNTH.warp_board_size
 
 
 def _virtual_path(name: str, sid: str, frame: str, square: str) -> str:
@@ -101,7 +100,7 @@ def build_synth_dataset(
     name: str,
     renders_root: str | Path,
     *,
-    board_size: int = SYNTH_BOARD_SIZE,
+    board_size: int = config.SYNTH.warp_board_size,
     per_cell_cap: int | None = None,
     rotations: tuple[int, ...] = config.DEDUP.rotations,
     val_frac: float = config.DEFAULT_VAL_FRAC,

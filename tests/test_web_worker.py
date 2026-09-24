@@ -41,10 +41,9 @@ def test_the_worker_answers_by_id_and_refuses_an_unknown_op(entry):
 def test_a_stray_print_in_an_op_does_not_become_the_answer(monkeypatch):
     import io
 
-    from chesslab import web_ops
-    from chesslab.cli import web_worker
+    from chesslab import web_ops, web_serve
 
     monkeypatch.setitem(web_ops.OPS, "noisy", lambda: print("laut") or 7)
     out = io.StringIO()
-    web_worker.serve(io.StringIO('{"id": 9, "op": "noisy"}\n'), out)
+    web_serve.serve(io.StringIO('{"id": 9, "op": "noisy"}\n'), out)
     assert json.loads(out.getvalue()) == {"id": 9, "ok": True, "value": 7}

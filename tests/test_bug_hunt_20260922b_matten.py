@@ -8,8 +8,8 @@ import pytest
 from typer.testing import CliRunner
 
 from chesslab import config, ioutil, temporal_matte
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.cli import app
-from chesslab.labeling import MATTE_DIRTY
 from conftest import write_jsonl
 
 
@@ -29,7 +29,7 @@ def _matte(rec: Path, rows: list[dict]) -> Path:
 
 
 def test_a_sam_cut_below_the_dirty_threshold_does_not_evict_the_upsert_row(tmp_path, monkeypatch):
-    """`upsert_proposals` existiert genau dann, wenn SAMs `max(coverage) <= MATTE_DIRTY` ist.
+    """`upsert_proposals` existiert genau dann, wenn SAMs `max(coverage) <= PIECE_VISIBLE_MAX` ist.
 
     `prune_dead_rows` fragte dieselbe Frage mit `any(...)`, also ab 0,0001. Auf der Platte
     gemessen: 37 wirksame SAM-Zeilen im Band `0 < max <= 0,15`, 8 davon mit Upsert-Zeile in
@@ -53,7 +53,7 @@ def test_a_sam_cut_above_the_dirty_threshold_still_evicts_the_upsert_row(tmp_pat
     """Die Gegenrichtung bleibt: ein Schnitt MIT Verdeckung ueberholt den Upsert."""
     rec = _recording(tmp_path)
     _matte(rec, [
-        {"frame": "000001", "source": "sam", "coverage": {"a1": MATTE_DIRTY + 0.01}},
+        {"frame": "000001", "source": "sam", "coverage": {"a1": PIECE_VISIBLE_MAX + 0.01}},
         {"frame": "000001", "source": "upsert", "coverage": {"a1": 0.9}},
     ])
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))

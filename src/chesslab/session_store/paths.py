@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
 from pathlib import Path
 
 import yaml
@@ -27,8 +26,6 @@ def read_session_meta(session_dir: Path, *, missing_ok: bool = False) -> dict | 
         meta = yaml.safe_load(fh)
     return meta or {} if missing_ok else meta
 
-
-_read_meta = partial(read_session_meta, missing_ok=True)
 
 
 def all_sessions(paths: config.Paths | None = None) -> list[tuple[str, Path]]:

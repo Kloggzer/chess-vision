@@ -41,8 +41,8 @@ def adopt_reported_dirty(name: str) -> dict:
     """Put the hands a human reported into the log NOW: marking stored rows `occluded` lets the
     matte RESCUE them, where coverage on a `clean` row would condemn them.
     """
-    from ..labeling import read_session_meta
     from ..session_store.log import _write_log, backup_log, read_log
+    from ..session_store.paths import read_session_meta
 
     session_dir = game_dir(name)
     meta = read_session_meta(session_dir)

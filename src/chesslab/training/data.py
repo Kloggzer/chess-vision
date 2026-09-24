@@ -81,7 +81,7 @@ def visible_board_items(rows: list[dict], trues: list[int], preds: list[int]) ->
     """Board-Items OHNE verdeckte Zellen: 46 % der Val-Bretter tragen eine, `board_acc` waere sonst
     konstruktionsbedingt auf 54 % gedeckelt.
     """
-    from .occlusion import classification_eligible
+    from ..cell_rule import classification_eligible
 
     return [((r["session_id"], str(r["frame"])), bool(t == p))
             for r, t, p in zip(rows, trues, preds, strict=False)
@@ -167,7 +167,7 @@ def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
     bd = occupancy_piece_breakdown(classes, trues, preds)
     # Benotet wird, was der Verlust lernt, auch in beiden Tiebreakern; ohne Coverage-Spalte ist jede
     # Zelle sichtbar.
-    from .occlusion import classification_eligible
+    from ..cell_rule import classification_eligible
 
     vis = [i for i, r in enumerate(rows) if classification_eligible(r)]
     v_rows = [rows[i] for i in vis]
@@ -196,7 +196,7 @@ def per_session_metrics(rows: list[dict], classes: list[str],
     """The corpus line's three numbers per session; `evaluate_dataset` runs unshuffled, so
     `trues[i]`/`preds[i]` line up with `rows[i]`.
     """
-    from .occlusion import classification_eligible
+    from ..cell_rule import classification_eligible
 
     by_sid: dict[str, list[tuple[dict, int, int]]] = defaultdict(list)
     for r, t, p in zip(rows, trues, preds, strict=False):
@@ -222,7 +222,7 @@ def per_session_metrics(rows: list[dict], classes: list[str],
 
 def visible_confidence(rows, trues, preds, conf):
     """(trues, preds, conf) nur auf sichtbaren Zellen — leere Konfidenz reicht sie durch."""
-    from .occlusion import classification_eligible
+    from ..cell_rule import classification_eligible
 
     if not conf:
         return trues, preds, conf

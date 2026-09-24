@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from chesslab.ioutil import write_rows
-from chesslab.labeling import clean_frames, read_matte
+from chesslab.labeling import clean_frames
+from chesslab.session_store.matte import read_matte
 
 
 def _session(tmp_path: Path, matte: list[dict], log: list[dict]) -> Path:
@@ -54,7 +55,7 @@ def test_unmeasured_is_now_almost_empty():
     test-v1 keine einzige. Umstellen hiesse `coverage_of` mitziehen, das
     `test_null_reads_the_same_everywhere` bewusst gleich haelt. Der Test haelt die ENTSCHEIDUNG
     fest, damit sie nicht aus Versehen kippt."""
-    from chesslab.training.occlusion import classification_eligible
+    from chesslab.cell_rule import classification_eligible
 
     assert classification_eligible({"coverage": 0.0}) is True
     assert classification_eligible({"coverage": 0.9}) is False

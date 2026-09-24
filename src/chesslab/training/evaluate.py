@@ -45,7 +45,6 @@ def load_run(run_dir: Path, weights: str | None = None):
     return model, cfg
 
 
-_load_run = load_run
 
 
 def _frozen_hit(rows: list[dict]) -> set[str]:
@@ -117,7 +116,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     if not (run_dir / "config.json").exists():
         print(f"[FAIL] no config.json in {run_dir} — first run `chesslab train`.")
         return 1
-    model, cfg = _load_run(run_dir)
+    model, cfg = load_run(run_dir)
     classes = cfg["classes"]
 
     foreign = bool(dataset) and dataset != cfg.get("dataset")
@@ -403,7 +402,7 @@ def run_export(run: str, fmt: str = "torchscript",
     if not (run_dir / "config.json").exists():
         print(f"[FAIL] kein config.json in {run_dir}.")
         return 1
-    model, cfg = _load_run(run_dir)
+    model, cfg = load_run(run_dir)
     model.eval()
     # Only the stock module folds into the preceding convolution; the weights are identical.
     stock_batchnorm(model)

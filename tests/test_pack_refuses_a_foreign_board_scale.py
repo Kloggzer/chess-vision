@@ -20,12 +20,12 @@ def _session(tmp_path, small_profile, board_size: int, border: int):
 
 
 def _wire(monkeypatch, d, rows, small_profile):
-    from chesslab import calibration, labeling
+    from chesslab import calibration
     from chesslab.session_store import recording as store_rec
 
     monkeypatch.setattr(store_rec, "game_dir", lambda name: d)
     monkeypatch.setattr("chesslab.session_store.log.read_log_rows", lambda _d: rows)
-    monkeypatch.setattr(labeling, "read_session_meta", lambda _d: {"profile": "p"})
+    monkeypatch.setattr("chesslab.session_store.paths.read_session_meta", lambda _d: {"profile": "p"})
     monkeypatch.setattr(calibration, "load_profile", lambda _n: small_profile)
 
 
@@ -40,7 +40,7 @@ def test_a_board_written_at_another_scale_is_refused(tmp_path, monkeypatch, smal
 
 
 def test_a_board_at_the_profile_scale_still_cuts(tmp_path, monkeypatch, small_profile):
-    from chesslab.labeling import crop_border_px
+    from chesslab.calibration import crop_border_px
 
     border = crop_border_px(small_profile)
     d, rows = _session(tmp_path, small_profile, int(small_profile.board_size), border)

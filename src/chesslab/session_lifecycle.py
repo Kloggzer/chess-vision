@@ -21,7 +21,13 @@ from .session_store.names import (
     meta_path,
     unusable_cells_path,
 )
-from .session_store.paths import _read_meta, _safe_id, active_session_dir, all_sessions, session_dir
+from .session_store.paths import (
+    _safe_id,
+    active_session_dir,
+    all_sessions,
+    read_session_meta,
+    session_dir,
+)
 
 log = logging.getLogger("chesslab.sessions")
 
@@ -159,7 +165,7 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
                      if paths.sessions_archive.exists() else [])
     for (sid, d), archived in ([(x, False) for x in all_sessions(paths)]
                                + [(x, True) for x in archived_dirs]):
-            meta = _read_meta(d)
+            meta = read_session_meta(d, missing_ok=True)
             tag = _variant_tag(meta, sid)
             # Eine archiv-gestempelte, aber nicht verschobene Session ist trotzdem stillgelegt und
             # gehoert aus den Sammel-Verben heraus.
@@ -289,7 +295,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     if removed_rows:
         reject_dir = _reject_dir(paths, sid)
         (reject_dir / "frames").mkdir(parents=True, exist_ok=True)
-        meta = _read_meta(target)
+        meta = read_session_meta(target, missing_ok=True)
         meta.update({
             "session_id": reject_dir.name,
             "source_session_id": sid,

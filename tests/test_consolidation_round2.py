@@ -7,6 +7,7 @@ import pytest
 
 from chesslab import hand_flags, labeling, matte, temporal_matte
 from chesslab.hand_gate import gate_rows
+from chesslab.session_store import matte as matte_store
 from conftest import write_jsonl
 
 HISTORY = [
@@ -31,8 +32,8 @@ def rec(tmp_path):
 
 
 def test_read_matte_keeps_the_newest_row_per_frame(rec):
-    assert labeling.read_matte(rec) == EXPECTED
-    assert labeling.read_matte(rec / "leer") == {}
+    assert matte_store.read_matte(rec) == EXPECTED
+    assert matte_store.read_matte(rec / "leer") == {}
 
 
 def test_sam_matte_is_read_matte_without_the_sensor_rows(rec):
@@ -53,16 +54,16 @@ def test_a_row_without_frame_is_loud_in_every_reader(tmp_path):
     """Schaden statt Luecke — 0 von 10 490 Zeilen auf der Platte betroffen."""
     write_jsonl(tmp_path / "matte.jsonl", [{"coverage": {"a1": 0.5}},
                                            {"frame": "000001", "coverage": {"a1": 0.0}}])
-    for reader in (labeling.read_matte, temporal_matte.sam_matte, hand_flags.measured_coverage):
+    for reader in (matte_store.read_matte, temporal_matte.sam_matte, hand_flags.measured_coverage):
         with pytest.raises(ValueError, match="ohne `frame`"):
             reader(tmp_path)
 
 
 def test_effective_and_measured_rows_follow_the_history(rec):
     rows = [dict(r) for r in HISTORY]
-    assert {f: r.get("coverage") for f, r in matte.effective_rows(rows).items()} == {
+    assert {f: r.get("coverage") for f, r in matte_store.effective_rows(rows).items()} == {
         "000001": None, **EXPECTED}
-    assert {f: r["coverage"] for f, r in matte.measured_coverage(rows).items()} == EXPECTED
+    assert {f: r["coverage"] for f, r in matte_store.measured_coverage(rows).items()} == EXPECTED
     assert temporal_matte.matted_frames(rows) == set(EXPECTED)
 
 
@@ -90,8 +91,6 @@ def test_gate_rows_reads_the_effective_row(paths):
 
 
 def test_one_store_serves_every_reader():
-    from chesslab.session_store import matte as matte_store
-
     assert labeling.read_matte is matte_store.read_matte
     assert matte.effective_rows is matte_store.effective_rows
     assert matte.measured_coverage is matte_store.measured_coverage

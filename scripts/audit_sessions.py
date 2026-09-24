@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fold_per_session import finished  # noqa: E402
 
 from chesslab import occluded_model
+from chesslab.cell_rule import PIECE_VISIBLE_MAX as VMAX
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl, write_json
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.packs import open_packed_rows
 
 

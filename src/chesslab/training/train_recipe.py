@@ -65,7 +65,7 @@ def visible_class_counts(rows: list[dict]) -> dict[str, int]:
     """Klassenhaeufigkeit auf GENAU der Zellmenge, die `OcclusionLoss` benotet, Dunkelmaske
     eingeschlossen.
     """
-    from .occlusion import classification_eligible
+    from ..cell_rule import classification_eligible
 
     counts: dict[str, int] = {}
     for r in rows:
@@ -267,7 +267,8 @@ def build_criterion(recipe: dict, occluding: bool, weights, classes: list[str],
               f"waere wirkungslos und stuende trotzdem in der config.json.")
         raise Refused
     if occluding:
-        from .occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX, OcclusionLoss
+        from ..cell_rule import CELL_DARK_MIN, PIECE_VISIBLE_MAX
+        from .occlusion import OcclusionLoss
 
         # Nur die TRAININGS-Maske; die Metriken bleiben auf PIECE_VISIBLE_MAX, sonst waeren Laeufe
         # nicht vergleichbar.

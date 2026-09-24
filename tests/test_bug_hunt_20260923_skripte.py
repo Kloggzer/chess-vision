@@ -58,7 +58,7 @@ def _disk_damage_env(tmp_path, monkeypatch, matte_rows):
     cv2.imwrite(str(sdir / "mattes" / "f1.png"), np.zeros((4, 4), np.uint8))
     (sdir / "mattes" / "f1.png").rename(sdir / "mattes" / "f1.webp")
     monkeypatch.setattr(calibration, "load_profile", lambda _n: object())
-    monkeypatch.setattr(labeling, "read_session_meta", lambda _d: {"profile": "p"})
+    monkeypatch.setattr("chesslab.session_store.paths.read_session_meta", lambda _d: {"profile": "p"})
     monkeypatch.setattr("chesslab.session_store.log.read_log_rows", lambda _d: [{"board": "boards/f1.webp"}])
     monkeypatch.setattr(labeling, "usable_board", lambda _e, _p: True)
     monkeypatch.setattr(matte, "coverage_of", lambda _a, _e, _p: {"e4": 0.0})

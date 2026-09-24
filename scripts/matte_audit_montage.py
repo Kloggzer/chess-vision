@@ -16,8 +16,9 @@ from PIL import Image, ImageDraw
 
 from chesslab.calibration import _square_to_col_row
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import _profile_for_session, read_session_meta
+from chesslab.labeling import _profile_for_session
 from chesslab.session_store.log import read_log_rows
+from chesslab.session_store.paths import read_session_meta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 from matte_audit import board_path  # noqa: E402

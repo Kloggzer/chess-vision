@@ -12,12 +12,14 @@ from pathlib import Path
 
 from . import config
 from .calibration import profile_path
+from .cell_rule import PIECE_VISIBLE_MAX
 from .ioutil import read_jsonl, write_rows
-from .labeling import MATTE_DIRTY, all_squares, read_matte, read_session_meta
+from .labeling import all_squares
 from .realgames.position import SETTLE_MIN_FRAMES
 from .session_store.log import read_log_rows
+from .session_store.matte import read_matte
 from .session_store.names import log_path, meta_path
-from .session_store.paths import session_dir
+from .session_store.paths import read_session_meta, session_dir
 from .state import GameState
 
 
@@ -83,7 +85,7 @@ def candidate_flags(measurements, entries, matte, session_id, cut):
         if square in set(entry.get("unknown_squares") or ()) | set(entry.get("ambiguous_squares") or ()):
             continue
         coverage = matte.get(stem, {}).get(square)
-        if coverage is not None and coverage > MATTE_DIRTY:
+        if coverage is not None and coverage > PIECE_VISIBLE_MAX:
             continue
         found[(stem, square)] = {
             "session_id": session_id, "frame": stem, "square": square,

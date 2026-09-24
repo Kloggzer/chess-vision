@@ -175,13 +175,18 @@ def test_a_contested_upsert_drops_its_staged_alpha(tmp_path, monkeypatch):
 # H4: eine Zellregel, torch-frei -----------------------------------------------------------------
 
 def test_matte_dirty_and_the_loss_read_one_constant():
+    import inspect
+    import math
+
     from chesslab import labeling
     from chesslab.training import occlusion
 
-    assert labeling.MATTE_DIRTY is cell_rule.PIECE_VISIBLE_MAX
-    assert occlusion.PIECE_VISIBLE_MAX is cell_rule.PIECE_VISIBLE_MAX
-    assert occlusion.CELL_DARK_MIN is cell_rule.CELL_DARK_MIN
-    assert occlusion.classification_eligible is cell_rule.classification_eligible
+    cut = cell_rule.PIECE_VISIBLE_MAX
+    assert not labeling.frame_dirty({}, {"a1": cut})
+    assert labeling.frame_dirty({}, {"a1": math.nextafter(cut, 1.0)})
+    loss = inspect.signature(occlusion.OcclusionLoss).parameters
+    assert loss["visible_max"].default is cut
+    assert loss["dark_min"].default is cell_rule.CELL_DARK_MIN
 
 
 def test_labeling_does_not_pull_torch():

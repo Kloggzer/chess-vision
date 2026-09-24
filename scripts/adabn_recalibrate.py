@@ -251,7 +251,7 @@ def crop_batches(cfg: dict, frames: list[tuple[str, str]], size: int,
     sdirs = {sid: store_paths.session_dir(sid)[0] for sid, _ in frames}
     profiles, logs = {}, {}
     for sid, sdir in sdirs.items():
-        prof = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
+        prof = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
         profiles[sid] = profile_at_warp(prof, warp) if warp else prof
         logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
 

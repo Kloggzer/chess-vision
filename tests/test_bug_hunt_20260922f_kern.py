@@ -10,7 +10,8 @@ import pytest
 
 from chesslab import ingest, locks, occluded_model, sensor_audit
 from chesslab.calibration import crop_border_px
-from chesslab.labeling import MATTE_DIRTY, all_squares
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
+from chesslab.labeling import all_squares
 from chesslab.position_flags import frame_flags
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -123,7 +124,7 @@ def test_a_cell_the_matte_never_measured_is_unknown_not_free(monkeypatch, tmp_pa
     Dieselbe Falle wie bei SAMs Absage (CLAUDE.md): `coverage or 0.0` machte aus "nicht
     nachgesehen" ein sauberes Brett und verschob die Zelle in eine Zustimmungsgruppe.
     """
-    matte = {"000001": {"a1": MATTE_DIRTY + 0.5}}
+    matte = {"000001": {"a1": PIECE_VISIBLE_MAX + 0.5}}
     cells, _skipped, _args = _audited_session(monkeypatch, tmp_path, matte=matte)
     by_square = {c["square"]: c for c in cells}
 

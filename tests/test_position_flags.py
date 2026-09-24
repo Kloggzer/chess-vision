@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from chesslab.labeling import MATTE_DIRTY, SETTLE_LIMIT, all_squares
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
+from chesslab.labeling import SETTLE_LIMIT, all_squares
 from chesslab.position_flags import frame_flags, timing_flags
 from chesslab.realgames.position import SETTLE_CELL_PX, interval_moves
 
@@ -38,7 +39,7 @@ def test_a_visible_cell_that_left_its_position_is_the_card():
 
 def test_a_covered_cell_is_never_asked():
     """Unter der Hand nimmt die Coverage die Zelle aus dem Loss, auch ohne `settle_left`."""
-    flags = frame_flags(_entry(dev=_dev(E4, SETTLE_LIMIT + 10)), {"e4": MATTE_DIRTY + 0.1}, "rg-x")
+    flags = frame_flags(_entry(dev=_dev(E4, SETTLE_LIMIT + 10)), {"e4": PIECE_VISIBLE_MAX + 0.1}, "rg-x")
 
     assert flags == []
 
@@ -47,7 +48,7 @@ def test_a_cell_the_matte_calls_covered_is_no_card_even_when_it_left():
     """Die Matte ist juenger als `settle_left`: eine seither verdeckte Zelle wird keine Karte."""
     entry = _entry(left=["e4"], dev=_dev(E4, SETTLE_LIMIT + 10))
 
-    assert frame_flags(entry, {"e4": MATTE_DIRTY + 0.1}, "rg-x") == []
+    assert frame_flags(entry, {"e4": PIECE_VISIBLE_MAX + 0.1}, "rg-x") == []
 
 
 def test_a_covered_cell_is_no_card_even_when_it_was_never_readable():
@@ -149,7 +150,7 @@ def test_the_card_carries_the_label_of_its_own_frame_not_of_the_move():
 
 
 def test_a_covered_square_is_not_asked_the_loss_already_ignores_it():
-    matte = {"000004": {"e4": MATTE_DIRTY + 0.1}}
+    matte = {"000004": {"e4": PIECE_VISIBLE_MAX + 0.1}}
 
     flags = timing_flags(_timing_entries(), [{"ply": 2, "moved": ["e4"], "dev": 61.0}],
                          matte, "s", window=1)

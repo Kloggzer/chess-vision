@@ -63,7 +63,7 @@ def test_eval_records_visible_metrics_when_every_cell_is_visible(tmp_path, monke
     result = {"trues": np.array([0, 1]), "preds": np.array([0, 1]),
               "conf": [0.9, 0.9], "conf_wrong": 0.0, "board_acc": 1.0,
               "square_acc": 1.0}
-    monkeypatch.setattr(evaluate, "_load_run", lambda _path: (model, cfg))
+    monkeypatch.setattr(evaluate, "load_run", lambda _path: (model, cfg))
     monkeypatch.setattr(torch_data, "eval_transform_for", lambda _cfg: object())
     monkeypatch.setattr(engine, "get_device", lambda require_gpu: "cpu")
     monkeypatch.setattr(engine, "evaluate_dataset", lambda *args, **kwargs: result)

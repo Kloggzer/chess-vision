@@ -282,10 +282,6 @@ def load_corrections(path: Path, into: Corrections | None = None) -> Corrections
     return out
 
 
-#: A square this covered is no longer a piece example, so its frame is dirty whatever the log says.
-MATTE_DIRTY = PIECE_VISIBLE_MAX
-
-
 def frame_dirty(entry: dict, cover: dict[str, float]) -> bool:
     """Ob der Slice von diesem Frame nur die korrigierten Zellen nimmt; `cover` ist seine Matte.
 
@@ -296,7 +292,7 @@ def frame_dirty(entry: dict, cover: dict[str, float]) -> bool:
         return False
     if entry.get("dirty_reason") == "occluded" and cover:
         return False
-    if any(v > MATTE_DIRTY for v in cover.values()):
+    if any(v > PIECE_VISIBLE_MAX for v in cover.values()):
         return True
     return bool(entry.get("dirty")) or entry.get("grid_lines_source") == "carried"
 

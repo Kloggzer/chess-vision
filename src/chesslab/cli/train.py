@@ -184,7 +184,7 @@ def train_cmd(
     dark_min: float = typer.Option(
         None, "--dark-min",
         help="Zellen unter dieser mittleren Luma aus dem KLASSENverlust nehmen (Vorgabe "
-             "`occlusion.CELL_DARK_MIN`). Das Label stimmt dort, das Bild traegt nur kein "
+             "`cell_rule.CELL_DARK_MIN`). Das Label stimmt dort, das Bild traegt nur kein "
              "Signal mehr. Die Zeile BLEIBT im Batch, sonst verlieren Brettmodelle das ganze "
              "Brett; der Coverage-Kopf lernt sie weiter, denn dunkel ist nicht verdeckt."),
     visible_max: float = typer.Option(None, "--visible-max",

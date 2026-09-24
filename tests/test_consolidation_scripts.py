@@ -137,15 +137,14 @@ def test_coverage_errors_drops_a_measurement_sam_withdrew(tmp_path, monkeypatch,
 @pytest.mark.parametrize(("script", "name"), [("coverage_errors", "main"),
                                               ("occlusion_gate", "collect"),
                                               ("heldout_label_audit", "Session")])
-def test_matte_readers_use_labeling_read_matte(script, name):
-    from chesslab import labeling
+def test_matte_readers_use_the_store_read_matte(script, name):
+    from chesslab.session_store.matte import read_matte
 
     mod = load_script(script)
     fn = getattr(mod, name)
     code = (fn.__init__ if isinstance(fn, type) else fn).__code__
     assert "read_matte" in code.co_names or "coverage_of" in code.co_names
-    assert getattr(mod, "read_matte", None) is labeling.read_matte or \
-        getattr(mod, "coverage_of", None) is labeling.read_matte
+    assert read_matte in (getattr(mod, "read_matte", None), getattr(mod, "coverage_of", None))
 
 
 # --- FEN -> {Feld: Klasse}: EIN `board_of` in `scan_ply_offset` -------------------------------

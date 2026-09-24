@@ -15,14 +15,10 @@ import numpy as np
 
 from . import provenance
 from .calibration import load_profile
-from .labeling import (
-    all_squares,
-    crops_for_frame,
-    read_session_meta,
-    usable_board,
-)
+from .labeling import all_squares, crops_for_frame, usable_board
 from .session_store.log import read_log_rows
 from .session_store.names import READS_FILE, log_path
+from .session_store.paths import read_session_meta
 from .state import GameState
 
 

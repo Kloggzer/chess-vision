@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from chesslab.labeling import read_matte
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
+from chesslab.session_store.matte import read_matte
 from conftest import write_jsonl
 
 FIXTURE = (Path(__file__).resolve().parents[1]

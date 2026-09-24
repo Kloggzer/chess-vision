@@ -97,7 +97,7 @@ def test_a_null_brightness_is_unmeasured_not_pitch_black():
     """`capture_plan.band_of` haelt es schon fest: `None` ist NICHT dunkel. Derselbe
     `or 0.0` lebte in `classification_eligible` weiter und warf jede Zeile mit
     ausgeschriebenem `null` aus JEDER Klassenmetrik."""
-    from chesslab.training.occlusion import classification_eligible
+    from chesslab.cell_rule import classification_eligible
 
     assert classification_eligible({"coverage": 0.0, "brightness": None}) is True
     assert classification_eligible({"coverage": 0.0}) is True

@@ -45,8 +45,8 @@ def unscanned(entries: list[dict], scan: list[dict]) -> int:
 
 def frame_hands() -> dict:
     from .framescan import GATE_THR, SCAN_STRIDE, read_scan
-    from .labeling import read_session_meta
     from .session_store.log import ExportInterrupted, read_log_rows
+    from .session_store.paths import read_session_meta
 
     rows, per_session, scanned, without, interrupted = [], {}, [], [], []
     blind: dict[str, int] = {}

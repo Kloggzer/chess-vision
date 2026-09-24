@@ -70,7 +70,7 @@ def cell_sharpness(board_gray, size: int, hands=(), *, white_pov: bool = True) -
 
 def dark_indices(scan: list[dict], limit: int = DARK_CELLS_MAX) -> set[int]:
     """Die Frame-Indizes mit mehr als `limit` zu dunklen Zellen — `cells` traegt sie schon."""
-    from .training.occlusion import CELL_DARK_MIN
+    from .cell_rule import CELL_DARK_MIN
 
     return {r["idx"] for r in scan
             if sum(1 for v in (r.get("cells") or ()) if v < CELL_DARK_MIN) > limit}

@@ -92,28 +92,11 @@ def _lines(rows, sep="\n") -> str:
 
 
 @pytest.mark.parametrize("variant", ["lf", "crlf", "bom"])
-def test_the_fast_path_reads_what_iter_jsonl_reads(game, monkeypatch, variant):
+def test_reads_decide_per_cell(game, variant):
     _write(game, _lines(READS, "\r\n" if variant == "crlf" else "\n"), bom=variant == "bom")
     write_jsonl(game / "matte.jsonl", [{"frame": "000002", "coverage": {"a1": 0.9, "b1": 0.0}}])
-    assert stream_admission._fast_reads((game / "model-reads.jsonl").read_bytes()) is not None
-    fast = stream_admission._admission(game)
-    monkeypatch.setattr(stream_admission, "_fast_reads", lambda data: None)
-    assert stream_admission._admission(game) == fast
-    assert fast["ineligible"] == {"000001": ["b1"], "000002": ["a1", "b1"], "000003": ["b1"], "000004": ["e5"]}
-
-
-@pytest.mark.parametrize("text", [
-    _lines(READS)[:-5],                                                            # halbe letzte Zeile
-    _lines(READS[:2]) + "\n" + _lines(READS[2:]),                                  # Leerzeile
-    _lines(READS[:3]) + json.dumps(READS[3])[:-8] + "\n" + _lines(READS[4:]),      # kaputt mittendrin
-    _lines(READS[:3] + [READS[0]] + READS[3:]),                                    # Kopf mittendrin
-    _lines([*READS, _row("000009", "a1", 1.0, dirty_reason='a"b')]),               # Escape im Wert
-    _lines([*READS, {"frame": "000009", "session_id": "rg-g", "square": "a1", "bright": 1.0}]),  # andere Reihenfolge
-    _lines([*READS, _row("000009", "a1", float("nan"))]),                           # NaN
-    _lines([{"_model": "m", "frame": "000009", "square": "a1"}, *READS[1:]]),      # Kopf mit Feld
-])
-def test_an_unknown_line_shape_takes_the_json_path(text):
-    assert stream_admission._fast_reads(text.encode("utf-8")) is None
+    got = stream_admission.admission(game)["ineligible"]
+    assert got == {"000001": ["b1"], "000002": ["a1", "b1"], "000003": ["b1"], "000004": ["e5"]}
 
 
 def test_unchanged_reads_are_not_parsed_again(game, monkeypatch):
@@ -123,8 +106,23 @@ def test_unchanged_reads_are_not_parsed_again(game, monkeypatch):
     real = stream_admission.read_cells
     monkeypatch.setattr(stream_admission, "read_cells", lambda path: calls.append(path) or real(path))
     first = stream_admission.admission(game)
-    assert stream_admission.admission(game) is first
+    assert stream_admission.admission(game)["ineligible"] is first["ineligible"]
     assert len(calls) == 1
     _write(game, _lines(READS[:-1]))
     assert stream_admission.admission(game)["ineligible"].get("000004") is None
     assert len(calls) == 2
+
+
+def test_a_frame_verdict_does_not_parse_the_reads_again(game, monkeypatch):
+    """`flagFrame` schreibt nur das Log: `ineligible` haengt an Matte und Lesarten, nicht am Log."""
+    _write(game, _lines(READS))
+    calls = []
+    real = stream_admission.read_cells
+    monkeypatch.setattr(stream_admission, "read_cells", lambda path: calls.append(path) or real(path))
+    assert stream_admission.admission(game)["blocked"] == ["000002"]
+    write_jsonl(game / "log.jsonl", [{"frame": "000002.png", "fen": FEN, "ply": 0, "dirty": True,
+                                      "dirty_reason": "stale", "unusable": True}])
+    got = stream_admission.admission(game)
+    assert got["blocked"] == []
+    assert got["ineligible"]["000004"] == ["e5"]
+    assert len(calls) == 1

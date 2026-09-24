@@ -17,8 +17,8 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.ioutil import iter_jsonl, read_jsonl
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 REC = Path("data/recordings")
 

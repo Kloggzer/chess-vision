@@ -128,7 +128,8 @@ def test_the_slice_carries_the_matte_into_the_manifest(tmp_path, monkeypatch):
     import yaml
 
     from chesslab import config
-    from chesslab.labeling import read_matte, slice_session
+    from chesslab.labeling import slice_session
+    from chesslab.session_store.matte import read_matte
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     sdir = tmp_path / "data" / "sessions" / "s1"

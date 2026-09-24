@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from chesslab.training.occlusion import CELL_DARK_MIN, classification_eligible
+from chesslab.cell_rule import CELL_DARK_MIN, classification_eligible
 
 torch = pytest.importorskip("torch")
 

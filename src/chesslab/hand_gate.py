@@ -62,8 +62,9 @@ def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dic
     `config.DATA.recordings`. `skipped` zaehlt, was je Grund WEGFAELLT — 318 von 9 423.
     """
     from .ioutil import read_jsonl
-    from .labeling import all_squares, read_session_meta
+    from .labeling import all_squares
     from .session_store.matte import effective_rows, read_rows
+    from .session_store.paths import read_session_meta
 
     tally = Counter() if skipped is None else skipped
     squares = all_squares()
@@ -371,7 +372,7 @@ def coverage_report(said: list, truth: list, visible_max: float | None = None) -
 
     # Lazy, weil `training.occlusion` Torch zieht und dieses Modul ohne auskommen muss.
     if visible_max is None:
-        from .training.occlusion import PIECE_VISIBLE_MAX
+        from .cell_rule import PIECE_VISIBLE_MAX
 
         visible_max = PIECE_VISIBLE_MAX
 

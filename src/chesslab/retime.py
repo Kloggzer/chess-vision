@@ -12,9 +12,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .cell_rule import PIECE_VISIBLE_MAX
 from .ioutil import Contested, stamp_of, write_json_guarded
 from .session_store.names import CANDIDATE_FILE
-from .training.occlusion import PIECE_VISIBLE_MAX
+from .state import GameState
 
 STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -144,9 +145,7 @@ def windows(phone: list[int], fps: float, back_s: float = BACK_S, fwd_s: float =
 
 
 def _labels(fen: str, squares: list[str]) -> list[str]:
-    from .label_audit import fen_labels
-
-    lab = fen_labels(fen)
+    lab = GameState(fen).labels()
     return [lab[s] for s in squares]
 
 

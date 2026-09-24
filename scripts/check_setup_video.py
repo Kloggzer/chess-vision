@@ -11,8 +11,8 @@ from pathlib import Path
 import cv2
 
 from chesslab import occluded_model
+from chesslab.cell_rule import PIECE_VISIBLE_MAX as VMAX
 from chesslab.ioutil import read_jsonl
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 from scan_ply_offset import board_of  # noqa: E402

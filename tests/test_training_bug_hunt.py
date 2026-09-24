@@ -6,8 +6,8 @@ import random
 
 import pytest
 
+from chesslab.cell_rule import CELL_DARK_MIN, PIECE_VISIBLE_MAX
 from chesslab.training.data import checkpoint_metrics, visible_board_items, visible_confidence
-from chesslab.training.occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX
 
 
 class _WorkerRandomDataset:

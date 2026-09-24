@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from chesslab import labeling
 from chesslab.ioutil import stamp_of
 from chesslab.session_store import log as store_log
 from chesslab.session_store import paths as store_paths
@@ -28,13 +27,13 @@ def test_log_readers_keep_their_existing_empty_and_stamp_contracts(tmp_path):
 
 def test_session_meta_readers_keep_their_existing_missing_and_empty_contracts(tmp_path):
     with pytest.raises(FileNotFoundError, match="session.yaml missing"):
-        labeling.read_session_meta(tmp_path)
-    assert store_paths._read_meta(tmp_path) == {}
+        store_paths.read_session_meta(tmp_path)
+    assert store_paths.read_session_meta(tmp_path, missing_ok=True) == {}
 
     meta = tmp_path / "session.yaml"
     meta.write_text("", encoding="utf-8")
-    assert labeling.read_session_meta(tmp_path) is None
-    assert store_paths._read_meta(tmp_path) == {}
+    assert store_paths.read_session_meta(tmp_path) is None
+    assert store_paths.read_session_meta(tmp_path, missing_ok=True) == {}
 
 
 @pytest.mark.parametrize("dataset_name", ["PackedSquareDataset", "PackedBoardDataset"])

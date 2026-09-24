@@ -54,7 +54,7 @@ def main() -> int:
             print(f"{sid:<24}{0:>7}   no corners in the log")
             continue
         try:
-            prof = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
+            prof = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
         except Exception as exc:  # a session whose profile is gone is a finding, not a crash
             print(f"{sid:<24}{len(rows):>7}   no profile: {exc}")
             continue

@@ -33,8 +33,6 @@ app.add_typer(occluders_app, name="occluders")
 app.add_typer(synth_app, name="synth")
 app.add_typer(perf_app, name="perf")
 
-__all__ = ["app", "main"]
-
 
 def main() -> None:
     # Non-ASCII report glyphs must render on Windows consoles too.

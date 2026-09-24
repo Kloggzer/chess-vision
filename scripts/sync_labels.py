@@ -70,7 +70,8 @@ def retag(path: Path, truth: dict[Cell, str], park: Path | None) -> collections.
 
 def coverage_truth(session: str) -> dict[Cell, float]:
     """Was `crops_for_frame` heute schreiben wuerde — dieselbe Regel, nur ohne die Pixel."""
-    from chesslab.labeling import clean_frames, read_matte
+    from chesslab.labeling import clean_frames
+    from chesslab.session_store.matte import read_matte
 
     rec = RECORDINGS / session.removeprefix("rg-")
     if not (rec / "log.jsonl").is_file():

@@ -22,8 +22,8 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from chesslab.cell_rule import classification_eligible
 from chesslab.ioutil import iter_jsonl, read_jsonl
-from chesslab.training.occlusion import classification_eligible
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 from coverage_errors import neighbours  # noqa: E402

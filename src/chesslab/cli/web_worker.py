@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from ..web_serve import answer, serve
 from ._app import app
-
-__all__ = ["answer", "serve", "web_worker"]
 
 
 @app.command("web-worker")

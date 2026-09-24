@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import torch
 
-from chesslab.training.occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX, OcclusionLoss
+from chesslab.cell_rule import CELL_DARK_MIN, PIECE_VISIBLE_MAX
+from chesslab.training.occlusion import OcclusionLoss
 from chesslab.training.train_recipe import visible_class_counts
 
 CLASSES = ["empty", "wP", "bP"]

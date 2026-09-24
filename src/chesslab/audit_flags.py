@@ -144,11 +144,12 @@ def covered_cells(session_dir: Path) -> set[tuple[str, str]]:
 
     The matte is the only place coverage lives — `model-reads.jsonl` never carried it.
     """
-    from .labeling import MATTE_DIRTY, read_matte
+    from .cell_rule import PIECE_VISIBLE_MAX
+    from .session_store.matte import read_matte
 
     return {(frame, square)
             for frame, cells in read_matte(session_dir).items()
-            for square, value in cells.items() if value > MATTE_DIRTY}
+            for square, value in cells.items() if value > PIECE_VISIBLE_MAX}
 
 
 def newest_input(rec: Path) -> str | None:
@@ -212,7 +213,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
         if visible_only:
             # Verdeckt oder zu dunkel: beides nimmt `OcclusionLoss` aus dem Klassenverlust, ein
             # Urteil dort erreicht kein Modell.
-            from .training.occlusion import CELL_DARK_MIN
+            from .cell_rule import CELL_DARK_MIN
 
             if not matte_path(path.parent).is_file():
                 without_matte.append(rows[0]["session_id"])

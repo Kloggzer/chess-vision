@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import read_matte
+from chesslab.session_store.matte import read_matte
 
 ROOT = Path("data/recordings")
 EDGES = [0.0, 0.02, 0.05, 0.10, 0.15, 0.25, 0.35, 0.50, 0.70, 1.01]

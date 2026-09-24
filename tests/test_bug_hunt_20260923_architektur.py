@@ -76,21 +76,10 @@ def test_a_profile_edit_stales_the_pass_like_its_scan(tmp_path, monkeypatch):
 
 # H4 -------------------------------------------------------------------------------------------
 
-def test_matte_dirty_is_the_piece_visible_cut():
-    """Eine Kopie, kein eigener Wert: `labeling` darf `training.occlusion` nicht laden (torch).
-
-    Wer eine der beiden Zahlen bewegt, entscheidet hier ausdruecklich, ob sie getrennt werden.
-    """
-    from chesslab.labeling import MATTE_DIRTY
-    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
-
-    assert MATTE_DIRTY == PIECE_VISIBLE_MAX
-
-
 def test_the_metric_mask_is_classification_eligible():
     """`_occlusion_diagnostics` baut die Zellregel als NumPy-Ausdruck nach — heute deckungsgleich."""
+    from chesslab.cell_rule import classification_eligible
     from chesslab.training.epoch_metrics import _occlusion_diagnostics
-    from chesslab.training.occlusion import classification_eligible
 
     rows = [{"session_id": "s", "frame": str(i), "coverage": c, "brightness": b}
             for i, (c, b) in enumerate([(0.0, None), (0.15, 25.0), (0.1500001, 200.0),

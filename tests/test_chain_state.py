@@ -131,7 +131,7 @@ def test_confirmation_against(doc, md5, want):
 
 
 @pytest.mark.parametrize("value", [
-    "boards/000117.webp", "a\b\c.png", "000001", "x.tar.gz", ".hidden", "name.", "a/b/", "a/.", "..", "",
+    "boards/000117.webp", r"a\b\c.png", "000001", "x.tar.gz", ".hidden", "name.", "a/b/", "a/.", "..", "",
     "dir/.png", "a//b.c", "C:/x/y.z", 3, None, "a.b/c", " sp .x", "a/..", "x..y",
 ])
 def test_the_fast_stem_is_paths_stem(value):

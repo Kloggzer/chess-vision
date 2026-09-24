@@ -86,7 +86,7 @@ def test_eval_reports_by_default_and_strict_refuses(ds, monkeypatch, capsys):
     run = paths.root / "run"
     run.mkdir()
     (run / "config.json").write_text(json.dumps({"dataset": "ds"}), encoding="utf-8")
-    monkeypatch.setattr(evaluate, "_load_run",
+    monkeypatch.setattr(evaluate, "load_run",
                         lambda d: (None, {"dataset": "ds", "classes": ["empty", "wK", "wQ", "wR"]}))
     monkeypatch.setattr(evaluate, "_frozen_hit", lambda rows: {"stop-here"})
     assert evaluate.run_eval(str(run), "test", strict_verdicts=True) == 1

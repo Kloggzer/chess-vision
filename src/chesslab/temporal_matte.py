@@ -14,11 +14,11 @@ import numpy as np
 
 from . import config, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
-from .labeling import _profile_for_session, read_session_meta, usable_board
+from .labeling import _profile_for_session, usable_board
 from .session_store.log import read_log_rows
 from .session_store.matte import measured_coverage, read_matte
 from .session_store.names import BOARD_DIR, MATTE_DIR, MATTE_FILE
-from .session_store.paths import session_dir
+from .session_store.paths import read_session_meta, session_dir
 from .temporal_flags import load_flags, source_stamp
 
 
@@ -314,7 +314,7 @@ def adopt_proposals(session_id, *, method="local"):
     never touched; our own (`source: temporal`) are replaced whole.
     """
     from .calibration import load_profile
-    from .labeling import MATTE_DIRTY
+    from .cell_rule import PIECE_VISIBLE_MAX
     from .matte import coverage_of
 
     recording, _ = session_dir(session_id)
@@ -349,7 +349,7 @@ def adopt_proposals(session_id, *, method="local"):
         target = recording / MATTE_DIR / f"{stem}.webp"
         alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
         coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
-        if max(coverage.values()) <= MATTE_DIRTY:
+        if max(coverage.values()) <= PIECE_VISIBLE_MAX:
             empty += 1
             continue
         if not cv2.imwrite(str(target), alpha):
@@ -383,7 +383,7 @@ def upsert_proposals(session_id, *, method="local"):
     blur is what SAM misses; its file survives as `<stem>.sam.webp`.
     """
     from .calibration import load_profile
-    from .labeling import MATTE_DIRTY
+    from .cell_rule import PIECE_VISIBLE_MAX
     from .matte import FIXED_SUFFIX, coverage_of
 
     recording, _ = session_dir(session_id)
@@ -419,13 +419,13 @@ def upsert_proposals(session_id, *, method="local"):
             if (mattes / f"{stem}{FIXED_SUFFIX}").is_file():
                 fixed += 1
                 continue
-            if max(sam[stem]["coverage"].values(), default=0.) > MATTE_DIRTY:
+            if max(sam[stem]["coverage"].values(), default=0.) > PIECE_VISIBLE_MAX:
                 found += 1
                 continue
             alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
             coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
             # Dieselbe Schwelle wie oben, kein zweiter Schnitt.
-            if max(coverage.values()) <= MATTE_DIRTY:
+            if max(coverage.values()) <= PIECE_VISIBLE_MAX:
                 continue
             tmp = mattes / f"{stem}.tmp.webp"
             if not cv2.imwrite(str(tmp), alpha):
@@ -487,7 +487,7 @@ def write_pass_report(session_id, report: dict, inputs: dict | None = None) -> P
 
 def prune_dead_rows(session_id):
     """Drop a `source: temporal` row once SAM has re-cut the frame: SAM's later row already wins."""
-    from .labeling import MATTE_DIRTY
+    from .cell_rule import PIECE_VISIBLE_MAX
 
     recording, _ = session_dir(session_id)
     matte_path = recording / MATTE_FILE
@@ -502,7 +502,7 @@ def prune_dead_rows(session_id):
     def sam_rows(only_found: bool) -> set[str]:
         # DIESELBE Schwelle, die den Upsert anlegt: `any(...)` liess schon 0,0001 als Fund gelten.
         return {frame for frame, row in sam.items()
-                if not only_found or max(row["coverage"].values(), default=0.) > MATTE_DIRTY}
+                if not only_found or max(row["coverage"].values(), default=0.) > PIECE_VISIBLE_MAX}
 
     cut, found = sam_rows(False), sam_rows(True)
     keep = [row for row in rows

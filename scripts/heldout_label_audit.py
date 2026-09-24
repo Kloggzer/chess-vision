@@ -25,9 +25,9 @@ from pathlib import Path
 
 import chess
 
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import read_matte as coverage_of
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+from chesslab.session_store.matte import read_matte as coverage_of
 
 REC = Path("data/recordings")
 HELDOUT = "model-reads.heldout.jsonl"

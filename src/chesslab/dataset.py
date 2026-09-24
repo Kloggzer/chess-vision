@@ -13,8 +13,6 @@ from pathlib import Path
 from . import config
 from .ioutil import read_jsonl, write_json
 
-CLASSES = config.CLASSES
-
 
 def load_manifest(path: Path) -> list[dict]:
     from .ioutil import mtime_size
@@ -496,7 +494,7 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
     print(f"     max_empty_ratio={max_empty_ratio} max_class_ratio={max_class_ratio}")
     print("     TRAIN distribution (after balancing):")
     tcc = split["train_class_counts"]
-    for c in CLASSES:
+    for c in config.CLASSES:
         if tcc[c]:
             print(f"       {c:<7}{tcc[c]:>6}")
     for w in warnings:

@@ -19,19 +19,16 @@ from pathlib import Path
 
 import cv2
 
+from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import (
-    MATTE_DIRTY,
-    _profile_for_session,
-    read_matte,
-    read_session_meta,
-    usable_board,
-)
+from chesslab.labeling import _profile_for_session, usable_board
 from chesslab.session_store.log import read_log
+from chesslab.session_store.matte import read_matte
+from chesslab.session_store.paths import read_session_meta
 
 #: Ab hier gilt eine Zelle der Matte als verdeckt (`PIECE_VISIBLE_MAX` ist die Verlustmaske).
-COVERED = MATTE_DIRTY
+COVERED = PIECE_VISIBLE_MAX
 
 
 def share_line(stats: Counter) -> str:

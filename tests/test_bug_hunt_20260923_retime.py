@@ -7,9 +7,9 @@ import chess
 import pytest
 
 from chesslab import calibration, config, labeling, occluded_model, recording, retime
-from chesslab.label_audit import fen_labels
 from chesslab.realgames import decode as rg_decode
 from chesslab.session_store import recording as store_rec
+from chesslab.state import GameState
 from chesslab.training import torch_data
 
 FPS = 30.0
@@ -41,7 +41,7 @@ def game(monkeypatch, tmp_path):
 
     classes = list(config.IDENTITY_CLASSES)
     squares = labeling.all_squares()
-    truth = [[classes.index(fen_labels(f)[s]) for s in squares] for f in fens]
+    truth = [[classes.index(GameState(f).labels()[s]) for s in squares] for f in fens]
 
     class FakeRecording:
         def __init__(self, video):

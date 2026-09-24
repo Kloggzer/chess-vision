@@ -11,15 +11,11 @@ import numpy as np
 
 from chesslab import config
 from chesslab.calibration import load_profile
+from chesslab.cell_rule import PIECE_VISIBLE_MAX as VMAX
 from chesslab.ioutil import read_jsonl, write_json
-from chesslab.labeling import (
-    all_squares,
-    board_source,
-    crops_for_frame,
-    read_matte,
-    read_session_meta,
-)
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
+from chesslab.labeling import all_squares, board_source, crops_for_frame
+from chesslab.session_store.matte import read_matte
+from chesslab.session_store.paths import read_session_meta
 
 
 def _num(v: float | None, width: int) -> str:

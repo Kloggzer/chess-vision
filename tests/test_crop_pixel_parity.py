@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import pytest
 
-from chesslab import config, labeling
+from chesslab import calibration, config, labeling
 from conftest import make_profile
 
 FIXTURES = (Path(__file__).resolve().parents[1]
@@ -35,7 +35,7 @@ def _profile(case: str, receipt: dict, margin: float) -> tuple:
         bs, corners=quad, margin=margin, profile=f"__parity_{case}__", camera_index=-1,
         frame_size=(frame.shape[1], frame.shape[0]), pad_side=float(receipt["padSide"]),
         out_size=(int(receipt["outW"]), int(receipt["outH"])))
-    return labeling.warp_board_for_crops(frame, prof, quad), prof
+    return calibration.warp_board_for_crops(frame, prof, quad), prof
 
 
 @pytest.mark.parametrize("case", CASES)

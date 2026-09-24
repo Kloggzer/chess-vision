@@ -100,7 +100,7 @@ def test_eval_on_a_baked_dataset_does_not_compute_clahe_a_second_time(paths, mon
            "clahe_min_mean": params["min_mean"], "clahe_max_mean": params["max_mean"],
            "clahe_denoise": params["denoise"]}
     (run_dir / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
-    monkeypatch.setattr(ev, "_load_run", lambda *_a, **_kw: (torch.nn.Identity(), dict(cfg)))
+    monkeypatch.setattr(ev, "load_run", lambda *_a, **_kw: (torch.nn.Identity(), dict(cfg)))
 
     seen: dict = {}
 

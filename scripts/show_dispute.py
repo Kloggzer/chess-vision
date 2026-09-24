@@ -29,7 +29,7 @@ def disputed(rows: list[dict], preds_a: list[int], preds_b: list[int]) -> tuple[
     """Indizes strittiger, GEMESSEN benotbarer Zellen, dazu die Zahl der ungemessenen: `coverage is
     None` ist nicht null.
     """
-    from chesslab.training.occlusion import classification_eligible
+    from chesslab.cell_rule import classification_eligible
 
     live, unmeasured = [], 0
     for i, r in enumerate(rows):
@@ -46,11 +46,11 @@ def predictions(run: str, split: str):
     from chesslab.training.boardnet import CELLS
     from chesslab.training.data import filter_rows_by_split
     from chesslab.training.engine import evaluate_dataset
-    from chesslab.training.evaluate import _load_run
+    from chesslab.training.evaluate import load_run
     from chesslab.training.packs import cfg_for_pack, load_packed, resolve_dataset_packs
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
-    model, cfg = _load_run(Path(run))
+    model, cfg = load_run(Path(run))
     model.eval()
     dd = dataset_dir(cfg["dataset"])
     rows = filter_rows_by_split(load_manifest(dd / "manifest.jsonl"),

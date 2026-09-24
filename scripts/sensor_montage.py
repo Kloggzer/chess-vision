@@ -15,10 +15,10 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from chesslab.ioutil import read_jsonl, write_json
-from chesslab.labeling import _profile_for_session, crop_square, read_session_meta
+from chesslab.labeling import _profile_for_session, crop_square
 from chesslab.realgames.position import SETTLE_CELL_PX
 from chesslab.session_store.log import read_log
-from chesslab.session_store.paths import session_dir
+from chesslab.session_store.paths import read_session_meta, session_dir
 
 
 def choose(candidates, count, rng, used):

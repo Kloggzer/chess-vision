@@ -47,11 +47,11 @@ def main() -> int:
     import torch
     from torch.utils.data import DataLoader
 
+    from chesslab.cell_rule import classification_eligible
     from chesslab.dataset_build import dataset_dir
     from chesslab.training.boardnet import CELLS
     from chesslab.training.engine import get_device
-    from chesslab.training.evaluate import _load_run
-    from chesslab.training.occlusion import classification_eligible
+    from chesslab.training.evaluate import load_run
     from chesslab.training.packs import cfg_for_pack, resolve_dataset_packs
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
@@ -65,7 +65,7 @@ def main() -> int:
     covered: set[str] = set()
     for run in args.folds.split(","):
         run_dir = MODELS / run
-        model, cfg = _load_run(run_dir)
+        model, cfg = load_run(run_dir)
         model = model.to(device).eval()
         split = json.loads((dd / cfg["split_file"]).read_text(encoding="utf-8"))["splits"]
         # NUR der Test-Teil: alles andere hat dieses Modell trainiert.

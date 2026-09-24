@@ -84,7 +84,7 @@ def test_write_boards_session_asks_for_boards_only(tmp_path, monkeypatch):
 
     monkeypatch.setattr(session_boards, "missing_source_frames", lambda *_a: None)
     monkeypatch.setattr(labeling, "_profile_for_session", lambda *_a: None)
-    monkeypatch.setattr(labeling, "read_session_meta", lambda *_a: {})
+    monkeypatch.setattr("chesslab.session_store.paths.read_session_meta", lambda *_a: {})
     monkeypatch.setattr(rg_boards, "board_from_frame", cut)
     monkeypatch.setattr(rg_boards, "straighten_boards", spy)
 

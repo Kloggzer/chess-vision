@@ -31,7 +31,12 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chesslab import config, labeling  # noqa: E402
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography  # noqa: E402
+from chesslab.calibration import (  # noqa: E402
+    CalibrationProfile,
+    CropParams,
+    compute_homography,
+    warp_board_for_crops,
+)
 from chesslab.ioutil import read_jsonl  # noqa: E402
 from chesslab.recording import Recording  # noqa: E402
 
@@ -73,7 +78,7 @@ def compare(kotlin_dir: Path, receipts: dict, frames: dict) -> tuple[list, Count
             continue
         r = receipts[idx]
         prof = profile_from(r)
-        board = labeling.warp_board_for_crops(frames[idx], prof, prof.image_corners)
+        board = warp_board_for_crops(frames[idx], prof, prof.image_corners)
         out = (int(r["outW"]), int(r["outH"]))
         for square in labeling.all_squares():
             f = kotlin_dir / f"{idx:0{STEM_DIGITS}d}_{square}.png"

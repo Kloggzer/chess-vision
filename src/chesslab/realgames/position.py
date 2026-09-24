@@ -115,7 +115,8 @@ def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
     """
     import numpy as np
 
-    from ..labeling import MATTE_DIRTY, SETTLE_LIMIT, SETTLE_SEEN_MIN, all_squares, crop_square
+    from ..cell_rule import PIECE_VISIBLE_MAX
+    from ..labeling import SETTLE_LIMIT, SETTLE_SEEN_MIN, all_squares, crop_square
 
     session_dir, rows, profile, mattes, *rest = job
     touches = rest[0] if rest else ()
@@ -156,7 +157,7 @@ def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
         covers.append([cover.get(sq, 0.0) for sq in squares])
 
     left = departures(np.array(devs), np.array(seens), np.array(covers),
-                      limit=SETTLE_LIMIT, seen_min=SETTLE_SEEN_MIN, covered_max=MATTE_DIRTY,
+                      limit=SETTLE_LIMIT, seen_min=SETTLE_SEEN_MIN, covered_max=PIECE_VISIBLE_MAX,
                       keep=[squares.index(sq) for sq in touches if sq in squares])
     scores = {stem: {"dev": [round(float(v), 2) for v in devs[i]],
                      "seen": [round(float(v), 3) for v in seens[i]],

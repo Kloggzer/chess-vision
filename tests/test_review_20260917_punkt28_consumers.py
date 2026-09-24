@@ -16,7 +16,7 @@ def test_matte_status_counts_a_measured_then_cancelled_frame_as_matted(tmp_path,
     meldet den Frame trotzdem als gemattet und verschweigt damit die Luecke, die es melden soll.
     """
     from chesslab import matte
-    from chesslab.labeling import read_matte
+    from chesslab.session_store.matte import read_matte
 
     paths = config.Paths(root=tmp_path)
     monkeypatch.setattr(config, "DATA", paths)

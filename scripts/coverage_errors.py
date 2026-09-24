@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import read_matte
+from chesslab.session_store.matte import read_matte
 
 ROOT = Path("data/recordings")
 FILES = "abcdefgh"

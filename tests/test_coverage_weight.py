@@ -5,11 +5,8 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from chesslab.training.occlusion import (  # noqa: E402
-    PIECE_VISIBLE_MAX,
-    OcclusionLoss,
-    coverage_weight,
-)
+from chesslab.cell_rule import PIECE_VISIBLE_MAX  # noqa: E402
+from chesslab.training.occlusion import OcclusionLoss, coverage_weight  # noqa: E402
 
 #: (Bandmitte, normierte piece_acc, Wilson-Obergrenze, besetzte Zellen) aus der Messung.
 MEASURED = [

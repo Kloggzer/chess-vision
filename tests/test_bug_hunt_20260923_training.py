@@ -271,13 +271,13 @@ def test_a_board_model_is_graded_in_the_datasets_row_order(tmp_path, paths, monk
             self.rows = list(reversed(rows))
 
     def fake_eval(_model, ds, *_a, **_k):
-        from chesslab.training.occlusion import classification_eligible
+        from chesslab.cell_rule import classification_eligible
         return {"board_acc": 1.0, "square_acc": 1.0, "trues": np.array([0, 1]),
                 "preds": np.array([0, 1]), "conf": [0.9, 0.9], "conf_wrong": None,
                 "classification_eligible": np.array([classification_eligible(r)
                                                      for r in ds.rows])}
 
-    monkeypatch.setattr(evaluate, "_load_run", lambda _d: (torch.nn.Identity(), dict(cfg)))
+    monkeypatch.setattr(evaluate, "load_run", lambda _d: (torch.nn.Identity(), dict(cfg)))
     monkeypatch.setattr(packs, "resolve_dataset_packs", lambda *a, **k: object())
     monkeypatch.setattr(torch_data, "PackedBoardDataset", Reordered)
     monkeypatch.setattr(engine, "evaluate_dataset", fake_eval)

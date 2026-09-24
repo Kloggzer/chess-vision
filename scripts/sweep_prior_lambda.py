@@ -250,7 +250,7 @@ def main() -> None:
     ap.add_argument("--split", default="test")
     ap.add_argument("--lambdas", default=",".join(str(x) for x in LAMBDAS))
     ap.add_argument("--max-coverage", type=float, default=0.15,
-                    help="skip cells above this coverage (training/occlusion.PIECE_VISIBLE_MAX)")
+                    help="skip cells above this coverage (cell_rule.PIECE_VISIBLE_MAX)")
     ap.add_argument("--conf-thr", type=float, default=0.85,
                     help="DeepSearch's channel threshold (CnnConfig.confThr)")
     ap.add_argument("--base-offset", type=int, default=1,

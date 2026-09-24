@@ -108,7 +108,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     preds_a = np.array(preds)
     if len(dataset.rows) != len(trues):
         raise ValueError(f"dataset has {len(dataset.rows)} rows but evaluation produced {len(trues)} labels")
-    from .occlusion import classification_eligible
+    from ..cell_rule import classification_eligible
 
     # Die FESTE Maske an der ZEILE, nicht am Kopf oder an `--visible-max`: sonst benoteten
     # Korpuszahl und Checkpoint-Metrik verschiedene Zellmengen.

@@ -45,7 +45,7 @@ def counts(dataset: str, manifest: str = "") -> tuple[Counter, dict]:
     """Belege je (Figur, Feldfarbe, Helligkeitsband) und ihr Nenner. `coverage is None` heisst NICHT
     GEMESSEN: diese Zellen zaehlen mit, aber ihre Zahl steht daneben.
     """
-    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+    from chesslab.cell_rule import PIECE_VISIBLE_MAX
 
     seen: Counter = Counter()
     pieces = unmeasured = 0

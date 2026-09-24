@@ -258,8 +258,9 @@ def fit_mesh_session(session_id: str) -> dict:
     """
     import cv2
 
-    from .labeling import _profile_for_session, read_session_meta
+    from .labeling import _profile_for_session
     from .realgames.mesh import grid_line_fracs
+    from .session_store.paths import read_session_meta
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -304,8 +305,9 @@ def mark_hands_session(session_id: str) -> dict:
     from .calibration import crop_border_px, warp_padded
     from .grid_occlusion import hand_squares, missing_edges
     from .imgops import skin_patch
-    from .labeling import _profile_for_session, read_session_meta
+    from .labeling import _profile_for_session
     from .session_store.boards import move_boards, place_board
+    from .session_store.paths import read_session_meta
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)

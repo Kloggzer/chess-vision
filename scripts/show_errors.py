@@ -16,10 +16,10 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 
+from chesslab.cell_rule import PIECE_VISIBLE_MAX as VMAX
 from chesslab.dataset_build import dataset_dir
 from chesslab.training.boardnet import CELLS
 from chesslab.training.engine import evaluate_dataset
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.packs import (
     cfg_for_pack,
     load_packed,
@@ -68,10 +68,10 @@ def main() -> int:
 
     from chesslab.dataset import load_manifest, load_split
     from chesslab.training.data import filter_rows_by_split
-    from chesslab.training.evaluate import _load_run
+    from chesslab.training.evaluate import load_run
 
     run_dir = Path(args.run)
-    model, cfg = _load_run(run_dir)
+    model, cfg = load_run(run_dir)
     model.eval()
     classes = cfg["classes"]
     ds_name = cfg["dataset"]

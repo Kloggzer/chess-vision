@@ -6,12 +6,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from chesslab.cell_rule import brightness_of, coverage_of  # noqa: E402
-from chesslab.training.occlusion import (  # noqa: E402
+from chesslab.cell_rule import (  # noqa: E402
     PIECE_VISIBLE_MAX,
+    brightness_of,
     classification_eligible,
-    coverage_weight,
+    coverage_of,
 )
+from chesslab.training.occlusion import coverage_weight  # noqa: E402
 from chesslab.training.torch_data import _target  # noqa: E402
 from chesslab.training.train_recipe import _occlusion_provenance  # noqa: E402
 

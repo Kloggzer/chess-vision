@@ -89,8 +89,9 @@ def _cut_session(task) -> int:
     import cv2
 
     from ..calibration import load_profile
-    from ..labeling import crop_square, read_session_meta, usable_board
+    from ..labeling import crop_square, usable_board
     from ..session_store.log import read_log_rows
+    from ..session_store.paths import read_session_meta
     from ..session_store.recording import game_dir
 
     d = game_dir(sid[3:] if sid.startswith("rg-") else sid)

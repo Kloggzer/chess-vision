@@ -104,7 +104,7 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
     base_profiles = {}
     logs = {}
     for sid, sdir in sdirs.items():
-        base_profiles[sid] = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
+        base_profiles[sid] = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
         logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
     profiles = {(sid, w): profile_at_warp(base_profiles[sid], w) for sid in sids for w in warps}
 
@@ -247,7 +247,7 @@ def main() -> None:
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
             base = labeling._profile_for_session(
-                labeling.read_session_meta(store_paths.session_dir(sid)[0]), None)
+                store_paths.read_session_meta(store_paths.session_dir(sid)[0]), None)
             boxes = ", ".join(f"{w}->{crop_box_px(profile_at_warp(base, w)):.0f}px" for w in warps)
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square; profile "
                 f"'{base.profile}' board_size={base.board_size} pad_side={base.crop.pad_side} "

@@ -8,9 +8,8 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from chesslab.cell_rule import coverage_of  # noqa: E402
+from chesslab.cell_rule import PIECE_VISIBLE_MAX, coverage_of  # noqa: E402
 from chesslab.training import train_recipe as train_mod  # noqa: E402
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX  # noqa: E402
 
 NULL_ROW = {"label": "wP", "path": "p0", "coverage": None, "brightness": None}
 

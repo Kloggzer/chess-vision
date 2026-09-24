@@ -574,8 +574,8 @@ def test_board_accuracy_tolerance_counts_boards_with_one_slip():
 
 def test_visible_board_items_drop_the_cells_the_loss_masks():
     """Verdeckte Zellen lernt das Modell nie — sie duerfen ein Brett nicht falsch machen."""
+    from chesslab.cell_rule import PIECE_VISIBLE_MAX
     from chesslab.training.data import board_accuracy, visible_board_items
-    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
     rows = [
         {"session_id": "s", "frame": 1, "coverage": 0.0},

@@ -41,7 +41,7 @@ def episodes(rows: list[dict]) -> list[list[int]]:
 
 def graded(rows: list[dict]) -> list[int]:
     """Indizes der Zellen, die der Klassenverlust lernt — verdeckte UND dunkle bleiben draussen."""
-    from chesslab.training.occlusion import classification_eligible
+    from chesslab.cell_rule import classification_eligible
 
     return [i for i, r in enumerate(rows) if classification_eligible(r)]
 
@@ -83,12 +83,12 @@ def main() -> int:
     from chesslab.training.boardnet import CELLS
     from chesslab.training.data import filter_rows_by_split
     from chesslab.training.engine import evaluate_dataset
-    from chesslab.training.evaluate import _load_run
+    from chesslab.training.evaluate import load_run
     from chesslab.training.packs import cfg_for_pack, load_packed, resolve_dataset_packs
     from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
     run_dir = Path(args.run)
-    model, cfg = _load_run(run_dir)
+    model, cfg = load_run(run_dir)
     model.eval()
     ds_name, classes = cfg["dataset"], cfg["classes"]
     dd = dataset_dir(ds_name)

@@ -207,7 +207,7 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
     profiles = {}
     logs = {}
     for sid, sdir in sdirs.items():
-        profiles[sid] = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
+        profiles[sid] = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
         logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
 
     specs = {name: serving.run_spec(run_dir) for name, (run_dir, _, _) in runs.items()}
@@ -432,7 +432,7 @@ def main() -> None:
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
             prof = labeling._profile_for_session(
-                labeling.read_session_meta(store_paths.session_dir(sid)[0]), None)
+                store_paths.read_session_meta(store_paths.session_dir(sid)[0]), None)
             profile_note.add((prof.profile, prof.board_size, warp_px_per_square(prof)))
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square, "
                 f"warped to {warp_px_per_square(prof):.1f} px/square "

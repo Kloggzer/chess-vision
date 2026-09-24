@@ -9,7 +9,7 @@ in der sich nichts bewegt haben SOLL.
 
 Verdeckte Zellen bleiben DRAUSSEN: eine Hand ueber der Figur ist keine Licht-Variation, und sie
 blaeht die Spannweite so auf, dass jede Auswahl gut aussieht (gemessen: 51 statt 95). Dunkle
-ebenso: der Verlust lernt aus beiden nichts (`occlusion.classification_eligible`).
+ebenso: der Verlust lernt aus beiden nichts (`cell_rule.classification_eligible`).
 
 Zwei Masse, weil das erste allein ein Selbstlob waere: Farthest-Point optimiert die SPANNWEITE
 direkt. `Deckung` misst stattdessen, wie weit ein durchschnittlicher Crop noch vom naechsten
@@ -28,8 +28,8 @@ from pathlib import Path
 
 import numpy as np
 
+from chesslab.cell_rule import classification_eligible
 from chesslab.ioutil import read_jsonl, write_rows
-from chesslab.training.occlusion import classification_eligible
 
 PACKS = Path("data/packs")
 #: Auf diese Kantenlaenge heruntergerechnet verglichen — Pose und Licht bleiben, das Rauschen geht.

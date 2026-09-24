@@ -18,15 +18,11 @@ import numpy as np
 from . import provenance
 from .cell_rule import PIECE_VISIBLE_MAX
 from .ioutil import append_rows, read_jsonl, stamp_of, write_rows_guarded
-from .labeling import (
-    all_squares,
-    crops_for_frame,
-    read_session_meta,
-    usable_board,
-)
+from .labeling import all_squares, crops_for_frame, usable_board
 from .session_store.log import read_log_rows
 from .session_store.matte import effective_rows, measured_coverage, read_matte
 from .session_store.names import log_path, matte_path, mattes_dir
+from .session_store.paths import read_session_meta
 
 SAM3_REPO = "facebook/sam3"
 
