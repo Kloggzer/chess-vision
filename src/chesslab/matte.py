@@ -911,137 +911,150 @@ def alpha_worker(
     # angehaengt wird daraus Korruption MITTENDRIN.
     append_rows(path, [])
 
-    with path.open(
-        "a",
-        encoding="utf-8",
-    ) as file_handle:
-        for index, entry in enumerate(
-            todo,
-            1,
-        ):
-            stem = Path(
-                entry["board"],
-            ).stem
+    staged: Path | None = None
+    try:
+        with path.open(
+            "a",
+            encoding="utf-8",
+        ) as file_handle:
+            for index, entry in enumerate(
+                todo,
+                1,
+            ):
+                stem = Path(
+                    entry["board"],
+                ).stem
 
-            board_path = (
-                session_dir
-                / entry["board"]
-            )
-
-            # Coverage is a training target: an off-scale cut poisons the label, so the row's own
-            # numbers decide.
-            raster = usable_board(
-                entry,
-                profile,
-            )
-
-            board = cv2.imread(
-                str(board_path),
-                cv2.IMREAD_COLOR,
-            ) if raster else None
-
-            row = {
-                "frame": stem,
-                "ply": entry.get("ply"),
-                "dirty_reason": entry.get(
-                    "dirty_reason",
-                ),
-                # Gegen WELCHEN Export dieses Alpha geschnitten wurde; `chain.ts` vergleicht den
-                # Stempel.
-                **({"_source": stamp} if stamp else {}),
-            }
-
-            if board is None:
-                row["skipped"] = (
-                    "board unreadable"
-                    if raster
-                    else "board not the crop raster"
+                board_path = (
+                    session_dir
+                    / entry["board"]
                 )
 
-            else:
-                alpha, hits = alpha_sam3(
-                    board,
-                )
-
-                matte_file = out_dir / f"{stem}.webp"
-
-                matte = (
-                    np.clip(
-                        alpha,
-                        0.0,
-                        1.0,
-                    )
-                    * 255.0
-                ).astype(
-                    np.uint8,
-                )
-
-                if not cv2.imwrite(
-                    str(matte_file),
-                    matte,
-                ):
-                    raise OSError(
-                        f"{name}: failed to write matte: "
-                        f"{matte_file}"
-                    )
-
-                coverage = coverage_of(
-                    alpha,
+                # Coverage is a training target: an off-scale cut poisons the label, so the row's own
+                # numbers decide.
+                raster = usable_board(
                     entry,
                     profile,
                 )
 
-                row |= {
-                    "concepts": hits,
-                    "coverage": coverage,
-                    "cells_over_half": sum(
-                        value > 0.5
-                        for value in coverage.values()
+                board = cv2.imread(
+                    str(board_path),
+                    cv2.IMREAD_COLOR,
+                ) if raster else None
+
+                row = {
+                    "frame": stem,
+                    "ply": entry.get("ply"),
+                    "dirty_reason": entry.get(
+                        "dirty_reason",
                     ),
-                    "zone": round(float((alpha > 0.5).mean()), 4),
+                    # Gegen WELCHEN Export dieses Alpha geschnitten wurde; `chain.ts` vergleicht den
+                    # Stempel.
+                    **({"_source": stamp} if stamp else {}),
                 }
 
-                written += 1
-
-            if why := row.get("skipped"):
-                skipped[why] = (
-                    skipped.get(
-                        why,
-                        0,
+                if board is None:
+                    row["skipped"] = (
+                        "board unreadable"
+                        if raster
+                        else "board not the crop raster"
                     )
-                    + 1
+
+                else:
+                    alpha, hits = alpha_sam3(
+                        board,
+                    )
+
+                    # Where `alpha_for` looks for a SAM row (`.sam.webp` after an upsert); staged until
+                    # the row is on disk, or a kill left new pixels under the old row.
+                    matte_file = alpha_for(session_dir, {"frame": stem})
+                    staged = out_dir / f"{stem}.sam.tmp.webp"
+
+                    matte = (
+                        np.clip(
+                            alpha,
+                            0.0,
+                            1.0,
+                        )
+                        * 255.0
+                    ).astype(
+                        np.uint8,
+                    )
+
+                    if not cv2.imwrite(
+                        str(staged),
+                        matte,
+                    ):
+                        raise OSError(
+                            f"{name}: failed to write matte: "
+                            f"{matte_file}"
+                        )
+
+                    coverage = coverage_of(
+                        alpha,
+                        entry,
+                        profile,
+                    )
+
+                    row |= {
+                        "concepts": hits,
+                        "coverage": coverage,
+                        "cells_over_half": sum(
+                            value > 0.5
+                            for value in coverage.values()
+                        ),
+                        "zone": round(float((alpha > 0.5).mean()), 4),
+                    }
+
+                    written += 1
+
+                if why := row.get("skipped"):
+                    skipped[why] = (
+                        skipped.get(
+                            why,
+                            0,
+                        )
+                        + 1
+                    )
+
+                file_handle.write(
+                    json.dumps(row)
+                    + "\n"
                 )
 
-            file_handle.write(
-                json.dumps(row)
-                + "\n"
-            )
+                file_handle.flush()
 
-            file_handle.flush()
+                if staged is not None:
+                    staged.replace(matte_file)
+                    staged = None
 
-            if progress and (
-                index % 10 == 0
-                or index == len(todo)
-            ):
-                fps, seconds_per_frame = _rate(
-                    index,
-                    started,
-                )
+                if progress and (
+                    index % 10 == 0
+                    or index == len(todo)
+                ):
+                    fps, seconds_per_frame = _rate(
+                        index,
+                        started,
+                    )
 
-                elapsed = (
-                    perf_counter()
-                    - started
-                )
+                    elapsed = (
+                        perf_counter()
+                        - started
+                    )
 
-                print(
-                    f"[{_timestamp()}] "
-                    f"  {index}/{len(todo)} frames, "
-                    f"{written} alphas, "
-                    f"{elapsed:.1f}s "
-                    f"({fps:.3f} frames/s, "
-                    f"{seconds_per_frame:.2f} s/frame)",
-                    flush=True,
-                )
+                    print(
+                        f"[{_timestamp()}] "
+                        f"  {index}/{len(todo)} frames, "
+                        f"{written} alphas, "
+                        f"{elapsed:.1f}s "
+                        f"({fps:.3f} frames/s, "
+                        f"{seconds_per_frame:.2f} s/frame)",
+                        flush=True,
+                    )
+    except BaseException:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
+        raise
 
     elapsed = (
         perf_counter()
