@@ -337,32 +337,42 @@ def adopt_proposals(session_id, *, method="local"):
     (recording / MATTE_DIR).mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []
-    for row in read_jsonl(report):
-        stem, entry = row["frame"], entries.get(row["frame"])
-        if not row.get("alpha") or entry is None:
-            continue
-        # A file without any row is ours: SAM writes row and file together; an aborted adopt leaves
-        # orphans.
-        if stem in have:
-            kept += 1
-            continue
-        target = recording / MATTE_DIR / f"{stem}.webp"
-        alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
-        coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
-        if max(coverage.values()) <= PIECE_VISIBLE_MAX:
-            empty += 1
-            continue
-        if not cv2.imwrite(str(target), alpha):
-            raise OSError(f"Cannot write matte for {stem}")
-        fresh.append({"frame": stem, "ply": entry.get("ply"),
-                      "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
-                      **({"_source": stamp} if stamp else {}),
-                      "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                      "coverage": coverage,
-                      "cells_over_half": sum(v > .5 for v in coverage.values())})
-        adopted += 1
-    write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
-                       what=_CONTESTED.format(what="adopting"))
+    # Wie `upsert_proposals`: der Alpha-Worker schreibt die Datei VOR der Zeile, eine scheinbare
+    # Waise kann SAMs sein. Umgehaengt erst nach dem bewachten Ledger.
+    staged: dict[str, Path] = {}
+    try:
+        for row in read_jsonl(report):
+            stem, entry = row["frame"], entries.get(row["frame"])
+            if not row.get("alpha") or entry is None:
+                continue
+            # A file without any row is ours: an aborted adopt leaves orphans.
+            if stem in have:
+                kept += 1
+                continue
+            alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
+            coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
+            if max(coverage.values()) <= PIECE_VISIBLE_MAX:
+                empty += 1
+                continue
+            tmp = recording / MATTE_DIR / f"{stem}.tmp.webp"
+            if not cv2.imwrite(str(tmp), alpha):
+                raise OSError(f"Cannot write matte for {stem}")
+            staged[stem] = tmp
+            fresh.append({"frame": stem, "ply": entry.get("ply"),
+                          "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
+                          **({"_source": stamp} if stamp else {}),
+                          "concepts": {"temporal": round(row["fraction_above_half"], 4)},
+                          "coverage": coverage,
+                          "cells_over_half": sum(v > .5 for v in coverage.values())})
+            adopted += 1
+        write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                           what=_CONTESTED.format(what="adopting"))
+    except BaseException:
+        for tmp in staged.values():
+            tmp.unlink(missing_ok=True)
+        raise
+    for stem, tmp in staged.items():
+        tmp.replace(recording / MATTE_DIR / f"{stem}.webp")
     return {"path": matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
             "replaced": len(ours)}
 
