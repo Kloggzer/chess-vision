@@ -1,7 +1,8 @@
 import { constants } from "node:fs";
 import { copyFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
+import { Contested, stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
+import { BadRequest } from "@/lib/http-error";
 import { exists, stampOrMissing } from "@/lib/measurement";
 import { parseReference } from "@/lib/py/ops";
 import { pyCall } from "@/lib/py/worker";
@@ -23,7 +24,7 @@ export async function writeReferenceOnce(name: string, text: string): Promise<bo
 }
 
 /** Verweigert, bevor etwas landet — die Route antwortet darauf mit 409. */
-export class ReferenceRefused extends Error {}
+export class ReferenceRefused extends Contested {}
 
 function backupName(stamp: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -61,9 +62,9 @@ export async function saveReference(name: string, text: string, replace: boolean
   writing.add(file);
   try {
     const { sans, problem } = await parseReference(text);
-    if (sans === null) throw new Error(problem ?? "the PGN cannot be read");
+    if (sans === null) throw new BadRequest(problem ?? "the PGN cannot be read");
     const plies = sans.length;
-    if (plies === 0) throw new Error("the PGN holds no moves");
+    if (plies === 0) throw new BadRequest("the PGN holds no moves");
 
     const before = await stampOf(file);
     if (before !== null && !replace) throw new ReferenceRefused("reference.pgn exists — replace must be explicit");

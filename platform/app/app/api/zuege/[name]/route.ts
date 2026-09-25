@@ -1,5 +1,5 @@
 import { claimHeavyLock, releaseHeavyLock } from "@/lib/chain/heavy-lock";
-import { PyWorkerDown } from "@/lib/py/worker";
+import { errorJson, jsonBody } from "@/lib/http-error";
 import { writeConfirmation } from "@/lib/session-store/recordings";
 import { enqueueChain, holdExport, releaseExportHold } from "@/lib/chain/jobs";
 import { EXPORT_HOLD_MS } from "@/lib/label/zuege";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;
   try {
-    const body = (await request.json()) as { action?: string; kept?: unknown };
+    const body = await jsonBody<{ action?: string; kept?: unknown }>(request);
     const kept = (Array.isArray(body.kept) ? body.kept.filter((v) => Number.isInteger(v)) : []) as number[];
 
     if (body.action === "reexport") return await reexport(name);
@@ -31,8 +31,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
     const held = await holdExport(name, EXPORT_HOLD_MS);
     return Response.json({ reviewed_plies: plies, notBefore: held.notBefore, holdMs: EXPORT_HOLD_MS });
   } catch (error) {
-    if (error instanceof PyWorkerDown) return Response.json({ error: error.message }, { status: 500 });
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }
 

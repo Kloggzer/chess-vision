@@ -1,3 +1,4 @@
+import { errorJson } from "@/lib/http-error";
 import { isJobStep } from "@/lib/job-steps";
 import { drainStatus, startDrain, stopDrain } from "@/lib/chain/drain";
 
@@ -9,7 +10,7 @@ export async function GET() {
   try {
     return Response.json(await drainStatus());
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }
 
@@ -31,6 +32,6 @@ export async function POST(request: Request) {
     if ("error" in started) return Response.json({ error: started.error }, { status: 409 });
     return Response.json(await drainStatus());
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }

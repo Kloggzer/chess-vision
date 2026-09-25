@@ -3,6 +3,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
+import { BadRequest } from "@/lib/http-error";
 import { gameDir } from "@/lib/session-store/recordings";
 import { serialize } from "@/lib/serialize";
 
@@ -56,7 +57,7 @@ export async function setUseless(
     let next: UselessFlag | null;
     if (useless) {
       const text = (reason ?? "").trim();
-      if (text.length > REASON_MAX) throw new Error(`reason longer than ${REASON_MAX} characters`);
+      if (text.length > REASON_MAX) throw new BadRequest(`reason longer than ${REASON_MAX} characters`);
       next = { at: now(), ...(text ? { reason: text } : {}) };
     } else {
       if (!current) return null;

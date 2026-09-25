@@ -1,6 +1,6 @@
 import { CUT_MIME, mattePng } from "@/lib/session-store/crops";
 import { clearAlpha, restoreAlpha, saveFixedAlpha } from "@/lib/chain/matte-edit";
-import { isMissing } from "@/lib/measurement";
+import { errorJson, errorText } from "@/lib/http-error";
 
 /** The frame's alpha as a greyscale field, aligned with `/api/board/<name>/<stem>` of the same size. */
 export async function GET(
@@ -17,8 +17,7 @@ export async function GET(
       headers: { "content-type": CUT_MIME, "cache-control": "no-cache" },
     });
   } catch (error) {
-    // "nicht da" ist 404, alles andere 500: sonst zeigt die Lane ein kaputtes Alpha als "keine Matte".
-    return new Response(String(error), { status: isMissing(error) ? 404 : 500 });
+    return errorText(error);
   }
 }
 
@@ -55,6 +54,6 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
   } catch (error) {
     // Ein gescheiterter Schreibvorgang ist nicht die Schuld der Maske: unter 400 schickte die Lane
     // den Menschen zum Nachmalen, waehrend in Wahrheit nichts auf die Platte kam.
-    return Response.json({ error: String(error) }, { status: 500 });
+    return errorJson(error);
   }
 }

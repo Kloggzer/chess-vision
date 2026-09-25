@@ -4,6 +4,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { Contested } from "@/lib/atomic";
+import { BadRequest } from "@/lib/http-error";
 import { absentOnly, exists } from "@/lib/measurement";
 import { parseReference, type Reference } from "@/lib/py/ops";
 import { PyOpFailed, pyCall } from "@/lib/py/worker";
@@ -41,7 +42,7 @@ const NAME = /^[A-Za-z0-9._-]+$/;
 
 /** Every URL segment that becomes a path component goes through here. */
 export function checkName(value: string, what = "name"): string {
-  if (!NAME.test(value) || value === "." || value === "..") throw new Error(`bad ${what}: ${value}`);
+  if (!NAME.test(value) || value === "." || value === "..") throw new BadRequest(`bad ${what}: ${value}`);
   return value;
 }
 
@@ -232,7 +233,7 @@ export const confirmedAgainst = (doc: Pick<Candidate, "confirmed_at" | "confirme
   pyCall<ConfirmedAgainst>("confirmed_against", { candidate: doc, reference_md5: current });
 
 /** Die Seite zeigte eine andere `reference.pgn` als die, gegen die jetzt geurteilt wuerde. */
-export class ReferenceMoved extends Error {}
+export class ReferenceMoved extends Contested {}
 
 /** Das Urteil des Menschen, gerechnet und geschrieben von `realgames.confirm.confirm_kept` — mit dessen
  *  Riegeln. `shownReference`: md5 der angezeigten Referenz (null = keine); `undefined` = alter Client. */

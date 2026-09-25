@@ -1,3 +1,4 @@
+import { errorJson } from "@/lib/http-error";
 import { recutMatte } from "@/lib/chain/matte-edit";
 
 /**
@@ -11,6 +12,6 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
   try {
     return Response.json(await recutMatte(name));
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 500 });
+    return errorJson(error);
   }
 }

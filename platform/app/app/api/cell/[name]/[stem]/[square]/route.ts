@@ -1,5 +1,5 @@
 import { cellPng, CUT_MIME } from "@/lib/session-store/crops";
-import { isMissing } from "@/lib/measurement";
+import { errorJson } from "@/lib/http-error";
 
 /** Bounds the work a URL can ask for — a crop is a thumbnail, not a poster. */
 function size(request: Request, fallback: number): number {
@@ -21,8 +21,6 @@ export async function GET(
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
-    // "Nicht da" ist 404, alles andere 500: eine korrupte `log.jsonl` oder ein unlesbares Brett ist
-    // kein fehlender Frame.
-    return Response.json({ error: String(error) }, { status: isMissing(error) ? 404 : 500 });
+    return errorJson(error);
   }
 }

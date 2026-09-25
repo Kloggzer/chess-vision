@@ -1,3 +1,4 @@
+import { errorJson } from "@/lib/http-error";
 import { chainState } from "@/lib/chain/chain";
 import { refused, startStep } from "@/lib/chain/run";
 
@@ -20,7 +21,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/chain/[name
     }
     return Response.json(result, { status: 202 });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }
 
@@ -30,6 +31,6 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/chain/[name
   try {
     return Response.json(await chainState(name));
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }

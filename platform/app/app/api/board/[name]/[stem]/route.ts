@@ -1,5 +1,5 @@
 import { boardPng, CUT_MIME } from "@/lib/session-store/crops";
-import { isMissing } from "@/lib/measurement";
+import { errorText } from "@/lib/http-error";
 
 /** The rectified playing field of one session frame — the drilldown canvas, a8 top left. */
 export async function GET(
@@ -16,8 +16,6 @@ export async function GET(
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
-    // "nicht da" ist 404, alles andere 500 — sonst sucht der Mensch eine Aufnahme, die es gibt und
-    // deren Pixel kaputt sind.
-    return new Response(String(error), { status: isMissing(error) ? 404 : 500 });
+    return errorText(error);
   }
 }

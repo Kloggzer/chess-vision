@@ -25,7 +25,6 @@
 1 lib/chain/pack.ts  # ein unlesbarer Spielstand ist keiner, der die Session nennt
 1 lib/chain/runners.ts  # der Log eines gescheiterten Laufs: ohne ihn bleibt `exit N` der Grund
 1 lib/chain/progress.ts  # der Log-SCHWANZ meldet `null`, nicht 0
-1 lib/session-store/stored.ts  # phoneSessionSeconds: ein unlesbares session.yaml des Handys heisst "kein Nenner", keine 0
 1 lib/chain/queues.ts  # fehlende candidate.json heisst "noch nicht kandidiert" und wird so gerendert
 1 lib/chain/game-info.ts  # fehlende candidate.json ist ein eigener Zustand der Karte; die PGN wirft seit 2026-09-22 (vorher je eine Stelle in app/page.tsx und app/game/[name]/page.tsx)
 # Eingeloest 2026-09-22: die sieben Stellen der Erweiterung stehen auf `absentOnly` - nur ENOENT
