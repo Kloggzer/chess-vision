@@ -38,6 +38,8 @@ CUT_QUALITY = 92
 #: Capped by BYTES: a fixed count held 50 to 600 MB depending on resolution, next to a training run.
 RASTER_BYTES_MAX = 256 * 1024 * 1024
 CELL_BYTES_MAX = 96 * 1024 * 1024
+#: Under the web worker's 20 s deadline: the route must see the lock's refusal, not a dead worker.
+PEN_LOCK_SECONDS = 15.0
 #: A hand crossing a few of the interval's frames cannot outvote the resting board.
 MEDIAN_SAMPLES = 5
 #: What every pack of the phone's stored sessions cuts with (`manifestRow`, LabeledVideoPack.kt).
@@ -405,7 +407,7 @@ def pen_stroke(name: str, stem: str, mask: str) -> None:
         strokes = cv2.cvtColor(strokes, cv2.COLOR_GRAY2BGRA if strokes.ndim == 2 else cv2.COLOR_BGR2BGRA)
     fixed = mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}"
     # `recut_fixed` re-checks the pixels it read under this lock; held for one small read and write.
-    with locks.matte_ledger(sdir, "pen"):
+    with locks.matte_ledger(sdir, "pen", timeout=PEN_LOCK_SECONDS):
         alpha = _grey(fixed if fixed.exists() else mattes_dir(sdir) / f"{stem}.webp")
         _write_alpha(fixed, _stroked(alpha, strokes, int(row["board_size"]), int(row.get("board_border", 0))))
 
@@ -413,7 +415,7 @@ def pen_stroke(name: str, stem: str, mask: str) -> None:
 def pen_clear(name: str, stem: str) -> None:
     """Nothing there: an empty alpha of SAM's size beside SAM's cut, the same way as a stroke."""
     sdir = game_dir(name)
-    with locks.matte_ledger(sdir, "pen"):
+    with locks.matte_ledger(sdir, "pen", timeout=PEN_LOCK_SECONDS):
         alpha = _grey(mattes_dir(sdir) / f"{stem}.webp")
         _write_alpha(mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}", np.zeros_like(alpha))
 
@@ -421,5 +423,5 @@ def pen_clear(name: str, stem: str) -> None:
 def pen_restore(name: str, stem: str) -> None:
     """Back to SAM: the correction goes, SAM's cut beside it counts again."""
     sdir = game_dir(name)
-    with locks.matte_ledger(sdir, "pen"):
+    with locks.matte_ledger(sdir, "pen", timeout=PEN_LOCK_SECONDS):
         (mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}").unlink(missing_ok=True)

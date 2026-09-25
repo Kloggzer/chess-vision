@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import re
 from contextlib import contextmanager
 from pathlib import Path
@@ -57,8 +56,8 @@ def test_changed_fixed_alpha_is_not_expensively_recut_while_holding_up_the_pen(
         return {"a1": float(alpha.mean())}
 
     @contextmanager
-    def change_before_locked_check(session_dir: Path, job: str):
-        with real_ledger(session_dir, job):
+    def change_before_locked_check(session_dir: Path, job: str, **kwargs):
+        with real_ledger(session_dir, job, **kwargs):
             assert cv2.imwrite(str(fixed), np.full((8, 8), 255, np.uint8))
             yield
 
@@ -83,8 +82,8 @@ def test_changed_fixed_alpha_is_not_expensively_recut_while_holding_up_the_pen(
 
 
 def test_pen_lock_wait_budget_is_shorter_than_the_web_worker_deadline() -> None:
-    """Der Python-Lock muss vor dem Worker antworten, sonst sieht die Route nie seinen Fehler."""
-    lock_seconds = inspect.signature(locks.waiting).parameters["timeout"].default
+    """Der Stift-Lock muss vor dem Worker antworten, sonst sieht die Route nie seinen Fehler."""
+    lock_seconds = web_cuts.PEN_LOCK_SECONDS
     worker = (Path(__file__).parents[1] / "platform" / "app" / "lib" / "py" / "worker.ts").read_text(
         encoding="utf-8",
     )

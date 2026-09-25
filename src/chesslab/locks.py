@@ -223,7 +223,7 @@ def matte_publish_lock(mattes: Path) -> Path:
 
 
 @contextmanager
-def waiting(lock: Path, job: str, name: str, *, timeout: float = 15.0):
+def waiting(lock: Path, job: str, name: str, *, timeout: float = 60.0):
     """Hold `lock` for a SHORT critical section, waiting for a live holder; a dead one is reclaimed."""
     deadline = monotonic() + timeout
     token = uuid.uuid4().hex
@@ -242,6 +242,6 @@ def waiting(lock: Path, job: str, name: str, *, timeout: float = 15.0):
         release(lock, token)
 
 
-def matte_ledger(session_dir: Path, job: str):
+def matte_ledger(session_dir: Path, job: str, *, timeout: float = 60.0):
     """EVERY writer of `matte.jsonl` and its alphas holds this, briefly; not re-entrant."""
-    return waiting(matte_publish_lock(mattes_dir(session_dir)), job, Path(session_dir).name)
+    return waiting(matte_publish_lock(mattes_dir(session_dir)), job, Path(session_dir).name, timeout=timeout)
