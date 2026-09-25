@@ -478,69 +478,44 @@ def recut_fixed(
     stamp = stamp_of(path)
 
     rows: list[dict] = []
+    seen: list[tuple | None] = []
     redone = 0
     source = provenance.source(session_dir)
 
-    for row in read_jsonl(path):
-        fixed = (
-            mattes_dir(session_dir)
-            / f"{row['frame']}{FIXED_SUFFIX}"
-        )
+    def cut(row: dict) -> tuple[dict, tuple | None]:
+        fixed = mattes_dir(session_dir) / f"{row['frame']}{FIXED_SUFFIX}"
+        entry = entries.get(row["frame"])
+        if entry is None or not usable_board(entry, profile):
+            return row, None
+        seen_stamp = stamp_of(fixed)
+        if seen_stamp is None:
+            return row, None
+        fixed_image = cv2.imread(str(fixed), cv2.IMREAD_GRAYSCALE)
+        if fixed_image is None and not fixed.exists():
+            return row, None   # the pen's restore came in between; the lock below looks again
+        if fixed_image is None:
+            raise ValueError(f"{name}: corrected alpha is unreadable: {fixed}")
+        coverage = coverage_of(fixed_image.astype(np.float32) / 255.0, entry, profile)
+        # Frisch gegen die heutige Geometrie geschnitten, also traegt die Zeile den heutigen Export.
+        return row | {"coverage": coverage, "alpha": "fixed",
+                      "cells_over_half": sum(value > 0.5 for value in coverage.values()),
+                      **({"_source": source} if source else {})}, seen_stamp
 
-        entry = entries.get(
-            row["frame"],
-        )
-
-        if (
-            fixed.exists()
-            and entry is not None
-            and usable_board(entry, profile)
-        ):
-            fixed_image = cv2.imread(
-                str(fixed),
-                cv2.IMREAD_GRAYSCALE,
-            )
-
-            if fixed_image is None:
-                raise ValueError(
-                    f"{name}: corrected alpha is unreadable: {fixed}"
-                )
-
-            alpha = (
-                fixed_image.astype(np.float32)
-                / 255.0
-            )
-
-            coverage = coverage_of(
-                alpha,
-                entry,
-                profile,
-            )
-
-            row = row | {
-                "coverage": coverage,
-                "alpha": "fixed",
-                "cells_over_half": sum(
-                    value > 0.5
-                    for value in coverage.values()
-                ),
-                # Frisch gegen die heutige Geometrie geschnitten, also traegt die Zeile den heutigen
-                # Export.
-                **({"_source": source} if source else {}),
-            }
-
-            redone += 1
-
-            if progress and redone % 10 == 0:
-                print(
-                    f"[{_timestamp()}] "
-                    f"  {redone} corrected alphas recut",
-                    flush=True,
-                )
-
-        rows.append(row)
+    raw = read_jsonl(path)
+    for row in raw:
+        done, seen_stamp = cut(row)
+        seen.append(seen_stamp)
+        rows.append(done)
+        redone += seen_stamp is not None
+        if seen_stamp is not None and progress and redone % 10 == 0:
+            print(f"[{_timestamp()}]   {redone} corrected alphas recut", flush=True)
 
     with locks.matte_ledger(session_dir, "recut-fixed"):
+        # The pen holds this lock too: a stroke after our read is cut again here, never stamped stale.
+        for i, row in enumerate(raw):
+            usable = row["frame"] in entries and usable_board(entries[row["frame"]], profile)
+            if usable and stamp_of(mattes_dir(session_dir) / f"{row['frame']}{FIXED_SUFFIX}") != seen[i]:
+                rows[i], seen[i] = cut(row)
         write_rows_guarded(
             path, rows, stamp,
             what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
@@ -549,7 +524,7 @@ def recut_fixed(
     return {
         "path": path,
         "frames": len(rows),
-        "recut": redone,
+        "recut": sum(s is not None for s in seen),
     }
 
 
@@ -574,9 +549,9 @@ def matte_status(name: str) -> dict:
             "orphans": sorted(have - known)}
 
 
-def _drop(staged: list[tuple[Path, Path]]) -> None:
+def _drop(staged: list[tuple[Path, Path, int]]) -> None:
     """Die gestapelten Pixel wegwerfen — ein abgebrochener Lauf hinterlaesst nichts."""
-    for tmp, _ in staged:
+    for tmp, _, _ in staged:
         tmp.unlink(missing_ok=True)
 
 
@@ -603,7 +578,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     rows: list[dict] = []
     # Die Pixel gehen in Nachbardateien und werden ZULETZT mit dem Ledger umgehaengt: sonst trugen
     # Alphas neue Pixel und `matte.jsonl` alte `coverage`, und ein zweiter Lauf fand nichts zu tun.
-    staged: list[tuple[Path, Path]] = []
+    staged: list[tuple[Path, Path, int]] = []
     closed = crossed = added = 0
     # Jeder Abbruch raeumt die gestapelten `*.tmp.webp`, sonst zog `straighten_boards` sie gerade.
     try:
@@ -638,7 +613,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                 alpha_tmp = alpha_path.with_name(f"{alpha_path.stem}.tmp{alpha_path.suffix}")
                 if not cv2.imwrite(str(alpha_tmp), filled):
                         raise OSError(f"{name}: could not write {alpha_tmp}")
-                staged.append((alpha_tmp, alpha_path))
+                staged.append((alpha_tmp, alpha_path, len(rows)))
                 row = row | {"coverage": coverage,
                              "cells_over_half": sum(v > 0.5 for v in coverage.values())}
             rows.append(row)
@@ -651,10 +626,19 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                     path, rows, stamp,
                     what=f"{name}: matte.jsonl changed while closing seams — the alpha worker "
                          "is writing it. Let it finish and run this again.")
-                # Nur noch Umbenennungen, Millisekunden. Atomar ueber N+1 Dateien ist es nicht
-                # (dafuer braeuchte es ein Journal).
-                for tmp, final in staged:
-                    tmp.replace(final)
+                mine = stamp_of(path)
+                failed: dict[int, OSError] = {}
+                for tmp, final, i in staged:
+                    try:
+                        tmp.replace(final)
+                    except OSError as error:   # Windows: a web cut still reads the alpha
+                        failed[i] = error
+                if failed:
+                    # Ledger and pixels must agree: the frames still on their old alpha get their old row back.
+                    write_rows_guarded(path, [raw[i] if i in failed else r for i, r in enumerate(rows)],
+                                       mine, what=f"{name}: matte.jsonl changed while retracting seams")
+                    raise OSError(f"{name}: could not place {len(failed)} closed alphas; their rows are "
+                                  "retracted, run this again") from next(iter(failed.values()))
     except BaseException:
         _drop(staged)
         raise

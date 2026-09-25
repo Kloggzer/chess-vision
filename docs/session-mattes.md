@@ -73,6 +73,7 @@ statt Union.
 2026-09-25): Alpha-Worker, adopt, upsert, recut, close_seams, prune, Trim. Nur um Ledger und
 Umbenennen, nie um SAM; Pixel erst nach ihrer Zeile, ein gescheitertes Umbenennen nimmt die Zeile
 zurueck. Der Worker haelt kein Append-Handle mehr offen (Windows verweigerte das Ersetzen).
+Der Web-Stift haelt ihn um `.fixed.webp`, `recut_fixed` prueft darunter die gelesenen Pixel erneut; Web-Schnitte bleiben draussen.
 
 **SAMs Absage ist kein sauberes Brett.** Eine `matte.jsonl`-Zeile mit `skipped` (`zone too big`)
 trägt WEDER `concepts` NOCH `coverage`. Zweimal als "nichts gefunden" gelesen: `gate_label` lehrte

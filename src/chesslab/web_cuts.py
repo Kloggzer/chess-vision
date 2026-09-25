@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import config
+from . import config, locks
 from .calibration import (
     CalibrationProfile,
     CropParams,
@@ -404,17 +404,22 @@ def pen_stroke(name: str, stem: str, mask: str) -> None:
     if strokes.ndim == 2 or strokes.shape[2] != 4:
         strokes = cv2.cvtColor(strokes, cv2.COLOR_GRAY2BGRA if strokes.ndim == 2 else cv2.COLOR_BGR2BGRA)
     fixed = mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}"
-    alpha = _grey(fixed if fixed.exists() else mattes_dir(sdir) / f"{stem}.webp")
-    _write_alpha(fixed, _stroked(alpha, strokes, int(row["board_size"]), int(row.get("board_border", 0))))
+    # `recut_fixed` re-checks the pixels it read under this lock; held for one small read and write.
+    with locks.matte_ledger(sdir, "pen"):
+        alpha = _grey(fixed if fixed.exists() else mattes_dir(sdir) / f"{stem}.webp")
+        _write_alpha(fixed, _stroked(alpha, strokes, int(row["board_size"]), int(row.get("board_border", 0))))
 
 
 def pen_clear(name: str, stem: str) -> None:
     """Nothing there: an empty alpha of SAM's size beside SAM's cut, the same way as a stroke."""
     sdir = game_dir(name)
-    alpha = _grey(mattes_dir(sdir) / f"{stem}.webp")
-    _write_alpha(mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}", np.zeros_like(alpha))
+    with locks.matte_ledger(sdir, "pen"):
+        alpha = _grey(mattes_dir(sdir) / f"{stem}.webp")
+        _write_alpha(mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}", np.zeros_like(alpha))
 
 
 def pen_restore(name: str, stem: str) -> None:
     """Back to SAM: the correction goes, SAM's cut beside it counts again."""
-    (mattes_dir(game_dir(name)) / f"{stem}{FIXED_SUFFIX}").unlink(missing_ok=True)
+    sdir = game_dir(name)
+    with locks.matte_ledger(sdir, "pen"):
+        (mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}").unlink(missing_ok=True)
