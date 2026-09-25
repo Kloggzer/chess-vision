@@ -443,6 +443,10 @@ def recut_coverage(
     return {"name": name, "frames": len(rows), "recut": recut, "crossed": crossed}
 
 
+#: A human still painting moves the alpha under the recut; after this many passes, give up loudly.
+RECUT_ATTEMPTS = 3
+
+
 def recut_fixed(
     name: str,
     *,
@@ -510,16 +514,26 @@ def recut_fixed(
         if seen_stamp is not None and progress and redone % 10 == 0:
             print(f"[{_timestamp()}]   {redone} corrected alphas recut", flush=True)
 
-    with locks.matte_ledger(session_dir, "recut-fixed"):
-        # The pen holds this lock too: a stroke after our read is cut again here, never stamped stale.
-        for i, row in enumerate(raw):
-            usable = row["frame"] in entries and usable_board(entries[row["frame"]], profile)
-            if usable and stamp_of(mattes_dir(session_dir) / f"{row['frame']}{FIXED_SUFFIX}") != seen[i]:
-                rows[i], seen[i] = cut(row)
-        write_rows_guarded(
-            path, rows, stamp,
-            what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
-                 "is writing it. Let it finish and run this again; nothing was written.")
+    def moved() -> list[int]:
+        return [i for i, row in enumerate(raw)
+                if row["frame"] in entries and usable_board(entries[row["frame"]], profile)
+                and stamp_of(mattes_dir(session_dir) / f"{row['frame']}{FIXED_SUFFIX}") != seen[i]]
+
+    # The pen holds this lock too: a stroke after our read is cut again OUTSIDE it (the pen must not
+    # wait on a recut), then checked once more; never stamped stale.
+    for _ in range(RECUT_ATTEMPTS):
+        with locks.matte_ledger(session_dir, "recut-fixed"):
+            again = moved()
+            if not again:
+                write_rows_guarded(
+                    path, rows, stamp,
+                    what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
+                         "is writing it. Let it finish and run this again; nothing was written.")
+                break
+        for i in again:
+            rows[i], seen[i] = cut(raw[i])
+    else:
+        raise RuntimeError(f"{name}: corrected alphas kept changing while recutting — run it again")
 
     return {
         "path": path,

@@ -223,7 +223,7 @@ def matte_publish_lock(mattes: Path) -> Path:
 
 
 @contextmanager
-def waiting(lock: Path, job: str, name: str, *, timeout: float = 60.0):
+def waiting(lock: Path, job: str, name: str, *, timeout: float = 15.0):
     """Hold `lock` for a SHORT critical section, waiting for a live holder; a dead one is reclaimed."""
     deadline = monotonic() + timeout
     token = uuid.uuid4().hex
