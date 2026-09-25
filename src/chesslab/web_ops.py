@@ -209,6 +209,8 @@ def confirmed_against(candidate: dict, reference_md5: str | None) -> str:
 
 #: Read-only and cv2-bound (cv2 drops the GIL): these run side by side, every other op in order.
 PARALLEL_OPS = frozenset({"cut_cell", "cut_board", "cut_matte"})
+#: What a cut reads: a cut sent after one of these waits until it is done.
+WRITE_OPS = frozenset({"pen", "confirm"})
 
 OPS: dict[str, Callable[..., object]] = {
     "ping": ping,

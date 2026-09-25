@@ -190,11 +190,17 @@ def _session(name: str) -> tuple[Path, _Session]:
     return sdir, hit[1]
 
 
+def _leaves(rel: Path) -> bool:
+    """`anchor`, not `is_absolute`: on Windows a rooted path without drive, or `C:x`, is not absolute
+    and still leaves the folder."""
+    return bool(rel.anchor) or ".." in rel.parts
+
+
 def _board_of(sdir: Path, name: str, stem: str, row: dict | None) -> Path:
     if not row or not row.get("board") or not row.get("board_size"):
         raise BoardUnusable(f"{name}/{stem}: row carries no board — re-export the recording")
     rel = Path(row["board"])
-    if rel.is_absolute() or ".." in rel.parts:
+    if _leaves(rel):
         raise ValueError(f"{name}/{stem}: board path {row['board']!r} leaves the recording")
     file = sdir / rel
     # Only a missing file means re-export; an EACCES would send the human into one for nothing.
@@ -301,12 +307,13 @@ def _stored_quad(sdir: Path, row: dict):
 def _stored_board(name: str, stem: str):
     sdir, row = _stored_find(name, stem)
     rel = Path(row["frame"])
-    if rel.is_absolute() or ".." in rel.parts:
+    if _leaves(rel):
         raise ValueError(f"{name}/{stem}: frame path {row['frame']!r} leaves the session")
     frame_file = sdir / rel
     corners, margin, mesh, fit_stamp = _stored_quad(sdir, row)
     prof = _profile(STORED_BOARD, STORED_PAD, margin)
-    key = ("stored", frame_file, _stamp(frame_file), fit_stamp)
+    # The quad in the key: a re-pulled log moves the corners of a frame whose JPEG stayed the same.
+    key = ("stored", frame_file, _stamp(frame_file), fit_stamp, json.dumps(corners), margin)
     hit = _rasters.get(key)
     if hit is None:
         with _flight(key):

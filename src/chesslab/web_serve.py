@@ -10,7 +10,7 @@ import contextlib
 import json
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import TextIO
 
 #: A browser opens ~6 connections per host; more threads would only queue behind them.
@@ -43,16 +43,21 @@ def _run(request: dict) -> dict:
 
 
 def serve(stdin: TextIO, stdout: TextIO) -> None:
-    from .web_ops import PARALLEL_OPS, preload
+    from .web_ops import PARALLEL_OPS, WRITE_OPS, preload
 
     lock = threading.Lock()
     loaded = False
+    last_write: Future | None = None
 
     def emit(reply: dict) -> None:
         line = json.dumps(reply, ensure_ascii=False, separators=(",", ":")) + "\n"
         with lock:
             stdout.write(line)
             stdout.flush()
+
+    def after(earlier: list[Future], request: dict) -> None:
+        wait(earlier)
+        emit(_run(request))
 
     # Once for the whole loop: a per-request redirect swaps `sys.stdout` under the other threads.
     # A stray `print` in an op would be read as the answer line.
@@ -70,8 +75,12 @@ def serve(stdin: TextIO, stdout: TextIO) -> None:
             if not loaded and request["op"] != "ping":
                 preload()
                 loaded = True
-            lane = cuts if request["op"] in PARALLEL_OPS else ordered
-            lane.submit(lambda r=request: emit(_run(r)))
+            # A cut never overtakes a write sent before it; cuts among themselves stay parallel.
+            if request["op"] in PARALLEL_OPS:
+                cuts.submit(after, [last_write] if last_write else [], request)
+            else:
+                done = ordered.submit(after, [], request)
+                last_write = done if request["op"] in WRITE_OPS else last_write
 
 
 def main() -> None:
