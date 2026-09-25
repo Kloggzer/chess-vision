@@ -6,9 +6,13 @@ import { isMissing } from "@/lib/measurement";
 /** Die Anfrage selbst ist falsch; die einzige Quelle einer 400. */
 export class BadRequest extends Error {}
 
+/** Structural, not `instanceof PyOpFailed`: the core layer may not import `py/`. */
+const pythonMissing = (error: unknown): boolean =>
+  error instanceof Error && (error as { kind?: unknown }).kind === "FileNotFoundError";
+
 export function errorStatus(error: unknown): number {
   if (error instanceof BadRequest) return 400;
-  if (isMissing(error)) return 404;
+  if (isMissing(error) || pythonMissing(error)) return 404;
   if (error instanceof Contested) return 409;
   return 500;
 }
@@ -20,9 +24,12 @@ export const errorText = (error: unknown): Response => new Response(String(error
 
 /** Ein Rumpf ohne JSON ist ein Fehler des Clients, kein `SyntaxError` des Servers. */
 export async function jsonBody<T>(request: Request): Promise<T> {
+  let body: unknown;
   try {
-    return (await request.json()) as T;
+    body = await request.json();
   } catch (error) {
     throw new BadRequest(`Rumpf ist kein JSON: ${String(error)}`);
   }
+  if (typeof body !== "object" || body === null) throw new BadRequest("Rumpf ist kein JSON-Objekt");
+  return body as T;
 }
