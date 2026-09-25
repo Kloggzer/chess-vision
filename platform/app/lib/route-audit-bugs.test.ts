@@ -79,7 +79,7 @@ describe("POST /api/corrections for a session that does not exist", () => {
       await readdir(path.join(root, "recordings")),
       "BUG: appendCorrections legte eine Phantom-Aufnahme an, die danach in jeder Lane auftaucht",
     ).toEqual(["rec-1"]);
-    expect(answer.status).toBe(400);
+    expect(answer.status, "die genannte Aufnahme fehlt: 404 (lib/http-error.ts)").toBe(404);
   });
 
   it("keeps writing the rows of a recording that does exist", async () => {
@@ -106,7 +106,7 @@ describe("POST /api/unusable-cells for a session that does not exist", () => {
       await readdir(path.join(root, "recordings")),
       "BUG: appendUnusableCells legt dieselbe Phantom-Aufnahme an wie /api/corrections",
     ).toEqual(["rec-1"]);
-    expect(answer.status).toBe(400);
+    expect(answer.status, "die genannte Aufnahme fehlt: 404 (lib/http-error.ts)").toBe(404);
   });
 });
 
@@ -233,7 +233,7 @@ test.each([
 
 test("board: ein unlesbares exportiertes Brett ist 500, eine Aufnahme ohne Export 404", async () => {
   const dir = await writeSession({
-    root, name: "kaputt", moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }],
+    root, name: "kaputt", moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }], rows: [{ frame: 100 }],
   });
   await mkdir(path.join(dir, "boards"), { recursive: true });
   await writeFile(path.join(dir, "boards", `${stemOf(100)}.webp`), "kein bild", "utf8");

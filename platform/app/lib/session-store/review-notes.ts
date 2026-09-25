@@ -2,6 +2,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { appendRows, writeFileAtomic } from "@/lib/atomic";
+import { BadRequest } from "@/lib/http-error";
 import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/session-store/recordings";
 import { readJsonl, stripBom } from "@/lib/jsonl";
@@ -30,7 +31,7 @@ export function reviewNotesPath(): string {
 
 export function validateNote(row: unknown): ReviewNote {
   const r = row as { session_id?: unknown; frame?: unknown; ply?: unknown; verdict?: unknown; reason?: unknown };
-  if (!r || typeof r !== "object") throw new Error("row is not an object");
+  if (!r || typeof r !== "object") throw new BadRequest("row is not an object");
   checkName(String(r.session_id), "session_id");
   const reason = r.reason === undefined ? {} : { reason: String(r.reason) };
   if (FRAME_VERDICTS.includes(r.verdict as FrameVerdict)) {
@@ -42,10 +43,10 @@ export function validateNote(row: unknown): ReviewNote {
     // sonst als Urteil ueber Halbzug 0.
     const given = typeof r.ply === "number" || (typeof r.ply === "string" && r.ply.trim() !== "");
     const ply = given ? Number(r.ply) : Number.NaN;
-    if (!Number.isInteger(ply) || ply < 0) throw new Error(`bad ply: ${String(r.ply)}`);
+    if (!Number.isInteger(ply) || ply < 0) throw new BadRequest(`bad ply: ${String(r.ply)}`);
     return { session_id: String(r.session_id), ply, verdict: "bad-interval", ...reason };
   }
-  throw new Error(`bad verdict: ${r.verdict}`);
+  throw new BadRequest(`bad verdict: ${r.verdict}`);
 }
 
 export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {

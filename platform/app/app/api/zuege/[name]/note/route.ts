@@ -1,3 +1,4 @@
+import { BadRequest, errorJson, jsonBody } from "@/lib/http-error";
 import { appendReviewNotes } from "@/lib/session-store/review-notes";
 import { sessionId } from "@/lib/session-store/session";
 
@@ -9,16 +10,16 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;
   try {
-    const body = (await request.json()) as { ply?: unknown; reason?: unknown };
+    const body = await jsonBody<{ ply?: unknown; reason?: unknown }>(request);
     // `Number(null)` ist 0 und `Number(true)` ist 1: ein Koerper ohne `ply` landete sonst als
     // Urteil ueber Halbzug 0.
     const given = typeof body.ply === "number" || (typeof body.ply === "string" && body.ply.trim());
     const ply = given ? Number(body.ply) : Number.NaN;
-    if (!Number.isInteger(ply) || ply < 0) throw new Error(`bad ply: ${String(body.ply)}`);
+    if (!Number.isInteger(ply) || ply < 0) throw new BadRequest(`bad ply: ${String(body.ply)}`);
     const reason = typeof body.reason === "string" && body.reason.trim() ? { reason: body.reason.trim() } : {};
     await appendReviewNotes([{ session_id: sessionId(name), ply, verdict: "bad-interval", ...reason }]);
     return Response.json({ noted: true, session_id: sessionId(name), ply });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }

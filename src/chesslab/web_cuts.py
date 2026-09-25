@@ -31,6 +31,7 @@ from .labeling import crop_square
 from .matte import FIXED_SUFFIX
 from .session_store.names import log_path, mattes_dir
 from .session_store.recording import QUAD_FIT_NAME, candidate_path, game_dir
+from .web_ops import Missing
 
 #: JPEG q92, not WebP: cv2 encodes a 128 px cell in 0.04 ms against 1.3 (720 px board: 1.1 against
 #: 39) for 4.3 KB against 2.7 — sixty cells a page, the encoder is the page's latency.
@@ -194,6 +195,20 @@ def _session(name: str) -> tuple[Path, _Session]:
     return sdir, hit[1]
 
 
+def _row(session: _Session, name: str, stem: str) -> dict:
+    row = session.rows.get(stem)
+    if row is None:
+        raise Missing(f"no frame {stem} in {name}/log.jsonl")
+    return row
+
+
+def _alpha(path: Path, name: str, stem: str):
+    try:
+        return _grey(path)
+    except FileNotFoundError:
+        raise Missing(f"{name}/{stem}: no alpha") from None
+
+
 def _leaves(rel: Path) -> bool:
     """`anchor`, not `is_absolute`: on Windows a rooted path without drive, or `C:x`, is not absolute
     and still leaves the folder."""
@@ -229,7 +244,7 @@ def _unexported(name: str) -> bool:
 
 def _session_cell(name: str, stem: str, square: str, size: int):
     sdir, session = _session(name)
-    row = session.rows.get(stem)
+    row = _row(session, name, stem)
     board = _board_of(sdir, name, stem, row)
     key = (session.key, stem, square, size, _stamp(board))
     hit = _cells.get(key)
@@ -241,8 +256,8 @@ def _session_cell(name: str, stem: str, square: str, size: int):
 
 def _median(name: str, stem: str, square: str, size: int) -> str:
     sdir, session = _session(name)
-    row = session.rows.get(stem)
-    stems = session.plies.get(row.get("ply"), [stem]) if row else [stem]
+    row = _row(session, name, stem)
+    stems = session.plies.get(row.get("ply"), [stem])
     n = len(stems)
     take = min(MEDIAN_SAMPLES, n)
     # Evenly over the WHOLE interval: its front is where the hand is still withdrawing. Half UP, not
@@ -261,13 +276,19 @@ def _row_cell(session: _Session, row: dict, board: Path, square: str, size: int)
 
 def _session_board(name: str, stem: str, size: int, alpha: bool = False) -> str:
     sdir, session = _session(name)
-    row = session.rows.get(stem)
+    row = _row(session, name, stem)
     file = _board_of(sdir, name, stem, row)
     if alpha:
         # The matte IS the board's raster, pulled straight with it: the same field cut overlays it.
         fixed = mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}"
         file = fixed if fixed.exists() else mattes_dir(sdir) / f"{stem}.webp"
-    return _encode(_field(_raster(file), int(row["board_size"]), int(row.get("board_border", 0)), size))
+    try:
+        raster = _raster(file)
+    except FileNotFoundError:
+        if not alpha:
+            raise
+        raise Missing(f"{name}/{stem}: no alpha") from None
+    return _encode(_field(raster, int(row["board_size"]), int(row.get("board_border", 0)), size))
 
 
 # --- the phone's stored sessions (`files/sessions/<id>/`) ---------------------------------------
@@ -290,7 +311,7 @@ def _stored_find(name: str, stem: str) -> tuple[Path, dict]:
             continue
         if stem in rows:
             return sdir, rows[stem]
-    raise FileNotFoundError(f"no stored frame {stem} in {name}")
+    raise Missing(f"no stored frame {stem} in {name}")
 
 
 def _stored_quad(sdir: Path, row: dict):
@@ -348,6 +369,8 @@ def cut_board(name: str, stem: str, size: int) -> str:
 
 def cut_matte(name: str, stem: str, size: int) -> str:
     """The frame's alpha, aligned with `cut_board` of the same size; the correction when there is one."""
+    if _unexported(name):
+        raise Missing(f"{name}: never exported, no alpha")
     return _session_board(name, stem, size, alpha=True)
 
 
@@ -396,9 +419,11 @@ def _grey(path: Path):
 def pen_stroke(name: str, stem: str, mask: str) -> None:
     """The strokes (base64 PNG, RGBA, in `/api/matte` coordinates) on top of the CORRECTION when there is
     one — the pen sends only the new stroke after a reset."""
+    if _unexported(name):
+        raise Missing(f"{name}: never exported, no alpha")
     sdir, session = _session(name)
-    row = session.rows.get(stem)
-    if not row or not row.get("board") or not row.get("board_size"):
+    row = _row(session, name, stem)
+    if not row.get("board") or not row.get("board_size"):
         raise BoardUnusable(f"frame {stem} carries no stored board")
     strokes = cv2.imdecode(np.frombuffer(base64.b64decode(mask), np.uint8), cv2.IMREAD_UNCHANGED)
     if strokes is None:
@@ -408,7 +433,7 @@ def pen_stroke(name: str, stem: str, mask: str) -> None:
     fixed = mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}"
     # `recut_fixed` re-checks the pixels it read under this lock; held for one small read and write.
     with locks.matte_ledger(sdir, "pen", timeout=PEN_LOCK_SECONDS):
-        alpha = _grey(fixed if fixed.exists() else mattes_dir(sdir) / f"{stem}.webp")
+        alpha = _alpha(fixed if fixed.exists() else mattes_dir(sdir) / f"{stem}.webp", name, stem)
         _write_alpha(fixed, _stroked(alpha, strokes, int(row["board_size"]), int(row.get("board_border", 0))))
 
 
@@ -416,7 +441,7 @@ def pen_clear(name: str, stem: str) -> None:
     """Nothing there: an empty alpha of SAM's size beside SAM's cut, the same way as a stroke."""
     sdir = game_dir(name)
     with locks.matte_ledger(sdir, "pen", timeout=PEN_LOCK_SECONDS):
-        alpha = _grey(mattes_dir(sdir) / f"{stem}.webp")
+        alpha = _alpha(mattes_dir(sdir) / f"{stem}.webp", name, stem)
         _write_alpha(mattes_dir(sdir) / f"{stem}{FIXED_SUFFIX}", np.zeros_like(alpha))
 
 

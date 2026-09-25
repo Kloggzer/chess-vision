@@ -3,6 +3,7 @@
  *  undo is a superseding row. The rows are GLOBAL training input, so the writer validates. */
 import { readFile } from "node:fs/promises";
 import { appendRows } from "@/lib/atomic";
+import { BadRequest } from "@/lib/http-error";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { checkName, gameDir, requireRecording } from "@/lib/session-store/recordings";
@@ -36,13 +37,13 @@ export function correctionsPath(name: string): string {
 
 export function validate(row: unknown): Correction {
   const r = row as Partial<Correction>;
-  if (!r || typeof r !== "object") throw new Error("row is not an object");
+  if (!r || typeof r !== "object") throw new BadRequest("row is not an object");
   checkName(String(r.session_id), "session_id");
   checkName(String(r.frame), "frame");
-  if (!SQUARE.test(String(r.square))) throw new Error(`bad square: ${r.square}`);
+  if (!SQUARE.test(String(r.square))) throw new BadRequest(`bad square: ${r.square}`);
   // Reads keep the legacy rows; a WRITE may only say one of the 13. Occlusion comes from
   // `matte.jsonl` now, and a hand-painted 14th class would contradict a measured `coverage`.
-  if (!isIdentity(String(r.label))) throw new Error(`bad label: ${r.label}`);
+  if (!isIdentity(String(r.label))) throw new BadRequest(`bad label: ${r.label}`);
   return {
     session_id: r.session_id as string,
     frame: r.frame as string,

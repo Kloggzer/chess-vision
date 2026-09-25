@@ -1,3 +1,4 @@
+import { BadRequest, errorJson, jsonBody } from "@/lib/http-error";
 import { adoptDirty } from "@/lib/chain/adopt-dirty";
 import { recordingName } from "@/lib/session-store/session";
 import { appendReviewNotes, dropReviewNotes, validateNote } from "@/lib/session-store/review-notes";
@@ -5,8 +6,8 @@ import { appendReviewNotes, dropReviewNotes, validateNote } from "@/lib/session-
 /** A verdict, never a label: nothing here reaches `corrections.jsonl` (CONCEPT.md 8c). */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { rows?: unknown; retract?: unknown };
-    if (!Array.isArray(body.rows)) throw new Error("rows fehlt oder ist kein Array");
+    const body = await jsonBody<{ rows?: unknown; retract?: unknown }>(request);
+    if (!Array.isArray(body.rows)) throw new BadRequest("rows fehlt oder ist kein Array");
     const rows = body.rows.map(validateNote);
     const retract = body.retract === true;
     const written = retract ? await dropReviewNotes(rows) : await appendReviewNotes(rows);
@@ -17,6 +18,6 @@ export async function POST(request: Request) {
     const adoptFailed = starts.flatMap((s) => (s.started ? [] : [`adopt-dirty ${s.name}: ${s.error}`]));
     return Response.json(retract && names.length === 0 ? { written } : { written, adoptFailed });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }

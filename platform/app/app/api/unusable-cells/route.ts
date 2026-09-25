@@ -1,3 +1,4 @@
+import { BadRequest, errorJson, jsonBody } from "@/lib/http-error";
 import { appendUnusableCells, validateCell } from "@/lib/session-store/unusable-cells";
 
 /**
@@ -6,11 +7,11 @@ import { appendUnusableCells, validateCell } from "@/lib/session-store/unusable-
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { rows?: unknown };
-    if (!Array.isArray(body.rows)) throw new Error("rows fehlt oder ist kein Array");
+    const body = await jsonBody<{ rows?: unknown }>(request);
+    if (!Array.isArray(body.rows)) throw new BadRequest("rows fehlt oder ist kein Array");
     const rows = body.rows.map(validateCell);
     return Response.json({ written: await appendUnusableCells(rows) });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }

@@ -110,7 +110,11 @@ export async function startDrain(step: DrainTarget): Promise<{ started: string }
   clearAdoptFailures();
   const drain: Drain = { step, started: new Set(), stopped: false };
   engine.drain = drain;
-  const first = await drainNext(drain).catch((error: unknown) => ({ error: String(error) }));
+  // Nur eine Absage ist ein Konflikt; wirft der Weg dahin (Worker tot, Platte), antwortet die Route 500.
+  const first = await drainNext(drain).catch((error: unknown) => {
+    engine.drain = null;
+    throw error;
+  });
   if (first === null || "error" in first) {
     engine.drain = null;
     return first ?? { error: "nichts wartet auf diesen Schritt" };

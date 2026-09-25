@@ -48,9 +48,12 @@ Korpus-Pool. Die Services lesen dafuer nicht selbst, sie fragen den Worker — g
   die Fehlerklassen (`Contested`, `isMissing`, `absentOnly`). Waechter: `lib/route-boundary.test.ts`.
   Umgestellt: `POST /api/pgn` (Logik jetzt `session-store/reference.ts#saveReference`), die
   Confirm-Seite (`readReferenceBytes`), die Board-Route (`hasExport`).
-- **HTTP-Fehler an EINER Stelle** (`lib/http-error.ts`, 2026-09-25): `BadRequest` -> 400, ENOENT
-  -> 404, `Contested` -> 409, alles andere (auch `PyOpFailed`, `PyWorkerDown`) -> 500. Offen:
-  `startDrain` macht jeden Fehler zu 409; Routen ohne roten Test behalten ihr pauschales 400.
+- **HTTP-Fehler an EINER Stelle** (`lib/http-error.ts`, 2026-09-25): `BadRequest` -> 400, `NotFound`,
+  ENOENT und Pythons `Missing` -> 404, `Contested` -> 409, alles andere (auch `PyWorkerDown` und ein
+  nackter `FileNotFoundError` aus Python — eine interne Datei fehlt) -> 500. `Missing` werfen nur die
+  Eingaenge in `web_ops.py`/`web_cuts.py` (Aufnahme, Frame, Alpha, Kandidat). `startDrain` meldet
+  nur Absagen als 409. Bewusst ausserhalb: `api/ingest/**` (Handy liest den Status). Waechter:
+  `lib/qa-20260925-offen-*.test.ts`, `tests/test_qa_20260925_offen.py`.
 - Lesen weiter ueber `lib/jsonl.ts`, Schreiben ueber `lib/atomic.ts` mit Stempel-Riegel,
   ENOENT ueber `lib/measurement.ts` — die Ratschen (`*.txt`) zogen beim Umzug nur die Pfade mit.
 - `lib/client-boundary.test.ts` kennt Module jetzt am Pfad unter `lib/` statt am Dateinamen —

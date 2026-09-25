@@ -1,3 +1,4 @@
+import { errorJson } from "@/lib/http-error";
 import { deleteSession, deletionCost } from "@/lib/chain/session-delete";
 
 /**
@@ -17,6 +18,6 @@ export async function POST(request: Request, ctx: RouteContext<"/api/session/[id
     const answer = await deleteSession(id);
     return "error" in answer ? Response.json(answer, { status: 400 }) : Response.json(answer);
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }

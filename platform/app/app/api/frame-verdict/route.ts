@@ -1,4 +1,4 @@
-import { Contested } from "@/lib/atomic";
+import { BadRequest, errorJson, jsonBody } from "@/lib/http-error";
 import { flagFrame } from "@/lib/session-store/frame-flag";
 import { appendReviewNotes, validateNote } from "@/lib/session-store/review-notes";
 import { recordingName } from "@/lib/session-store/session";
@@ -10,7 +10,7 @@ import { recordingName } from "@/lib/session-store/session";
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { session_id?: unknown; frame?: unknown; verdict?: unknown };
+    const body = await jsonBody<{ session_id?: unknown; frame?: unknown; verdict?: unknown }>(request);
     // `String(undefined)` ist "undefined", und `checkName` laesst das Wort durch: ein Koerper ohne
     // `session_id` schrieb so ein Urteil ueber Frame "undefined" der Sitzung "undefined" — mit 200.
     const session_id = text(body.session_id, "session_id");
@@ -19,18 +19,17 @@ export async function POST(request: Request) {
     if (body.verdict === "unusable") {
       return Response.json(await flagFrame(name, frame, true));
     }
-    if (body.verdict !== "matte") throw new Error(`bad verdict: ${body.verdict}`);
+    if (body.verdict !== "matte") throw new BadRequest(`bad verdict: ${body.verdict}`);
     // Alte Zeilen tragen "Strittige Frames" — falsch, die Lane ruft hier nie an; nachtragen
     // koennen wir sie nicht, der Zettel ist das Protokoll.
     const rows = [validateNote({ session_id, frame, verdict: "matte-wanted", reason: "Labeln-Strom" })];
     return Response.json({ written: await appendReviewNotes(rows) });
   } catch (error) {
-    if (error instanceof Contested) return Response.json({ error: error.message }, { status: 409 });
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }
 
 function text(value: unknown, what: string): string {
-  if (typeof value !== "string" || value.trim() === "") throw new Error(`${what} fehlt im Rumpf`);
+  if (typeof value !== "string" || value.trim() === "") throw new BadRequest(`${what} fehlt im Rumpf`);
   return value;
 }

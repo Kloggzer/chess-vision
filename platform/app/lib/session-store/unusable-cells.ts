@@ -6,6 +6,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { appendRows } from "@/lib/atomic";
+import { BadRequest } from "@/lib/http-error";
 import { checkName, gameDir, requireRecording } from "@/lib/session-store/recordings";
 import { recordingName, sessionId } from "@/lib/session-store/session";
 import { jsonlRowsStrict } from "@/lib/jsonl";
@@ -23,10 +24,10 @@ export function unusableCellsPath(name: string): string {
 
 export function validateCell(row: unknown): UnusableCell {
   const r = row as Partial<UnusableCell>;
-  if (!r || typeof r !== "object") throw new Error("row is not an object");
+  if (!r || typeof r !== "object") throw new BadRequest("row is not an object");
   checkName(String(r.session_id), "session_id");
   checkName(String(r.frame), "frame");
-  if (!SQUARE.test(String(r.square))) throw new Error(`bad square: ${r.square}`);
+  if (!SQUARE.test(String(r.square))) throw new BadRequest(`bad square: ${r.square}`);
   return {
     session_id: r.session_id as string,
     frame: r.frame as string,

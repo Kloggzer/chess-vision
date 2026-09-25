@@ -4,7 +4,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { Contested } from "@/lib/atomic";
-import { BadRequest } from "@/lib/http-error";
+import { BadRequest, NotFound } from "@/lib/http-error";
 import { absentOnly, exists } from "@/lib/measurement";
 import { parseReference, type Reference } from "@/lib/py/ops";
 import { PyOpFailed, pyCall } from "@/lib/py/worker";
@@ -84,7 +84,7 @@ export const hasCandidateFile = (name: string): Promise<boolean> => exists(recor
  *  Verzeichnis als Aufnahme. */
 export async function requireRecording(dir: string, session_id: string): Promise<void> {
   const ok = (await stat(dir).catch(absentOnly))?.isDirectory() ?? false;
-  if (!ok) throw new Error(`keine Aufnahme ${session_id} auf dieser Maschine (${dir})`);
+  if (!ok) throw new NotFound(`keine Aufnahme ${session_id} auf dieser Maschine (${dir})`);
 }
 
 export async function listGames(): Promise<string[]> {

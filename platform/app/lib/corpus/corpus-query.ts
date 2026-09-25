@@ -4,6 +4,7 @@
  * so the question is answered here and only the cell keys travel (CONCEPT.md 4.2, `Klassenwand`).
  */
 import { isIdentity } from "@/lib/classes";
+import { BadRequest } from "@/lib/http-error";
 import { liveGames } from "@/lib/label/label-stream";
 import { modelReadRows } from "@/lib/session-store/model-reads";
 import {
@@ -31,11 +32,11 @@ const PHASES: ReadonlySet<string> = new Set(["any", "settled", "before", "after"
 export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryAnswer> {
   // Eine unbekannte Phase filtert jede Zeile weg, und 0 Treffer waeren dann eine Behauptung statt
   // einer Antwort — dieselbe Absage wie fuer eine unbekannte Klasse darunter.
-  if (!PHASES.has(phase)) throw new Error(`${phase} ist keine Phase: ${[...PHASES].join(", ")}`);
+  if (!PHASES.has(phase)) throw new BadRequest(`${phase} ist keine Phase: ${[...PHASES].join(", ")}`);
   // Refused, not answered with an empty set: a bookmark may still carry `occluded`, and zero hits
   // would read as "nothing covered".
   if (filter.klass !== DISAGREE && !isIdentity(filter.klass))
-    throw new Error(`${filter.klass} ist keine Identität — Verdeckung wird gemessen (matte.jsonl), nicht gefragt`);
+    throw new BadRequest(`${filter.klass} ist keine Identität — Verdeckung wird gemessen (matte.jsonl), nicht gefragt`);
   const started = Date.now();
   const classes = new Set<string>();
   const hits: QueryHit[] = [];

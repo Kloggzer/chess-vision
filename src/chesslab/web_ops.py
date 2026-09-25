@@ -19,6 +19,12 @@ from . import config
 from .realgames import confirm as rg_confirm
 from .session_store import recording
 
+
+class Missing(FileNotFoundError):
+    """The ASKED-FOR recording, frame, alpha or candidate is not there: the web's only 404 from Python.
+    A bare FileNotFoundError is an internal file gone and stays a 500 (`lib/http-error.ts`)."""
+
+
 _root_turn = threading.Condition()
 _root_users = 0
 _root_before: config.Paths | None = None
@@ -87,6 +93,10 @@ def reference_origin(root: str, name: str) -> str:
 def confirm(root: str, name: str, kept: list[int], drop: list[int],
             shown_reference: str | None = recording.UNCHECKED) -> list[int]:
     with _rooted(root):
+        try:
+            os.stat(recording.candidate_path(name))
+        except FileNotFoundError:
+            raise Missing(f"{name}: no candidate.json") from None
         return rg_confirm.confirm_kept(name, kept, drop, shown_reference=shown_reference)
 
 

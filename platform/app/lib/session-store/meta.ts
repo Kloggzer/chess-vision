@@ -4,6 +4,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
+import { BadRequest } from "@/lib/http-error";
 import { gameDir, recordingFile } from "@/lib/session-store/recordings";
 import { serialize } from "@/lib/serialize";
 
@@ -33,12 +34,12 @@ export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
     const next: UiMeta = { ...(await loadMeta(name)) };
     if ("title" in patch) {
       const title = (patch.title ?? "").trim();
-      if (title.length > TITLE_MAX) throw new Error(`title longer than ${TITLE_MAX} characters`);
+      if (title.length > TITLE_MAX) throw new BadRequest(`title longer than ${TITLE_MAX} characters`);
       if (title) next.title = title;
       else delete next.title;
     }
     if ("archived" in patch) {
-      if (typeof patch.archived !== "boolean") throw new Error("archived must be a boolean");
+      if (typeof patch.archived !== "boolean") throw new BadRequest("archived must be a boolean");
       if (patch.archived) next.archived = true;
       else delete next.archived;
     }

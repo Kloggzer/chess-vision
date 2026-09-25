@@ -27,12 +27,12 @@ test("confirm: ein fehlender Kandidat ist 404, kein Serverfehler", async () => {
     'process.stdin.on("data", c => { b += c; let i;',
     'while ((i = b.indexOf("\\n")) >= 0) { const s=b.slice(0,i); b=b.slice(i+1);',
     'if (!s) continue; const q=JSON.parse(s);',
-    'process.stdout.write(JSON.stringify({id:q.id,ok:false,kind:"FileNotFoundError",error:"candidate.json"})+"\\n"); }});',
+    'process.stdout.write(JSON.stringify({id:q.id,ok:false,kind:"Missing",error:"candidate.json"})+"\\n"); }});',
   ].join("");
   await stopPyWorker();
   setPyWorkerCommand({ command: process.execPath, args: ["-e", reply] });
 
   const response = await confirmPost(post("http://x/api/confirm/g", '{"kept":[]}'), ctx("g"));
 
-  expect(response.status, "BUG: errorStatus erkennt Python-FileNotFoundError nicht als fehlende Ressource").toBe(404);
+  expect(response.status, "BUG: errorStatus erkennt Pythons Missing nicht als fehlende Ressource").toBe(404);
 });

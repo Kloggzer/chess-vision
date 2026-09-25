@@ -6,13 +6,17 @@ import { isMissing } from "@/lib/measurement";
 /** Die Anfrage selbst ist falsch; die einzige Quelle einer 400. */
 export class BadRequest extends Error {}
 
-/** Structural, not `instanceof PyOpFailed`: the core layer may not import `py/`. */
+/** Die angefragte Sache gibt es nicht (Aufnahme, Frame) — 404 wie ein ENOENT. */
+export class NotFound extends Error {}
+
+/** Nur Pythons `Missing` (die angefragte Aufnahme/Frame/Kandidat fehlt), nie ein nackter
+ *  `FileNotFoundError` — der ist eine interne Datei und damit 500. Strukturell: Kern importiert kein `py/`. */
 const pythonMissing = (error: unknown): boolean =>
-  error instanceof Error && (error as { kind?: unknown }).kind === "FileNotFoundError";
+  error instanceof Error && (error as { kind?: unknown }).kind === "Missing";
 
 export function errorStatus(error: unknown): number {
   if (error instanceof BadRequest) return 400;
-  if (isMissing(error) || pythonMissing(error)) return 404;
+  if (error instanceof NotFound || isMissing(error) || pythonMissing(error)) return 404;
   if (error instanceof Contested) return 409;
   return 500;
 }

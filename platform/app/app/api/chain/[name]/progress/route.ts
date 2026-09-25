@@ -1,3 +1,4 @@
+import { errorJson } from "@/lib/http-error";
 import { jobOf } from "@/lib/chain/jobs";
 import { progressOf } from "@/lib/chain/progress";
 
@@ -11,6 +12,6 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/chain/[name
     const job = await jobOf(name);
     return Response.json({ job, progress: await progressOf(name, job?.log) });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }

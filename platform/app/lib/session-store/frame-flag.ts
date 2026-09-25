@@ -7,6 +7,7 @@ import { constants } from "node:fs";
 import { copyFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { Contested, stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
+import { NotFound } from "@/lib/http-error";
 import { checkName } from "@/lib/session-store/recordings";
 import { stripBom } from "@/lib/jsonl";
 import { stampOrMissing } from "@/lib/measurement";
@@ -55,7 +56,7 @@ async function flagUnlocked(
     lines[i] = JSON.stringify({ ...row, unusable });
     break;
   }
-  if (hit === -1) throw new Error(`no frame ${stem} in ${name}/log.jsonl`);
+  if (hit === -1) throw new NotFound(`no frame ${stem} in ${name}/log.jsonl`);
   // Nie ueber eine vorhandene Sicherung: zwei Urteile in derselben Sekunde sind ein Klick
   // auseinander, und `sessions.backup_log` haelt es aus demselben Grund so.
   const base = backupName(new Date());

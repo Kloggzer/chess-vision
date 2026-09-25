@@ -288,7 +288,7 @@ def test_a_second_stroke_builds_on_the_correction_and_clear_restore_round_trip(p
 
 def test_the_pen_refuses_a_frame_without_a_board_and_an_unknown_action(paths):
     _pen_session(paths, 8, 0, 8)
-    with pytest.raises(web_cuts.BoardUnusable, match="carries no stored board"):
+    with pytest.raises(web_ops.Missing, match="no frame 000999"):
         web_ops.pen(str(paths.root), "g", "000999", "stroke", _mask(8, {}))
     with pytest.raises(ValueError, match="unknown pen action"):
         web_ops.pen(str(paths.root), "g", "000110", "paint")

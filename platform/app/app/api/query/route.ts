@@ -1,3 +1,4 @@
+import { BadRequest, errorJson } from "@/lib/http-error";
 import { queryCorpus } from "@/lib/corpus/corpus-query";
 import { DEFAULT_WALL } from "@/lib/query";
 
@@ -10,10 +11,10 @@ export async function GET(request: Request) {
   const raw = params.get("min")?.trim();
   const min = raw ? Number(raw) : DEFAULT_WALL.min;
   try {
-    if (!Number.isFinite(min)) throw new Error(`bad min: ${params.get("min")}`);
+    if (!Number.isFinite(min)) throw new BadRequest(`bad min: ${params.get("min")}`);
     const filter = { klass: params.get("class") ?? DEFAULT_WALL.klass, min };
     return Response.json(await queryCorpus(filter, params.get("phase") ?? "any"));
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return errorJson(error);
   }
 }
