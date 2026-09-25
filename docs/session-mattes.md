@@ -69,6 +69,11 @@ Verschiebung 0,0079, IoU mean 0,99973. bf16 gleich schnell, aber ungenauer (IoU 
 Verpasste Hände kosten nichts, erfundene Flächen kosten das Training (Nutzer, 2026-08-18): Konsens
 statt Union.
 
+**Jeder Schreiber von `matte.jsonl` haelt `mattes/.publish.lock`** (`locks.matte_ledger`, seit
+2026-09-25): Alpha-Worker, adopt, upsert, recut, close_seams, prune, Trim. Nur um Ledger und
+Umbenennen, nie um SAM; Pixel erst nach ihrer Zeile, ein gescheitertes Umbenennen nimmt die Zeile
+zurueck. Der Worker haelt kein Append-Handle mehr offen (Windows verweigerte das Ersetzen).
+
 **SAMs Absage ist kein sauberes Brett.** Eine `matte.jsonl`-Zeile mit `skipped` (`zone too big`)
 trägt WEDER `concepts` NOCH `coverage`. Zweimal als "nichts gefunden" gelesen: `gate_label` lehrte
 dem Schüler die verdecktesten Bretter als handfrei, und `temporal_matte.adopt_proposals` zählte

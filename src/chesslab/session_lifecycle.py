@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import config
+from . import config, locks
 from .ioutil import append_rows, iter_jsonl, read_jsonl, stamp_of, write_rows, write_rows_guarded
 from .session_store.log import _write_log
 from .session_store.names import (
@@ -143,8 +143,9 @@ def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
     rows = read_jsonl(path)
     kept = [r for r in rows if str(r.get("frame")) not in frame_stems]
     # Bewacht: der Alpha-Worker haengt an, waehrend wir filtern.
-    write_rows_guarded(path, kept, stamp,
-                       what=f"{path}: waehrend des Trimmens angehaengt — trim wiederholen")
+    with locks.matte_ledger(sdir, "trim"):
+        write_rows_guarded(path, kept, stamp,
+                           what=f"{path}: waehrend des Trimmens angehaengt — trim wiederholen")
     return len(rows) - len(kept)
 
 

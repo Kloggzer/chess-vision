@@ -365,44 +365,38 @@ def adopt_proposals(session_id, *, method="local"):
                           "coverage": coverage,
                           "cells_over_half": sum(v > .5 for v in coverage.values())})
             adopted += 1
-        write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
-                           what=_CONTESTED.format(what="adopting"))
-    except BaseException:
+        # Ledger and renames under the lock every writer holds, `alpha_worker` included.
+        with locks.matte_ledger(recording, "adopt"):
+            write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                               what=_CONTESTED.format(what="adopting"))
+            _promote_adopted(recording, matte_path, staged)
+    finally:
         for tmp in staged.values():
             tmp.unlink(missing_ok=True)
-        raise
-    _promote_adopted(recording, matte_path, staged)
     return {"path": matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
             "replaced": len(ours)}
 
 
 def _promote_adopted(recording: Path, matte_path: Path, staged: dict[str, Path]) -> None:
-    """Rename the staged alphas the ledger now carries. A SAM row that landed after the guard makes the
-    frame SAM's (no rename); a failed rename (reader holds the file, Windows) retracts its row."""
+    """Rename the staged alphas the ledger now carries; the caller holds the ledger lock. A SAM row
+    in the ledger makes the frame SAM's (no rename); a failed rename (Windows) retracts its row."""
     failed: list[str] = []
-    # `alpha_worker` writes row + rename under the same lock; a writer outside it trips the stamp.
-    with locks.waiting(locks.matte_publish_lock(recording / MATTE_DIR), "adopt", recording.name):
+    while True:
+        seen = stamp_of(matte_path)
+        theirs = matted_frames([r for r in read_jsonl(matte_path) if r.get("source") != "temporal"])
+        if stamp_of(matte_path) == seen:
+            break
+    for stem, tmp in staged.items():
+        if stem in theirs:
+            continue
         try:
-            while True:
-                seen = stamp_of(matte_path)
-                theirs = matted_frames([r for r in read_jsonl(matte_path) if r.get("source") != "temporal"])
-                if stamp_of(matte_path) == seen:
-                    break
-            for stem, tmp in staged.items():
-                if stem in theirs:
-                    continue
-                try:
-                    tmp.replace(recording / MATTE_DIR / f"{stem}.webp")
-                except OSError:
-                    failed.append(stem)
-        finally:
-            for tmp in staged.values():
-                tmp.unlink(missing_ok=True)
-        if failed:
-            rows = [r for r in read_jsonl(matte_path)
-                    if not (r.get("source") == "temporal" and r.get("frame") in failed)]
-            write_rows_guarded(matte_path, rows, seen, what=_CONTESTED.format(what="retracting adopted rows"))
+            tmp.replace(recording / MATTE_DIR / f"{stem}.webp")
+        except OSError:
+            failed.append(stem)
     if failed:
+        rows = [r for r in read_jsonl(matte_path)
+                if not (r.get("source") == "temporal" and r.get("frame") in failed)]
+        write_rows_guarded(matte_path, rows, seen, what=_CONTESTED.format(what="retracting adopted rows"))
         raise OSError(f"could not place the adopted alpha of {', '.join(failed)}; their rows are retracted")
 
 
@@ -478,14 +472,10 @@ def upsert_proposals(session_id, *, method="local"):
                           "coverage": coverage,
                           "cells_over_half": sum(v > .5 for v in coverage.values())})
             upserted += 1
-        write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
-                           what=_CONTESTED.format(what="upserting"))
-    except BaseException:
-        for tmp in staged.values():
-            tmp.unlink(missing_ok=True)
-        raise
-    try:
-        _publish_upserts(mattes, backups, staged)
+        with locks.matte_ledger(recording, "upsert"):
+            write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                               what=_CONTESTED.format(what="upserting"))
+            _publish_upserts(mattes, backups, staged)
     finally:
         for tmp in staged.values():
             tmp.unlink(missing_ok=True)
@@ -552,5 +542,6 @@ def prune_dead_rows(session_id):
             if not (row.get("source") == "temporal" and row["frame"] in cut)
             and not (row.get("source") == "upsert" and row["frame"] in found)]
     if len(keep) != len(rows):
-        write_rows_guarded(matte_path, keep, stamp, what=_CONTESTED.format(what="pruning"))
+        with locks.matte_ledger(recording, "prune"):
+            write_rows_guarded(matte_path, keep, stamp, what=_CONTESTED.format(what="pruning"))
     return {"path": matte_path, "dropped": len(rows) - len(keep), "kept": len(keep)}

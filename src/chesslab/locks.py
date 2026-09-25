@@ -6,10 +6,14 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic, sleep
+
+from .session_store.names import mattes_dir
 
 #: Die Bootzeit kommt aus der Laufzeit seit dem Start und wackelt um Sekundenbruchteile.
 _BOOT_TOLERANCE_S = 60
@@ -103,22 +107,32 @@ def held_by(lock: Path) -> dict | None:
     return info
 
 
+def _holder(lock: Path, token: str | None) -> dict | None:
+    """`held_by`, except that another thread's token on our own PID holds the lock too."""
+    info = _read_lock(lock)
+    if (info is not None and info.get("token") not in (None, token)
+            and info.get("pid") == os.getpid() and info.get("childPid") == os.getpid()):
+        return info
+    return held_by(lock)
+
+
 def describe(info: dict) -> str:
     return (f"{info.get('job', 'a job')} {info.get('name', '')} (PID "
             f"{info.get('childPid') or info.get('pid')}, started {info.get('startedAt', '?')})")
 
 
-def acquire(lock: Path, job: str, name: str) -> dict | None:
+def acquire(lock: Path, job: str, name: str, *, token: str | None = None) -> dict | None:
     """None if the lock is now ours, otherwise the live holder — callers word their own refusal."""
     lock = Path(lock)
     observed = _raw(lock)
-    info = held_by(lock)
+    info = _holder(lock, token)
     if info is not None:
         return info
     lock.parent.mkdir(parents=True, exist_ok=True)
     boot, up = _boot_time(), _uptime_s()
     payload = json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": job,
                           "name": name, "startedAt": datetime.now().isoformat(),
+                          **({"token": token} if token else {}),
                           **({"boot": boot.isoformat()} if boot else {}),
                           **({"uptime": round(up, 1)} if up is not None else {})}, indent=2)
     # Ein Lock, das VOR dem Versuch dalag, ist tot; eines, das WAEHREND entsteht, gehoert einem
@@ -127,7 +141,7 @@ def acquire(lock: Path, job: str, name: str) -> dict | None:
         _break_stale(lock, observed)
         if _claim(lock, payload):
             return None
-        info = held_by(lock) or _read_lock(lock)
+        info = _holder(lock, token) or _read_lock(lock)
         if info is not None:
             return info
         observed = _raw(lock)
@@ -155,7 +169,7 @@ def _break_stale(lock: Path, observed: bytes | None) -> None:
     """
     if observed is None:
         return
-    aside = lock.with_name(f"{lock.name}.stale-{os.getpid()}")
+    aside = lock.with_name(f"{lock.name}.stale-{os.getpid()}-{threading.get_ident()}")
     try:
         os.replace(lock, aside)
         if aside.read_bytes() == observed:
@@ -177,12 +191,12 @@ def _claim(lock: Path, payload: str) -> bool:
     return True
 
 
-def release(lock: Path) -> None:
+def release(lock: Path, token: str | None = None) -> None:
     lock = Path(lock)
     try:
         if lock.exists():
             info = json.loads(lock.read_text(encoding="utf-8"))
-            if int(info.get("pid", -1)) == os.getpid():
+            if int(info.get("pid", -1)) == os.getpid() and info.get("token") == token:
                 lock.unlink()
     except Exception:  # noqa: BLE001 — best-effort cleanup
         pass
@@ -212,11 +226,17 @@ def matte_publish_lock(mattes: Path) -> Path:
 def waiting(lock: Path, job: str, name: str, *, timeout: float = 60.0):
     """Hold `lock` for a SHORT critical section, waiting for a live holder; a dead one is reclaimed."""
     deadline = monotonic() + timeout
-    while (info := acquire(lock, job, name)) is not None:
+    token = uuid.uuid4().hex
+    while (info := acquire(lock, job, name, token=token)) is not None:
         if monotonic() > deadline:
             raise RuntimeError(f"{lock} is held by {describe(info)} — remove it if that process is gone.")
         sleep(0.05)
     try:
         yield
     finally:
-        release(lock)
+        release(lock, token)
+
+
+def matte_ledger(session_dir: Path, job: str):
+    """EVERY writer of `matte.jsonl` and its alphas holds this, briefly; not re-entrant."""
+    return waiting(matte_publish_lock(mattes_dir(session_dir)), job, Path(session_dir).name)

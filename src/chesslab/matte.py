@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-import json
 import os
 import sys
 from collections.abc import Callable
@@ -437,9 +436,10 @@ def recut_coverage(
             print(f"[{_timestamp()}]   {recut} Zeilen neu geschnitten", flush=True)
 
     if recut or restamped:
-        write_rows_guarded(path, rows, stamp,
-                           what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
-                                "is writing it. Let it finish and run this again.")
+        with locks.matte_ledger(session_dir, "recut"):
+            write_rows_guarded(path, rows, stamp,
+                               what=f"{name}: matte.jsonl changed while recutting — the alpha "
+                                    "worker is writing it. Let it finish and run this again.")
     return {"name": name, "frames": len(rows), "recut": recut, "crossed": crossed}
 
 
@@ -540,10 +540,11 @@ def recut_fixed(
 
         rows.append(row)
 
-    write_rows_guarded(
-        path, rows, stamp,
-        what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
-             "is writing it. Let it finish and run this again; nothing was written.")
+    with locks.matte_ledger(session_dir, "recut-fixed"):
+        write_rows_guarded(
+            path, rows, stamp,
+            what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
+                 "is writing it. Let it finish and run this again; nothing was written.")
 
     return {
         "path": path,
@@ -645,14 +646,15 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                 print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
 
         if not dry_run and closed:
-            write_rows_guarded(
-                path, rows, stamp,
-                what=f"{name}: matte.jsonl changed while closing seams — the alpha worker "
-                     "is writing it. Let it finish and run this again.")
-            # Nur noch Umbenennungen, Millisekunden. Atomar ueber N+1 Dateien ist es nicht (dafuer
-            # braeuchte es ein Journal).
-            for tmp, final in staged:
-                tmp.replace(final)
+            with locks.matte_ledger(session_dir, "close-seams"):
+                write_rows_guarded(
+                    path, rows, stamp,
+                    what=f"{name}: matte.jsonl changed while closing seams — the alpha worker "
+                         "is writing it. Let it finish and run this again.")
+                # Nur noch Umbenennungen, Millisekunden. Atomar ueber N+1 Dateien ist es nicht
+                # (dafuer braeuchte es ein Journal).
+                for tmp, final in staged:
+                    tmp.replace(final)
     except BaseException:
         _drop(staged)
         raise
@@ -797,6 +799,14 @@ def alpha_worker_all(
             )
 
 
+def _retract_last(path: Path, stem: str, name: str) -> None:
+    """Drop the row just appended for `stem`; the caller holds the ledger lock."""
+    rows = read_jsonl(path)
+    last = max(i for i, r in enumerate(rows) if r.get("frame") == stem)
+    write_rows_guarded(path, rows[:last] + rows[last + 1:], stamp_of(path),
+                       what=f"{name}: matte.jsonl changed while retracting {stem}")
+
+
 def alpha_worker(
     name: str,
     *,
@@ -907,170 +917,152 @@ def alpha_worker(
             flush=True,
         )
 
-    # Der Prozess geht per `os._exit`, die letzte Zeile kann mitten im Puffer abbrechen; blind daran
-    # angehaengt wird daraus Korruption MITTENDRIN.
-    append_rows(path, [])
+    # No handle stays open between rows: `adopt`/`upsert` replace the ledger, and Windows refuses to
+    # replace an open file. A torn tail (`os._exit`) is cut before the first append.
+    with locks.matte_ledger(session_dir, "matte"):
+        append_rows(path, [])
 
     staged: Path | None = None
-    retract: tuple[str, tuple[int, str] | None] | None = None
-    publish = locks.matte_publish_lock(out_dir)
     try:
-        with path.open(
-            "a",
-            encoding="utf-8",
-        ) as file_handle:
-            for index, entry in enumerate(
-                todo,
-                1,
-            ):
-                stem = Path(
-                    entry["board"],
-                ).stem
+        for index, entry in enumerate(
+            todo,
+            1,
+        ):
+            stem = Path(
+                entry["board"],
+            ).stem
 
-                board_path = (
-                    session_dir
-                    / entry["board"]
+            board_path = (
+                session_dir
+                / entry["board"]
+            )
+
+            # Coverage is a training target: an off-scale cut poisons the label, so the row's own
+            # numbers decide.
+            raster = usable_board(
+                entry,
+                profile,
+            )
+
+            board = cv2.imread(
+                str(board_path),
+                cv2.IMREAD_COLOR,
+            ) if raster else None
+
+            row = {
+                "frame": stem,
+                "ply": entry.get("ply"),
+                "dirty_reason": entry.get(
+                    "dirty_reason",
+                ),
+                # Gegen WELCHEN Export dieses Alpha geschnitten wurde; `chain.ts` vergleicht den
+                # Stempel.
+                **({"_source": stamp} if stamp else {}),
+            }
+
+            if board is None:
+                row["skipped"] = (
+                    "board unreadable"
+                    if raster
+                    else "board not the crop raster"
                 )
 
-                # Coverage is a training target: an off-scale cut poisons the label, so the row's own
-                # numbers decide.
-                raster = usable_board(
+            else:
+                alpha, hits = alpha_sam3(
+                    board,
+                )
+
+                # Where `alpha_for` looks for a SAM row (`.sam.webp` after an upsert); staged until
+                # the row is on disk, or a kill left new pixels under the old row.
+                matte_file = alpha_for(session_dir, {"frame": stem})
+                staged = out_dir / f"{stem}.sam.tmp.webp"
+
+                matte = (
+                    np.clip(
+                        alpha,
+                        0.0,
+                        1.0,
+                    )
+                    * 255.0
+                ).astype(
+                    np.uint8,
+                )
+
+                if not cv2.imwrite(
+                    str(staged),
+                    matte,
+                ):
+                    raise OSError(
+                        f"{name}: failed to write matte: "
+                        f"{matte_file}"
+                    )
+
+                coverage = coverage_of(
+                    alpha,
                     entry,
                     profile,
                 )
 
-                board = cv2.imread(
-                    str(board_path),
-                    cv2.IMREAD_COLOR,
-                ) if raster else None
-
-                row = {
-                    "frame": stem,
-                    "ply": entry.get("ply"),
-                    "dirty_reason": entry.get(
-                        "dirty_reason",
+                row |= {
+                    "concepts": hits,
+                    "coverage": coverage,
+                    "cells_over_half": sum(
+                        value > 0.5
+                        for value in coverage.values()
                     ),
-                    # Gegen WELCHEN Export dieses Alpha geschnitten wurde; `chain.ts` vergleicht den
-                    # Stempel.
-                    **({"_source": stamp} if stamp else {}),
+                    "zone": round(float((alpha > 0.5).mean()), 4),
                 }
 
-                if board is None:
-                    row["skipped"] = (
-                        "board unreadable"
-                        if raster
-                        else "board not the crop raster"
+                written += 1
+
+            if why := row.get("skipped"):
+                skipped[why] = (
+                    skipped.get(
+                        why,
+                        0,
                     )
+                    + 1
+                )
 
-                else:
-                    alpha, hits = alpha_sam3(
-                        board,
-                    )
+            # Row, rename and a failed rename's retraction under the lock every ledger writer holds.
+            with locks.matte_ledger(session_dir, "matte"):
+                append_rows(path, [row])
+                if staged is not None:
+                    try:
+                        staged.replace(matte_file)
+                    except OSError as error:
+                        _retract_last(path, stem, name)
+                        raise OSError(f"{name}: could not place the alpha of {stem}; "
+                                      "its row is retracted") from error
+                    staged = None
 
-                    # Where `alpha_for` looks for a SAM row (`.sam.webp` after an upsert); staged until
-                    # the row is on disk, or a kill left new pixels under the old row.
-                    matte_file = alpha_for(session_dir, {"frame": stem})
-                    staged = out_dir / f"{stem}.sam.tmp.webp"
+            if progress and (
+                index % 10 == 0
+                or index == len(todo)
+            ):
+                fps, seconds_per_frame = _rate(
+                    index,
+                    started,
+                )
 
-                    matte = (
-                        np.clip(
-                            alpha,
-                            0.0,
-                            1.0,
-                        )
-                        * 255.0
-                    ).astype(
-                        np.uint8,
-                    )
+                elapsed = (
+                    perf_counter()
+                    - started
+                )
 
-                    if not cv2.imwrite(
-                        str(staged),
-                        matte,
-                    ):
-                        raise OSError(
-                            f"{name}: failed to write matte: "
-                            f"{matte_file}"
-                        )
-
-                    coverage = coverage_of(
-                        alpha,
-                        entry,
-                        profile,
-                    )
-
-                    row |= {
-                        "concepts": hits,
-                        "coverage": coverage,
-                        "cells_over_half": sum(
-                            value > 0.5
-                            for value in coverage.values()
-                        ),
-                        "zone": round(float((alpha > 0.5).mean()), 4),
-                    }
-
-                    written += 1
-
-                if why := row.get("skipped"):
-                    skipped[why] = (
-                        skipped.get(
-                            why,
-                            0,
-                        )
-                        + 1
-                    )
-
-                # Row and rename under one lock: `adopt` re-reads the ledger under it before its own
-                # rename, so no SAM row can land in between.
-                with locks.waiting(publish, "matte", name):
-                    file_handle.write(
-                        json.dumps(row)
-                        + "\n"
-                    )
-
-                    file_handle.flush()
-
-                    if staged is not None:
-                        try:
-                            staged.replace(matte_file)
-                        except OSError:
-                            retract = (stem, stamp_of(path))
-                            raise
-                        staged = None
-
-                if progress and (
-                    index % 10 == 0
-                    or index == len(todo)
-                ):
-                    fps, seconds_per_frame = _rate(
-                        index,
-                        started,
-                    )
-
-                    elapsed = (
-                        perf_counter()
-                        - started
-                    )
-
-                    print(
-                        f"[{_timestamp()}] "
-                        f"  {index}/{len(todo)} frames, "
-                        f"{written} alphas, "
-                        f"{elapsed:.1f}s "
-                        f"({fps:.3f} frames/s, "
-                        f"{seconds_per_frame:.2f} s/frame)",
-                        flush=True,
-                    )
-    except BaseException as error:
+                print(
+                    f"[{_timestamp()}] "
+                    f"  {index}/{len(todo)} frames, "
+                    f"{written} alphas, "
+                    f"{elapsed:.1f}s "
+                    f"({fps:.3f} frames/s, "
+                    f"{seconds_per_frame:.2f} s/frame)",
+                    flush=True,
+                )
+    except BaseException:
         if staged is not None:
             staged.unlink(missing_ok=True)
-        if retract is None:
-            raise
-        # The handle is closed now (Windows cannot replace an open file); the stamp guards the rest.
-        rows = read_jsonl(path)
-        last = max(i for i, r in enumerate(rows) if r.get("frame") == retract[0])
-        write_rows_guarded(path, rows[:last] + rows[last + 1:], retract[1],
-                           what=f"{name}: matte.jsonl changed while retracting {retract[0]}")
-        raise OSError(f"{name}: could not place the alpha of {retract[0]}; its row is retracted") from error
+        raise
 
     elapsed = (
         perf_counter()
