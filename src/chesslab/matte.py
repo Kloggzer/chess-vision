@@ -15,7 +15,7 @@ from time import perf_counter, sleep
 import cv2
 import numpy as np
 
-from . import provenance
+from . import locks, provenance
 from .cell_rule import PIECE_VISIBLE_MAX
 from .ioutil import append_rows, read_jsonl, stamp_of, write_rows_guarded
 from .labeling import all_squares, crops_for_frame, usable_board
@@ -912,6 +912,8 @@ def alpha_worker(
     append_rows(path, [])
 
     staged: Path | None = None
+    retract: tuple[str, tuple[int, str] | None] | None = None
+    publish = locks.matte_publish_lock(out_dir)
     try:
         with path.open(
             "a",
@@ -1017,16 +1019,23 @@ def alpha_worker(
                         + 1
                     )
 
-                file_handle.write(
-                    json.dumps(row)
-                    + "\n"
-                )
+                # Row and rename under one lock: `adopt` re-reads the ledger under it before its own
+                # rename, so no SAM row can land in between.
+                with locks.waiting(publish, "matte", name):
+                    file_handle.write(
+                        json.dumps(row)
+                        + "\n"
+                    )
 
-                file_handle.flush()
+                    file_handle.flush()
 
-                if staged is not None:
-                    staged.replace(matte_file)
-                    staged = None
+                    if staged is not None:
+                        try:
+                            staged.replace(matte_file)
+                        except OSError:
+                            retract = (stem, stamp_of(path))
+                            raise
+                        staged = None
 
                 if progress and (
                     index % 10 == 0
@@ -1051,10 +1060,17 @@ def alpha_worker(
                         f"{seconds_per_frame:.2f} s/frame)",
                         flush=True,
                     )
-    except BaseException:
+    except BaseException as error:
         if staged is not None:
             staged.unlink(missing_ok=True)
-        raise
+        if retract is None:
+            raise
+        # The handle is closed now (Windows cannot replace an open file); the stamp guards the rest.
+        rows = read_jsonl(path)
+        last = max(i for i, r in enumerate(rows) if r.get("frame") == retract[0])
+        write_rows_guarded(path, rows[:last] + rows[last + 1:], retract[1],
+                           what=f"{name}: matte.jsonl changed while retracting {retract[0]}")
+        raise OSError(f"{name}: could not place the alpha of {retract[0]}; its row is retracted") from error
 
     elapsed = (
         perf_counter()

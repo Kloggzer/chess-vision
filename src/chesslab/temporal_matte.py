@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import config, provenance
+from . import config, locks, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
 from .labeling import _profile_for_session, usable_board
 from .session_store.log import read_log_rows
@@ -379,24 +379,30 @@ def adopt_proposals(session_id, *, method="local"):
 def _promote_adopted(recording: Path, matte_path: Path, staged: dict[str, Path]) -> None:
     """Rename the staged alphas the ledger now carries. A SAM row that landed after the guard makes the
     frame SAM's (no rename); a failed rename (reader holds the file, Windows) retracts its row."""
-    seen = stamp_of(matte_path)
-    theirs = matted_frames([r for r in read_jsonl(matte_path) if r.get("source") != "temporal"])
     failed: list[str] = []
-    try:
-        for stem, tmp in staged.items():
-            if stem in theirs:
-                continue
-            try:
-                tmp.replace(recording / MATTE_DIR / f"{stem}.webp")
-            except OSError:
-                failed.append(stem)
-    finally:
-        for tmp in staged.values():
-            tmp.unlink(missing_ok=True)
+    # `alpha_worker` writes row + rename under the same lock; a writer outside it trips the stamp.
+    with locks.waiting(locks.matte_publish_lock(recording / MATTE_DIR), "adopt", recording.name):
+        try:
+            while True:
+                seen = stamp_of(matte_path)
+                theirs = matted_frames([r for r in read_jsonl(matte_path) if r.get("source") != "temporal"])
+                if stamp_of(matte_path) == seen:
+                    break
+            for stem, tmp in staged.items():
+                if stem in theirs:
+                    continue
+                try:
+                    tmp.replace(recording / MATTE_DIR / f"{stem}.webp")
+                except OSError:
+                    failed.append(stem)
+        finally:
+            for tmp in staged.values():
+                tmp.unlink(missing_ok=True)
+        if failed:
+            rows = [r for r in read_jsonl(matte_path)
+                    if not (r.get("source") == "temporal" and r.get("frame") in failed)]
+            write_rows_guarded(matte_path, rows, seen, what=_CONTESTED.format(what="retracting adopted rows"))
     if failed:
-        rows = [r for r in read_jsonl(matte_path)
-                if not (r.get("source") == "temporal" and r.get("frame") in failed)]
-        write_rows_guarded(matte_path, rows, seen, what=_CONTESTED.format(what="retracting adopted rows"))
         raise OSError(f"could not place the adopted alpha of {', '.join(failed)}; their rows are retracted")
 
 

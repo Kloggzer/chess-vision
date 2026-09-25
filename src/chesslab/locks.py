@@ -9,6 +9,7 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from time import monotonic, sleep
 
 #: Die Bootzeit kommt aus der Laufzeit seit dem Start und wackelt um Sekundenbruchteile.
 _BOOT_TOLERANCE_S = 60
@@ -197,6 +198,24 @@ def pool_lock(pool_root: Path, name: str):
     if info is not None:
         raise RuntimeError(f"crop pool {pool_root} is being written by {describe(info)} — "
                            f"wait for it, or remove {lock} if that process is gone.")
+    try:
+        yield
+    finally:
+        release(lock)
+
+
+def matte_publish_lock(mattes: Path) -> Path:
+    return Path(mattes) / ".publish.lock"
+
+
+@contextmanager
+def waiting(lock: Path, job: str, name: str, *, timeout: float = 60.0):
+    """Hold `lock` for a SHORT critical section, waiting for a live holder; a dead one is reclaimed."""
+    deadline = monotonic() + timeout
+    while (info := acquire(lock, job, name)) is not None:
+        if monotonic() > deadline:
+            raise RuntimeError(f"{lock} is held by {describe(info)} — remove it if that process is gone.")
+        sleep(0.05)
     try:
         yield
     finally:
