@@ -145,30 +145,29 @@ def write_boards_session(session_id: str) -> dict:
         for key in BOARD_KEYS:
             r.pop(key, None)
     jobs = [(sdir, r["frame"], r["corners"], prof, bool(r.get("dirty"))) for r in todo]
-    if len(jobs) >= POOL_MIN_ROWS:
-        with ProcessPoolExecutor(max_workers=POOL_WORKERS) as pool:
-            made = list(pool.map(board_from_frame, jobs, chunksize=4))
-    else:
-        made = [board_from_frame(j) for j in jobs]
-    written = 0
-    for r, keys, old in zip(todo, made, kept, strict=True):
-        if keys is None:
-            r.update(old)
-            continue
-        r.update(keys)
-        written += 1
-        if written % PROGRESS_EVERY == 0:
-            print(f"  {written}/{len(jobs)} frames", flush=True)
-    missing = len(jobs) - written
-    # A fresh warp is bowed again, so the straightening must follow, and its flag goes to disk as it
-    # goes: it is the ONLY thing between an aborted run and a store pulled twice.
     backup = backup_log(log_path(sdir))
-    # `mattes=False`: die Matten liegen vom vorigen Lauf schon gerade; zweimal gezogen verschieben
-    # sie sich.
+    # Der Marker deckt schon das Schneiden: ab dem ersten Brett ist das Log alt, und die Frische
+    # stat-et keine Bretter (`provenance.inputs_moved`).
     with mark_export(sdir):
+        if len(jobs) >= POOL_MIN_ROWS:
+            with ProcessPoolExecutor(max_workers=POOL_WORKERS) as pool:
+                made = list(pool.map(board_from_frame, jobs, chunksize=4))
+        else:
+            made = [board_from_frame(j) for j in jobs]
+        written = 0
+        for r, keys, old in zip(todo, made, kept, strict=True):
+            if keys is None:
+                r.update(old)
+                continue
+            r.update(keys)
+            written += 1
+            if written % PROGRESS_EVERY == 0:
+                print(f"  {written}/{len(jobs)} frames", flush=True)
+        # Frisch gewarpt ist wieder gebogen; `mattes=False`: die Matten liegen schon gerade.
         pulled = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows),
                                    mattes=False)
         _write_log(sdir, rows)
+    missing = len(jobs) - written
     return {"session_id": session_id, "written": written, "of": len(rows),
             "missing": missing, "backup": backup, "straightened": pulled["straightened"]}
 
