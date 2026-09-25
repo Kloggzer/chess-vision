@@ -48,6 +48,9 @@ Korpus-Pool. Die Services lesen dafuer nicht selbst, sie fragen den Worker — g
   die Fehlerklassen (`Contested`, `isMissing`, `absentOnly`). Waechter: `lib/route-boundary.test.ts`.
   Umgestellt: `POST /api/pgn` (Logik jetzt `session-store/reference.ts#saveReference`), die
   Confirm-Seite (`readReferenceBytes`), die Board-Route (`hasExport`).
+- **HTTP-Fehler an EINER Stelle** (`lib/http-error.ts`, 2026-09-25): `BadRequest` -> 400, ENOENT
+  -> 404, `Contested` -> 409, alles andere (auch `PyOpFailed`, `PyWorkerDown`) -> 500. Offen:
+  `startDrain` macht jeden Fehler zu 409; Routen ohne roten Test behalten ihr pauschales 400.
 - Lesen weiter ueber `lib/jsonl.ts`, Schreiben ueber `lib/atomic.ts` mit Stempel-Riegel,
   ENOENT ueber `lib/measurement.ts` — die Ratschen (`*.txt`) zogen beim Umzug nur die Pfade mit.
 - `lib/client-boundary.test.ts` kennt Module jetzt am Pfad unter `lib/` statt am Dateinamen —
