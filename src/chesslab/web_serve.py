@@ -48,6 +48,7 @@ def serve(stdin: TextIO, stdout: TextIO) -> None:
     lock = threading.Lock()
     loaded = False
     last_write: Future | None = None
+    cuts_since: list[Future] = []
 
     def emit(reply: dict) -> None:
         line = json.dumps(reply, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -75,12 +76,15 @@ def serve(stdin: TextIO, stdout: TextIO) -> None:
             if not loaded and request["op"] != "ping":
                 preload()
                 loaded = True
-            # A cut never overtakes a write sent before it; cuts among themselves stay parallel.
+            # Cut and write never overlap in either order (Windows refuses to replace an open file);
+            # cuts among themselves stay parallel. FIFO pools: a waited-on cut is always dequeued first.
             if request["op"] in PARALLEL_OPS:
-                cuts.submit(after, [last_write] if last_write else [], request)
+                cuts_since = [f for f in cuts_since if not f.done()]
+                cuts_since.append(cuts.submit(after, [last_write] if last_write else [], request))
+            elif request["op"] in WRITE_OPS:
+                last_write, cuts_since = ordered.submit(after, cuts_since, request), []
             else:
-                done = ordered.submit(after, [], request)
-                last_write = done if request["op"] in WRITE_OPS else last_write
+                ordered.submit(after, [], request)
 
 
 def main() -> None:

@@ -38,7 +38,8 @@ describe("POST /api/matte/[name]/[stem]", () => {
 
   test("ein gescheiterter SCHREIBVORGANG wird nicht der Maske angelastet", async () => {
     fix.saveFixedAlpha.mockRejectedValueOnce(errno("EACCES", "permission denied, open 'mattes/000123.fixed.webp'"));
-    const body = JSON.stringify({ mask: Buffer.from("pixels").toString("base64") });
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("pixels")]);
+    const body = JSON.stringify({ mask: png.toString("base64") });
     const res = await mattePost(new Request("http://x/", { method: "POST", body }), params);
     expect(res.status, "BUG: der Stift meldet 'deine Maske taugt nichts', obwohl die Platte zu ist").toBe(500);
     expect((await res.json()).error).toContain("permission denied");

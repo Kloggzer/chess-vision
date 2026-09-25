@@ -6,11 +6,11 @@ import { recutMatte } from "@/lib/chain/matte-edit";
  */
 export async function POST(request: Request, ctx: { params: Promise<{ name: string }> }) {
   const { name } = await ctx.params;
+  const body = (await request.json().catch(() => ({}))) as { recut?: boolean } | null;
+  if (!body?.recut) return Response.json({ error: "body must be {recut:true}" }, { status: 400 });
   try {
-    const body = (await request.json().catch(() => ({}))) as { recut?: boolean };
-    if (!body.recut) throw new Error("body must be {recut:true}");
     return Response.json(await recutMatte(name));
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 400 });
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

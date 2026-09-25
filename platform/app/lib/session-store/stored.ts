@@ -2,6 +2,7 @@
  *  (`web_cuts.py`); hier bleibt die Dauer, die das Telefon neben das Video schrieb. */
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { absentOnly } from "@/lib/measurement";
 import { gameDir } from "@/lib/session-store/recordings";
 
 const NS_PER_S = 1e9;
@@ -18,8 +19,8 @@ export async function phoneSessionSeconds(name: string): Promise<number | null> 
     return null;
   }
   for (const id of ids.sort().reverse()) {
-    const text = await readFile(path.join(sessions, id, "session.yaml"), "utf8").catch(() => "");
-    const ns = /video_duration_ns:\s*(\d+)/.exec(text);
+    const text = await readFile(path.join(sessions, id, "session.yaml"), "utf8").catch(absentOnly);
+    const ns = /video_duration_ns:\s*(\d+)/.exec(text ?? "");
     if (ns && Number(ns[1]) > 0) return Number(ns[1]) / NS_PER_S;
   }
   return null;

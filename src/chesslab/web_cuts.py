@@ -85,10 +85,12 @@ def _flight(key):
     """One decode or parse per input: a cold page asks for the same board and log from every cut thread."""
     with _flights_lock:
         lock = _flights.setdefault(key, threading.Lock())
-    with lock:
-        yield
-    with _flights_lock:
-        _flights.pop(key, None)
+    try:
+        with lock:
+            yield
+    finally:
+        with _flights_lock:
+            _flights.pop(key, None)
 
 
 def _stamp(path: Path) -> tuple[int, int, int]:
