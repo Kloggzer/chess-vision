@@ -227,10 +227,15 @@ def waiting(lock: Path, job: str, name: str, *, timeout: float = 60.0):
     """Hold `lock` for a SHORT critical section, waiting for a live holder; a dead one is reclaimed."""
     deadline = monotonic() + timeout
     token = uuid.uuid4().hex
-    while (info := acquire(lock, job, name, token=token)) is not None:
-        if monotonic() > deadline:
-            raise RuntimeError(f"{lock} is held by {describe(info)} — remove it if that process is gone.")
-        sleep(0.05)
+    try:
+        while (info := acquire(lock, job, name, token=token)) is not None:
+            if monotonic() > deadline:
+                raise RuntimeError(f"{lock} is held by {describe(info)} — remove it if that process is gone.")
+            sleep(0.05)
+    except BaseException:
+        # An interrupt right after the claim left our own token behind; the token keeps others' locks safe.
+        release(lock, token)
+        raise
     try:
         yield
     finally:
