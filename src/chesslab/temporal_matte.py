@@ -316,7 +316,7 @@ def adopt_proposals(session_id, *, method="local"):
     """
     from .calibration import load_profile
     from .cell_rule import PIECE_VISIBLE_MAX
-    from .matte import coverage_of
+    from .matte import coverage_fields, coverage_of
 
     recording, _ = session_dir(session_id)
     directory = config.DATA.reports / "temporal-mattes" / recording.name / method
@@ -357,8 +357,7 @@ def adopt_proposals(session_id, *, method="local"):
                           "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
                           **({"_source": stamp} if stamp else {}),
                           "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                          "coverage": coverage,
-                          "cells_over_half": sum(v > .5 for v in coverage.values())})
+                          **coverage_fields(coverage)})
             adopted += 1
         # A SAM row that landed meanwhile makes the frame SAM's: its pixels stay, ours are dropped.
         publish(recording, "adopt",
@@ -393,7 +392,7 @@ def upsert_proposals(session_id, *, method="local"):
     """
     from .calibration import load_profile
     from .cell_rule import PIECE_VISIBLE_MAX
-    from .matte import FIXED_SUFFIX, coverage_of
+    from .matte import FIXED_SUFFIX, coverage_fields, coverage_of
 
     recording, _ = session_dir(session_id)
     directory = config.DATA.reports / "temporal-mattes" / recording.name / method
@@ -439,8 +438,7 @@ def upsert_proposals(session_id, *, method="local"):
                           "merged_at": stamp_now,
                           **({"_source": stamp} if stamp else {}),
                           "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                          "coverage": coverage,
-                          "cells_over_half": sum(v > .5 for v in coverage.values())})
+                          **coverage_fields(coverage)})
             upserted += 1
 
         def write() -> None:

@@ -58,14 +58,19 @@ def test_session_park_frames_returns_failure_when_a_session_fails(monkeypatch):
 def test_session_fit_mesh_all_returns_failure_when_a_session_fails(monkeypatch):
     from chesslab import sessions
 
-    def fake_all(on_done):
+    ran = []
+
+    def fake_all(run, on_done):
+        ran.append(run)
         row = {"session_id": "rg-broken", "error": "mesh failed"}
         on_done(row)
         return [row]
 
-    monkeypatch.setattr(sessions, "fit_mesh_all", fake_all)
+    monkeypatch.setattr(sessions, "sweep", fake_all)
 
     result = CliRunner().invoke(app, ["session", "fit-mesh", "--all"])
+
+    assert ran == [sessions.fit_mesh_session]
 
     assert result.exit_code != 0, (
         "`session fit-mesh --all` reports failed sessions in its final summary but still exits 0, "
@@ -76,14 +81,19 @@ def test_session_fit_mesh_all_returns_failure_when_a_session_fails(monkeypatch):
 def test_session_mark_hands_all_returns_failure_when_a_session_fails(monkeypatch):
     from chesslab import sessions
 
-    def fake_all(on_done):
+    ran = []
+
+    def fake_all(run, on_done):
+        ran.append(run)
         row = {"session_id": "rg-broken", "error": "hand scan failed"}
         on_done(row)
         return [row]
 
-    monkeypatch.setattr(sessions, "mark_hands_all", fake_all)
+    monkeypatch.setattr(sessions, "sweep", fake_all)
 
     result = CliRunner().invoke(app, ["session", "mark-hands", "--all"])
+
+    assert ran == [sessions.mark_hands_session]
 
     assert result.exit_code != 0, (
         "`session mark-hands --all` prints a failure count but exits 0, allowing unscanned "

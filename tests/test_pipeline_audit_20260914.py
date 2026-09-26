@@ -25,7 +25,7 @@ def _recording(paths: config.Paths, name: str) -> Path:
 
 # --- 1. Die drei Korpus-Sweeps sehen die Aufnahmen nicht -------------------------------------
 
-@pytest.mark.parametrize("sweep", ["fit_mesh_all", "repair_mesh_all", "mark_hands_all"])
+@pytest.mark.parametrize("sweep", ["fit_mesh_session", "repair_mesh_session", "mark_hands_session"])
 def test_the_all_sweeps_skip_every_recording(tmp_path, monkeypatch, sweep):
     """`sessions.py` iteriert in den drei `*_all` nur `paths.sessions` — der Korpus liegt in
     `paths.recordings`. `all_sessions()` existiert genau dafuer und warnt in seinem Docstring
@@ -39,7 +39,7 @@ def test_the_all_sweeps_skip_every_recording(tmp_path, monkeypatch, sweep):
     _recording(paths, "2026-01-01-00-00-00")
     paths.sessions.mkdir(parents=True, exist_ok=True)
 
-    seen = {row["session_id"] for row in getattr(S, sweep)(paths)}
+    seen = {row["session_id"] for row in S.sweep(getattr(S, sweep), paths)}
 
     assert "rg-2026-01-01-00-00-00" in seen, (
         f"{sweep} hat die Aufnahme nicht einmal angefasst — der Sweep meldet "
@@ -132,3 +132,22 @@ def test_ref_provisional_never_reaches_a_reader():
     assert "ref_provisional" not in row, (
         "die Zeile traegt ein Feld, das kein Leser auswertet — `grep -rn ref_provisional` "
         "findet nur den Schreiber in realgames.py und den Kotlin-Kandidaten.")
+
+
+def test_a_sweep_reports_a_failing_session_and_goes_on(tmp_path, monkeypatch):
+    paths = config.Paths(root=tmp_path)
+    monkeypatch.setattr(config, "DATA", paths)
+    _recording(paths, "2026-01-01-00-00-00")
+    _recording(paths, "2026-01-02-00-00-00")
+
+    def one(sid: str) -> dict:
+        if sid.endswith("01-00-00-00"):
+            raise ValueError("boom")
+        return {"session_id": sid}
+
+    said: list[dict] = []
+
+    rows = S.sweep(one, paths, on_done=said.append)
+
+    assert rows == said == [{"session_id": "rg-2026-01-01-00-00-00", "error": "ValueError: boom"},
+                            {"session_id": "rg-2026-01-02-00-00-00"}]

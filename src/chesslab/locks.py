@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import uuid
 from contextlib import contextmanager
@@ -17,6 +18,7 @@ from .session_store.names import mattes_dir
 
 #: Die Bootzeit kommt aus der Laufzeit seit dem Start und wackelt um Sekundenbruchteile.
 _BOOT_TOLERANCE_S = 60
+_RELEASE_TRIES = 50
 
 
 def pool_lock_path(pool_root: Path) -> Path:
@@ -193,13 +195,17 @@ def _claim(lock: Path, payload: str) -> bool:
 
 def release(lock: Path, token: str | None = None) -> None:
     lock = Path(lock)
-    try:
-        if lock.exists():
-            info = json.loads(lock.read_text(encoding="utf-8"))
-            if int(info.get("pid", -1)) == os.getpid() and info.get("token") == token:
+    for _ in range(_RELEASE_TRIES):
+        try:
+            info = _read_lock(lock)
+            if info is not None and int(info.get("pid", -1)) == os.getpid() and info.get("token") == token:
                 lock.unlink()
-    except Exception:  # noqa: BLE001 — best-effort cleanup
-        pass
+            return
+        except PermissionError:
+            sleep(0.02)   # Windows: a waiter reading the lock holds a handle for its poll
+        except Exception:  # noqa: BLE001 — best-effort cleanup
+            return
+    print(f"WARNING: could not release {lock}; it stays held by PID {os.getpid()}", file=sys.stderr)
 
 
 @contextmanager

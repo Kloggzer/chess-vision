@@ -419,7 +419,7 @@ def session_fit_mesh(
                 print(f"[OK] {r['session_id']}: {r['repaired']}/{r['of']} frames repaired "
                       f"(static rig: {r['static_rig']}) — backup {r['backup']}", flush=True)
 
-        rows = (sessions_mod.repair_mesh_all(on_done=said) if all_sessions
+        rows = (sessions_mod.sweep(sessions_mod.repair_mesh_session, on_done=said) if all_sessions
                 else [_session_call(sessions_mod.repair_mesh_session, session)])
         if not all_sessions:
             said(rows[0])
@@ -439,7 +439,7 @@ def session_fit_mesh(
     if not all_sessions:
         say(_session_call(sessions_mod.fit_mesh_session, session))
         return
-    rows = sessions_mod.fit_mesh_all(on_done=say)
+    rows = sessions_mod.sweep(sessions_mod.fit_mesh_session, on_done=say)
     done = [r for r in rows if not r.get("error")]
     print(f"[OK] {sum(r['measured'] for r in done)} frames meshed and "
           f"{sum(r['carried'] for r in done)} carried over {len(done)} sessions, "
@@ -472,7 +472,7 @@ def session_mark_hands(
     if not all_sessions:
         say(_session_call(sessions_mod.mark_hands_session, session))
         return
-    rows = sessions_mod.mark_hands_all(on_done=say)
+    rows = sessions_mod.sweep(sessions_mod.mark_hands_session, on_done=say)
     done = [r for r in rows if not r.get("error")]
     print(f"[OK] {sum(r['newly_dirty'] for r in done)} frames newly dirty over {len(done)} "
           f"sessions, {len(rows) - len(done)} failed")

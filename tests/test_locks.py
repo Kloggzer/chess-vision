@@ -54,3 +54,17 @@ def test_a_build_refuses_a_pool_that_is_being_written(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="is being written by"):
         dataset_build.build_dataset("ds", ["s1"], paths=paths, write_pack=False)
+
+
+def test_release_outlasts_a_waiter_that_is_reading_the_lock(tmp_path, monkeypatch):
+    """Windows refuses to unlink a file another handle has open; a waiter polling the lock is such a
+    handle, and the swallowed failure left the lock held by a live PID for good."""
+    lock = tmp_path / "x.lock"
+    assert locks.acquire(lock, "adopt", "t", token="mine") is None
+    reader = open(lock, "rb")
+    monkeypatch.setattr(locks, "sleep", lambda _seconds: reader.close())
+    try:
+        locks.release(lock, "mine")
+    finally:
+        reader.close()
+    assert not lock.exists()

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import median
@@ -347,14 +348,14 @@ def mark_hands_session(session_id: str) -> dict:
             "backup": backup}
 
 
-def mark_hands_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
-    """`mark_hands_session` over every session with a log — minutes long, so it reports per session."""
+def sweep(run: Callable[[str], dict], paths: config.Paths | None = None,
+          on_done: Callable[[dict], None] | None = None) -> list[dict]:
+    """`run` over every session with a log — minutes long, so it reports per session; a failing
+    session is a row with `error`, not an abort."""
     out = []
-    for sid, sdir in all_sessions(paths):
-        if not log_path(sdir).is_file():
-            continue
+    for sid, _sdir in all_sessions(paths):
         try:
-            r = mark_hands_session(sid)
+            r = run(sid)
         except (FileNotFoundError, ValueError, KeyError) as e:
             r = {"session_id": sid, "error": f"{type(e).__name__}: {e}"}
         out.append(r)
@@ -380,37 +381,6 @@ def repair_mesh_session(session_id: str) -> dict:
         _write_log(sdir, rows)
     return {"session_id": session_id, "repaired": repaired, "static_rig": static,
             "of": len(rows), "backup": backup}
-
-
-def repair_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
-    out = []
-    for sid, sdir in all_sessions(paths):
-        if not log_path(sdir).is_file():
-            continue
-        try:
-            r = repair_mesh_session(sid)
-        except (FileNotFoundError, ValueError, KeyError) as e:
-            r = {"session_id": sid, "error": str(e)}
-        out.append(r)
-        if on_done:
-            on_done(r)
-    return out
-
-
-def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
-    """`fit_mesh_session` over every active session with a log; `on_done` reports per session."""
-    out = []
-    for sid, sdir in all_sessions(paths):
-        if not log_path(sdir).is_file():
-            continue
-        try:
-            r = fit_mesh_session(sid)
-        except (FileNotFoundError, ValueError, KeyError) as e:
-            r = {"session_id": sid, "error": f"{type(e).__name__}: {e}"}
-        out.append(r)
-        if on_done is not None:
-            on_done(r)
-    return out
 
 
 def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:

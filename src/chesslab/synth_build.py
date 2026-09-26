@@ -6,7 +6,6 @@ carry virtual `mm://` paths. No phash: every synth scene is unique."""
 
 from __future__ import annotations
 
-import json
 import shutil
 from collections import Counter
 from datetime import UTC, datetime
@@ -15,7 +14,6 @@ from pathlib import Path
 from . import config
 from . import dataset as dataset_mod
 from .dataset_build import _safe_name, class_list_for, collapse_labels, dataset_dir, dedup_metadata
-from .ioutil import write_json
 
 _FILES = "abcdefgh"
 
@@ -191,21 +189,10 @@ def build_synth_dataset(
     ds.mkdir(parents=True, exist_ok=True)
     session_ids = synthesize_sessions(items, tag=name, profile_name=name,
                                       paths=config.Paths(root=ds))
-    (ds / "manifest.jsonl").write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
-        encoding="utf-8")
-    split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed,
-                                   max_class_ratio, precomputed_splits=splits, classes=classes)
-    errors, _warnings = dataset_mod.validate_split(split, rows, classes=classes)
-    if errors:
-        if not allow_degenerate:
-            shutil.rmtree(ds, ignore_errors=True)
-            raise ValueError("\n".join(errors))
-        split["degenerate_errors"] = errors
-    write_json(ds / "split.json", split)
-    (ds / "stats.json").write_text(
-        json.dumps(dataset_mod.compute_stats(rows, classes=classes), ensure_ascii=False),
-        encoding="utf-8")
+    split = dataset_mod.write_dataset_files(
+        ds, rows, splits, val_frac=val_frac, test_frac=test_frac, max_empty_ratio=max_empty_ratio,
+        seed=seed, max_class_ratio=max_class_ratio, classes=classes,
+        allow_degenerate=allow_degenerate)
     import yaml
     cfg = {
         "name": name, "created_at": datetime.now(UTC).isoformat(), "class_mode": class_mode,

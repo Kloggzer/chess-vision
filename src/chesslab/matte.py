@@ -367,6 +367,30 @@ def coverage_of(
     }
 
 
+def coverage_fields(coverage: dict[str, float]) -> dict:
+    """What every matte writer stores beside a freshly cut coverage."""
+    return {"coverage": coverage, "cells_over_half": sum(v > 0.5 for v in coverage.values())}
+
+
+def _crossed(was: dict[str, float], fresh: dict[str, float]) -> int:
+    """Only a cell stepping over the loss's threshold moves a LABEL; the rest is decimals."""
+    return sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX) for sq, v in fresh.items())
+
+
+def _recut_start(name: str) -> tuple[Path, Path, object, dict[str, dict], tuple[int, str] | None]:
+    """`(session_dir, matte.jsonl, profile, log row per board stem, ledger stamp)` of a recut."""
+    from .calibration import load_profile
+    from .session_store.recording import game_dir
+
+    session_dir = game_dir(name)
+    path = matte_path(session_dir)
+    if not path.exists():
+        raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
+    profile = load_profile(read_session_meta(session_dir)["profile"])
+    entries = {Path(e["board"]).stem: e for e in read_log_rows(session_dir) if e.get("board")}
+    return session_dir, path, profile, entries, stamp_of(path)
+
+
 # Eine REIHENFOLGE, keine Behauptung: der Bericht meldet den ganzen dirty-Stapel, dieser Lauf
 # arbeitet `occluded` zuerst ab.
 ALPHA_REASON = "occluded"
@@ -393,16 +417,7 @@ def recut_coverage(
     """Die `coverage` aus dem Alpha NEU schneiden, mit der heutigen Geometrie: ein Re-Export
     verschiebt die Ecken und laesst die Zahl stehen. Reine Arithmetik, kein SAM.
     """
-    from .calibration import load_profile
-    from .session_store.recording import game_dir
-
-    session_dir = game_dir(name)
-    path = matte_path(session_dir)
-    if not path.exists():
-        raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
-    profile = load_profile(read_session_meta(session_dir)["profile"])
-    entries = {Path(e["board"]).stem: e for e in read_log_rows(session_dir) if e.get("board")}
-    stamp = stamp_of(path)
+    session_dir, path, profile, entries, stamp = _recut_start(name)
 
     rows: list[dict] = []
     recut = crossed = restamped = 0
@@ -428,12 +443,9 @@ def recut_coverage(
             restamped += current != row
             rows.append(current)
             continue
-        # Nur was die Schwelle UEBERQUERT, aendert ein Label — der Rest ist Nachkommastelle.
-        crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
-                       for sq, v in fresh.items())
+        crossed += _crossed(was, fresh)
         recut += 1
-        rows.append(current | {"coverage": fresh,
-                               "cells_over_half": sum(v > 0.5 for v in fresh.values())})
+        rows.append(current | coverage_fields(fresh))
         if progress and recut % 50 == 0:
             print(f"[{_timestamp()}]   {recut} Zeilen neu geschnitten", flush=True)
 
@@ -457,31 +469,8 @@ def recut_fixed(
     """Recompute coverage for every frame whose alpha a human corrected, through `coverage_of`: the
     UI hands over pixels, never a coverage number.
     """
-    from .calibration import load_profile
-    from .session_store.recording import game_dir
-
-    session_dir = game_dir(name)
-
-    path = matte_path(session_dir)
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"{name}: no matte.jsonl — "
-            "run `occluders alpha-worker` first"
-        )
-
-    profile = load_profile(
-        read_session_meta(session_dir)["profile"],
-    )
-
-    entries = {
-        Path(entry["board"]).stem: entry
-        for entry in read_log_rows(session_dir)
-        if entry.get("board")
-    }
-
     # Rewritten whole while alpha_worker appends: a row added in between would otherwise die.
-    stamp = stamp_of(path)
+    session_dir, path, profile, entries, stamp = _recut_start(name)
 
     rows: list[dict] = []
     seen: list[tuple | None] = []
@@ -503,8 +492,7 @@ def recut_fixed(
             raise ValueError(f"{name}: corrected alpha is unreadable: {fixed}")
         coverage = coverage_of(fixed_image.astype(np.float32) / 255.0, entry, profile)
         # Frisch gegen die heutige Geometrie geschnitten, also traegt die Zeile den heutigen Export.
-        return row | {"coverage": coverage, "alpha": "fixed",
-                      "cells_over_half": sum(value > 0.5 for value in coverage.values()),
+        return row | {**coverage_fields(coverage), "alpha": "fixed",
                       **({"_source": source} if source else {})}, seen_stamp
 
     raw = read_jsonl(path)
@@ -569,16 +557,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     """Run `solid` over the alphas on disk and recut the coverage it moves; re-running SAM would
     cost hours for the same pixels. `alpha: fixed` rows are the person's and skipped whole.
     """
-    from .calibration import load_profile
-    from .session_store.recording import game_dir
-
-    session_dir = game_dir(name)
-    path = matte_path(session_dir)
-    if not path.exists():
-        raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
-    profile = load_profile(read_session_meta(session_dir)["profile"])
-    entries = {Path(e["board"]).stem: e for e in read_log_rows(session_dir) if e.get("board")}
-    stamp = stamp_of(path)
+    session_dir, path, profile, entries, stamp = _recut_start(name)
 
     raw = read_jsonl(path)
     # Je Frame nur die WIRKSAME Zeile: sonst stapelten zwei Zeilen desselben Frames ZWEIMAL dieselbe
@@ -610,16 +589,12 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                 continue
             coverage = coverage_of(filled.astype(np.float32) / 255.0, entry, profile)
             was = row.get("coverage") or {}
-            # Only a cell stepping over the loss's threshold moves a LABEL; counted, because
-            # coverage is training input.
-            crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
-                           for sq, v in coverage.items())
+            crossed += _crossed(was, coverage)
             closed += 1
             added += gained
             if not dry_run:
                 stage(staged, row["frame"], filled, alpha_path)
-                row = row | {"coverage": coverage,
-                             "cells_over_half": sum(v > 0.5 for v in coverage.values())}
+                row = row | coverage_fields(coverage)
             rows.append(row)
             if progress and closed % 25 == 0:
                 print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
@@ -956,11 +931,7 @@ def alpha_worker(
 
                 row |= {
                     "concepts": hits,
-                    "coverage": coverage,
-                    "cells_over_half": sum(
-                        value > 0.5
-                        for value in coverage.values()
-                    ),
+                    **coverage_fields(coverage),
                     "zone": round(float((alpha > 0.5).mean()), 4),
                 }
 

@@ -113,3 +113,42 @@ def test_fused_build_shard_dirs_no_stem_collision(tmp_path):
     s1_empty = next(r for r in rows if r["label"] == "empty" and "shard-1" in r["session_id"])
     m = np.array(mm[p2i[s1_empty["path"]]]).reshape(-1, 3).mean(axis=0)
     assert m[1] > m[0], f"shard-1 crop must be green, got RGB means {m}"
+
+
+def test_fused_build_writes_the_dataset_files_like_the_classic_build(tmp_path):
+    from chesslab import dataset as dataset_mod
+    from chesslab.dataset_build import class_list_for
+    from chesslab.ioutil import rows_text
+
+    paths = config.Paths(root=tmp_path / "data")
+    renders = tmp_path / "renders"
+    renders.mkdir()
+    for i in range(4):
+        _fake_render(renders, i, (40 + 30 * i, 90, 160))
+    build_synth_dataset("fused-f", renders, board_size=160, per_cell_cap=10**9, val_frac=0.0,
+                        test_frac=0.0, workers=2, allow_degenerate=True, paths=paths)
+
+    ds = paths.datasets / "fused-f"
+    text = (ds / "manifest.jsonl").read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in text.splitlines()]
+    assert text == rows_text(rows)
+    stats = json.loads((ds / "stats.json").read_text(encoding="utf-8"))
+    assert stats == dataset_mod.compute_stats(rows, classes=class_list_for("pieces"))
+    split = json.loads((ds / "split.json").read_text(encoding="utf-8"))
+    assert set(split["splits"]["train"]) == {r["session_id"] for r in rows}
+    assert split["classes"] == class_list_for("pieces") and "degenerate_errors" in split
+
+
+def test_fused_build_refuses_a_degenerate_split_and_leaves_no_dataset(tmp_path):
+    import pytest
+
+    paths = config.Paths(root=tmp_path / "data")
+    renders = tmp_path / "renders"
+    renders.mkdir()
+    for i in range(4):
+        _fake_render(renders, i, (40 + 30 * i, 90, 160))
+
+    with pytest.raises(ValueError):
+        build_synth_dataset("fused-d", renders, board_size=160, per_cell_cap=10**9, val_frac=0.5,
+                            test_frac=0.5, workers=2, paths=paths)
+    assert not (paths.datasets / "fused-d").exists()

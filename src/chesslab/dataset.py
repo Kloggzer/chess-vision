@@ -7,11 +7,12 @@ from __future__ import annotations
 import json
 import math
 import random
+import shutil
 from collections import Counter
 from pathlib import Path
 
 from . import config
-from .ioutil import read_jsonl, write_json
+from .ioutil import read_jsonl, write_json, write_rows
 
 
 def load_manifest(path: Path) -> list[dict]:
@@ -337,6 +338,27 @@ def make_split(
                             "max_class_ratio": max_class_ratio, "seed": seed},
         "warnings": warnings,
     }
+
+
+def write_dataset_files(ds: Path, rows: list[dict], splits: dict, *, val_frac: float,
+                        test_frac: float, max_empty_ratio: float | None, seed: int,
+                        max_class_ratio: float | None, classes: list[str], allow_degenerate: bool,
+                        force_train=None, priority_paths: set[str] | None = None) -> dict:
+    """Manifest, `split.json` and `stats.json` of a fresh build; a refused split takes `ds` along, so
+    no half-built dataset stays behind. -> the split."""
+    write_rows(ds / "manifest.jsonl", rows)
+    split = make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
+                       force_train=force_train, precomputed_splits=splits,
+                       priority_paths=priority_paths, classes=classes)
+    errors, _warnings = validate_split(split, rows, classes=classes)
+    if errors:
+        if not allow_degenerate:
+            shutil.rmtree(ds, ignore_errors=True)
+            raise ValueError("\n".join(errors))
+        split["degenerate_errors"] = errors
+    write_json(ds / "split.json", split)
+    write_json(ds / "stats.json", compute_stats(rows, classes=classes), indent=None)
+    return split
 
 
 def validate_split(split: dict, rows: list[dict],

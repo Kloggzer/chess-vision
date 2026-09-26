@@ -658,24 +658,13 @@ def build_dataset(
     # AFTER the collapse, or `counts.final` in dataset.yaml disagrees with the manifest.
     n_final = len(rows)
 
-    (ds / "manifest.jsonl").write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
-        encoding="utf-8")
     priority_paths = dataset_mod.load_priority_paths(paths)
     if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
-    split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
-                                   force_train=force_train, precomputed_splits=splits,
-                                   priority_paths=priority_paths, classes=classes)
-    errors, _warnings = dataset_mod.validate_split(split, rows, classes=classes)
-    if errors:
-        if not allow_degenerate:
-            shutil.rmtree(ds, ignore_errors=True)
-            raise ValueError("\n".join(errors))
-        split["degenerate_errors"] = errors          # intentionally allowed -> document in split
-    write_json(ds / "split.json", split)
-    stats = dataset_mod.compute_stats(rows, classes=classes)
-    write_json(ds / "stats.json", stats, indent=None)
+    split = dataset_mod.write_dataset_files(
+        ds, rows, splits, val_frac=val_frac, test_frac=test_frac, max_empty_ratio=max_empty_ratio,
+        seed=seed, max_class_ratio=max_class_ratio, classes=classes,
+        allow_degenerate=allow_degenerate, force_train=force_train, priority_paths=priority_paths)
 
     cfg = {
         "name": name,

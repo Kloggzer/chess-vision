@@ -5,15 +5,13 @@
 # Beim Bau der Ratsche waren es 25 Stellen in src/chesslab und 36 in scripts.
 # Was hier NICHT mehr steht: matte.jsonl (drei Stellen samt Stempel-Riegel), proposals.jsonl,
 # audit-flags, hand-flags, temporal-flags, model-reads, log.jsonl in vier Modulen, corrections,
-# der Label-Bericht, 29 Berichte in scripts und 16 Lauf-Artefakte (split, stats, config,
-# model_card, packed_meta).
-2 src/chesslab/synth_build.py  # manifest/stats eines Synth-Baus, mehrzeilige Aufrufe
+# der Label-Bericht, 29 Berichte in scripts, 16 Lauf-Artefakte (split, stats, config,
+# model_card, packed_meta), Manifest und Stats beider Datensatz-Bauten (`dataset.write_dataset_files`).
 1 src/chesslab/cli/capture.py  # der Aufnahmeplan an --out, mehrzeiliger Aufruf
 1 src/chesslab/cli/train.py  # reliance.json neben dem Lauf, mehrzeiliger Aufruf
 2 src/chesslab/meshprep.py  # Scan-Berichte je Figur, ein Werkzeug, ein Aufruf
 1 src/chesslab/session_store/recording.py  # Payload, schon tmp+replace von Hand
 2 src/chesslab/training/evaluate.py  # config und model_card neben dem Lauf, mehrzeilige Aufrufe
-1 src/chesslab/dataset_build.py  # manifest.jsonl eines Baus, mehrzeiliger Aufruf
 1 src/chesslab/occluded_model.py  # STREAMT Zeile fuer Zeile in die tmp, weil die Inferenz Minuten laeuft
 1 src/chesslab/sensor_audit.py  # Bericht an --out, ein Aufruf
 1 src/chesslab/training/pack_session.py  # manifest eines Session-Packs; ein Pack ist unveraenderlich

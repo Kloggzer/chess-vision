@@ -308,3 +308,25 @@ def test_build_from_packs_refuses_two_packs_of_one_session_at_one_size(tmp_path)
     _pack(paths, "s1-80", "s1")
     with pytest.raises(ValueError, match="s1"):
         _build_from_packs(paths, "packed", ["s1"])
+
+
+def test_build_writes_manifest_and_stats_the_way_their_readers_expect(tmp_path):
+    from chesslab import dataset as dataset_mod
+    from chesslab.ioutil import rows_text
+
+    paths = config.Paths(root=tmp_path)
+    rows = [_row(paths, "wP", "s1", f"{i:04d}", "e2", (40 * i, 180, 180)) for i in range(3)]
+    rows.append(_row(paths, "wK", "s2", "0000", "e1", (90, 90, 90), color="dark"))
+    _global_manifest(paths, rows)
+
+    DB.build_dataset("set-f", ["s1", "s2"], phash_enabled=False, rotations=(0,), val_frac=0.0,
+                     test_frac=0.0, paths=paths, allow_degenerate=True)
+
+    ds = paths.datasets / "set-f"
+    text = (ds / "manifest.jsonl").read_text(encoding="utf-8")
+    built = [json.loads(line) for line in text.splitlines()]
+    assert text == rows_text(built)
+    stats = json.loads((ds / "stats.json").read_text(encoding="utf-8"))
+    assert stats == dataset_mod.compute_stats(built, classes=DB.class_list_for("pieces13"))
+    split = json.loads((ds / "split.json").read_text(encoding="utf-8"))
+    assert set(split["splits"]["train"]) == {"s1", "s2"} and "degenerate_errors" in split
