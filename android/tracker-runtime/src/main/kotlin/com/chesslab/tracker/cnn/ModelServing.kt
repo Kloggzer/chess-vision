@@ -7,10 +7,8 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.CropClahe
 
 /** Aus der `config.json` des Modells: ein CLAHE-Modell ohne CLAHE zu bedienen ist eine stille Train/Serve-Luecke. */
-fun claheSpecFor(spec: ModelSpec?): ModelSpec? = spec?.takeIf { it.claheClip > 0.0 }
-
 fun cropClaheFor(spec: ModelSpec?): CropClahe? =
-    claheSpecFor(spec)?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }
+    spec?.takeIf { it.claheClip > 0.0 }?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }
 
 /** Die Schwelle folgt aus der Guete des MODELLS, keine Engine-Konstante (`docs/occlusion-gate.md`). */
 fun TrackerConfig.withCoverageGateOf(

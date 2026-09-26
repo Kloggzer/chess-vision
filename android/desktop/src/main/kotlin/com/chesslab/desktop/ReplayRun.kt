@@ -15,6 +15,7 @@ import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.OpenCvStages
 import com.chesslab.tracker.pipeline.StageTimings
+import com.chesslab.tracker.pipeline.usableFrameRate
 import com.chesslab.tracker.service.CameraFrameBus
 import com.chesslab.tracker.service.StagesFactory
 import com.chesslab.tracker.service.StatusPublisher
@@ -77,6 +78,9 @@ internal fun replayRun(
         val recorded = recordedFrameGate(options, video)
         val stride = if (recorded != null) 1 else strideOf(options.fps, source.fps, live = camera != null)
         // The coverage gate rides in the MODEL (`docs/occlusion-gate.md`).
+        if (camera == null && usableFrameRate(source.fps) == null) {
+            println("warn: the video declares no frame rate — motionThr stays at the 30 fps reference")
+        }
         val configFor = { extra: Map<String, Double> ->
             val alle = options.overrides + extra
             options
@@ -502,12 +506,13 @@ private fun strideOf(
     return stride
 }
 
-/** Rounded like the phone's rate modes: a 15 fps session's container says 14.97, the phone scaled by 15. */
+/** Rounded like the phone's rate modes: a 15 fps session's container says 14.97, the phone scaled by 15. Null
+ *  without a usable container rate: `motionThr` then stays at the 30 fps reference, and the run says so. */
 internal fun replayEngineFps(
     sourceFps: Double,
     stride: Int,
     live: Boolean,
-): Double? = if (live) null else Math.round(sourceFps) / stride.toDouble()
+): Double? = if (live) null else usableFrameRate(Math.round(sourceFps) / stride.toDouble())
 
 /** NOT `frames x 1000/fps` — that assumed CFR, which the phone never delivers. */
 private class FrameClock(

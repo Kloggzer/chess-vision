@@ -3,6 +3,12 @@ package com.chesslab.tracker.games
 import com.chesslab.engine.api.STARTPOS
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.MoveList
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
 
 private val PGN_COMMENT = Regex("""\{[^}]*\}""")
 private val PGN_NUMBER = Regex("""\d+\.(\.\.)?""")
@@ -48,4 +54,32 @@ fun fensAfterSans(
         out += board.fen
     }
     return out
+}
+
+/** Ein Zug der `candidate.json`: `frame` -1 und `decider` null, wo die Datei sie nicht nennt. */
+data class CandidateMove(
+    val san: String,
+    val frame: Int,
+    val decider: String?,
+)
+
+class Candidate(
+    val startFen: String,
+    val moves: List<CandidateMove>,
+)
+
+/** Arena und Desktop lesen dieselbe Datei: ohne `start_fen` einer Aufnahme aus laufender Partie ist schon der
+ *  erste SAN unspielbar. Keine Datei heisst Grundstellung ohne Zuege. */
+fun readCandidate(file: File): Candidate {
+    if (!file.isFile) return Candidate(STARTPOS, emptyList())
+    val root = Json.parseToJsonElement(file.readText()).jsonObject
+    val moves =
+        root["moves"]?.jsonArray.orEmpty().map { it.jsonObject }.map { row: JsonObject ->
+            CandidateMove(
+                san = row.getValue("san").jsonPrimitive.content,
+                frame = row["frame"]?.jsonPrimitive?.content?.toIntOrNull() ?: -1,
+                decider = row["decider"]?.jsonPrimitive?.content,
+            )
+        }
+    return Candidate(root["start_fen"]?.jsonPrimitive?.content ?: STARTPOS, moves)
 }

@@ -1,5 +1,7 @@
 package com.chesslab.tracker.pipeline
 
+import com.chesslab.tracker.settings.FrameRateMode
+
 // Measured here: `:core-engine` has no wall clock and cannot count frames it never received.
 
 private const val NANOS_PER_S = 1_000_000_000.0
@@ -36,4 +38,22 @@ class CameraRate(
         previousNs = 0L
         fps = 0.0
     }
+}
+
+/** Unter diesem Anteil der eingestellten Rate gilt der Sensor als der Engpass, nicht als Jitter. */
+private const val RATE_SLACK = 0.85
+
+/** Null, wo keine Rate gemessen oder erklaert ist (0, negativ, NaN, unendlich): skaliert ergaebe das
+ *  `motionThr = Infinity`. Handy UND Replay pruefen hier. */
+fun usableFrameRate(fps: Double?): Double? = fps?.takeIf { it.isFinite() && it > 0.0 }
+
+// Die gelieferte Rate, sobald der Sensor die eingestellte deutlich verfehlt (7,5 statt 15). Nach OBEN
+// nie — die Obergrenze kappt `pinFrameRate`.
+fun effectiveFrameRate(
+    rate: FrameRateMode,
+    delivered: Double?,
+): Double {
+    val asked = rate.fps.toDouble()
+    val measured = usableFrameRate(delivered) ?: return asked
+    return if (measured < asked * RATE_SLACK) measured else asked
 }

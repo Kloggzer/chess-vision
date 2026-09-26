@@ -2,12 +2,8 @@ package com.chesslab.desktop
 
 import com.chesslab.tracker.games.fensAfterSans
 import com.chesslab.tracker.games.pgnSans
+import com.chesslab.tracker.games.readCandidate
 import com.github.bhlangonijr.chesslib.Board
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 // found / missed / invented / beyond, NEVER folded into one accuracy: phantoms disqualify while misses are
@@ -150,24 +146,10 @@ internal fun labelPlies(candidate: File): List<ScoredPly> {
 }
 
 /** Ohne sie faellt `fensAfterSans` schon auf dem ersten SAN aus, und ein vertauschter Abtausch zaehlt als Phantom. */
-internal fun startFenOf(candidate: File): String =
-    Json
-        .parseToJsonElement(candidate.readText())
-        .jsonObject["start_fen"]
-        ?.jsonPrimitive
-        ?.content ?: Board().fen
+internal fun startFenOf(candidate: File): String = readCandidate(candidate).startFen
 
-private fun candidatePlies(candidate: File): List<ScoredPly> {
-    val root = Json.parseToJsonElement(candidate.readText()).jsonObject
-    return root.getValue("moves").jsonArray.map { row ->
-        val move = row.jsonObject
-        ScoredPly(
-            san = move.getValue("san").jsonPrimitive.content,
-            frame = move.getValue("frame").jsonPrimitive.int,
-            decider = move.getValue("decider").jsonPrimitive.content,
-        )
-    }
-}
+private fun candidatePlies(candidate: File): List<ScoredPly> =
+    readCandidate(candidate).moves.map { ScoredPly(it.san, it.frame, it.decider ?: "candidate") }
 
 /** Three numbers, three lists, no average — und das MODELL: ohne den Namen ist die Zahl nicht zuzuordnen. */
 internal fun printScore(

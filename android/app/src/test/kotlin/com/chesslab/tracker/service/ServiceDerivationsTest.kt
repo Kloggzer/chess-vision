@@ -5,13 +5,10 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.BUNDLED_MODELS
 import com.chesslab.tracker.cnn.ModelSpec
-import com.chesslab.tracker.cnn.claheSpecFor
 import com.chesslab.tracker.cnn.modelConfigJson
 import com.chesslab.tracker.settings.FrameRateMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,8 +16,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 
-/** Vier Ableitungen entscheiden, welchen Tracker das Handy faehrt: `gridArm` (Phantom-Veto), `cropClahe`,
- *  `engineConfig` und `BUNDLED_MODELS` (der Picker). */
+/** Drei Ableitungen entscheiden, welchen Tracker das Handy faehrt: `gridArm` (Phantom-Veto), `engineConfig` und
+ *  `BUNDLED_MODELS` (der Picker); `cropClahe` prueft `:tracker-runtime`, wo OpenCV-Natives liegen. */
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = Application::class)
 class ServiceDerivationsTest {
@@ -33,14 +30,6 @@ class ServiceDerivationsTest {
     fun `a model without coverage keeps the model-free hand arm on`() {
         assertTrue("das ist der Arm hinter 67/67 mit 0 erfundenen", gridArmFor(spec(coverageOutput = false)))
         assertTrue("ohne Modell erst recht", gridArmFor(null))
-    }
-
-    @Test
-    fun `a CLAHE-trained model is served with CLAHE, a plain one without`() {
-        // Die ENTSCHEIDUNG, nicht das Objekt: `CropClahe` braucht OpenCV-Natives, die `:app` nicht traegt.
-        assertNotNull("sonst sieht das Standardmodell rohe Pixel", claheSpecFor(spec(claheClip = 2.0)))
-        assertNull(claheSpecFor(spec(claheClip = 0.0)))
-        assertNull(claheSpecFor(null))
     }
 
     @Test
@@ -86,7 +75,6 @@ class ServiceDerivationsTest {
     private fun spec(
         coverageOutput: Boolean = false,
         coverageGate: Double? = null,
-        claheClip: Double = 0.0,
     ): ModelSpec =
         ModelSpec.parse(
             modelConfigJson(
@@ -94,7 +82,6 @@ class ServiceDerivationsTest {
                 mean = null,
                 coverageOutput = coverageOutput,
                 coverageGate = coverageGate,
-                claheClip = claheClip.takeIf { it > 0.0 },
             ),
         )
 }

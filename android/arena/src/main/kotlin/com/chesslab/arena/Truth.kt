@@ -1,11 +1,7 @@
 package com.chesslab.arena
 
-import com.chesslab.engine.api.STARTPOS
 import com.chesslab.tracker.games.pgnSans
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import com.chesslab.tracker.games.readCandidate
 import java.io.File
 
 /** The LONGER source: `candidate.json` has frames but stops early and GUESSES order on bundled commits
@@ -22,23 +18,7 @@ fun truthOf(dir: File): List<TruthPly> {
 
 /** A frame with SEVERAL plies is a backlog flush, not a measurement: -1 (54 of 1242). */
 private fun candidatePlies(dir: File): List<TruthPly> {
-    val file = File(dir, "candidate.json")
-    if (!file.isFile) return emptyList()
-    val moves = Json.parseToJsonElement(file.readText()).jsonObject["moves"]?.jsonArray ?: return emptyList()
-    val raw =
-        moves.map { row ->
-            TruthPly(
-                san =
-                    row.jsonObject
-                        .getValue("san")
-                        .jsonPrimitive.content,
-                frame =
-                    row.jsonObject["frame"]
-                        ?.jsonPrimitive
-                        ?.content
-                        ?.toIntOrNull() ?: -1,
-            )
-        }
+    val raw = readCandidate(File(dir, "candidate.json")).moves.map { TruthPly(it.san, it.frame) }
     val perFrame = raw.filter { it.frame >= 0 }.groupingBy { it.frame }.eachCount()
     val bundled = perFrame.filterValues { it > 1 }.keys
     return raw.map { if (it.frame in bundled) it.copy(frame = -1) else it }
@@ -52,12 +32,4 @@ private fun pgnPlies(dir: File): List<String> {
 }
 
 /** A recording that starts mid-game names its position in `candidate.json`; without it every ply is unplayable. */
-fun startFenOf(dir: File): String {
-    val file = File(dir, "candidate.json")
-    if (!file.isFile) return STARTPOS
-    return Json
-        .parseToJsonElement(file.readText())
-        .jsonObject["start_fen"]
-        ?.jsonPrimitive
-        ?.content ?: STARTPOS
-}
+fun startFenOf(dir: File): String = readCandidate(File(dir, "candidate.json")).startFen

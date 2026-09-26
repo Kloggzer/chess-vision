@@ -51,6 +51,7 @@ import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.pipeline.cameraStages
+import com.chesslab.tracker.pipeline.effectiveFrameRate
 import com.chesslab.tracker.record.BuildStamp
 import com.chesslab.tracker.record.LiveCaptureSource
 import com.chesslab.tracker.record.RecordingBundleHost
@@ -662,9 +663,6 @@ internal class RateRetune {
     }
 }
 
-/** Unter diesem Anteil der eingestellten Rate gilt der Sensor als der Engpass, nicht als Jitter. */
-private const val RATE_SLACK = 0.85
-
 private const val RATE_WARMUP_FRAMES = 60L
 
 // Genau EINMAL nach der Aufwaermzeit: bei jedem Bild zu stimmen liesse `motionThr` wandern.
@@ -673,17 +671,6 @@ internal fun retuneDue(
     rate: FrameRateMode,
     delivered: Double,
 ): Boolean = frames == RATE_WARMUP_FRAMES && effectiveFrameRate(rate, delivered) != rate.fps.toDouble()
-
-// Die gelieferte Rate, sobald der Sensor die eingestellte deutlich verfehlt (7,5 statt 15). Nach OBEN
-// nie — die Obergrenze kappt `pinFrameRate`.
-internal fun effectiveFrameRate(
-    rate: FrameRateMode,
-    delivered: Double?,
-): Double {
-    val asked = rate.fps.toDouble()
-    if (delivered == null || !delivered.isFinite() || delivered <= 0.0) return asked
-    return if (delivered < asked * RATE_SLACK) delivered else asked
-}
 
 /** From the ASSET, not the attached classifier: the crops must be sized before the first observation, and
  *  a failed attach must leave a calibratable tracker. Unreadable -> null, not silent: `openClassifier`

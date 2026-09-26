@@ -1,5 +1,6 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.tracker.pipeline.effectiveFrameRate
 import com.chesslab.tracker.settings.FrameRateMode
 import org.junit.Assert.assertEquals
 import org.junit.Test
