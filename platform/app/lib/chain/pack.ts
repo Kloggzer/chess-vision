@@ -6,6 +6,7 @@ import { DESKTOP_MODEL } from "@/lib/chain/cli-args";
 import { checkName } from "@/lib/session-store/recordings";
 import { targetDir, videoInput } from "@/lib/ingest/ingest";
 import { stripBom } from "@/lib/jsonl";
+import { absentOnly } from "@/lib/measurement";
 
 export type PackResult = {
   output: string;
@@ -118,14 +119,9 @@ export async function packInputs(name: string): Promise<{ video: string; game: s
   const { video, sessionId } = recording;
   const files = targetDir(checkName(name, "transfer name"));
 
-  let games: string[] = [];
-  try {
-    games = (await readdir(path.join(files, "games"))).filter((f) => f.endsWith(".json"));
-  } catch (e) {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return { reason: "no games/ in the transfer — nothing states what was played" };
-  }
-  for (const file of games.sort()) {
+  const listed = await readdir(path.join(files, "games")).catch(absentOnly);
+  if (listed === null) return { reason: "no games/ in the transfer — nothing states what was played" };
+  for (const file of listed.filter((f) => f.endsWith(".json")).sort()) {
     const full = path.join(files, "games", file);
     const text = await readFile(full, "utf8").catch(() => "");
     if (text.includes(`"sessionId":"${sessionId}"`) || text.includes(`"sessionId": "${sessionId}"`)) return { video, game: full };

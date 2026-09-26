@@ -63,7 +63,8 @@ export async function appendRows(file: string, rows: unknown[]): Promise<number>
     // der zweite Schreiber sonst mit EPERM am `rename`). `serialize` ist NICHT wiedereintrittsfaehig —
     // wer aussen auf denselben Pfad riegelt, verklemmt sich.
   return serialize(file, async () => {
-    const text = await readFile(file, "utf8").catch(() => "");
+    // Nur ENOENT ist der leere Vorzustand: ein EBUSY als "" klebte die Zeile an den halben Schwanz.
+    const text = (await readFile(file, "utf8").catch(absentOnly)) ?? "";
     if (text !== "" && !text.endsWith("\n")) {
       // Ein blankes `\r` am Ende ist ein zwischen CR und LF erschlagener Schreiber: die ZEILE ist
       // ganz und `readJsonl` nimmt sie, also bekommt sie ihren Umbruch statt weggeworfen zu werden

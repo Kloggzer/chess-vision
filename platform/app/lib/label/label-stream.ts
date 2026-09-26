@@ -12,7 +12,7 @@ import { type FrameHand, handKey, loadFrameHands } from "@/lib/reports/frame-han
 import { isArchived } from "@/lib/session-store/meta";
 import { modelReadRows, topRead, type ModelRead } from "@/lib/session-store/model-reads";
 import { frameReviews, matteWanted, unusableBoards } from "@/lib/session-store/review-notes";
-import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session-store/session";
+import { exportedSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session-store/session";
 import { loadMatte } from "@/lib/session-store/matte";
 import { unusableCells } from "@/lib/session-store/unusable-cells";
 import { uselessFlag } from "@/lib/session-store/useless";
@@ -242,15 +242,8 @@ async function buildStream(live: string[], admitting: Promise<Record<string, Adm
   let readBoards = 0;
 
   for (const name of live) {
-    let session;
-    try {
-      session = await loadSession(name);
-    } catch (e) {
-      // ENOENT heisst "der Export lief nie" — die Kette schuldet dieser Aufnahme ein
-      // `export-session`. Jeder ANDERE Fehler nahm sie hier lautlos aus `progress.boards`.
-      if ((e as { code?: string })?.code !== "ENOENT") throw e;
-      continue;
-    }
+    const session = await exportedSession(name);
+    if (session === null) continue;
     const id = sessionId(name);
     const [rows, judged, unusable, matte, wanted, useless] = await Promise.all([
       modelReadRows(name),

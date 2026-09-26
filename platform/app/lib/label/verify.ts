@@ -4,7 +4,7 @@ import { liveGames } from "@/lib/label/label-stream";
 import { coveredSquares } from "@/lib/classes";
 import { type AlphaState, alphaState, fixedAlphas, loadMatte, matteStamp } from "@/lib/session-store/matte";
 import { frameReviews, unusableBoards, type FrameReview } from "@/lib/session-store/review-notes";
-import { loadSession, sessionId } from "@/lib/session-store/session";
+import { exportedSession, sessionId } from "@/lib/session-store/session";
 
 /** Behauptet die Maske ein FELD? Dieselbe Schwelle, die die Karte als "n Felder > 0.15" zeigt —
  *  ein Frame mit 0 Feldern hat nichts, worueber ein Mensch urteilen koennte. */
@@ -69,15 +69,8 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
   for (const name of await liveGames()) {
     const matte = await loadMatte(name);
     if (matte.size === 0) continue;
-    let session;
-    try {
-      session = await loadSession(name);
-    } catch (e) {
-      // ENOENT heisst "der Export lief nie". Jeder ANDERE Fehler nahm die Aufnahme sonst lautlos aus
-      // `progress`, und der Nenner stand ueber einer anderen Grundgesamtheit.
-      if ((e as { code?: string })?.code !== "ENOENT") throw e;
-      continue;
-    }
+    const session = await exportedSession(name);
+    if (session === null) continue;
     const id = sessionId(name);
     const [unusable, reviews, fixed, recutAt] = await Promise.all([
       unusableBoards(id),

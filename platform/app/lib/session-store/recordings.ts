@@ -88,15 +88,9 @@ export async function requireRecording(dir: string, session_id: string): Promise
 }
 
 export async function listGames(): Promise<string[]> {
-  try {
-    const entries = await readdir(recordingsDir(), { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch (e) {
-    // Eine fehlende Wurzel ist ein frisches Projekt. Ein kaputtes `CHESSLAB_DATA_DIR` ist es
-    // nicht — als leere Liste sieht es genauso aus, und niemand sucht dann nach dem Pfad.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return [];
-  }
+  // Eine fehlende Wurzel ist ein frisches Projekt, ein kaputtes `CHESSLAB_DATA_DIR` nicht.
+  const entries = (await readdir(recordingsDir(), { withFileTypes: true }).catch(absentOnly)) ?? [];
+  return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
 }
 
 /** The second a bundle was recorded, read off its name. Both schemes on disk carry the same 14

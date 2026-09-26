@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir, loadCandidate } from "@/lib/session-store/recordings";
 import { readJsonl } from "@/lib/jsonl";
-import { stampOrMissing } from "@/lib/measurement";
+import { absentOnly, stampOrMissing } from "@/lib/measurement";
 
 /** `after`: the hand withdrawing from the move that just landed — FEN true. `before`: the next move
  *  being played, the piece may ALREADY have moved (the exporter marks `unknown_squares` only here).
@@ -59,6 +59,10 @@ export function sessionDir(name: string): string {
 }
 
 const cache = new Map<string, { key: string; value: Session }>();
+
+/** `null` heisst "der Export lief nie" (ENOENT); jeder andere Fehler nahm die Aufnahme sonst lautlos
+ *  aus `progress`, und der Nenner stand ueber einer anderen Grundgesamtheit. */
+export const exportedSession = (name: string): Promise<Session | null> => loadSession(name).catch(absentOnly);
 
 /** Log + candidate (moves, fps) — mtime-keyed on both. */
 export async function loadSession(name: string): Promise<Session> {

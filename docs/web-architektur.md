@@ -135,6 +135,8 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
   **`ledgerRows`** (`chain/ledger.ts`) liest `jobs.jsonl` einmal mit `absentOnly`.
 - `session-store/meta`, `useless`, `corrections`, `review-notes` lesen ueber `absentOnly` statt eines
   eigenen ENOENT-Fangs (`lib/session-store/absent-only.test.ts`: fehlt, EISDIR, EACCES, kaputtes JSON).
+- Eigene ENOENT-Faenge nur noch in `heavy-lock` (drei Zustaende); umgestellt: `atomic.appendRows` (EBUSY klebte an den halben Schwanz), `pack`, `listGames`,
+  `phoneSessionSeconds` und `exportedSession` (`session.ts`, fuer `label-stream`/`verify`) — `lib/enoent-doors-20260926.test.ts`.
 
 ## Offen fuer die naechste Runde
 

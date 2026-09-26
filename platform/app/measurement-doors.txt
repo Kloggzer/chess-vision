@@ -16,7 +16,6 @@
 # `() => false`, `"none"`, `-1`, `catch { return false }`, `{ width: 720, height: 816 }`. Die 16
 # Stellen, die er dabei neu sah, stehen auf `absentOnly`/`stampOrMissing` (`*.bughunt-2026-09-23b.test.ts`).
 # Auch strukturierte Leeren wie `{ classMode: null }` und `{ file: n, runs: [] }` zaehlen.
-1 lib/atomic.ts  # liest die Datei, die es gleich unter Stempel-Riegel schreibt; leer IST dort ein gueltiger Vorzustand
 1 lib/corpus/corpus-query.ts  # unlesbares log.jsonl nimmt die Aufnahme absichtlich aus der Antwort, statt den Phasenfilter still abzuschalten
 1 lib/corpus/corpus.ts  # nur noch der corpus-index CACHE: eine kaputte Indexdatei wird NEU GEBAUT, nicht geschluckt (2026-09-22)
 1 lib/chain/heavy-lock.ts  # die Sperre selbst; sie unterscheidet `null` und `"unreadable"` schon von Hand
@@ -31,3 +30,5 @@
 # heisst leer, jeder andere Lesefehler wird durchgereicht (`*.bughunt-2026-09-22e.test.ts`).
 # Eingeloest 2026-09-23: `stored.ts` liest strikt (halbe LETZTE Zeile faellt weg, kaputte MITTENDRIN
 # wirft), `meta.archivedAt` ist `absentOnly` - der Grund "ui.json" zeigte auf die falsche Stelle.
+# Eingeloest 2026-09-26: `appendRows` (atomic.ts) liest ueber `absentOnly` - ein EBUSY als "" klebte
+# die neue Zeile an einen halben Schwanz (`lib/enoent-doors-20260926.test.ts`).

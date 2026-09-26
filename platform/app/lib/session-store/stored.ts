@@ -11,13 +11,9 @@ const NS_PER_S = 1e9;
  *  one) — the only honest denominator a job's progress has. */
 export async function phoneSessionSeconds(name: string): Promise<number | null> {
   const sessions = path.join(gameDir(name), "files", "sessions");
-  let ids: string[] = [];
-  try {
-    ids = (await readdir(sessions, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch (e) {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return null;
-  }
+  const entries = await readdir(sessions, { withFileTypes: true }).catch(absentOnly);
+  if (entries === null) return null;
+  const ids = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   for (const id of ids.sort().reverse()) {
     const text = await readFile(path.join(sessions, id, "session.yaml"), "utf8").catch(absentOnly);
     const ns = /video_duration_ns:\s*(\d+)/.exec(text ?? "");
