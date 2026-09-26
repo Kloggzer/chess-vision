@@ -32,8 +32,9 @@ Gegen SAM auf vier komplett zurückgehaltenen Sessions (1 783 Bretter, 865 mit H
 **0,50** fängt der Gate alle 865 und verwirft 10 von 918 sauberen Brettern (bei 0,60: 1 verpasst,
 7 Fehlalarme). Die Rillen retten als Handstimme null Frames und kosten 36 Fehlalarme.
 
-- **RT-DETR und `skin_patch` sind entfernt** (2026-08-22). Grounding DINO davor: 405 ms je Frame,
-  und bei 512 px flaggte es jedes saubere Brett — nicht verkleinerbar.
+- **RT-DETR und `skin_patch` sind aus dem Scan entfernt** (2026-08-22). `skin_patch` lebt weiter als
+  Zweitzeuge neben den Rillen (Grid-Fit `grid-late`, `session mark-hands`). Grounding DINO
+  davor: 405 ms je Frame, und bei 512 px flaggte es jedes saubere Brett — nicht verkleinerbar.
 - **Alte Scans tragen kein `gate`;** `occupied` liest sie nach der alten Regel, sonst gälte ein
   ganzer Korpus über Nacht als handfrei. Dort gilt RT-DETR `person` ≥ `PERSON_THR` 0,20: saubere
   Bretter liegen bei 0,11–0,13, Hände bei 0,30–0,95, bei 0,10 flaggt jedes saubere Brett.

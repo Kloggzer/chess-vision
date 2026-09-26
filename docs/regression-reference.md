@@ -81,8 +81,9 @@ Er traegt 24 verdeckte Frames auf 11 001 (0,2 %). Jede boolesche Wache einzeln a
 - **`desktop fuzz ablate <wache>`** (Sekunden statt 18 Minuten) sieht `baselineOcclusion` und
   `cnnVerify`, aber nicht `liveAlign` (keine Marker). Fuzzer und Satz sind komplementaer blind.
 
-**Wie zuverlaessig der Coverage-Kopf ist:** je ZELLE F1 0,958 gegen die SAM-Matten (104 337
-Lesungen), als FRAME-Filter verpasst er bei seiner besten Schwelle 34 von 59 Faellen.
+**Wie zuverlaessig der Coverage-Kopf ist:** je ZELLE F1 0,958 gegen SAMs Matte (16 000 Zellen,
+`docs/occlusion-gate.md`), als FRAME-Filter verpasst er bei seiner besten Schwelle 34 von 59
+Faellen.
 
 ## Die Champion-Vorgaben (`29b7dbc6`, 2026-09-20, vorlaeufig)
 

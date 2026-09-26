@@ -58,6 +58,6 @@ fps), so a gap means "the log could not keep up", not "nothing happened".
 **No pixels, ever.** `DebugPayload`'s tests assert no bitmap-shaped field, and `DiagnosticsLogTest`
 asserts the written file never mentions one. **No network either:** no endpoint, no token, no
 upload. The predecessor design had all four, and its own review found the write-path token would
-have been served unauthenticated by the read path (`specs/34`).
+have been served unauthenticated by the read path.
 
 How to read a desktop replay's rows: `docs/desktop-replay.md`.

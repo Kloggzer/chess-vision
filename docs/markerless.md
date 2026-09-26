@@ -38,9 +38,9 @@ Nach Schritt 5 ist die Skala exakt und **jeder** Restfehler ein ganzzahliger Zel
 - **Betrag reicht nicht, Vorzeichen schon.** Die schwaechste Reihe gegen das Karo: ein beschrifteter
   Rand variiert von den Buchstaben ebenso stark, nur nicht im Takt; die Grundreihe voller Figuren
   variiert weniger. Betrag 121/155, vorzeichenrichtig **137/155**, robust gegen die Parameter.
-- Verworfen: Karo-Korrelation der Zellmittel und `OUTSIDE_WEIGHT` ("ausserhalb keine Linie" —
-  flach ueber 0 bis 3, auf Brettern mit Beschriftungsrand ohnehin falsch). Suchbereich ueber
-  ±1 Zelle bringt nichts.
+- Verworfen als Phasen-Entscheider: Karo-Korrelation der Zellmittel und `OUTSIDE_WEIGHT`
+  ("ausserhalb keine Linie" — flach ueber 0 bis 3, auf Brettern mit Beschriftungsrand ohnehin
+  falsch; im Takt-Kamm steht es weiter auf 2,0). Suchbereich ueber ±1 Zelle bringt nichts.
 
 ## Wie es NICHT zu messen ist
 

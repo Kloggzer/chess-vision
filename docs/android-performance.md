@@ -139,9 +139,10 @@ Haelfte der MACs; das Modell ist **overhead-, nicht rechengebunden** (16/24/32 K
 
 Dieselben Gewichte, zwei Exportgroessen, 64 Crops, XNNPACK, 4 Threads. Zeit: **Faktor 2,2-2,4**
 (2026-08-27: 20,74 / 21,63 ms bei 80 px, 50,23 ms bei 128 px). Die 6,91 ms vom 2026-08-23 sind
-nicht reproduziert; das Kostenmodell sagt 18,3 ms voraus und stuetzt die neue Zahl. Strom
-bei Volllast: 541 gegen 662 mA, also **Energie je Brett Faktor 3,0** (11,2 gegen 33,3 mA·s). Live bei 2,65 Reads/s (Median aus
-17 Recordings) kostet 128 px **+58 mA, -7 % Laufzeit**; die Bildrate bleibt der groessere Hebel.
+nicht reproduziert; das Kostenmodell sagt 18,3 ms voraus und stuetzt die neue Zahl. Strom bei
+Volllast: 541 gegen 662 mA, also **Energie je Brett Faktor 3,0** (11,2 gegen 33,3 mA·s). Live bei
+2,65 Reads/s (Median aus 17 Recordings) kostet 128 px **+58 mA, -7 % Laufzeit**; die Bildrate
+bleibt der groessere Hebel.
 
 Nachmessen (debug-APK, Modelle nach `filesDir/cnn_bench/model{80,128}.onnx`; HyperOS zeigt der
 App nicht, was `adb push` ins externe Verzeichnis legt):
@@ -157,10 +158,9 @@ auf einem Telefon mit Sessions.
 
 ### Quad-Korrektur ist Arbeit je Pose, nie je Frame
 
-`improveQuad` am Dev-Rechner bei `boardSize` 1248: **412-432 ms**, `quadOf` 625 ms (2026-08-07);
-am Geraet nie gemessen. Beide Tracker messen einmal je Pose und wenden die Korrektur danach
-gratis an (vier Punkte durch eine 3x3), `TrackerCoordinator.onGrid`. Aeltere Zahlen (31-85 ms
-bei 800) sind ueberholt; `:desktop`'s `Cost.kt` misst statt zu zitieren.
+Zahlen (`improveQuad` 412-432 ms, `quadOf` 625 ms am Dev-Rechner, Geraet ungemessen) und Mechanik
+(`TrackerCoordinator.onGrid`): `docs/tracker-runtime-service.md`. Aeltere Zahlen (31-85 ms bei 800)
+sind ueberholt; `:desktop`'s `Cost.kt` misst statt zu zitieren.
 
 ### APK-Groesse: Loecher im Zip
 

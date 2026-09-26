@@ -26,8 +26,8 @@ der Reads.
 
 Die Schwelle reist als `coverage_gate` in der `config.json` des Modells; `ModelSpec` liest sie,
 `TrackerService` legt sie auf `TrackerConfig.pOccludedThr`. Fehlt der Schlüssel, gilt der
-Alt-Default 0,5 mit Warnung. `build_model_card` schreibt das Feld nur mit übergebenem Wert, damit
-kein Default als gemessen durchgeht.
+Alt-Default 0,5 mit Warnung. `build_model_card` schreibt das Feld nie, erst
+`stage_model_asset.py --gate` nach der Messung — damit kein Default als gemessen durchgeht.
 
 ## Was ausgeliefert wird (gemessen 2026-09-14)
 

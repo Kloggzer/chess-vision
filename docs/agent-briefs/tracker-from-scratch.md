@@ -46,9 +46,8 @@ Frames kommen in Reihenfolge, es gibt keinen zweiten Durchlauf und keinen Blick 
 hast du das rohe Kamerabild, die vier Brettecken, das entzerrte Brett und — wenn du danach fragst —
 die Lesung des Klassifikators über alle 64 Felder. Das Fragen kostet Zeit und wird gezählt.
 
-**Sieh dir zuerst an, was du bekommst:** `brett-rig.png` und `brett-handy.png` liegen neben diesem
-Auftrag — ein entzerrtes Brett mit eingezeichnetem Raster, aus beiden Kameras. `arena board
-<aufnahme> frame=N` erzeugt so ein Bild für jeden Frame. `a8` liegt oben links, `h1` unten rechts,
+**Sieh dir zuerst an, was du bekommst:** `arena board <aufnahme> frame=N` erzeugt ein entzerrtes
+Brett mit eingezeichnetem Raster, für jeden Frame und beide Kameras (Rig und Handy). `a8` liegt oben links, `h1` unten rechts,
 Weiss spielt von unten; die Kantenlänge misst die Arena aus der Aufnahme (928 px beim Rig, 1280 px
 beim 4K-Handy). Die Ecken kommen als `[a8, h8, h1, a1]`, die 64 Zeilen von `squares()` dagegen
 rangweise als `a1, b1, …, h8` — zwei verschiedene Reihenfolgen, und das ist die Sorte Fehler, die

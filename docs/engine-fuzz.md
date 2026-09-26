@@ -70,7 +70,7 @@ oder S-TaLiRo) ist nicht gebaut.
 Eine gemessene Zahl und eine geratene sehen im Code gleich aus. In den sieben Modellen ist
 `coverage_gate` **gemessen** (`docs/occlusion-gate.md`), `temperature` **gefittet** (auf val),
 `prior_lambda` **keins von beidem**: exakt `4,0 × temperature`, ein Migrationswert (5,0412 bis
-7,0204).
+7,0204; Herkunft `docs/regression-reference.md`, „Historie").
 
 `TrackerConfig` hat 65 Felder (2026-09-22). `android/config/tuned-constants.txt` wird abgeleitet,
 nicht gepflegt (`uv run python android/scripts/tuned_constants.py`), und klassifiziert NOTIERT 19,

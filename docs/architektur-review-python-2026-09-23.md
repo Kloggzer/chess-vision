@@ -2,9 +2,8 @@
 
 Quelle: externes Review (Codex). Jeder Befund wurde am Code belegt und mit einem Test festgehalten
 (`tests/test_bug_hunt_20260923_architektur.py`, `tests/test_bug_hunt_20260923_mattestand.py`;
-die Web-Seite rechnet seit `docs/web-ruft-python.md` Schritt 2 in `chain_state`). Entscheidungen: `docs/offene-entscheidungen.md`,
-A1–A5.
-Die Zahlen sind vom 2026-09-23, gezaehlt auf der Platte.
+die Web-Seite rechnet seit `docs/web-ruft-python.md` Schritt 2 in `chain_state`). Entscheidungen:
+`docs/offene-entscheidungen.md`, A1–A5. Die Zahlen sind vom 2026-09-23, gezaehlt auf der Platte.
 
 | # | Befund | Stand |
 |---|---|---|
@@ -84,9 +83,9 @@ Verloren ging vorher nachweislich kein Urteil.
 
 ## H6 — die Temporal-Reihenfolge lebt nur in `cli/session.py`
 
-`cli.session.session_temporal_pass` ist die einzige Stelle, die Scan -> Proposal -> Adopt -> SAM -> Upsert
--> Prune -> Flags -> `pass.json` kennt. **Behoben:** der Pass stempelt seine Eingaben (H3), eine
-SAM-Zeile nach dem Pass oeffnet die Temporal-Sprosse wieder.
+`cli.session.session_temporal_pass` ist die einzige Stelle, die Scan -> Proposal -> Adopt -> SAM ->
+Upsert -> Prune -> Flags -> `pass.json` kennt. **Behoben:** der Pass stempelt seine Eingaben (H3),
+eine SAM-Zeile nach dem Pass oeffnet die Temporal-Sprosse wieder.
 
 **Offen, Daten:** 21 von 27 `pass.json` sind von Hand aus den Batch-Logs vom 2026-09-11
 zusammengesetzt. **63 Frames in 18 Aufnahmen** tragen in `proposals.jsonl` ein Alpha mit Coverage

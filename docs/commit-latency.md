@@ -16,10 +16,9 @@ allen 15 Aufnahmen identisch zum Ausgang.
 | Kandidat → Commit | ~0 s | die CNN-Bestätigung — am PC synchron mit Cache |
 
 **Der Referenz-Hold war 0,20 s** (seit 2026-09-20 0,1592, `docs/regression-reference.md`) — die
-Zeit des Arms, nicht die der Engine. 0,1 s
-kostete auf dem 30-fps-Satz ein Phantom (222741) und 11 Züge (233432); 50 ms ließen auf 11-59-12 den
-zurückgehenden Arm zur Referenz werden (8 267 Frames „ILLEGAL MOVE?"). Was früher committet, ist
-der getrennte Commit-Hold (§4).
+Zeit des Arms, nicht die der Engine. 0,1 s kostete auf dem 30-fps-Satz ein Phantom (222741) und
+11 Züge (233432); 50 ms ließen auf 11-59-12 den zurückgehenden Arm zur Referenz werden (8 267
+Frames „ILLEGAL MOVE?"). Was früher committet, ist der getrennte Commit-Hold (§4).
 
 ## 2. Das Handy war nie 2–3× langsamer
 
@@ -52,8 +51,8 @@ Werkzeug: `replay … trace=<file>` (Engine-Zustand je Frame), `scripts/commit_l
   daran 45 Plies). −67 ms, Scores identisch.
 - **Same-Frame-Drain:** der Koordinator zieht die Snapshot-Queue nach dem Beobachter-Aufruf noch im
   Frame. −67 ms, jeder Commit genau einen Frame früher, kein Zug anders.
-- **Getrennter Commit-Hold:** `commitHoldS` 0,067 und `SETTLE_FRAMES_CNN` 2 öffnen die Detection
-  früher; die Referenz wartet auf `refHoldUntil`, den vollen Hold. Ein Commit davor setzt
+- **Getrennter Commit-Hold:** `commitHoldS` (damals 0,067, seit 2026-09-20 0,0632) und
+  `SETTLE_FRAMES_CNN` 2 öffnen die Detection früher; die Referenz wartet auf `refHoldUntil`, den vollen Hold. Ein Commit davor setzt
   `refProvisionalUntil`, der erste ruhige Frame danach ersetzt die Referenz.
 
 **Was den Split sicher macht** — ohne diese Regeln committete er falsch (`gxh3` statt `g3`, `Bxe4`
@@ -89,7 +88,7 @@ Gerät. Die Unit-Tests zum Motion-Hold pinnen `commitHoldS = null`.
 
 ## 5. Die Commit-Schwelle aus einer Zielrate ableiten: geht heute nicht (2026-08-24)
 
-Idee: statt `minAgreement`/`marginSquares`/`plyCostSquares` von Hand zu setzen, die tolerierte
+Idee: statt `minAgreement`/`marginSquares`/`cnnPlyCostSquares` von Hand zu setzen, die tolerierte
 Phantomrate vorgeben und die Schwelle ableiten (leave-one-recording-out, Clopper-Pearson).
 `desktop replay` schreibt je Commit eine `decision-conf:`-Zeile (`scripts/commit_truth.py`,
 `scripts/commit_calibrate.py`). Ergebnis: **die Merkmale trennen nicht.**

@@ -59,12 +59,12 @@ hatte (laut `31` Folklore ohne Quelle). `32` fragte auf der neu geschnittenen Ge
 
 ## Tracker-Befunde, die sonst nirgends stehen
 
-- **Recovery zahlt für ihre Länge** (`53`): `plyCostSquares` 0 erfindet Brücken, 2 tötet die
+- **Recovery zahlt für ihre Länge** (`53`): `cnnPlyCostSquares` 0 erfindet Brücken, 2 tötet die
   Recovery (003957 fällt von 67 auf 14 Plies), 1 ist ausgeliefert.
 - **`motion_hold_s` hat einen Boden bei 0,34** (`19`): bei 0,32 trägt der erste Frame nach `Nf6`
   in `blender-scholars` 7 geänderte Felder gegen ein Limit von 6, der Tracker steht, und der
-  spätere Commit verschluckt eine Dame. Kotlin steht auf 0,20, seit der Occluder-Hold abgespalten
-  ist.
+  spätere Commit verschluckt eine Dame. Kotlin steht auf 0,1592 (`motionHoldS`), seit der
+  Occluder-Hold abgespalten ist.
 - **Das Gerät setzt die Decke** (`26`): QNN unerreichbar (`EACCES`, seit 2026-07-26 aus dem
   Build); die Latenzstreuung 61 → 75 ms war Throttling, nicht Contention. Per-channel A16W8 war der
   einzige phantomfreie Graph des Audits, float eingeschlossen — `_parity` sieht diese Fehlerklasse

@@ -19,8 +19,8 @@ after the final piece lands, and both trackers measured on it lose the same four
   `Recording.frames(start=, wanted=, rotate=)` (`src/chesslab/recording.py`, die Segmente als EIN
   Strom), Kotlin `FrameSource`/`VideoFileSource`. Beide lesen vorwärts und seeken nur den Start —
   ein Seek mittendrin ist unzuverlässig (`docs/export-decode.md`).
-- **Folge, und richtig so:** `session scan-alignment`, `fit-mesh`, `mark-hands`, `autofix-corners`
-  und `session boards` verweigern ohne Frame-Datei. Neu messen geht über
+- **Folge, und richtig so:** `session scan`, `fit-mesh`, `mark-hands`, `autofix` und
+  `session boards` verweigern ohne Frame-Datei. Neu messen geht über
   `realgames export-session`, das die Bilder selbst aus dem Video holt.
 
 ## How `data/videos/` is laid out

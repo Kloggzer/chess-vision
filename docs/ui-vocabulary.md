@@ -1,8 +1,8 @@
 # Das Vokabular der App
 
-Elf Primitive (specs/48) in `android/app/src/main/kotlin/com/chesslab/tracker/ui/Chrome.kt`, aus
-denen jeder Screen gebaut ist. Ein zwoelftes ist entweder wirklich neu, oder der Screen, der es
-will, ist falsch. Jedes KDoc sagt, wofuer ein Primitiv NICHT da ist — eine Komponente driftet, wenn
+Die Primitive (specs/48) in `android/app/src/main/kotlin/com/chesslab/tracker/ui/Chrome.kt`, aus
+denen jeder Screen gebaut ist. Ein neues ist entweder wirklich neu, oder der Screen, der es will,
+ist falsch. Jedes KDoc sagt, wofuer ein Primitiv NICHT da ist — eine Komponente driftet, wenn
 niemand aufschreibt, wann man sie nicht nimmt. Hier stehen die Vorfaelle dahinter.
 
 ## Rahmen und Banner
@@ -41,8 +41,6 @@ niemand aufschreibt, wann man sie nicht nimmt. Hier stehen die Vorfaelle dahinte
   zerstoererische Handlung ist nie gefuellt.
 - **Umrandete Gefahr:** behaelt Materials geraeumigeres Seitenpolster; bei 8 dp las sie im Dialog
   als Abzeichen.
-- **Chip:** eine Option einer sichtbaren Gruppe. Ausgewaehlt ist Moebel-Farbe plus Rahmen, nie der
-  Akzent — er darf nicht mit dem gefuellten Knopf konkurrieren.
 - **Schweregrad-Streifen:** Zustand in FORM (3-px-Kante), nicht nur Farbe. Drei Stufen: `Accent`,
   `Busy`, `Danger`. Nicht fuer eine Zeile, die sich bloss von ihren Nachbarn unterscheidet.
 - **Leerzustand:** ein Satz, was erscheinen wird, ein Knopf, der es erscheinen laesst — die eine

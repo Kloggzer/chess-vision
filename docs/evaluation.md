@@ -71,7 +71,7 @@
   genau diesen Checkpoint. `best.pt` ist die Epoche mit der hoechsten `visible_piece_acc` auf dem
   Val, Gleichstand ueber sichtbare Belegung und Konfidenz-AUROC; `best_piece.pt` behaelt die erste
   Epoche, die diesen Wert erreicht. (Die Plan-Regel nannte den gewichteten Score aus
-  `CHECKPOINT_WEIGHTS` — `train.py` verwirft ihn, siehe das TODO dort.)
+  `CHECKPOINT_WEIGHTS` — `training/epoch_metrics.py` verwirft ihn, siehe das TODO dort.)
 - **Seit Metrik-Schema 2 (2026-09-10):** der Board-Val-Verlust zaehlt Crops in Zaehler und
   Nenner; alte Board-Verluste waren um Faktor 64 aufgeblaeht — nicht direkt vergleichen.
   `t_data_s` ist Teil von `t_train_s`. Neue Laeufe brauchen ein frisches Verzeichnis;
@@ -200,13 +200,11 @@ Phantome entscheiden, nicht `val_acc`.
 
 ## 7. Offen
 
-| | Schritt |
-|---|---|
-| 3.4/3.5 | Checkpoint einfrieren, Test **genau einmal** |
-| 3.6 | ONNX gegen PyTorch numerisch, Telefon-Laufzeit, Phantome im Replay |
-| 1.3 | Zeitliche Mehrheit auf dem Geraet (Kotlin); `episode_eval` misst vorab, was sie braechte |
-| 1.4 | Ersatz fuer die hochskalierten Kompositen, dann ein Neubau |
-| — | Was eine Erfassungs-Session semantisch ist (ein Aufbau mit drei Figuren hat keinen FEN-Zug) |
+- Checkpoint einfrieren, Test **genau einmal**.
+- ONNX gegen PyTorch numerisch, Telefon-Laufzeit, Phantome im Replay.
+- Zeitliche Mehrheit auf dem Geraet (Kotlin); `episode_eval` misst vorab, was sie braechte.
+- Ersatz fuer die hochskalierten Kompositen, dann ein Neubau.
+- Was eine Erfassungs-Session semantisch ist (ein Aufbau mit drei Figuren hat keinen FEN-Zug).
 
 Nicht getan wird: FEN-Labels automatisch ueberschreiben, weil ein Modell widerspricht.
 
