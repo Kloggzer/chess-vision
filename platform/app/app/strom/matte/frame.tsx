@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlphaPenControls, AlphaPenLayer, useAlphaPen } from "@/components/alpha-pen";
 import { BoardSurface } from "@/components/board-paint";
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { Button, TOUCH } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { moveLabel } from "@/lib/fen";
@@ -15,8 +15,6 @@ import type { MatteVerdict } from "@/lib/label/matte-page";
 import type { VerifyFrame, VerifySession } from "@/lib/label/verify";
 import { postJson as post } from "@/lib/answer";
 import { inField } from "@/lib/keys";
-
-const TOUCH = "max-sm:h-11 max-sm:px-3";
 
 const KEYS: [string, string][] = [
   ["⏎", "Alpha stimmt (speichert offene Striche) → zurück ins Raster"],
@@ -114,7 +112,7 @@ export function MatteFrame({ frame, session, onJudge, onClean, onClose }: MatteF
 
   return (
     <section className="space-y-3">
-      <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+      <header className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <Button className={TOUCH} onClick={() => onClose()} size="sm" variant="outline">
           ⎋ Raster
         </Button>
@@ -144,7 +142,7 @@ export function MatteFrame({ frame, session, onJudge, onClean, onClose }: MatteF
         <span className="text-muted-foreground font-mono">
           {Object.entries(frame.concepts).map(([c, p]) => `${c} ${p}`).join(" · ") || "keine Konzepte"}
         </span>
-      </div>
+      </header>
 
       {alphaFrom === "sam" ? null : (
         <div

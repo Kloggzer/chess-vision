@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, TOUCH } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { StreamBoard, StreamSession } from "@/lib/label/label-stream";
 import { FRAME_LANE_SET } from "@/lib/label/lanes";
@@ -17,8 +17,6 @@ export type FrameLaneProps = {
   onVerdict: (frame: StreamBoard, verdict: FrameVerdict) => void;
   actionsRef: RefObject<LaneActions>;
 };
-
-const TOUCH = "max-sm:h-11 max-sm:px-3";
 
 /**
  * Ein Urteil ueber das GANZE Bild, keine 64 Zellen. Zwei Wege, und sie wiegen verschieden: die

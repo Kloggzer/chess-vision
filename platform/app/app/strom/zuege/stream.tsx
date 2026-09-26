@@ -14,6 +14,7 @@ import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGam
 import { SHORT_HOLD } from "@/lib/label/review-cards";
 import { postJson as post } from "@/lib/answer";
 import { pageKey } from "@/lib/keys";
+import { useWindowKeys } from "@/components/use-window-keys";
 
 /** ZÜGE — every pending game's cards back to back; the human never picks a game and never presses
  *  Confirm. `g` is the Sichtprüfung gallery, `.` opens `/game/<name>`. */
@@ -176,15 +177,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
     setFrameAt((f) => ({ ...f, [key]: Math.max(0, Math.min(stems - 1, current + delta)) }));
   };
 
-  // The handler reads a lot of state, so the listener is registered ONCE and looks the current one
-  // up through a ref — re-binding it per keystroke-relevant state change is how keys get lost.
-  const handler = useRef<(event: KeyboardEvent) => void>(() => undefined);
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => handler.current(event);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
-  const onKey = (event: KeyboardEvent) => {
+  useWindowKeys((event) => {
     if (!pageKey(event)) return;
     if (zoom) {
       if (event.key === "Escape") setZoom(null);
@@ -223,10 +216,6 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
       default:
         return;
     }
-  };
-  // No dependency array: the listener above reads THIS render's closure through the ref.
-  useEffect(() => {
-    handler.current = onKey;
   });
 
   const kept = Object.values(decisions).filter((v) => v === "keep").length;
@@ -238,7 +227,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
 
   return (
     <section className="space-y-4">
-      <header className="border-border flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+      <header className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <span className="text-foreground text-sm font-medium tabular-nums">
           {Math.min(at + 1, items.length)}/{items.length}{" "}
           <span className="text-muted-foreground text-xs font-normal">Karten</span>

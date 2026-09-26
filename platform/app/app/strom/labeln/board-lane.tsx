@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, TOUCH } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BoardLegend, BoardSurface, useBoardPaint } from "@/components/board-paint";
 import { PaletteRow } from "@/components/palette-row";
@@ -10,8 +10,6 @@ import type { Correction } from "@/lib/session-store/corrections";
 import type { StreamBoard } from "@/lib/label/label-stream";
 import { confirmLabel, type BoardPlan } from "@/lib/label/selection";
 import type { Flush, LaneActions } from "./lane-types";
-
-const TOUCH = "max-sm:h-11 max-sm:px-3";
 
 export type BoardLaneProps = {
   name: string;

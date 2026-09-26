@@ -50,6 +50,7 @@ import { WallQueryBar } from "./wall-query";
 import type { Flush, LaneActions, Verdict } from "./lane-types";
 import { postJson as post } from "@/lib/answer";
 import { pageKey } from "@/lib/keys";
+import { useWindowKeys } from "@/components/use-window-keys";
 
 /** One flush, with the rows that put it back — `z` after the flush needs both (§4.2.2). */
 type Batch = { pos: number; revert: Verdict[] };
@@ -467,13 +468,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   );
 
   // One listener, one keymap — the renderers publish what they can do instead of binding keys.
-  const handler = useRef<(event: KeyboardEvent) => void>(() => undefined);
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => handler.current(event);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
-  const onKey = (event: KeyboardEvent) => {
+  useWindowKeys((event) => {
     if (!pageKey(event)) return;
     const now = actions.current;
     switch (event.key) {
@@ -535,10 +530,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         now.brush?.(hit[1]);
       }
     }
-  };
-  // No dependency array: the listener above reads THIS render's closure through the ref.
-  useEffect(() => {
-    handler.current = onKey;
   });
 
   // `?? 0` nannte im Kopf die ERSTE Aufnahme, sobald nichts unter dem Zeiger lag — eine Aufnahme,
@@ -623,7 +614,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         />
       ) : null}
 
-      <header className="border-border flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+      <header className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <span className="text-foreground text-sm font-medium tabular-nums">
           {Math.min(at + 1, length)}/{length}{" "}
           <span className="text-muted-foreground text-xs font-normal">{laneById(lane).unit}</span>

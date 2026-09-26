@@ -64,4 +64,7 @@ function Button({
   )
 }
 
-export { Button, buttonVariants }
+// Handy: size="sm" plus TOUCH ergibt die 44-px-Tippflaeche.
+const TOUCH = "max-sm:h-11 max-sm:px-3"
+
+export { Button, buttonVariants, TOUCH }

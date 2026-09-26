@@ -1,17 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { CROP, CropGrid, PAGE } from "@/components/crop-grid";
 import { Notice } from "@/components/notice";
 import { PaletteRow } from "@/components/palette-row";
-import { Button } from "@/components/ui/button";
+import { Button, TOUCH } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Correction, Ledger } from "@/lib/session-store/corrections";
 import { changeText, revertsTo, type Change } from "@/lib/label/history";
 import { postJson as post } from "@/lib/answer";
 import { pageKey } from "@/lib/keys";
+import { useWindowKeys } from "@/components/use-window-keys";
 
 /** Neu gegenueber dem Strom ist der Rechtsklick — er nimmt die Zeile zurueck, statt eine neue
  *  Meinung darueber zu legen. */
@@ -19,7 +20,6 @@ const keyOf = (c: Change) => `${c.sessionId}|${c.frame}|${c.square}`;
 /** Die ZEILE, nicht die Zelle: dieselbe Zelle steht mehrfach in der Historie, und eine Marke auf
  *  der Zelle klebte sonst auf jedem ihrer Auftritte. */
 const rowOf = (c: Change) => `${keyOf(c)}|${c.ts}`;
-const TOUCH = "max-sm:h-11 max-sm:px-3";
 
 export function HistoryView({ changes }: { changes: Change[] }) {
   const router = useRouter();
@@ -97,31 +97,23 @@ export function HistoryView({ changes }: { changes: Change[] }) {
     }
   }, [changes, pick, taking]);
 
-  const now = useRef({ write, brush, cursor, slice });
-  useEffect(() => {
-    now.current = { write, brush, cursor, slice };
-  });
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => {
-      if (!pageKey(event)) return;
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void now.current.write();
-        return;
-      }
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        setCursor((i) => Math.max(0, Math.min(now.current.slice.length - 1, i + (event.key === "ArrowRight" ? 1 : -1))));
-        return;
-      }
-      const hit = STREAM_PALETTE.find(([k]) => k === event.key);
-      if (!hit) return;
+  useWindowKeys((event) => {
+    if (!pageKey(event)) return;
+    if (event.key === "Enter") {
       event.preventDefault();
-      setBrush((b) => (b === hit[1] ? "" : hit[1]));
-    };
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
+      void write();
+      return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      setCursor((i) => Math.max(0, Math.min(slice.length - 1, i + (event.key === "ArrowRight" ? 1 : -1))));
+      return;
+    }
+    const hit = STREAM_PALETTE.find(([k]) => k === event.key);
+    if (!hit) return;
+    event.preventDefault();
+    setBrush((b) => (b === hit[1] ? "" : hit[1]));
+  });
 
   if (changes.length === 0) {
     return <p className="text-muted-foreground text-sm">Noch nichts geschrieben — die Ledger sind leer.</p>;

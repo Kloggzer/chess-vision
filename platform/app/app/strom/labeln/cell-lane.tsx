@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, TOUCH } from "@/components/ui/button";
 import { CROP, CropGrid, PAGE } from "@/components/crop-grid";
 import { BoardPeek } from "@/components/board-peek";
 import { PaletteRow } from "@/components/palette-row";
@@ -43,8 +43,6 @@ export type CellLaneProps = {
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
 };
-
-const TOUCH = "max-sm:h-11 max-sm:px-3";
 
 /** OHNE Pinsel schreibt der Klick nichts, die Zelle kommt wieder; `MODEL` schreibt das Modellwort.
  *  `MATTE` ist keine dritte Farbe, sondern eine ZWEITE ACHSE: eine Zelle darf korrigiert UND zur

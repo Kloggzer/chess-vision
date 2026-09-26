@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { Button, TOUCH } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { commitPage, type MatteVerdict, type PageCommit, revertPage } from "@/lib/label/matte-page";
 import { pageAllMarked, toggleAllOnPage } from "@/lib/label/matte-select";
@@ -14,8 +14,6 @@ import { MatteFrame } from "./frame";
 import { MATTE_PAGE, MatteGrid } from "./grid";
 import { postJson as post } from "@/lib/answer";
 import { inField } from "@/lib/keys";
-
-const TOUCH = "max-sm:h-11 max-sm:px-3";
 
 /** Ab hier wird nachgeladen: drei Seiten Vorrat reichen, damit niemand auf den Nachschub wartet. */
 const REFILL_AT = MATTE_PAGE * 3;
@@ -278,7 +276,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
 
   return (
     <section className="space-y-3">
-      <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+      <header className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <span className="text-foreground text-sm font-medium tabular-nums">
           Seite {at + 1}/{pages}{" "}
           <span className="text-muted-foreground text-xs font-normal">· noch {loaded.progress.open} Frames</span>
@@ -289,7 +287,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
         <span className="text-muted-foreground ml-auto">
           Markiert heißt „die Maske taugt nichts“ — der Rest wird mit ⏎ bestätigt
         </span>
-      </div>
+      </header>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Tooltip>

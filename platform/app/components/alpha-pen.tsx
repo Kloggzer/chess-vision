@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, TOUCH } from "@/components/ui/button";
 
 /** Strokes on a canvas over the straightened board: a two-colour stencil the server burns into
  *  `mattes/<stem>.fixed.webp`. Red raises the alpha, cyan lowers it. */
@@ -147,8 +147,6 @@ export function AlphaPenLayer({ pen }: { pen: PenState }) {
     />
   );
 }
-
-const TOUCH = "max-sm:h-11 max-sm:px-3";
 
 export function AlphaPenControls({ pen, onSave }: { pen: PenState; onSave: () => void }) {
   return (
