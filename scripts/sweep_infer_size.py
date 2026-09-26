@@ -184,6 +184,19 @@ def frames_for_split(rows: list[dict]) -> list[tuple[str, str, dict[str, str]]]:
     return [(sid, fr, groups[(sid, fr)]) for sid, fr in order]
 
 
+def session_profile_of(sid: str):
+    """Das Profil, gegen das die Aufnahme exportiert wurde; ohne `session.yaml` kein Schnitt."""
+    return store_paths.session_profile(store_paths.session_dir(sid)[0], allow_standin=False)
+
+
+def session_geometry(sids) -> tuple[dict, dict, dict]:
+    """`{sid: Verzeichnis}`, `{sid: Profil}`, `{sid: {Frame-Stamm: Log-Zeile}}` je Aufnahme."""
+    sdirs = {sid: store_paths.session_dir(sid)[0] for sid in sids}
+    profiles = {sid: store_paths.session_profile(d, allow_standin=False) for sid, d in sdirs.items()}
+    logs = {sid: {Path(e["frame"]).stem: e for e in read_log_rows(d)} for sid, d in sdirs.items()}
+    return sdirs, profiles, logs
+
+
 def session_index(groups: list[tuple[str, str, dict[str, str]]]) -> np.ndarray:
     """The session id of every crop in `sweep_path_a`'s arrays, recomputed in the sweep's group
     order; the alignment is checked by length at the call site.
@@ -203,12 +216,7 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
     squares = labeling.all_squares()
     groups = frames_for_split(rows)
     sids = sorted({sid for sid, _, _ in groups})
-    sdirs = {sid: store_paths.session_dir(sid)[0] for sid in sids}
-    profiles = {}
-    logs = {}
-    for sid, sdir in sdirs.items():
-        profiles[sid] = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
-        logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
+    sdirs, profiles, logs = session_geometry(sids)
 
     specs = {name: serving.run_spec(run_dir) for name, (run_dir, _, _) in runs.items()}
     if pad_side is not None:
@@ -431,8 +439,7 @@ def main() -> None:
         log("")
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
-            prof = labeling._profile_for_session(
-                store_paths.read_session_meta(store_paths.session_dir(sid)[0]), None)
+            prof = session_profile_of(sid)
             profile_note.add((prof.profile, prof.board_size, warp_px_per_square(prof)))
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square, "
                 f"warped to {warp_px_per_square(prof):.1f} px/square "

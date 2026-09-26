@@ -20,9 +20,9 @@ import cv2
 
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.ioutil import read_jsonl
-from chesslab.labeling import _profile_for_session, usable_board
+from chesslab.labeling import usable_board
 from chesslab.session_store.log import read_log
-from chesslab.session_store.paths import read_session_meta
+from chesslab.session_store.paths import session_profile
 
 
 def board_path(rec: Path, frame: str) -> Path | None:
@@ -61,7 +61,7 @@ def main() -> int:
             # gezaehlt weiter.
             profile = None
             try:
-                profile = _profile_for_session(read_session_meta(rec), None)
+                profile = session_profile(rec, allow_standin=False)
             except (FileNotFoundError, KeyError, ValueError):
                 nogeometry += 1
             try:

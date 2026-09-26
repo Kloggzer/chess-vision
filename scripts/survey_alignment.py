@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np  # noqa: E402
 
-from chesslab import labeling, sessions  # noqa: E402
+from chesslab import sessions  # noqa: E402
 from chesslab.alignment import worst_offset  # noqa: E402
 from chesslab.ioutil import read_jsonl  # noqa: E402
 from chesslab.session_store import paths as store_paths  # noqa: E402
@@ -54,7 +54,7 @@ def main() -> int:
             print(f"{sid:<24}{0:>7}   no corners in the log")
             continue
         try:
-            prof = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
+            prof = store_paths.session_profile(sdir, allow_standin=False)
         except Exception as exc:  # a session whose profile is gone is a finding, not a crash
             print(f"{sid:<24}{len(rows):>7}   no profile: {exc}")
             continue

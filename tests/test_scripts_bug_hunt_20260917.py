@@ -35,7 +35,7 @@ def test_hand_audit_does_not_call_a_measured_empty_matte_blind():
 
 def test_phone_vs_pc_p90_is_not_the_maximum():
     """`int(0,9 * n)` ist bei n = 10 der Index 9, also `max` — die Spalte log neben `max`
-    dieselbe Zahl. `commit_lag.py`, `commit_budget.py` und `settle_lag.py` rechnen es richtig."""
+    dieselbe Zahl. `commit_lag.py` und `commit_budget.py` rechnen es richtig."""
     phone_vs_pc = load_script("phone_vs_pc")
     ten = [float(x) for x in range(1, 11)]
 

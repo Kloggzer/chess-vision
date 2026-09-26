@@ -30,8 +30,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from chesslab import calibration, config, labeling  # noqa: E402
 from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
-from chesslab.session_store import paths as store_paths  # noqa: E402
-from chesslab.session_store.log import read_log_rows  # noqa: E402
 from chesslab.training.data import filter_rows_by_split  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
@@ -44,6 +42,8 @@ from sweep_infer_size import (  # noqa: E402
     misses_phantom_free,
     phantoms_at_miss_target,
     px_per_square,
+    session_geometry,
+    session_profile_of,
 )
 
 #: The profile's own 800, the `config.DEFAULT_BOARD_SIZE` / Android 1600, and one in between.
@@ -100,12 +100,7 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
     if max_frames:
         groups = groups[:max_frames]
     sids = sorted({sid for sid, _, _ in groups})
-    sdirs = {sid: store_paths.session_dir(sid)[0] for sid in sids}
-    base_profiles = {}
-    logs = {}
-    for sid, sdir in sdirs.items():
-        base_profiles[sid] = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
-        logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
+    sdirs, base_profiles, logs = session_geometry(sids)
     profiles = {(sid, w): profile_at_warp(base_profiles[sid], w) for sid in sids for w in warps}
 
     acc: dict[tuple[str, int, int], tuple[list[bool], list[bool], list[float]]] = {
@@ -246,8 +241,7 @@ def main() -> None:
         log("")
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
-            base = labeling._profile_for_session(
-                store_paths.read_session_meta(store_paths.session_dir(sid)[0]), None)
+            base = session_profile_of(sid)
             boxes = ", ".join(f"{w}->{crop_box_px(profile_at_warp(base, w)):.0f}px" for w in warps)
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square; profile "
                 f"'{base.profile}' board_size={base.board_size} pad_side={base.crop.pad_side} "

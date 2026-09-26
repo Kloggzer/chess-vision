@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -11,20 +10,6 @@ import pytest
 from conftest import write_jsonl
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-
-def test_cross_eval_meldet_den_abgestuerzten_lauf_statt_mit_null_zu_enden(monkeypatch):
-    """`check=False` ohne Auswertung machte aus einem Absturz eine fehlende Tabellenzeile."""
-    import cross_eval
-
-    seen = []
-    monkeypatch.setattr(cross_eval, "RUNS", [("run-a", "ds"), ("run-b", "ds")])
-    monkeypatch.setattr(cross_eval, "trained_on_val", lambda p: False)
-    monkeypatch.setattr(cross_eval.Path, "exists", lambda self: True)
-    monkeypatch.setattr(cross_eval.subprocess, "run",
-                        lambda *a, **k: seen.append(a) or subprocess.CompletedProcess([], 1))
-    assert cross_eval.main() == 1, "ein gescheiterter eval darf nicht als gelungen enden"
-    assert len(seen) == 2, "der zweite Lauf soll trotzdem noch versucht werden"
 
 
 def test_thin_arms_verwirft_den_fortgesetzten_lauf(tmp_path):

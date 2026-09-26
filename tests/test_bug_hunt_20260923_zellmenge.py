@@ -58,30 +58,6 @@ def test_crop_redundancy_thins_only_learnable_cells(tmp_path, monkeypatch):
     assert seen == ["hell", "alt"]
 
 
-def test_crop_redundancy_montage_drops_dark_and_unmeasured(tmp_path, monkeypatch):
-    mod = load_script("crop_redundancy_montage")
-    pack = _pack(tmp_path, [BRIGHT, DARK, HIDDEN, {"path": "ungemessen"}])
-    seen: list = []
-    monkeypatch.setattr(mod, "PACKS", tmp_path)
-    monkeypatch.setattr(mod.base, "runs_of", _spy(seen))
-    monkeypatch.setattr(sys, "argv", ["x", "--pack", pack.name])
-    with pytest.raises(_Seen):
-        mod.main()
-    assert seen == ["hell"]
-
-
-def test_crop_redundancy_plot_drops_dark_cells(tmp_path, monkeypatch):
-    mod = load_script("crop_redundancy_plot")
-    pack = _pack(tmp_path, [BRIGHT, DARK, HIDDEN, NO_COLUMN])
-    seen: list = []
-    monkeypatch.setattr(mod, "PACKS", tmp_path)
-    monkeypatch.setattr(mod, "runs_of", _spy(seen))
-    monkeypatch.setattr(sys, "argv", ["x", "--pack", pack.name])
-    with pytest.raises(_Seen):
-        mod.main()
-    assert seen == ["hell", "alt"]
-
-
 def test_hand_audit_counts_a_dark_cell_as_masked_not_as_risk(tmp_path, monkeypatch, capsys):
     mod = load_script("hand_audit")
     import chesslab.dataset_build as dataset_build

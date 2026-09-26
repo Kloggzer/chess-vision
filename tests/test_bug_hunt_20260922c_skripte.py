@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from chesslab.ioutil import write_json, write_rows
-from conftest import load_script
+from conftest import load_script, make_profile
 
 # --- 1. `eval_packed_13c`: Pixel und Zeilen aus zwei verschiedenen Staenden -------------------
 
@@ -179,9 +179,10 @@ def test_survey_alignment_names_a_session_without_corners(tmp_path, monkeypatch,
     monkeypatch.setattr(script.store_paths, "all_sessions",
                         lambda *a, **k: [("ohne", ohne), ("mit", mit)])
     monkeypatch.setattr(script.sessions, "missing_source_frames", lambda *a, **k: None)
-    monkeypatch.setattr(script.store_paths, "read_session_meta", lambda _d: {})
-    monkeypatch.setattr(script.labeling, "_profile_for_session",
-                        lambda *a, **k: types.SimpleNamespace(board_size=800))
+    from chesslab import calibration, config
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+    make_profile(800, profile="t").save(calibration.profile_path("t"))
+    (mit / "session.yaml").write_text("profile: t\n", encoding="utf-8")
     monkeypatch.setattr(script, "worst_offset", lambda *a, **k: 1.0)
     import cv2
     monkeypatch.setattr(cv2, "imread", lambda *a, **k: np.zeros((4, 4, 3), np.uint8))
@@ -189,7 +190,7 @@ def test_survey_alignment_names_a_session_without_corners(tmp_path, monkeypatch,
     assert script.main() == 0
     out = capsys.readouterr().out
     assert "ohne" in out, "die Aufnahme ohne Quad muss genannt werden"
-    assert "mit" in out
+    assert "mit" in out and "no profile" not in out
 
 
 # --- 6. `show_errors`: `coverage or 0.0` macht aus ungemessen sichtbar ------------------------

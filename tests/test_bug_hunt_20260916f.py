@@ -120,22 +120,6 @@ def _settle_fixture(tmp_path: Path) -> tuple[str, str]:
     return str(dump)
 
 
-def test_settle_lag_does_not_read_an_unmeasured_roi_as_board_motion(tmp_path, monkeypatch, capsys):
-    """`roi.get(frame, 0.0)`: ein Frame ohne ROI-Zeile sieht aus wie "Brett bewegt, ROI still".
-
-    Genau die Achse, die das Skript entscheiden soll. Ungemessen gehoert in eine eigene Spalte,
-    nicht auf die Seite des Bretts.
-    """
-    lag = load_script("settle_lag")
-    monkeypatch.setattr(lag, "ROOT", tmp_path)
-    dump = _settle_fixture(tmp_path)
-
-    lag.main("rec", dump)
-    out = capsys.readouterr().out
-    assert "board-led 0" in out, out
-    assert "ohne ROI-Messung 2" in out, out
-
-
 def test_commit_budget_p90_is_the_ninth_of_ten_values(tmp_path, capsys):
     """`int(0.9 * n)` ist bei n = 10 der Index 9, also das MAXIMUM. Die veroeffentlichten p90 kommen
     aus `commit_lag.py`; der Fix bewegt keine Zahl.

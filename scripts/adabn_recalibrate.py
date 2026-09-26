@@ -105,13 +105,12 @@ from chesslab import labeling  # noqa: E402
 from chesslab.dataset import load_manifest, load_split  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.ioutil import write_json  # noqa: E402
-from chesslab.session_store import paths as store_paths  # noqa: E402
-from chesslab.session_store.log import read_log_rows  # noqa: E402
 from chesslab.training.data import filter_rows_by_split  # noqa: E402
 from chesslab.training.evaluate import load_run  # noqa: E402
 from chesslab.training.torch_data import normalize_batch  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from sweep_infer_size import session_geometry  # noqa: E402
 from sweep_warp_resolution import profile_at_warp  # noqa: E402
 
 
@@ -248,12 +247,9 @@ def crop_batches(cfg: dict, frames: list[tuple[str, str]], size: int,
     """Yield normalised `[N, C, size, size]` batches cut at `size` from the warped board, through
     `normalize_batch` like serving and Android. Labels are never read: AdaBN is unsupervised.
     """
-    sdirs = {sid: store_paths.session_dir(sid)[0] for sid, _ in frames}
-    profiles, logs = {}, {}
-    for sid, sdir in sdirs.items():
-        prof = labeling._profile_for_session(store_paths.read_session_meta(sdir), None)
-        profiles[sid] = profile_at_warp(prof, warp) if warp else prof
-        logs[sid] = {Path(e["frame"]).stem: e for e in read_log_rows(sdir)}
+    sdirs, profiles, logs = session_geometry(dict.fromkeys(sid for sid, _ in frames))
+    if warp:
+        profiles = {sid: profile_at_warp(prof, warp) for sid, prof in profiles.items()}
 
     pending: list[np.ndarray] = []
     for sid, frame_id in frames:

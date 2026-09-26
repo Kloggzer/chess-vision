@@ -56,22 +56,6 @@ def test_commit_calibrate_counts_refused_recordings_in_the_denominator():
     assert tot["found"] == 0
 
 
-# --- phone_candidate_offset: der Median lief ueber die Schnittmenge -----------------------
-
-def test_phone_candidate_offset_deltas_names_the_pair_count():
-    mod = load_script("phone_candidate_offset")
-    rule = [10, 20, 30, 40]
-    replay = [11, None, None, None]
-    text = mod.deltas(rule, replay)
-    assert "covered 4/4" in text
-    assert "n=1" in text, f"der Median steht auf EINEM Paar, das muss dastehen: {text}"
-
-
-def test_phone_candidate_offset_deltas_says_n_zero_without_pairs():
-    mod = load_script("phone_candidate_offset")
-    assert "n=0" in mod.deltas([1, 2], [None, None])
-
-
 # --- bump_replay: `found` auf den SAN geschluesselt verlor Wiederholungen ------------------
 
 _LOG = """  found 3

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from conftest import load_script, write_jsonl
+from conftest import load_script, make_profile, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -99,28 +99,6 @@ def test_gradcam_summary_refuses_packed_rows(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         mod.main()
     assert "mm://" in str(exc.value)
-
-
-# --- settle_lag: ein Ply, das nie ruhig wird, fiel still aus dem Median ---------------------------
-
-def test_settle_lag_names_plies_that_never_settle(tmp_path, monkeypatch, capsys):
-    mod = load_script("settle_lag")
-    monkeypatch.setattr(mod, "ROOT", tmp_path)
-    rec = tmp_path / "data" / "recordings" / "r"
-    rec.mkdir(parents=True)
-    (rec / "candidate.json").write_text(json.dumps({
-        "clock": {"fps": 30},
-        "moves": [{"frame": 0, "ply": 1, "san": "e4", "held": 1},
-                  {"frame": 10, "ply": 2, "san": "e5", "held": 1}]}), encoding="utf-8")
-    dump = tmp_path / "dump.csv"
-    dump.write_text("frame,motion\n" + "".join(f"{i},0.0\n" for i in range(20)), encoding="utf-8")
-    states = ["moving"] * 5 + ["waiting"] * 5 + ["moving"] * 10
-    Path(f"{dump}.status.csv").write_text(
-        "index,frame,state,motion,stuck\n"
-        + "".join(f"{i},{i},{s},0.0,\n" for i, s in enumerate(states)), encoding="utf-8")
-    assert mod.main("r", str(dump)) == 0
-    out = capsys.readouterr().out
-    assert "1 von 2 Plies nie `waiting`" in out and "Plies 2" in out
 
 
 # --- ingest_video_session: der Ausrichtungsbericht nennt seinen Nenner ----------------------------
@@ -440,9 +418,10 @@ def test_matte_montage_marks_the_square_the_audit_named(tmp_path, monkeypatch):
     write_jsonl(tmp_path / "audit.jsonl", [{"session": "rec", "frame": "000005", "ply": 3, "squares": ["a1"]}])
     entry = {"frame": "frames/000005.png", "board_size": 928, "board_border": 12}
     monkeypatch.setattr(mod, "read_log_rows", lambda d: [entry], raising=False)
-    monkeypatch.setattr(mod, "read_session_meta", lambda d: {}, raising=False)
-    monkeypatch.setattr(mod, "_profile_for_session",
-                        lambda meta, p: types.SimpleNamespace(white_pov=False), raising=False)
+    from chesslab import calibration, config
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    make_profile(928, profile="t", white_pov=False).save(calibration.profile_path("t"))
+    (rec / "session.yaml").write_text("profile: t\n", encoding="utf-8")
     boxes = []
     real_draw = mod.ImageDraw.Draw
 
@@ -518,25 +497,6 @@ def test_sweep_noise_comes_from_the_sweep_not_from_one_old_set(tmp_path, monkeyp
     # Zwei ruhige Arme, 0,02 auseinander: gegen die feste 3 x 0,0157 hiess das "im Rauschen".
     got = _sweep(tmp_path, monkeypatch, capsys, {"a": _wobble(0.90, 0.001), "b": _wobble(0.92, 0.001)})
     assert "(im Rauschen)" not in got["b"]
-
-
-# --- benchmark_batch_aug: Varianten verschraenkt statt Block fuer Block ---------------------------
-
-def test_batch_aug_benchmark_interleaves_its_variants(monkeypatch):
-    mod = load_script("benchmark_batch_aug")
-    clock, order = [0.0], []
-
-    def arm(name):
-        def aug(raw):
-            order.append(name)
-            clock[0] += 1.0 + len(order) / 1000   # der Rechner wird je Aufruf langsamer
-        return aug
-
-    monkeypatch.setattr(mod.time, "perf_counter", lambda: clock[0])
-    got = mod.time_variants({"a": arm("a"), "b": arm("b")}, None, lambda: None, calls=10)
-    assert order[:10] == ["a"] * 10 and order[10:30] == ["b"] * 20
-    assert got["a"]["median_ms"] == pytest.approx(got["b"]["median_ms"])
-    assert len(got["a"]["reps_ms"]) >= 2
 
 
 # --- pack_dataset_sessions: ein Pack, den ein Urteil ueberholt hat, hiess "have" -----------------

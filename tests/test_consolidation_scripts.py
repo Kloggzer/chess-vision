@@ -76,7 +76,7 @@ def test_sweep_install_at_size_seeds_both_size_keys(sweep, tmp_path, monkeypatch
 def test_sweep_px_per_square_reads_the_first_logged_quad(sweep, tmp_path, monkeypatch):
     write_jsonl(tmp_path / "log.jsonl", [{"corners": [[0, 0], [80, 0], [80, 80], [0, 80]]},
                                          {"corners": [[0, 0], [8, 0], [8, 8], [0, 8]]}])
-    monkeypatch.setattr(sweep.store_paths, "session_dir", lambda sid: (tmp_path, None))
+    monkeypatch.setattr("chesslab.session_store.paths.session_dir", lambda sid: (tmp_path, None))
     assert sweep.px_per_square("s") == pytest.approx(10.0)
 
 

@@ -80,19 +80,6 @@ def test_test_used_verweigert_eine_unlesbare_auswertung(tmp_path):
         test_used.burned(tmp_path)
 
 
-def test_cross_eval_verweigert_einen_lauf_ohne_split(tmp_path, monkeypatch):
-    """`return False` meldete UNBEKANNTE Herkunft als saubere Herkunft."""
-    import cross_eval
-
-    monkeypatch.chdir(tmp_path)
-    run = tmp_path / "run"
-    run.mkdir()
-    (run / "config.json").write_text(json.dumps({"dataset": "weg"}), encoding="utf-8")
-
-    with pytest.raises(SystemExit):
-        cross_eval.trained_on_val(run)
-
-
 def test_screen_knobs_verweigert_einen_arm_ohne_punktestand(monkeypatch):
     """`max(value, 0)` machte aus dem `-1` fuer "kein Score im Log" eine gemessene 0."""
     import screen_knobs
@@ -135,14 +122,11 @@ def test_der_session_pack_hat_einen_oeffner(tmp_path):
     """Vier Skripte bauten `packed_meta.json` + `np.memmap` woertlich nach; `open_pack` ist die
     eine Aufloesung fuer den SESSION-Pack, wie `open_packed_rows` fuer den Datensatz-Pack."""
     import crop_redundancy
-    import crop_redundancy_plot
     import numpy as np
     import thin_dataset
 
-    assert (crop_redundancy_plot.runs_of, crop_redundancy_plot.thumbs,
-            crop_redundancy_plot.farthest, thin_dataset.farthest_point, thin_dataset.open_pack) == \
-           (crop_redundancy.runs_of, crop_redundancy.thumbs, crop_redundancy.farthest_point,
-            crop_redundancy.farthest_point, crop_redundancy.open_pack)
+    assert (thin_dataset.farthest_point, thin_dataset.open_pack) == \
+           (crop_redundancy.farthest_point, crop_redundancy.open_pack)
 
     pixels = np.arange(2 * 4 * 4 * 3, dtype=np.uint8).reshape(2, 4, 4, 3)
     (tmp_path / "packed_images.u8").write_bytes(pixels.tobytes())
