@@ -512,7 +512,12 @@ internal fun replayEngineFps(
     sourceFps: Double,
     stride: Int,
     live: Boolean,
-): Double? = if (live) null else usableFrameRate(Math.round(sourceFps) / stride.toDouble())
+): Double? {
+    if (live) return null
+    // Rounding pulls a container's 14.97 onto 15; below 1 fps it would zero a real rate.
+    val rate = if (sourceFps >= 1.0) Math.round(sourceFps).toDouble() else sourceFps
+    return usableFrameRate(rate / stride)
+}
 
 /** NOT `frames x 1000/fps` — that assumed CFR, which the phone never delivers. */
 private class FrameClock(
