@@ -123,8 +123,4 @@ class MarkerTracker(
         }
 
     fun status(id: Int): String? = status()[id]
-
-    fun nLive(): Int = pos.keys.count { it !in seeded && (age[it] ?: 0) == 0 }
-
-    fun nHeld(): Int = pos.keys.count { it !in seeded && (age[it] ?: 0) > 0 }
 }

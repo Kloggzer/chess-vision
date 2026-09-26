@@ -144,5 +144,8 @@ object MovePhrase {
     ): String = if (verbosity == SpeechVerbosity.LETTERS) text.toCharArray().joinToString(" ") else text
 
     /** An unsupported language keeps the English words rather than going silent. */
-    private fun table(language: String): Words = if (language.substringBefore('-').lowercase() == "de") GERMAN else ENGLISH
+    private fun table(language: String): Words = if (speaksGerman(language)) GERMAN else ENGLISH
 }
+
+/** Eine BCP-47-Sprache wie `de-DE`: alles, was mit `de` beginnt, ist Deutsch; sonst Englisch. */
+fun speaksGerman(language: String): Boolean = language.substringBefore('-').lowercase() == "de"

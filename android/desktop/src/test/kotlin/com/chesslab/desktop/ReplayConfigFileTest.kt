@@ -62,7 +62,7 @@ class ReplayConfigFileTest {
             """.trimIndent(),
         )
         val config = ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false)
-        assertEquals(TrackerConfig().copy(alignEvery = 2, boardSize = 1104), config)
+        assertEquals(TrackerConfig().copy(alignEvery = 2, boardSize = 1104, taintIdentityThr = 0.5), config)
     }
 
     /** Read off the settings repository, 20260814-143233's recorded `alignEvery=2` replayed every 3rd frame. */

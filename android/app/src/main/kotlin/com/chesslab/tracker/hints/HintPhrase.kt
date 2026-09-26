@@ -1,6 +1,7 @@
 package com.chesslab.tracker.hints
 
 import com.chesslab.tracker.games.HintStatus
+import com.chesslab.tracker.speech.speaksGerman
 
 private const val LINE_PLIES = 6
 
@@ -11,8 +12,8 @@ object HintPhrase {
         language: String,
     ): String =
         when (outcome) {
-            is HintOutcome.Tip -> tip(outcome, german(language))
-            is HintOutcome.Refused -> refusal(outcome.reason, german(language))
+            is HintOutcome.Tip -> tip(outcome, speaksGerman(language))
+            is HintOutcome.Refused -> refusal(outcome.reason, speaksGerman(language))
             HintOutcome.Ignored -> ""
         }
 
@@ -32,8 +33,6 @@ object HintPhrase {
         reason: HintRefusal,
         de: Boolean,
     ): String = (if (de) GERMAN else ENGLISH).getValue(reason)
-
-    private fun german(language: String) = language.substringBefore('-').lowercase() == "de"
 }
 
 /** Jede Absage sagt, dass sie NICHTS gekostet hat — sonst zaehlt der Nutzer selbst mit. */
@@ -69,9 +68,7 @@ object HintMark {
     fun words(
         status: HintStatus,
         language: String,
-    ): String = (if (german(language)) MARK_GERMAN else MARK_ENGLISH)[status].orEmpty()
-
-    private fun german(language: String) = language.substringBefore('-').lowercase() == "de"
+    ): String = (if (speaksGerman(language)) MARK_GERMAN else MARK_ENGLISH)[status].orEmpty()
 }
 
 private val MARK_ENGLISH =

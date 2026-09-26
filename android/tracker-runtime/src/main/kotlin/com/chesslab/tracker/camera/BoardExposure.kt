@@ -2,7 +2,6 @@ package com.chesslab.tracker.camera
 
 import kotlin.math.abs
 import kotlin.math.ln
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** Belichtung, die das BRETT misst statt des Bildes — `docs/camera.md`. Gestellt wird die Korrektur, nicht
@@ -115,7 +114,5 @@ private fun evFor(
 fun ExposureRange.indexFor(ev: Double): Int = (ev / stepEv).roundToInt().coerceIn(indices.first, indices.last)
 
 fun ExposureRange.evLimits(): ClosedFloatingPointRange<Double> = (indices.first * stepEv).toDouble()..(indices.last * stepEv).toDouble()
-
-internal fun lightOf(ev: Double): Double = 2.0.pow(ev)
 
 private val LN2 = ln(2.0)

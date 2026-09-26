@@ -43,12 +43,10 @@ object AlarmPhrase {
         reason: AlarmReason,
         language: String,
     ): String {
-        val de = german(language)
+        val de = speaksGerman(language)
         val head = (if (de) GERMAN else ENGLISH).getValue(reason.fault)
         return "$head, ${(if (de) DETAIL_DE else DETAIL_EN).getValue(reason)}"
     }
 
-    fun restored(language: String): String = if (german(language)) "Stellung wieder da" else "Position restored"
-
-    private fun german(language: String) = language.substringBefore('-').lowercase() == "de"
+    fun restored(language: String): String = if (speaksGerman(language)) "Stellung wieder da" else "Position restored"
 }

@@ -1,5 +1,6 @@
 package com.chesslab.arena
 
+import com.chesslab.engine.api.STARTPOS
 import com.chesslab.tracker.geometry.quadOf
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.MoveList
@@ -14,9 +15,10 @@ fun runTracker(
     alignEvery: Int = ALIGN_EVERY,
     limit: Long = Long.MAX_VALUE,
     onProgress: (Long) -> Unit = {},
+    startFen: String = STARTPOS,
 ): RunResult {
     val started = System.nanoTime()
-    val board = Board()
+    val board = Board().apply { loadFromFen(startFen) }
     val plies = mutableListOf<RunPly>()
     val illegal = mutableListOf<String>()
     var quad: FloatArray? = null

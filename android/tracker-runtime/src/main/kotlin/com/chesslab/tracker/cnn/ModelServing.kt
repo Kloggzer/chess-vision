@@ -2,6 +2,8 @@ package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.calibratedConfThr
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.api.atFrameRate
+import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.CropClahe
 
 /** Aus der `config.json` des Modells: ein CLAHE-Modell ohne CLAHE zu bedienen ist eine stille Train/Serve-Luecke. */
@@ -32,3 +34,23 @@ fun TrackerConfig.withCoverageGateOf(
     val gated = spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
     return gated.copy(cnnConfThr = calibratedConfThr(cnnConfThr, spec.temperature, spec.classes.size))
 }
+
+// Gemessen 2026-09-19: ohne das galt `Rxc8` als Hand und kostete 19,5 s. 0,5 loest es, 0,7 nicht
+// mehr. Hier und nicht in `TrackerConfig`, weil die Vorgabe dort jede Python-Paritaet umwirft.
+private const val TAINT_IDENTITY_THR: Double = 0.5
+
+/** Handy UND Replay: sonst misst der Regressionssatz einen Tracker, den keiner faehrt. [fps] ist die Rate, mit
+ *  der Bilder die Engine ERREICHEN; ein Knopf in [overridden] (`set:`) schlaegt die Vorgabe. */
+fun servingConfig(
+    stored: TrackerConfig,
+    geometry: BoardGeometry,
+    spec: ModelSpec?,
+    fps: Double,
+    overridden: Set<String> = emptySet(),
+    warn: (String) -> Unit,
+): TrackerConfig =
+    // Das Profil besitzt die Brettgroesse: `FrameLoop` verweigert eine Ebene, die seinen Kaesten widerspricht.
+    (if (stored.boardSize == geometry.boardSize) stored else stored.copy(boardSize = geometry.boardSize))
+        .withCoverageGateOf(spec, overridden, warn)
+        .let { if ("taintIdentityThr" in overridden) it else it.copy(taintIdentityThr = TAINT_IDENTITY_THR) }
+        .atFrameRate(fps)

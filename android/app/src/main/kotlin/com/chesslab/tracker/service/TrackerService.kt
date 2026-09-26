@@ -15,7 +15,6 @@ import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
-import com.chesslab.engine.api.atFrameRate
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.BuildConfig
 import com.chesslab.tracker.R
@@ -35,7 +34,7 @@ import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.cnn.cnnAssetsFrom
 import com.chesslab.tracker.cnn.cropClaheFor
-import com.chesslab.tracker.cnn.withCoverageGateOf
+import com.chesslab.tracker.cnn.servingConfig
 import com.chesslab.tracker.diagnostics.DiagnosticsLog
 import com.chesslab.tracker.diagnostics.androidHostIdentity
 import com.chesslab.tracker.diagnostics.diagnosticsDir
@@ -423,7 +422,7 @@ class TrackerService :
                 { engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps) },
             )
         settings.config
-            .onEach { sessionSettings.configChanged(onMeasuredBoard(it, geometry)) }
+            .onEach { sessionSettings.configChanged(it.copy(boardSize = geometry.boardSize)) }
             .launchIn(lifecycleScope)
         games =
             wireGameSession(
@@ -605,14 +604,6 @@ class TrackerService :
     }
 }
 
-/** The profile owns the board size; `FrameLoop` refuses a plane that disagrees with its boxes. Reset to
- *  defaults or a schema bump restored 1600 while the profile clamps to 320..1280, and the tracker quietly
- *  stopped noticing moves. Applied at the one funnel every config change passes through. */
-private fun onMeasuredBoard(
-    stored: TrackerConfig,
-    geometry: BoardGeometry,
-): TrackerConfig = if (stored.boardSize == geometry.boardSize) stored else stored.copy(boardSize = geometry.boardSize)
-
 /** Der Arm hinter dem 67/67-Meilenstein: ein `== true` statt `!= true` schaltet den Phantom-Veto auf JEDEM
  *  ausgelieferten Modell ab, und nichts anderes merkt es. */
 internal fun gridArmFor(spec: ModelSpec?): Boolean = spec?.coverageOutput != true
@@ -623,11 +614,7 @@ internal fun engineConfig(
     spec: ModelSpec?,
     rate: FrameRateMode,
     deliveredFps: Double? = null,
-): TrackerConfig =
-    onMeasuredBoard(stored, geometry)
-        .withCoverageGateOf(spec) { Log.w(TAG, it) }
-        .copy(taintIdentityThr = TAINT_IDENTITY_THR)
-        .atFrameRate(effectiveFrameRate(rate, deliveredFps))
+): TrackerConfig = servingConfig(stored, geometry, spec, effectiveFrameRate(rate, deliveredFps)) { Log.w(TAG, it) }
 
 /** Die BILDRATE gehoert dazu: sie ist restart-pflichtig und skaliert `motionThr` ueber `atFrameRate`. */
 internal data class RunSeed(
@@ -668,10 +655,6 @@ internal class RateRetune {
         frames = 0L
     }
 }
-
-// Gemessen 2026-09-19: ohne das galt `Rxc8` als Hand und kostete 19,5 s. 0,5 loest es, 0,7 nicht
-// mehr. Hier und nicht in `TrackerConfig`, weil die Vorgabe dort jede Python-Paritaet umwirft.
-private const val TAINT_IDENTITY_THR: Double = 0.5
 
 /** Unter diesem Anteil der eingestellten Rate gilt der Sensor als der Engpass, nicht als Jitter. */
 private const val RATE_SLACK = 0.85

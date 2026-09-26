@@ -70,6 +70,7 @@ private fun runVerb(args: List<String>) {
                     alignEvery = opts["align"]?.toIntOrNull() ?: DEFAULT_ALIGN,
                     limit = opts["limit"]?.toLongOrNull() ?: Long.MAX_VALUE,
                     onProgress = { if (it % PROGRESS_EVERY == 0L) println("  frame $it") },
+                    startFen = startFenOf(dir),
                 )
             }
         }
@@ -81,13 +82,13 @@ private fun runVerb(args: List<String>) {
     if (result.illegal.isNotEmpty()) {
         println("REFUSED ${result.illegal.size} illegal moves: ${result.illegal.take(ILLEGAL_SHOWN)}")
     }
-    report(truthOf(dir), result.plies)
+    report(dir, result.plies)
 }
 
 /** Scores a ply list produced anywhere, including outside this JVM. */
 private fun scoreVerb(args: List<String>) {
     require(args.size >= 2) { "usage: arena score <plies.jsonl> <recording>" }
-    report(truthOf(recordingDir(args[1])), readPlies(File(args[0])))
+    report(recordingDir(args[1]), readPlies(File(args[0])))
 }
 
 /** Durch [Jsonl], nicht per Regex auf rohen Zeilen: eine kaputte Zeile MITTENDRIN wurde ein Ply mit `frame = -1`. */
@@ -199,10 +200,11 @@ private class DumpTracker(
 }
 
 private fun report(
-    truth: List<TruthPly>,
+    dir: File,
     plies: List<RunPly>,
 ) {
-    val scored = score(truth, plies)
+    val truth = truthOf(dir)
+    val scored = score(truth, plies, startFenOf(dir))
     println("score vs ${truth.size} reference plies — $scored")
     for (ply in scored.missed) println("  missed   %-8s reference frame %6d".format(ply.san, ply.frame))
     for (ply in scored.invented) println("  INVENTED %-8s run frame %6d".format(ply.san, ply.frame))

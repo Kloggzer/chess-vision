@@ -29,7 +29,7 @@ class HintMarkOnCommitTest {
         val ledger = HintLedger().apply { startGame("WHITE", quota = 3) }
         val stored = playE4(ledger, tipFen = FEN_AFTER_E4)
         assertNull(stored.moves.first().hint)
-        assertEquals(HintStatus.NONE, stored.reviewView().let { it.hintStatusOf(it.plies.first()) })
+        assertEquals(HintStatus.NONE, stored.reviewView().let { hintStatus(it.hintsRecorded, it.plies.first().hint) })
     }
 
     @Test
@@ -37,7 +37,7 @@ class HintMarkOnCommitTest {
         val ledger = HintLedger().apply { startGame("WHITE", quota = 3) }
         val stored = play(ledger, uci = "d2d4", san = "d4", fenAfter = AFTER_D4)
         assertEquals(MoveHint("e4", "e2e4", followed = false), stored.moves.first().hint)
-        assertEquals(HintStatus.GIVEN, stored.reviewView().let { it.hintStatusOf(it.plies.first()) })
+        assertEquals(HintStatus.GIVEN, stored.reviewView().let { hintStatus(it.hintsRecorded, it.plies.first().hint) })
     }
 
     /** Ohne Ledger sagt der Record "nicht beobachtet", nicht "kein Tipp". */
@@ -46,7 +46,7 @@ class HintMarkOnCommitTest {
         val stored = playE4(ledger = null)
         assertNull(stored.hints)
         assertNull(stored.moves.first().hint)
-        assertEquals(HintStatus.NOT_RECORDED, stored.reviewView().let { it.hintStatusOf(it.plies.first()) })
+        assertEquals(HintStatus.NOT_RECORDED, stored.reviewView().let { hintStatus(it.hintsRecorded, it.plies.first().hint) })
     }
 
     @Test

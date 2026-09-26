@@ -42,7 +42,7 @@ class ScoringTest {
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
                 val game = Game(requireNotNull(frame.fen))
-                val actual = loglikPairScores(game, tierA.zFused.toZArray(), cfg.zThr, LL_K)
+                val actual = loglikSequenceScores(game, tierA.zFused.toZArray(), cfg.zThr, LL_K)
                 val expected = tierA.loglikPairTop()
                 val where = "$name/${frame.frame}"
                 assertSortedDescending(actual.map { it.second }, where)
@@ -98,7 +98,7 @@ class ScoringTest {
         val game = Game(RECAPTURE_FEN)
         val z = flat(0.0)
         for (square in listOf("e4", "d5", "c7")) z[Squares.index(square)] = HOT_Z
-        val scored = loglikPairScores(game, z, Z_THR, K)
+        val scored = loglikSequenceScores(game, z, Z_THR, K)
         assertEquals(1, scored.size, "exactly one pair passes the endpoint gate: $scored")
         val (moves, score) = scored.first()
         assertEquals(listOf("e4d5", "c7d5"), moves.map { uciOf(it) })
@@ -111,7 +111,7 @@ class ScoringTest {
         val game = Game(STALEMATE_FEN)
         assertTrue(game.legalMoves().isEmpty(), "the fixture position must be stalemate")
         assertTrue(loglikScores(game, flat(HOT_Z), Z_THR, K).isEmpty())
-        assertTrue(loglikPairScores(game, flat(HOT_Z), Z_THR, K).isEmpty())
+        assertTrue(loglikSequenceScores(game, flat(HOT_Z), Z_THR, K).isEmpty())
     }
 
     private fun pairScoresWith(zE5: Double): List<Pair<List<com.github.bhlangonijr.chesslib.move.Move>, Double>> {
@@ -120,7 +120,7 @@ class ScoringTest {
         z[Squares.index("e4")] = HOT_Z
         z[Squares.index("e7")] = HOT_Z
         z[Squares.index("e5")] = zE5
-        return loglikPairScores(Game(), z, Z_THR, K)
+        return loglikSequenceScores(Game(), z, Z_THR, K)
     }
 
     private fun flat(value: Double) = DoubleArray(Squares.COUNT) { value }

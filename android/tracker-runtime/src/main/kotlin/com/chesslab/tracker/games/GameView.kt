@@ -42,9 +42,6 @@ data class GameView(
 
     fun fenAt(ply: Int): String = plies.lastOrNull { it.ply <= ply }?.fenAfter ?: startFen
 
-    /** Tri-state — never "no tip" for an old game. */
-    fun hintStatusOf(ply: ReviewPly): HintStatus = hintStatus(hintsRecorded, ply.hint)
-
     companion object {
         val NONE = GameView(id = "", live = true, startFen = STARTPOS, result = "*", segments = emptyList())
     }

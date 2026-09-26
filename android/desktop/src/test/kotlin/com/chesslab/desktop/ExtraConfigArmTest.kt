@@ -3,7 +3,6 @@ package com.chesslab.desktop
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.ModelSpec
-import com.chesslab.tracker.cnn.withCoverageGateOf
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -29,8 +28,7 @@ class ExtraConfigArmTest {
 
     private fun baue(extra: Map<String, Double>): TrackerConfig =
         ReplayOptions(fps = 15.0, overrides = extra)
-            .trackerConfig(geometry, live = false)
-            .withCoverageGateOf(spec, extra.keys) { }
+            .trackerConfig(geometry, live = false, spec = spec) { }
 
     private fun arm(line: String): TrackerConfig {
         val file = File(dir, "configs.txt").apply { writeText(line + "\n") }

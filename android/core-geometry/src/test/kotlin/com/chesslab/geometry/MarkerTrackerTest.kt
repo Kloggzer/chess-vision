@@ -23,7 +23,7 @@ class MarkerTrackerTest {
         live(t, 100.0, 200.0)
         assertEquals(listOf(100.0, 200.0), t.points().getValue(0).toList())
         assertEquals(MarkerStatus.LIVE, t.status(0))
-        assertEquals(1, t.nLive())
+        assertEquals(1, t.status().values.count { it == MarkerStatus.LIVE })
     }
 
     @Test
@@ -66,7 +66,7 @@ class MarkerTrackerTest {
         val t = MarkerTracker()
         t.seed(mapOf(0 to pt(100.0, 100.0)))
         assertEquals(MarkerStatus.SEED, t.status(0))
-        assertEquals(0, t.nLive())
+        assertEquals(0, t.status().values.count { it == MarkerStatus.LIVE })
         live(t, 130.0, 100.0)
         // EXACTLY the detection — an EMA'd seed leaves the corner 65 % at the seed.
         assertEquals(listOf(130.0, 100.0), t.points().getValue(0).toList())
@@ -115,7 +115,7 @@ class MarkerTrackerTest {
         assertEquals(MarkerStatus.LIVE, t.status(0))
         t.update(emptyMap())
         assertEquals(MarkerStatus.HELD, t.status(0))
-        assertEquals(1, t.nHeld())
+        assertEquals(1, t.status().values.count { it == MarkerStatus.HELD || it == MarkerStatus.STALE })
         repeat(88) { t.update(emptyMap()) }
         assertEquals(MarkerStatus.HELD, t.status(0), "89 frames is still held")
         t.update(emptyMap())
@@ -129,8 +129,8 @@ class MarkerTrackerTest {
         t.seed(mapOf(0 to pt(999.0, 999.0)))
         assertEquals(listOf(10.0, 10.0), t.points().getValue(0).toList())
         assertEquals(mapOf(0 to MarkerStatus.SEED, 1 to MarkerStatus.SEED), t.status())
-        assertEquals(0, t.nLive())
-        assertEquals(0, t.nHeld())
+        assertEquals(0, t.status().values.count { it == MarkerStatus.LIVE })
+        assertEquals(0, t.status().values.count { it == MarkerStatus.HELD || it == MarkerStatus.STALE })
     }
 
     @Test

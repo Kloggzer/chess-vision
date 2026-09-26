@@ -1,10 +1,11 @@
 package com.chesslab.desktop
 
+import com.chesslab.engine.api.MOTION_THR_REFERENCE_FPS
 import com.chesslab.engine.api.TrackerConfig
-import com.chesslab.engine.api.atFrameRate
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.servingConfig
 import com.chesslab.tracker.settings.ConfigCodec
 import com.chesslab.tracker.settings.knobFor
 import kotlinx.serialization.json.Json
@@ -197,28 +198,28 @@ internal fun ReplayOptions.withPriorOf(
     return copy(modelPriorLambda = declared)
 }
 
-/** For files the VIDEO-time observer cadence: on the wall clock the same file committed 54 plies, then 39. */
+/** For files the VIDEO-time observer cadence: on the wall clock the same file committed 54 plies, then 39.
+ *  [engineFps] is the rate frames REACH the engine; null keeps the 30 fps reference. */
 internal fun ReplayOptions.trackerConfig(
     geometry: BoardGeometry,
     live: Boolean,
-    emulatedFps: Double? = fps.takeIf { !live },
+    engineFps: Double? = fps.takeIf { !live },
+    spec: ModelSpec? = null,
+    warn: (String) -> Unit = { println("warn: $it") },
 ): TrackerConfig {
     // The recorded file FIRST, the geometry AFTER: a phone's recorded `boardSize` would poison another video's warp.
     val base = configFile?.let(::loadRecordedConfig) ?: TrackerConfig()
-    return base
-        .copy(
-            boardSize = geometry.boardSize,
-            // One-directional, or `config=` could never reproduce a phone that had one on.
-            requireMotionForMove = base.requireMotionForMove && motionGate,
-            cleanCommitsOnly = base.cleanCommitsOnly || cleanOnly,
-            // A file replay keeps the REPLAY's cadence; `set:observerIntervalS=<s>` for the phone's.
-            observerIntervalS = if (live) base.observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
-        ).withOverrides(overrides)
-        .withMotionThrFor(emulatedFps)
+    val replay =
+        base
+            .copy(
+                // One-directional, or `config=` could never reproduce a phone that had one on.
+                requireMotionForMove = base.requireMotionForMove && motionGate,
+                cleanCommitsOnly = base.cleanCommitsOnly || cleanOnly,
+                // A file replay keeps the REPLAY's cadence; `set:observerIntervalS=<s>` for the phone's.
+                observerIntervalS = if (live) base.observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
+            ).withOverrides(overrides)
+    return servingConfig(replay, geometry, spec, engineFps ?: MOTION_THR_REFERENCE_FPS, overrides.keys, warn)
 }
-
-/** After `set:motionThr=`: the scale belongs to the frame period. */
-private fun TrackerConfig.withMotionThrFor(rate: Double?): TrackerConfig = if (rate == null) this else atFrameRate(rate)
 
 /** Refuses loudly: ConfigCodec falls back to "defaults with a note", which would measure nothing. */
 private fun loadRecordedConfig(path: String): TrackerConfig {

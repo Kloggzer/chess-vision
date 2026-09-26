@@ -9,7 +9,6 @@ import com.chesslab.geometry.Undistorter
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.cropClaheFor
-import com.chesslab.tracker.cnn.withCoverageGateOf
 import com.chesslab.tracker.geometry.cropLine
 import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.log.TrackerLog
@@ -82,8 +81,7 @@ internal fun replayRun(
             val alle = options.overrides + extra
             options
                 .copy(overrides = alle)
-                .trackerConfig(geometry, live = camera != null, emulatedFps = (source.fps / stride).takeIf { stride > 1 })
-                .withCoverageGateOf(spec, alle.keys) { println("warn: $it") }
+                .trackerConfig(geometry, live = camera != null, replayEngineFps(source.fps, stride, live = camera != null), spec)
         }
         val config = configFor(emptyMap())
         println("board located from its markers: ${geometry.boardSize} px warp  ·  ${options.withPriorOf(spec)}")
@@ -503,6 +501,13 @@ private fun strideOf(
     println("stride: every $stride. frame -> ${"%.1f".format(sourceFps / stride)} of ${"%.1f".format(sourceFps)} fps")
     return stride
 }
+
+/** Rounded like the phone's rate modes: a 15 fps session's container says 14.97, the phone scaled by 15. */
+internal fun replayEngineFps(
+    sourceFps: Double,
+    stride: Int,
+    live: Boolean,
+): Double? = if (live) null else Math.round(sourceFps) / stride.toDouble()
 
 /** NOT `frames x 1000/fps` — that assumed CFR, which the phone never delivers. */
 private class FrameClock(

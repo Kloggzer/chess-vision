@@ -23,14 +23,14 @@ class HintProvenanceTest {
         assertNull(game.hints)
         assertNull(game.moves.first().hint)
         val view = game.reviewView()
-        assertEquals(HintStatus.NOT_RECORDED, view.hintStatusOf(view.plies.first()))
+        assertEquals(HintStatus.NOT_RECORDED, hintStatus(view.hintsRecorded, view.plies.first().hint))
     }
 
     @Test
     fun aWatchedGameWithoutATipSaysThereWasNone() {
         val stored = played(hint = null, recorded = true)
         val view = stored.reviewView()
-        assertEquals(HintStatus.NONE, view.hintStatusOf(view.plies.first()))
+        assertEquals(HintStatus.NONE, hintStatus(view.hintsRecorded, view.plies.first().hint))
         assertEquals(HintRecord("WHITE", quota = 3, delivered = 0), stored.hints)
     }
 
@@ -38,8 +38,8 @@ class HintProvenanceTest {
     fun theToldMoveCarriesTheMarkAndTheNextPlyDoesNot() {
         val stored = played(MoveHint("e4", "e2e4", followed = true), recorded = true)
         val view = stored.reviewView()
-        assertEquals(HintStatus.FOLLOWED, view.hintStatusOf(view.plies[0]))
-        assertEquals(HintStatus.NONE, view.hintStatusOf(view.plies[1]))
+        assertEquals(HintStatus.FOLLOWED, hintStatus(view.hintsRecorded, view.plies[0].hint))
+        assertEquals(HintStatus.NONE, hintStatus(view.hintsRecorded, view.plies[1].hint))
     }
 
     /** Ein Schnellspiel-Paar kommt aus EINER Stellung: nur der erste Ply war vorgesagt. */

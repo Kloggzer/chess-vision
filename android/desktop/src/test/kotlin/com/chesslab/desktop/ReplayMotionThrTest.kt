@@ -42,7 +42,7 @@ class ReplayMotionThrTest {
     /** The rate the stride REALLY produces, not the word on the command line. */
     @Test
     fun `the measured emulated rate wins over the cli word`() {
-        val config = ReplayOptions(fps = 15.0).trackerConfig(geometry, live = false, emulatedFps = null)
+        val config = ReplayOptions(fps = 15.0).trackerConfig(geometry, live = false, engineFps = null)
         assertEquals(reference, config.motionThr, TOLERANCE)
     }
 

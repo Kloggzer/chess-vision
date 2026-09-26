@@ -1,5 +1,6 @@
 package com.chesslab.arena
 
+import com.chesslab.engine.api.STARTPOS
 import com.chesslab.tracker.games.pgnSans
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -47,5 +48,16 @@ private fun candidatePlies(dir: File): List<TruthPly> {
 private fun pgnPlies(dir: File): List<String> {
     val file = File(dir, "reference.pgn")
     if (!file.isFile) return emptyList()
-    return pgnSans(file.readText())
+    return pgnSans(file.readText(), startFenOf(dir))
+}
+
+/** A recording that starts mid-game names its position in `candidate.json`; without it every ply is unplayable. */
+fun startFenOf(dir: File): String {
+    val file = File(dir, "candidate.json")
+    if (!file.isFile) return STARTPOS
+    return Json
+        .parseToJsonElement(file.readText())
+        .jsonObject["start_fen"]
+        ?.jsonPrimitive
+        ?.content ?: STARTPOS
 }

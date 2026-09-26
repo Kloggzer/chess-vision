@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import kotlin.math.pow
 
 class BoardExposureGovernorTest {
     private val range = ExposureRange(indices = -24..24, stepEv = 1f / 6f)
@@ -101,7 +102,7 @@ class BoardExposureGovernorTest {
 
     /** Zwei helle Reihen ueber sechs dunklen: ein per-Pixel gemischtes Bild hebt jeden Feldmittelwert ueber die Schwelle. */
     private fun rendered(port: FakeLookPort): BgrImage {
-        val light = lightOf(port.look.value.evIndex * range.stepEv.toDouble())
+        val light = 2.0.pow(port.look.value.evIndex * range.stepEv.toDouble())
         val cell = BOARD_PX / 8
         val data = ByteArray(BOARD_PX * BOARD_PX * 3)
         for (y in 0 until BOARD_PX) {

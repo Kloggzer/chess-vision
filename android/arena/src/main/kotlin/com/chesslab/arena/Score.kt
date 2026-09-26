@@ -50,9 +50,10 @@ class Score(
 fun score(
     truth: List<TruthPly>,
     run: List<RunPly>,
+    startFen: String = STARTPOS,
 ): Score {
-    val truthAt = placements(truth.map { it.san })
-    val runAt = placements(run.map { it.san })
+    val truthAt = placements(truth.map { it.san }, startFen)
+    val runAt = placements(run.map { it.san }, startFen)
     val anchors = commonAnchors(truthAt, runAt)
 
     val found = mutableListOf<Pair<TruthPly, RunPly>>()
@@ -94,7 +95,10 @@ private fun matched(
 }
 
 /** Placement only: the camera cannot see whose turn it is or castling rights. */
-private fun placements(sans: List<String>): List<String> = (listOf(STARTPOS) + fensAfterSans(STARTPOS, sans)).map(::placementOf)
+private fun placements(
+    sans: List<String>,
+    startFen: String,
+): List<String> = (listOf(startFen) + fensAfterSans(startFen, sans)).map(::placementOf)
 
 private fun placementOf(fen: String): String = fen.substringBefore(' ')
 

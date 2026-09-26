@@ -56,16 +56,6 @@ internal fun loglikScores(
     return scored
 }
 
-/** Die Naht, an der `ScoringTest` gegen die Python-Fixtures prueft; der ausgelieferte Pfad ruft
- *  `loglikSequenceScores` direkt. */
-internal fun loglikPairScores(
-    g: Game,
-    z: DoubleArray,
-    zThr: Double = Z_THR_DEFAULT,
-    k: Double = LL_K,
-    soft: Double? = null,
-): List<Pair<List<Move>, Double>> = loglikSequenceScores(g, z, zThr, k, soft, PAIR_PLIES)
-
 /** Jenseits von zwei nur der Abtausch auf DEMSELBEN Feld: frei gesucht erfand die dritte Ebene `Rg1` statt `Bc4 Bc5 O-O`. */
 internal fun loglikSequenceScores(
     g: Game,
