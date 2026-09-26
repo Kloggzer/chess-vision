@@ -7,6 +7,7 @@ import os
 import sys
 from collections.abc import Callable
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from threading import Thread
 from time import perf_counter, sleep
@@ -18,6 +19,7 @@ from . import locks, provenance
 from .cell_rule import PIECE_VISIBLE_MAX
 from .ioutil import append_rows, read_jsonl, stamp_of, write_rows_guarded
 from .labeling import all_squares, crops_for_frame, usable_board
+from .matte_publish import publish, stage, staging
 from .session_store.log import read_log_rows
 from .session_store.matte import effective_rows, measured_coverage, read_matte
 from .session_store.names import log_path, matte_path, mattes_dir
@@ -563,12 +565,6 @@ def matte_status(name: str) -> dict:
             "orphans": sorted(have - known)}
 
 
-def _drop(staged: list[tuple[Path, Path, int]]) -> None:
-    """Die gestapelten Pixel wegwerfen — ein abgebrochener Lauf hinterlaesst nichts."""
-    for tmp, _, _ in staged:
-        tmp.unlink(missing_ok=True)
-
-
 def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> dict:
     """Run `solid` over the alphas on disk and recut the coverage it moves; re-running SAM would
     cost hours for the same pixels. `alpha: fixed` rows are the person's and skipped whole.
@@ -590,12 +586,10 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     live_row = effective_rows(raw)
 
     rows: list[dict] = []
-    # Die Pixel gehen in Nachbardateien und werden ZULETZT mit dem Ledger umgehaengt: sonst trugen
-    # Alphas neue Pixel und `matte.jsonl` alte `coverage`, und ein zweiter Lauf fand nichts zu tun.
-    staged: list[tuple[Path, Path, int]] = []
     closed = crossed = added = 0
-    # Jeder Abbruch raeumt die gestapelten `*.tmp.webp`, sonst zog `straighten_boards` sie gerade.
-    try:
+    # Pixel erst mit dem Ledger umgehaengt: sonst trugen Alphas neue Pixel und `matte.jsonl` alte
+    # `coverage`, und ein zweiter Lauf fand nichts zu tun.
+    with staging() as staged:
         for row in raw:
             if live_row.get(row.get("frame")) is not row:
                 rows.append(row)
@@ -623,11 +617,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
             closed += 1
             added += gained
             if not dry_run:
-                # `.tmp.webp`, nicht `.webp.tmp`: `imwrite` waehlt den Codec ueber die ENDUNG.
-                alpha_tmp = alpha_path.with_name(f"{alpha_path.stem}.tmp{alpha_path.suffix}")
-                if not cv2.imwrite(str(alpha_tmp), filled):
-                        raise OSError(f"{name}: could not write {alpha_tmp}")
-                staged.append((alpha_tmp, alpha_path, len(rows)))
+                stage(staged, row["frame"], filled, alpha_path)
                 row = row | {"coverage": coverage,
                              "cells_over_half": sum(v > 0.5 for v in coverage.values())}
             rows.append(row)
@@ -635,27 +625,14 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                 print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
 
         if not dry_run and closed:
-            with locks.matte_ledger(session_dir, "close-seams"):
-                write_rows_guarded(
-                    path, rows, stamp,
-                    what=f"{name}: matte.jsonl changed while closing seams — the alpha worker "
-                         "is writing it. Let it finish and run this again.")
-                mine = stamp_of(path)
-                failed: dict[int, OSError] = {}
-                for tmp, final, i in staged:
-                    try:
-                        tmp.replace(final)
-                    except OSError as error:   # Windows: a web cut still reads the alpha
-                        failed[i] = error
-                if failed:
-                    # Ledger and pixels must agree: the frames still on their old alpha get their old row back.
-                    write_rows_guarded(path, [raw[i] if i in failed else r for i, r in enumerate(rows)],
-                                       mine, what=f"{name}: matte.jsonl changed while retracting seams")
-                    raise OSError(f"{name}: could not place {len(failed)} closed alphas; their rows are "
-                                  "retracted, run this again") from next(iter(failed.values()))
-    except BaseException:
-        _drop(staged)
-        raise
+            publish(session_dir, "close-seams",
+                    lambda: write_rows_guarded(
+                        path, rows, stamp,
+                        what=f"{name}: matte.jsonl changed while closing seams — the alpha worker "
+                             "is writing it. Let it finish and run this again."),
+                    staged,
+                    lambda _now, failed: [raw[i] if r.get("frame") in failed else r
+                                          for i, r in enumerate(rows)])
     return {"name": name, "frames": len(rows), "closed": closed, "px": added,
             "crossed": crossed, "dry_run": dry_run}
 
@@ -797,12 +774,9 @@ def alpha_worker_all(
             )
 
 
-def _retract_last(path: Path, stem: str, name: str) -> None:
-    """Drop the row just appended for `stem`; the caller holds the ledger lock."""
-    rows = read_jsonl(path)
-    last = max(i for i, r in enumerate(rows) if r.get("frame") == stem)
-    write_rows_guarded(path, rows[:last] + rows[last + 1:], stamp_of(path),
-                       what=f"{name}: matte.jsonl changed while retracting {stem}")
+def _retract_last(rows: list[dict], failed: set[str]) -> list[dict]:
+    last = max(i for i, r in enumerate(rows) if r.get("frame") in failed)
+    return rows[:last] + rows[last + 1:]
 
 
 def alpha_worker(
@@ -920,12 +894,11 @@ def alpha_worker(
     with locks.matte_ledger(session_dir, "matte"):
         append_rows(path, [])
 
-    staged: Path | None = None
-    try:
-        for index, entry in enumerate(
-            todo,
-            1,
-        ):
+    for index, entry in enumerate(
+        todo,
+        1,
+    ):
+        with staging() as staged:
             stem = Path(
                 entry["board"],
             ).stem
@@ -972,28 +945,8 @@ def alpha_worker(
 
                 # Where `alpha_for` looks for a SAM row (`.sam.webp` after an upsert); staged until
                 # the row is on disk, or a kill left new pixels under the old row.
-                matte_file = alpha_for(session_dir, {"frame": stem})
-                staged = out_dir / f"{stem}.sam.tmp.webp"
-
-                matte = (
-                    np.clip(
-                        alpha,
-                        0.0,
-                        1.0,
-                    )
-                    * 255.0
-                ).astype(
-                    np.uint8,
-                )
-
-                if not cv2.imwrite(
-                    str(staged),
-                    matte,
-                ):
-                    raise OSError(
-                        f"{name}: failed to write matte: "
-                        f"{matte_file}"
-                    )
+                stage(staged, stem, (np.clip(alpha, 0.0, 1.0) * 255.0).astype(np.uint8),
+                      alpha_for(session_dir, {"frame": stem}), out_dir / f"{stem}.sam.tmp.webp")
 
                 coverage = coverage_of(
                     alpha,
@@ -1022,45 +975,31 @@ def alpha_worker(
                     + 1
                 )
 
-            # Row, rename and a failed rename's retraction under the lock every ledger writer holds.
-            with locks.matte_ledger(session_dir, "matte"):
-                append_rows(path, [row])
-                if staged is not None:
-                    try:
-                        staged.replace(matte_file)
-                    except OSError as error:
-                        _retract_last(path, stem, name)
-                        raise OSError(f"{name}: could not place the alpha of {stem}; "
-                                      "its row is retracted") from error
-                    staged = None
+            publish(session_dir, "matte", partial(append_rows, path, [row]), staged, _retract_last)
 
-            if progress and (
-                index % 10 == 0
-                or index == len(todo)
-            ):
-                fps, seconds_per_frame = _rate(
-                    index,
-                    started,
-                )
+        if progress and (
+            index % 10 == 0
+            or index == len(todo)
+        ):
+            fps, seconds_per_frame = _rate(
+                index,
+                started,
+            )
 
-                elapsed = (
-                    perf_counter()
-                    - started
-                )
+            elapsed = (
+                perf_counter()
+                - started
+            )
 
-                print(
-                    f"[{_timestamp()}] "
-                    f"  {index}/{len(todo)} frames, "
-                    f"{written} alphas, "
-                    f"{elapsed:.1f}s "
-                    f"({fps:.3f} frames/s, "
-                    f"{seconds_per_frame:.2f} s/frame)",
-                    flush=True,
-                )
-    except BaseException:
-        if staged is not None:
-            staged.unlink(missing_ok=True)
-        raise
+            print(
+                f"[{_timestamp()}] "
+                f"  {index}/{len(todo)} frames, "
+                f"{written} alphas, "
+                f"{elapsed:.1f}s "
+                f"({fps:.3f} frames/s, "
+                f"{seconds_per_frame:.2f} s/frame)",
+                flush=True,
+            )
 
     elapsed = (
         perf_counter()

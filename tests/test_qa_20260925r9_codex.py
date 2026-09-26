@@ -104,7 +104,7 @@ def test_batch_recut_can_wait_for_a_legitimate_long_adopt_publish(
     recut_done = Event()
     errors: list[BaseException] = []
     real_replace = Path.replace
-    real_promote = temporal_matte._promote_adopted
+    real_write = temporal_matte.write_rows_guarded
     worker: Thread | None = None
 
     def fake_monotonic() -> float:
@@ -130,17 +130,18 @@ def test_batch_recut_can_wait_for_a_legitimate_long_adopt_publish(
         finally:
             recut_done.set()
 
-    def promote_with_parallel_recut(recording: Path, matte_path: Path, staged: dict[str, Path]) -> None:
+    def write_with_parallel_recut(*args, **kwargs) -> int:
         nonlocal worker
+        written = real_write(*args, **kwargs)
         worker = Thread(target=run_recut, name="parallel-recut")
         worker.start()
         assert deadline_ready.wait(2), "der parallele Recut erreichte den belegten Ledger-Lock nicht"
-        real_promote(recording, matte_path, staged)
+        return written
 
     monkeypatch.setattr(locks, "monotonic", fake_monotonic)
     monkeypatch.setattr(locks, "sleep", yielding_sleep)
     monkeypatch.setattr(Path, "replace", timed_replace)
-    monkeypatch.setattr(temporal_matte, "_promote_adopted", promote_with_parallel_recut)
+    monkeypatch.setattr(temporal_matte, "write_rows_guarded", write_with_parallel_recut)
 
     result = temporal_matte.adopt_proposals("rg-t")
     assert worker is not None

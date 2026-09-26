@@ -15,6 +15,7 @@ import numpy as np
 from . import config, locks, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
 from .labeling import _profile_for_session, usable_board
+from .matte_publish import publish, stage, staging
 from .session_store.log import read_log_rows
 from .session_store.matte import measured_coverage, read_matte
 from .session_store.names import BOARD_DIR, MATTE_DIR, MATTE_FILE
@@ -337,10 +338,7 @@ def adopt_proposals(session_id, *, method="local"):
     (recording / MATTE_DIR).mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []
-    # Wie `upsert_proposals`: der Alpha-Worker schreibt die Datei VOR der Zeile, eine scheinbare
-    # Waise kann SAMs sein. Umgehaengt erst nach dem bewachten Ledger.
-    staged: dict[str, Path] = {}
-    try:
+    with staging() as staged:
         for row in read_jsonl(report):
             stem, entry = row["frame"], entries.get(row["frame"])
             if not row.get("alpha") or entry is None:
@@ -354,10 +352,7 @@ def adopt_proposals(session_id, *, method="local"):
             if max(coverage.values()) <= PIECE_VISIBLE_MAX:
                 empty += 1
                 continue
-            tmp = recording / MATTE_DIR / f"{stem}.tmp.webp"
-            if not cv2.imwrite(str(tmp), alpha):
-                raise OSError(f"Cannot write matte for {stem}")
-            staged[stem] = tmp
+            stage(staged, stem, alpha, recording / MATTE_DIR / f"{stem}.webp")
             fresh.append({"frame": stem, "ply": entry.get("ply"),
                           "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
                           **({"_source": stamp} if stamp else {}),
@@ -365,39 +360,20 @@ def adopt_proposals(session_id, *, method="local"):
                           "coverage": coverage,
                           "cells_over_half": sum(v > .5 for v in coverage.values())})
             adopted += 1
-        # Ledger and renames under the lock every writer holds, `alpha_worker` included.
-        with locks.matte_ledger(recording, "adopt"):
-            write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
-                               what=_CONTESTED.format(what="adopting"))
-            _promote_adopted(recording, matte_path, staged)
-    finally:
-        for tmp in staged.values():
-            tmp.unlink(missing_ok=True)
+        # A SAM row that landed meanwhile makes the frame SAM's: its pixels stay, ours are dropped.
+        publish(recording, "adopt",
+                lambda: write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                                           what=_CONTESTED.format(what="adopting")),
+                staged, _without("temporal"),
+                skip=lambda rows: matted_frames([r for r in rows if r.get("source") != "temporal"]))
     return {"path": matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
             "replaced": len(ours)}
 
 
-def _promote_adopted(recording: Path, matte_path: Path, staged: dict[str, Path]) -> None:
-    """Rename the staged alphas the ledger now carries; the caller holds the ledger lock. A SAM row
-    in the ledger makes the frame SAM's (no rename); a failed rename (Windows) retracts its row."""
-    failed: list[str] = []
-    while True:
-        seen = stamp_of(matte_path)
-        theirs = matted_frames([r for r in read_jsonl(matte_path) if r.get("source") != "temporal"])
-        if stamp_of(matte_path) == seen:
-            break
-    for stem, tmp in staged.items():
-        if stem in theirs:
-            continue
-        try:
-            tmp.replace(recording / MATTE_DIR / f"{stem}.webp")
-        except OSError:
-            failed.append(stem)
-    if failed:
-        rows = [r for r in read_jsonl(matte_path)
-                if not (r.get("source") == "temporal" and r.get("frame") in failed)]
-        write_rows_guarded(matte_path, rows, seen, what=_CONTESTED.format(what="retracting adopted rows"))
-        raise OSError(f"could not place the adopted alpha of {', '.join(failed)}; their rows are retracted")
+def _without(source: str):
+    """The retraction: our rows of the frames whose alpha could not be placed."""
+    return lambda rows, failed: [r for r in rows
+                                 if not (r.get("source") == source and r.get("frame") in failed)]
 
 
 def require_fresh_proposals(directory, recording) -> None:
@@ -441,10 +417,7 @@ def upsert_proposals(session_id, *, method="local"):
     stamp = provenance.source(recording)
     upserted, found, fixed = 0, 0, 0
     fresh = []
-    # Alphas in Nachbardateien, umgehaengt erst nach dem Ledger: sonst trug nach `Contested` die
-    # Datei SAMs Alpha, der Ledger unsere Coverage.
-    staged: dict[str, Path] = {}
-    try:
+    with staging() as staged:
         for row in read_jsonl(report):
             stem, entry = row["frame"], entries.get(row["frame"])
             if not row.get("alpha") or entry is None or stem not in sam:
@@ -460,10 +433,7 @@ def upsert_proposals(session_id, *, method="local"):
             # Dieselbe Schwelle wie oben, kein zweiter Schnitt.
             if max(coverage.values()) <= PIECE_VISIBLE_MAX:
                 continue
-            tmp = mattes / f"{stem}.tmp.webp"
-            if not cv2.imwrite(str(tmp), alpha):
-                raise OSError(f"Cannot write matte for {stem}")
-            staged[stem] = tmp
+            stage(staged, stem, alpha, mattes / f"{stem}.webp")
             fresh.append({"frame": stem, "ply": entry.get("ply"),
                           "dirty_reason": entry.get("dirty_reason"), "source": "upsert",
                           "merged_at": stamp_now,
@@ -472,13 +442,20 @@ def upsert_proposals(session_id, *, method="local"):
                           "coverage": coverage,
                           "cells_over_half": sum(v > .5 for v in coverage.values())})
             upserted += 1
-        with locks.matte_ledger(recording, "upsert"):
+
+        def write() -> None:
             write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
                                what=_CONTESTED.format(what="upserting"))
-            _publish_upserts(mattes, backups, staged)
-    finally:
-        for tmp in staged.values():
-            tmp.unlink(missing_ok=True)
+            # Frueheres Upsert zurueck auf SAMs Alpha; SAMs Datei bleibt `.sam.webp`.
+            for stem in backups - staged.keys():
+                (mattes / f"{stem}.sam.webp").replace(mattes / f"{stem}.webp")
+
+        def place(stem: str, tmp: Path, target: Path) -> None:
+            if stem not in backups and target.is_file():
+                target.replace(mattes / f"{stem}.sam.webp")
+            tmp.replace(target)
+
+        publish(recording, "upsert", write, staged, _without("upsert"), place=place)
     return {"path": matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
             "replaced": replaced}
 
@@ -493,17 +470,6 @@ def pass_inputs(session_id) -> dict:
     except OSError:
         return {}
     return {"matte": provenance.file_stamp(recording / MATTE_FILE), "scan": scan}
-
-
-def _publish_upserts(mattes: Path, backups: set[str], staged: dict[str, Path]) -> None:
-    """Frueheres Upsert zurueck auf SAMs Alpha, dann das neue davor; SAMs Datei bleibt `.sam.webp`."""
-    for stem in backups - staged.keys():
-        (mattes / f"{stem}.sam.webp").replace(mattes / f"{stem}.webp")
-    for stem, tmp in staged.items():
-        target = mattes / f"{stem}.webp"
-        if stem not in backups and target.is_file():
-            target.replace(mattes / f"{stem}.sam.webp")
-        tmp.replace(target)
 
 
 def write_pass_report(session_id, report: dict, inputs: dict | None = None) -> Path:

@@ -126,6 +126,6 @@ def test_a_failed_upsert_publish_leaves_no_staged_alpha(tmp_path, monkeypatch):
     monkeypatch.setattr(calibration, "load_profile", lambda _: "profile")
     monkeypatch.setattr(matte, "coverage_of", lambda alpha, *_a: {"a1": float(alpha.mean())})
 
-    with open(rec / "mattes" / "000001.webp", "rb"), pytest.raises(PermissionError):
+    with open(rec / "mattes" / "000001.webp", "rb"), pytest.raises(OSError, match="000001.*retracted"):
         temporal_matte.upsert_proposals("rg-t")
     assert not list((rec / "mattes").glob("*.tmp.webp")), "BUG: gestapelte Alphas liegen nach dem Abbruch"
