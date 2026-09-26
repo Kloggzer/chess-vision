@@ -71,6 +71,11 @@ inline in `classification_eligible`); `dataset.load_manifest`/`load_split` (vorh
 `training/data.py`, dort mit anderer Meldung); `data.dataset_paths`/`unnamed_pin` (Pfade und Pin-
 Riegel aus `train`, `run_eval` und dem geloeschten `run_data_paths`); `data.read_run_config` (evaluate, quantize,
 Warmstart); `pack_dataset._pack_chunk` dekodiert ueber `decode_crop` statt einer Kopie davon.
+Ausserhalb von `training/` (2026-09-26): `sessions.sweep` (statt `fit_mesh_all`/`repair_mesh_all`/
+`mark_hands_all`); in `matte` `_recut_start` (Kopf der drei Recuts), `coverage_fields` (vorher sechs
+Kopien von `cells_over_half`) und `_crossed`; `dataset.write_dataset_files` (Manifest/Split/Stats fuer
+klassischen und Synth-Bau); `matte_publish` als einziger Weg, ein Alpha zu veroeffentlichen
+(`docs/session-mattes.md` §3).
 
 - **Rezept als ein Wert:** `run_train` haelt seine Argumente als `recipe`; die Schritte lesen
   daraus, was `run_train` nicht veraendert, und bekommen Abgeleitetes (`rot90`, Worker) explizit.

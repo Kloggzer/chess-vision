@@ -86,6 +86,9 @@ statt Union.
 Umbenennen, nie um SAM. Der Worker haelt kein Append-Handle mehr offen (Windows verweigerte das
 Ersetzen). Warten: Batch-Schreiber 60 s, der Stift 15 s (`web_cuts.PEN_LOCK_SECONDS`, unter der
 20-s-Frist des Web-Workers — die Route soll die Absage sehen, keinen toten Worker).
+Windows verweigert das Loeschen einer Lock-Datei (WinError 32), solange ein Wartender sie im Poll
+liest; `locks.release` wiederholt darum bei `PermissionError` (50 x 20 ms) und warnt laut, statt das
+Lock mit lebender PID liegen zu lassen (Test `test_release_outlasts_a_waiter_that_is_reading_the_lock`).
 
 **Ein Alpha erscheint nur über `chesslab.matte_publish`** (seit 2026-09-26; Alpha-Worker,
 close_seams, adopt, upsert): `staging()`/`stage()` legen die Pixel als `<stem>.tmp.webp` neben das

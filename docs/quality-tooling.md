@@ -27,11 +27,11 @@ ueber eine Nebendatei geschrieben und die bei einem Abbruch geraeumt.
 
 ## Die Ratschen (duerfen nur schrumpfen)
 
-| Liste | Waechter | Stand 2026-09-21 |
+| Liste | Waechter | Stand 2026-09-26 |
 |---|---|---|
-| `tests/json_doors.txt` (wer SCHREIBT) | pytest | `scripts/`: 8 Stellen/8 Dateien |
-| `tests/jsonl_readers.txt` (wer SCHNEIDET) | pytest | `scripts/`: 16 Stellen/11 Dateien |
-| `platform/app/jsonl-readers.txt` | `lib/jsonl-ratchet.test.ts` | 11 Stellen/7 Dateien |
+| `tests/json_doors.txt` (wer SCHREIBT) | pytest | `src/`: 11 Stellen/9 Dateien, `scripts/`: 6/6 |
+| `tests/jsonl_readers.txt` (wer SCHNEIDET) | pytest | `src/`: 1/1, `scripts/`: 3 Stellen/3 Dateien |
+| `platform/app/jsonl-readers.txt` | `lib/jsonl-ratchet.test.ts` | 7 Stellen/6 Dateien |
 | `platform/app/write-doors.txt` | vitest | 3 Stellen in 2 Dateien |
 | `platform/app/route-coverage.txt` | `lib/route-coverage.test.ts` | 0 von 29 Routen ohne Test |
 | `*/comment-budget.txt` (drei Sprachen) | je ein Budget-Test | nur schrumpfen |

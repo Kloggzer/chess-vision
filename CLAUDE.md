@@ -12,7 +12,8 @@
 
 ## Architecture & Data Flow
 - **Path:** Camera -> Frame-Diff/Legacy Check -> Commit; the CNN path is asynchronous and sparse.
-  Whether CNN snapshots reach the engine live is unconfirmed — re-measure first (`docs/tracker-flow.md`).
+  Whether CNN snapshots reach the engine live is unconfirmed — re-measure first
+  (`docs/tracker-flow.md`).
 - **Data pipeline** (`docs/data-pipeline.md`): Sessions -> Slice -> Crop Pool -> Dataset. `unusable`
   is not retroactive; parking does not prune the pool.
 - **Temporal pass:** `session temporal-pass` sits between `matte` and `model-read`. SAM is the base;
@@ -74,8 +75,8 @@
 - **The CELL decides, not the frame:** with `settle_dev` and a matte, a cell over
   `PIECE_VISIBLE_MAX` keeps its FEN label, a visible one is checked against the settled board, a
   departing one becomes a `Strittig` card (`docs/frame-scan.md`).
-- **Settle threshold is 45, not 15** (since 2026-09-09). Lowering it floods the lane. The settle
-  gate is blind in the dark corner; fix by normalising to the cell's own contrast, not the threshold
+- **Settle threshold is 45, not 15** (`labeling.SETTLE_LIMIT`); lower floods the lane. The gate is
+  blind in the dark corner; fix by normalising to the cell's own contrast, not the threshold
   (`docs/frame-scan.md`).
 
 ### 0.1 Crop sizes: 128 belongs to `board_size` 928, not to the pool
@@ -92,7 +93,7 @@
 - **Normalization:** BatchNorm works; the learning rate is the critical factor. Never rank
   normalizers at one shared rate.
 - **Metrics:** `val_acc` correlates inversely with the veto metric; use `sweep_infer_size.py`.
-- **Bewertet wird nur, was der Verlust auch lernt (2026-08-24):** `CHECKPOINT_WEIGHTS`, `auroc`,
+- **Bewertet wird nur, was der Verlust auch lernt:** `CHECKPOINT_WEIGHTS`, `auroc`,
   `conf_wrong` and class weights count only `classification_eligible` cells (coverage AND
   `brightness < CELL_DARK_MIN`). Arms with differently cut val sets are not comparable on
   `piece_acc`; compare via `val_visible_piece_acc` and `chesslab eval --dataset <shared>`
@@ -104,8 +105,8 @@
   **default stays `hard`**, and the METRIC always stays on 0,15 (`docs/class-scheme.md`).
 - **Stored `coverage` drifts against its crops** after a re-export: run
   `chesslab occluders recut-coverage --all` (`docs/session-mattes.md` §1).
-  2026-09-21 tragen **27** Aufnahmeverzeichnisse eine `matte.jsonl` (backups under `_pre-scan-20260906/` excluded;
-  `tests/test_claude_numbers.py` holds this number against the disk).
+  Heute tragen **27** Aufnahmeverzeichnisse eine `matte.jsonl` (backups under `_pre-scan-20260906/`
+  excluded; `tests/test_claude_numbers.py` holds this number against the disk).
 - **Coverage Matte Trap:** `cell_rule.coverage_of` (the loader's reader) defaults unmatted crops to
   `coverage = 0.0`, indistinguishable from clear squares. Mixing matted and unmatted sessions in one
   occlusion-head build teaches that hands do not exist. Matted sessions only.
@@ -135,7 +136,8 @@
 ### 3. Android & Build
 - **Inference:** ~16 ms per frame (small model). Execution provider AUTO is correct; leave it.
 - **Testing:** Gradle tasks report "up-to-date" even with errors -> always `--rerun-tasks`.
-- **UI:** text-first controls need `contentDescription`. Spacing strictly on 12dp tokens (guarded).
+- **UI:** text-first controls need `contentDescription`. Spacing only via `Space` tokens; a `.dp`
+  literal in `ui/` fails `DpLiteralGuardTest`.
 
 ### 4. Installation & Hardware
 - **Phone: back up `files/` before touching the install:**
@@ -145,7 +147,8 @@
   (`docs/phone-transfer.md`).
 - **Undistortion is NOT in the pipeline:** the grid mesh alone gets to ~1 px. The fit lives in
   Kotlin (`LensFit.fitLens`), the model in `lens.json`, the seam is `warp_padded(..., lens=)`; no
-  `lens.json` exists, so the value is `None` everywhere. `:desktop undistort` refuses the phone.
+  `lens.json` exists, so the value is `None` everywhere. `:desktop undistort` writes nothing when the fit
+  does not improve the bow (`LensFit`) — likely on a phone with k1 near 0.
 
 ## Verification
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
@@ -155,8 +158,8 @@
 - **References:** `docs/tracker-flow.md`, `docs/occlusion-gate.md`;
   regression reference **396/3/0 at 8 desync episodes** (`docs/regression-reference.md`; count
   episodes, not `ALARM latched` lines).
-- **Power:** `docs/android-performance.md`. Whoever touches the frame rate must move `motionThr` with it
-  (`TrackerService.engineConfig()` scales `x 30 / fps`).
+- **Power:** `docs/android-performance.md`. Whoever touches the frame rate must move `motionThr`
+  with it (`TrackerService.engineConfig()` scales `x 30 / fps`).
 - **Producer order:** `session settle-scan` writes `settle_dev` before `realgames position-flags`
   can lay anything out; an unmeasured cell shows `—`, not `0`. The chain has it as a rung between
   `export` and `matte`.
@@ -165,9 +168,9 @@
 - **Freshness has ONE layer, `chesslab.provenance`:** `version`/`memo` for process caches,
   `same_file`/`inputs_moved` for stored `ms:bytes`. No own mtime comparison
   (`docs/architektur-review-python-2026-09-23.md` H3).
-- **`.export-running` blocks the follow-up steps** until a new export finishes (`session_store/log.py`,
-  `chain_state`). `read_log` is for writers (stamp, empty log raises), `read_log_rows` for readers
-  (`[]`); both refuse under the marker.
+- **`.export-running` blocks the follow-up steps** until a new export finishes
+  (`session_store/log.py`, `chain_state`). `read_log` is for writers (stamp, empty log raises),
+  `read_log_rows` for readers (`[]`); both refuse under the marker.
 - **`log.jsonl` writers are stamp-guarded** in Python and web: `Contested` instead of overwriting.
 - **JSON trustee:** all `.json`/`.jsonl` I/O goes through `chesslab.ioutil`
   (`read_jsonl`, `write_rows`, `append_rows`, `*_guarded`), `platform/app/lib/jsonl.ts` +
@@ -185,8 +188,8 @@
   `chesslab.web_serve`, ops in `web_ops.py`, cuts in `web_cuts.py`, JPEG). Deadline 20 s.
 - **Windows DLL trap:** cv2 imported lazily inside an op thread hangs while stdin has a read
   pending. Every module an op imports lazily belongs in `web_ops.preload`.
-- **Cuts run on 4 threads (`PARALLEL_OPS`), everything else in order.** An op that writes a file a
-  cut reads goes into `WRITE_OPS` — Windows refuses to replace an open file.
+- **Cuts (`PARALLEL_OPS`) run on 4 threads (`CUT_THREADS`), everything else in order.** An op that
+  writes a file a cut reads goes into `WRITE_OPS` — Windows refuses to replace an open file.
 - **HTTP errors only via `lib/http-error.ts`** (`respond` wraps every route): 400 `BadRequest`, 404
   `NotFound`/ENOENT/Python `Missing`, 409 `Contested`/`Conflict`, else 500. A bare Python
   `FileNotFoundError` is 500 — raise `Missing` only when the REQUESTED thing is absent
@@ -195,10 +198,13 @@
   re-entrant; batch writers wait 60 s, the pen 15 s, under the worker deadline). An alpha appears
   ONLY via `chesslab.matte_publish` (stage tmp -> ledger -> rename -> retract on failure);
   `docs/session-mattes.md` §3.
+- **Windows refuses to delete a lock file while another process or thread reads it:** `locks.release`
+  retries on `PermissionError` and warns loudly — every lock in `locks`, `heavy.lock` included.
 
 ## Training: der Feed ist nicht mehr der Engpass
 - **2 workers, not 8:** `--batch-aug` defaults to 2 (`train_feed.BATCH_AUG_WORKERS`); without it
-  `config.DEFAULT_NUM_WORKERS` is still 8. Two are cold-safe; more only hold memory. The worker count is not a free switch — loss is not bit-identical across counts.
+  `config.DEFAULT_NUM_WORKERS` is still 8. Two are cold-safe; more only hold memory. The worker
+  count is not a free switch — loss is not bit-identical across counts.
 - **Always `--batch-aug`:** augmentation as one GPU batch op, 66x cheaper. Statistically the same
   recipe, not bit-identical (`docs/training-speed.md`).
 - **CLAHE belongs in the pack, not the loader** (`chesslab dataset bake`, `docs/packs.md`). Serving
@@ -214,8 +220,8 @@
 - **Quality:** no measurable difference across three seeds (`docs/training-speed.md`).
 - **`best` taugt nicht zum Vergleich:** it is the max over 60 noisy draws. Compare the mean of the
   last 10–20 epochs, paired per seed. Noise is 94 % model, 6 % val — a bigger val does not help.
-- **A finished run can block in teardown** (ROCm/Windows): `cli/train.py` leaves with `os._exit`. A sweep
-  watches epochs on disk, not the exit code.
+- **A finished run can block in teardown** (ROCm/Windows): `cli/train.py` leaves with `os._exit`.
+  A sweep watches epochs on disk, not the exit code.
 - **Times only on a quiet machine,** two warm repeats per arm, discard warm-up epochs.
 
 ## Export
@@ -231,7 +237,7 @@
 - **A second export run is faster without being better** (warm-started corners): never A/B two runs
   of the same session.
 
-## Model Guidelines (2026-08-14)
+## Model Guidelines
 - **BatchNorm Only:** we only use BatchNorm-trained models; others are too slow.
 - **Naming Convention:** BatchNorm models must contain `bn` in the filename or path. Does not apply
   to the p4 family — all seven bundled `p4*` models are BatchNorm (`"norm": "batchnorm"` in their

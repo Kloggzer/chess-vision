@@ -1,4 +1,4 @@
-# Entscheidungsvorlage (Stand 2026-09-23)
+# Entscheidungsvorlage (Stand 2026-09-26)
 
 Jeder Punkt ist gemessen oder am Code belegt — es fehlt nicht die Analyse, sondern eine
 Richtungsentscheidung. Erledigtes steht auf EINER Zeile; Herleitungen liegen in der Git-Historie.
@@ -116,8 +116,6 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
   liest beide Ledger, `thin_per_position`/`audit_montage`/`move_strip` lesen `coverage None` als
   ungemessen, `border_probe` seekt nicht mehr, `sweep_report` mittelt die letzten 20 Epochen,
   Mess-Skripte fahren ABBA, `reduce_video` verlangt eine Bildrate.
-- `benchmark_export_warp.py`: misst seit Punkt 50 ABBA; die Zahl 23 -> 7 s in CLAUDE.md stammt aus
-  dem alten Lauf (warmer Cache) und ist eine obere Schranke bis zur Neumessung.
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
 
@@ -145,7 +143,7 @@ bei 628 Brettern). Braucht eine Neu-Ausfuhr, kein Nachscannen. **Faellt mit 6 zu
 
 ## 14. `torch_data.py` — Spender-Pool ohne `neighbour_p > 0`-Schutz
 
-Jeder Val-Datensatz baut den Spender-Pool und liest ihn nie. Der Guard entfernt einen
+Jeder Val-`PackedSquareDataset` baut den Spender-Pool und liest ihn nie. Der Guard entfernt einen
 `random.sample`-Aufruf und **verschiebt die Zufallsfolge** — Laeufe davor und danach sind nicht
 mehr bitgleich. **Empfehlung:** liegen lassen bis zum naechsten Rezeptschnitt, dann mit.
 
@@ -344,7 +342,7 @@ Aus `tmp/compile-spike/` per kleinster Quadrate: eager **11,90 ms + 34,67 µs**,
 **4,61 ms + 31,9 µs** — weder CLAUDE.md (11,4 / 3,9) noch `docs/training-speed.md` (5,3).
 Jeder Punkt war ein Lauf in fester Reihenfolge; derselbe Arm streut im selben Prozess um +61 %.
 Die Richtung (startgebunden) steht. `profile_training_kernels.py` fittet jetzt selbst und
-wiederholt das erste Glied. **Offen:** CLAUDE.md erst nach einer Messung auf ruhigem Rechner umstellen.
+wiederholt das erste Glied. CLAUDE.md nennt keine Zahl mehr. **Offen:** Messung auf ruhigem Rechner.
 
 ## 47. `appendRows` liest den Schwanz mit `.catch(() => "")` — Absicht oder Luecke? (2026-09-23)
 
@@ -401,8 +399,9 @@ Die Fixes stehen unter Erledigt. Offen:
 - `pack_dataset_sessions.py`: die Mtime gegen das Spender-Manifest bleibt fuer PIXEL und meldet
   nach einem Umhaengen (v6) `STALE?` falsch. **Zu entscheiden:** Export-Stempel der `log.jsonl` in
   den Pack (wie `ledgers.json`), dann faellt die Mtime.
-- Die Zahlen in `docs/training-speed.md` ("fused saved too little") und CLAUDE.md (Export
-  23 -> 7 s) stammen aus Laeufen vor ABBA.
+- Die fused-Zahlen in `docs/training-speed.md` und CLAUDE.md (Export 23 -> 7 s, dort als obere
+  Schranke) stammen aus Laeufen vor ABBA; `benchmark_export_warp.py`
+  misst inzwischen ABBA, neu gemessen ist nicht.
 
 ## N1–N3. Die Naht `core-engine` / `tracker-runtime` (2026-09-21, nicht gebaut)
 
