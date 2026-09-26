@@ -198,7 +198,7 @@ def _session(name: str) -> tuple[Path, _Session]:
 def _row(session: _Session, name: str, stem: str) -> dict:
     row = session.rows.get(stem)
     if row is None:
-        raise Missing(f"no frame {stem} in {name}/log.jsonl")
+        raise Missing(f"no frame {stem} in the log of {name}")
     return row
 
 
