@@ -52,20 +52,22 @@ export async function lastWords(log: string): Promise<string> {
   return (refusal ?? meaty.findLast((l) => !/^exit \d/.test(l)) ?? "the tool printed nothing").slice(0, 240);
 }
 
-const TAIL_BYTES = 64 * 1024;
-
-/** A replay writes megabytes into one log; `/game/<name>` shows its last words, not the file. */
-export async function jobLogTail(job: Job, lines = 30): Promise<string[]> {
-  if (!job.log) return [];
-  const info = await stat(job.log).catch(absentOnly);
-  if (!info || info.size === 0) return [];
-  const handle = await open(job.log, "r");
+/** A replay writes megabytes into one log: read its last [bytes], never the whole file. */
+export async function logTail(file: string, bytes: number, lines: number): Promise<{ lines: string[]; bytes: number }> {
+  const info = await stat(file).catch(absentOnly);
+  if (!info || info.size === 0) return { lines: [], bytes: 0 };
+  const handle = await open(file, "r");
   try {
-    const length = Math.min(TAIL_BYTES, info.size);
+    const length = Math.min(bytes, info.size);
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, info.size - length);
-    return buffer.toString("utf8").split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(-lines);
+    const all = buffer.toString("utf8").split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
+    return { lines: all.slice(-lines), bytes: info.size };
   } finally {
     await handle.close();
   }
+}
+
+export async function jobLogTail(job: Job, lines = 30): Promise<string[]> {
+  return job.log ? (await logTail(job.log, 64 * 1024, lines)).lines : [];
 }

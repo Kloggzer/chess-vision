@@ -10,7 +10,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { readAnswer } from "@/lib/answer";
+import { fetchJson, messageOf } from "@/lib/answer";
 import type { ChainState, ChainStep } from "@/lib/chain/chain";
 import { STEP } from "@/lib/chain/steps";
 import type { Job } from "@/lib/chain/slot";
@@ -80,8 +80,7 @@ export function ChainActions({
   useEffect(() => {
     if (!busy) return;
     const timer = setInterval(() => {
-      void fetch(`/api/chain/${name}/progress`)
-        .then((r) => readAnswer<{ job: Job | null; progress: Progress }>(r))
+      void fetchJson<{ job: Job | null; progress: Progress }>(`/api/chain/${name}/progress`)
         .then((d) => {
           setJob(d.job);
           setProgress(d.progress);
@@ -97,15 +96,12 @@ export function ChainActions({
 
   async function post(body: Record<string, string | boolean>) {
     setNote(null);
-    const res = await fetch(`/api/chain/${name}`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    const answer = (await res.json()) as Job & {
-      error?: string;
-      reason?: string;
-    };
-    if (!res.ok) return setNote(answer.error ?? res.statusText);
+    let answer: Job & { reason?: string };
+    try {
+      answer = await fetchJson(`/api/chain/${name}`, { method: "POST", body: JSON.stringify(body) });
+    } catch (error) {
+      return setNote(messageOf(error));
+    }
     if (answer.reason && !answer.state) return setNote(answer.reason);
     setJob(answer);
   }

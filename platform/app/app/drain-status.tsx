@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { readAnswer } from "@/lib/answer";
+import { fetchJson } from "@/lib/answer";
 import type { DrainTarget } from "@/lib/job-steps";
 import type { DrainStatus } from "@/lib/chain/drain";
 
@@ -34,8 +34,7 @@ const [status, setStatus] = useState<DrainStatus | null>(null);
 
   useEffect(() => {
     const read = () =>
-      void fetch("/api/drain")
-        .then((r) => readAnswer<DrainStatus>(r))
+      void fetchJson<DrainStatus>("/api/drain")
         .then((value) => {
           setStatus(value);
           setFault(null);
@@ -49,12 +48,8 @@ const [status, setStatus] = useState<DrainStatus | null>(null);
   const post = useCallback((body: Record<string, unknown>) => {
     setBusy(true);
     setNote(null);
-    void fetch("/api/drain", { method: "POST", body: JSON.stringify(body) })
-      .then(async (r) => {
-        const answer = (await r.json()) as DrainStatus & { error?: string };
-        if (r.ok) setStatus(answer);
-        else setNote(answer.error ?? r.statusText);
-      })
+    void fetchJson<DrainStatus>("/api/drain", { method: "POST", body: JSON.stringify(body) })
+      .then(setStatus)
       // Ein stiller `catch` liess den Knopf zurueckschnappen, als waere der Auftrag gelaufen.
       .catch((error: unknown) => setNote(String(error)))
       .finally(() => setBusy(false));

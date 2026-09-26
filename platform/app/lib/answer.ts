@@ -6,12 +6,17 @@ export async function readAnswer<T>(res: Response): Promise<T> {
   return body;
 }
 
-/** Ein POST mit JSON-Rumpf, gelesen wie `readAnswer` — die eine Tuer der Client-Seiten. */
-export async function postJson<T = unknown>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+/** Die eine Tuer der Client-Seiten: abgerissenes Netz und Absage kommen beide als Rejection. */
+export async function fetchJson<T = unknown>(url: string, init?: RequestInit): Promise<T> {
+  return readAnswer<T>(await fetch(url, init));
+}
+
+export function postJson<T = unknown>(url: string, body: unknown): Promise<T> {
+  return fetchJson<T>(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return readAnswer<T>(res);
 }
+
+export const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));

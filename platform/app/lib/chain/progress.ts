@@ -1,11 +1,10 @@
 /** What a running job has done so far, read out of its log: the replay's milestones against the
  *  duration in `session.yaml` give a MEASURED position in the video. Without a denominator there is
  *  no bar, only the last line — an invented percentage is worse than none. */
-import { open, readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { checkName } from "@/lib/session-store/recordings";
 import { phoneSessionSeconds } from "@/lib/session-store/stored";
-import { absentOnly } from "@/lib/measurement";
-import { lastRunOf } from "@/lib/chain/job-log";
+import { lastRunOf, logTail } from "@/lib/chain/job-log";
 
 export type Progress = {
   /** Seconds of the recording the replay has reached, and the recording's own length. */
@@ -21,25 +20,6 @@ export type Progress = {
   bytes: number;
 };
 
-const TAIL_BYTES = 4096;
-const TAIL_LINES = 4;
-
-/** Read the tail without pulling a growing log into memory. */
-async function tailOf(file: string): Promise<{ tail: string[]; bytes: number }> {
-  const info = await stat(file).catch(absentOnly);
-  if (!info) return { tail: [], bytes: 0 };
-  const handle = await open(file, "r");
-  try {
-    const length = Math.min(TAIL_BYTES, info.size);
-    const buffer = Buffer.alloc(length);
-    await handle.read(buffer, 0, length, info.size - length);
-    const lines = buffer.toString("utf8").split(/\r?\n/).filter((l) => l.trim());
-    return { tail: lines.slice(-TAIL_LINES), bytes: info.size };
-  } finally {
-    await handle.close();
-  }
-}
-
 /**
  * The whole log is scanned for the two milestones, not just the tail: the last `state:` line can be
  * thousands of lines back on a quiet stretch, and a position that jumps backwards when the tail
@@ -50,7 +30,7 @@ export async function progressOf(name: string, log: string | undefined): Promise
   // A queued job has no log yet, but the recording's length is already known — "0 of 412 s" is
   // what a waiting user wants to see, and it is the only honest number available at that moment.
   if (!log) return { atSeconds: null, totalSeconds: await phoneSessionSeconds(name), plies: 0, frames: null, tail: [], bytes: 0 };
-  const { tail, bytes } = await tailOf(log);
+  const { lines: tail, bytes } = await logTail(log, 4096, 4);
   const text = await readFile(log, "utf8").catch(() => "");
   let atSeconds: number | null = null;
   let plies = 0;

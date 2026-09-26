@@ -11,7 +11,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { readAnswer } from "@/lib/answer";
+import { fetchJson, messageOf } from "@/lib/answer";
 import { failureParts } from "@/lib/failure";
 import { when } from "@/lib/when";
 import type { TransferRow } from "@/lib/ingest/ingest";
@@ -145,12 +145,7 @@ export function TransferBoard() {
     setStarting(name);
     setNote(null);
     try {
-      const response = await fetch(`/api/ingest/session/${name}/label`, {
-        method: "POST",
-      });
-      if (!response.ok)
-        return setNote(failureParts(await response.text()).text);
-      const job = (await response.json()) as Job;
+      const job = await fetchJson<Job>(`/api/ingest/session/${name}/label`, { method: "POST" });
       setBoard((current) =>
         current
           ? {
@@ -162,7 +157,7 @@ export function TransferBoard() {
     } catch (error) {
       // Ohne diesen Zweig war ein abgebrochener POST eine unbehandelte Rejection: der Knopf ging
       // zurueck auf "Aufnahme labeln", und nichts auf der Seite sagte, dass nichts passiert ist.
-      setNote(String(error));
+      setNote(failureParts(messageOf(error)).text);
     } finally {
       setStarting(null);
     }
@@ -171,8 +166,7 @@ export function TransferBoard() {
   useEffect(() => {
     let live = true;
     const load = () =>
-      fetch("/api/ingest/jobs")
-        .then((r) => readAnswer<Board>(r))
+      fetchJson<Board>("/api/ingest/jobs")
         .then((value) => {
           if (!live) return;
           setBoard(value);

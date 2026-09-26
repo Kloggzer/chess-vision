@@ -48,7 +48,7 @@ import { CellLane } from "./cell-lane";
 import { MobileSort } from "./mobile-sort";
 import { WallQueryBar } from "./wall-query";
 import type { Flush, LaneActions, Verdict } from "./lane-types";
-import { postJson as post } from "@/lib/answer";
+import { fetchJson, postJson as post } from "@/lib/answer";
 import { pageKey } from "@/lib/keys";
 import { useWindowKeys } from "@/components/use-window-keys";
 
@@ -147,10 +147,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     const search = `class=${encodeURIComponent(next.klass)}&min=${next.min}&phase=${nextPhase}`;
     setAsking(true);
     try {
-      const res = await fetch(`/api/query?${search}`);
-      const body = (await res.json()) as QueryAnswer & { error?: string };
-      if (!res.ok) throw new Error(body.error);
-      setAnswer(body);
+      setAnswer(await fetchJson<QueryAnswer>(`/api/query?${search}`));
       setAt(0);
       window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
     } catch (error) {

@@ -1,6 +1,7 @@
 /** Welche Karten ein Mensch schon behalten hat — aus `candidate.reviewed_plies`, rein, damit die
  *  Ansicht sie importieren darf. `writeConfirmation` rechnet den Schluessel jedes Mal neu und
  *  ersetzt ihn (sonst waere ENTFERNEN nicht ausdrueckbar): die Seite muss vorladen. */
+import { messageOf } from "@/lib/answer";
 import type { ReviewCard } from "@/lib/label/review-cards";
 
 /** Eine Karte gilt als behalten, wenn JEDE ihrer `keep`-Plies gespeichert ist — bei einem
@@ -26,3 +27,10 @@ export function struckCards(cards: ReviewCard[], struckPlies: readonly number[])
   }
   return out;
 }
+
+/** Jeder Ausgang endet in einer Zeile — sonst bleibt der Knopf auf "writing" gesperrt. */
+export const confirmState = (answer: Promise<{ reviewed_plies: number[] }>): Promise<string> =>
+  answer.then(
+    (body) => `confirmed — ${body.reviewed_plies.length} reviewed plies`,
+    (error: unknown) => `error: ${messageOf(error)}`,
+  );

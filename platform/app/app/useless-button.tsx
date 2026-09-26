@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { readAnswer } from "@/lib/answer";
+import { fetchJson } from "@/lib/answer";
 
 /** A cancelled reason prompt cancels the whole flag; the undo asks nothing — a flag that costs a
  *  dialog to take back is a flag nobody sets. */
@@ -21,14 +21,11 @@ export function UselessButton({ name, flagged }: { name: string; flagged: boolea
     }
     setBusy(true);
     setNote(null);
-    void fetch(`/api/useless/${name}`, {
+    void fetchJson(`/api/useless/${name}`, {
       method: "POST",
       body: JSON.stringify({ useless: !flagged, reason }),
     })
-      .then(async (res) => {
-        await readAnswer(res);
-        router.refresh();
-      })
+      .then(() => router.refresh())
       .catch((error: unknown) => setNote(String(error)))
       .finally(() => setBusy(false));
   }

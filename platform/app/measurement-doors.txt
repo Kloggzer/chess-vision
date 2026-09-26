@@ -21,7 +21,7 @@
 1 lib/corpus/corpus.ts  # nur noch der corpus-index CACHE: eine kaputte Indexdatei wird NEU GEBAUT, nicht geschluckt (2026-09-22)
 1 lib/chain/heavy-lock.ts  # die Sperre selbst; sie unterscheidet `null` und `"unreadable"` schon von Hand
 1 lib/chain/job-log.ts  # Job-LOGS fuer die Anzeige, keine Messung: ein halber Log ist der laufende Prozess
-2 lib/chain/ledger.ts  # jobs.jsonl: fehlt es, ist noch nichts gelaufen; alles andere wirft
+1 lib/chain/ledger.ts  # jobs.jsonl: fehlt es, ist noch nichts gelaufen; alles andere wirft
 1 lib/chain/pack.ts  # ein unlesbarer Spielstand ist keiner, der die Session nennt
 1 lib/chain/runners.ts  # der Log eines gescheiterten Laufs: ohne ihn bleibt `exit N` der Grund
 1 lib/chain/progress.ts  # der Log-SCHWANZ meldet `null`, nicht 0

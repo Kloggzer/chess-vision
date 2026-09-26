@@ -7,6 +7,7 @@ import { queue, type Job } from "@/lib/chain/slot";
 import { inboxDir } from "@/lib/ingest/ingest";
 import { checkName } from "@/lib/session-store/recordings";
 import { jsonlRows } from "@/lib/jsonl";
+import { absentOnly } from "@/lib/measurement";
 
 export function jobsDir(): string {
   return path.join(inboxDir(), "jobs");
@@ -37,37 +38,20 @@ export async function record(job: Job): Promise<void> {
   await appendRow(job);
 }
 
+/** NUR "nicht da" heisst "noch nichts gelaufen": geschluckt zeigte eine unlesbare `jobs.jsonl`
+ *  die ganze Fehlerhistorie als erfolgsfoermige Leere. */
+async function ledgerRows(): Promise<Job[]> {
+  const text = await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8").catch(absentOnly);
+  return text === null ? [] : (jsonlRows(text) as unknown as Job[]);
+}
+
 /** Every ledger row of ONE recording, newest first — the job log of `/game/<name>` (§3.1). */
 export async function jobHistory(name: string, limit = 20): Promise<Job[]> {
   checkName(name, "game name");
-  const rows: Job[] = [];
-  try {
-    const text = await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8");
-    for (const line of jsonlRows(text)) {
-      const row = line as unknown as Job;
-      if (row.name === name) rows.push(row);
-    }
-  } catch (e) {
-    // NUR "nicht da" heisst "noch nichts gelaufen". Unbedingt geschluckt rendert eine gesperrte
-    // oder unlesbare `jobs.jsonl` die GESAMTE Fehlerhistorie als erfolgsfoermige Leere.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-  }
-  return rows.reverse().slice(0, limit);
+  return (await ledgerRows()).filter((row) => row.name === name).reverse().slice(0, limit);
 }
 
 /** The ledger, last row per [key]. `pid` survives it — it decides whose corpse a row is. */
 export async function readLedger(key: (row: Job) => string): Promise<Map<string, Job>> {
-  const seen = new Map<string, Job>();
-  try {
-    const text = await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8");
-    for (const line of jsonlRows(text)) {
-      const row = line as unknown as Job;
-      seen.set(key(row), row);
-    }
-  } catch (e) {
-    // NUR "nicht da" heisst "noch nichts gelaufen". Unbedingt geschluckt rendert eine gesperrte
-    // oder unlesbare `jobs.jsonl` die GESAMTE Fehlerhistorie als erfolgsfoermige Leere.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-  }
-  return seen;
+  return new Map((await ledgerRows()).map((row) => [key(row), row]));
 }

@@ -13,7 +13,8 @@ import {
   type Zoom,
 } from "@/app/confirm/board-frames";
 import { CompareBar, useCompareView } from "@/app/confirm/compare";
-import { keptCards, struckCards } from "@/lib/label/confirm-kept";
+import { postJson } from "@/lib/answer";
+import { confirmState, keptCards, struckCards } from "@/lib/label/confirm-kept";
 import type { ReviewCard } from "@/lib/label/review-cards";
 
 export function ConfirmReview({
@@ -47,26 +48,17 @@ export function ConfirmReview({
 
   async function confirm() {
     setState("writing");
-    const res = await fetch(`/api/confirm/${name}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      // A card can decide several plies; it posts the ones that own an interval, so the wire
-      // stays what it always was — indices into the candidate's own move list. The gallery is a
-      // viewing layer and contributes nothing: the matched plies are the server's to add.
-      body: JSON.stringify({
-        kept: cards.filter((c) => kept[c.id]).flatMap((c) => c.keep),
-        drop: gallery
-          .filter((c) => dropped[c.id])
-          .flatMap((c) => c.plies.map((p) => p.ply)),
-        reference_md5: referenceMd5,
-      }),
+    // A card can decide several plies; it posts the ones that own an interval, so the wire
+    // stays what it always was — indices into the candidate's own move list. The gallery is a
+    // viewing layer and contributes nothing: the matched plies are the server's to add.
+    const answer = postJson<{ reviewed_plies: number[] }>(`/api/confirm/${name}`, {
+      kept: cards.filter((c) => kept[c.id]).flatMap((c) => c.keep),
+      drop: gallery
+        .filter((c) => dropped[c.id])
+        .flatMap((c) => c.plies.map((p) => p.ply)),
+      reference_md5: referenceMd5,
     });
-    const body = await res.json();
-    setState(
-      res.ok
-        ? `confirmed — ${body.reviewed_plies.length} reviewed plies`
-        : `error: ${body.error}`,
-    );
+    setState(await confirmState(answer));
   }
 
   const keptCount = cards.filter((c) => kept[c.id]).length;

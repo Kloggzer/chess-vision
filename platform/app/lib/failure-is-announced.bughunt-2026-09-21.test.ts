@@ -18,13 +18,13 @@ function body(text: string, head: string): string {
 
 test("der Drain-Knopf meldet einen fehlgeschlagenen POST", async () => {
   const post = body(await source("app", "drain-status.tsx"), "const post = useCallback(");
-  expect(post).toContain("fetch(\"/api/drain\"");
+  expect(post).toContain("fetchJson<DrainStatus>(\"/api/drain\"");
   const tail = post.slice(post.indexOf(".catch("));
   expect(tail, "ein stiller catch: der Druck hinterlaesst keine Spur").toMatch(/setNote\(/);
 });
 
 test("der Label-Knopf auf /transfers meldet einen fehlgeschlagenen POST", async () => {
   const start = body(await source("app", "transfers", "board.tsx"), "async function startLabel(");
-  expect(start).toContain("fetch(`/api/ingest/session/");
+  expect(start).toContain("fetchJson<Job>(`/api/ingest/session/");
   expect(start, "ohne catch bleibt nur eine unbehandelte Rejection").toMatch(/catch[\s\S]*setNote\(/);
 });

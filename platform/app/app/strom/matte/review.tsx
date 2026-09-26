@@ -12,7 +12,7 @@ import type { ReviewNote } from "@/lib/session-store/review-notes";
 import type { VerifyStream } from "@/lib/label/verify";
 import { MatteFrame } from "./frame";
 import { MATTE_PAGE, MatteGrid } from "./grid";
-import { postJson as post } from "@/lib/answer";
+import { fetchJson, postJson as post } from "@/lib/answer";
 import { inField } from "@/lib/keys";
 
 /** Ab hier wird nachgeladen: drei Seiten Vorrat reichen, damit niemand auf den Nachschub wartet. */
@@ -83,9 +83,7 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     loading.current = true;
     void (async () => {
       try {
-        const res = await fetch(`/api/verify?skip=${open.length}`);
-        const next = (await res.json()) as VerifyStream;
-        if (!res.ok) throw new Error(String((next as { error?: string }).error ?? res.statusText));
+        const next = await fetchJson<VerifyStream>(`/api/verify?skip=${open.length}`);
         setLoaded((was) => {
           const merged = mergeStream(was, next);
           if (merged.frames.length === was.frames.length) setMore(false);

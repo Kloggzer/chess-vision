@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { fetchJson, messageOf } from "@/lib/answer";
 
 /** The reference PGN, editable in place: a wrong recognised move is corrected HERE, not on a card. */
 export function ReferenceEditor({
@@ -18,14 +19,11 @@ export function ReferenceEditor({
 
   async function save() {
     setNote("schreibe…");
-    const res = await fetch(`/api/pgn/${name}?replace=1`, {
-      method: "POST",
-      body: draft,
-    });
-    const body = await res.json();
-    if (!res.ok) {
-      setNote(`Fehler: ${body.error}`);
-      return;
+    let body: { plies: number };
+    try {
+      body = await fetchJson(`/api/pgn/${name}?replace=1`, { method: "POST", body: draft });
+    } catch (error) {
+      return setNote(`Fehler: ${messageOf(error)}`);
     }
     setNote(
       `${body.plies} Halbzüge gespeichert — die Karten oben zeigen jetzt den Vergleich dagegen`,
