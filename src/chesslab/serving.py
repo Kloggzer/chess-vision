@@ -69,10 +69,6 @@ def run_spec(run_dir: Path) -> RunSpec:
     )
 
 
-def model_classes(run_dir: Path) -> list[str]:
-    return run_spec(run_dir).classes
-
-
 class _ONNXModel:
     """Makes an ONNX InferenceSession behave like a PyTorch model (callable, .eval(),
     .to(device)).

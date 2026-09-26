@@ -190,23 +190,10 @@ def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
             indices = (spread_indices(lo, hi, per_position)
                        if per_position and not is_dirty
                        else range(lo + (-lo) % every, hi, every))
-            for idx in indices:
-                row = {
-                    "frame": f"frames/{idx:06d}.png",
-                    "ply": seg["ply"],
-                    "fen": seg["fen"],
-                    "ts": (base + timedelta(seconds=idx / fps)).isoformat(),
-                    "corners": seg.get("corners") or corners,
-                    "corners_source": "realgame-export",
-                }
-                if is_dirty:
-                    row["dirty"] = True
-                # Outside the `dirty` branch: a piece placed seconds before the hand leaves makes a
-                # QUIET row stale too (up to 4.6 s before its commit).
-                unknown = unknown_for(seg, idx, margin_frames, settle)
-                if unknown:
-                    row["unknown_squares"] = unknown
-                rows.append(row)
+            # `unknown_squares` on QUIET rows too: a piece placed seconds before the hand leaves
+            # makes them stale (up to 4.6 s before its commit).
+            rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
+                        | ({"dirty": True} if is_dirty else {}) for idx in indices)
     rows.sort(key=lambda r: r["frame"])
     return rows
 

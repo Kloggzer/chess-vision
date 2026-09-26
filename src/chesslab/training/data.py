@@ -84,7 +84,7 @@ def visible_board_items(rows: list[dict], trues: list[int], preds: list[int]) ->
     from ..cell_rule import classification_eligible
 
     return [((r["session_id"], str(r["frame"])), bool(t == p))
-            for r, t, p in zip(rows, trues, preds, strict=False)
+            for r, t, p in zip(rows, trues, preds, strict=True)
             if classification_eligible(r)]
 
 

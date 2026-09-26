@@ -14,6 +14,7 @@ from .. import config, locks
 from ..ioutil import write_json
 from ._common import (
     LOOKUP_ERRORS,
+    _each_recording,
     _exit_on_bulk_failures,
     _one_or_all,
     _out_size,
@@ -150,19 +151,18 @@ def occluders_recut_coverage(
 
     _one_or_all(name, all_sessions)
     names = _rg_recordings() if all_sessions else [name]
-    total = crossed = failed = 0
-    for one in names:
-        try:
-            res = matte_mod.recut_coverage(one, progress=len(names) == 1)
-        except LOOKUP_ERRORS as e:
-            print(f"[ERR] {one}: {e}")
-            failed += 1
-            continue
+    total = crossed = 0
+
+    def say(one: str, res: dict) -> None:
+        nonlocal total, crossed
         total += res["recut"]
         crossed += res["crossed"]
         if res["recut"]:
             print(f"[OK] {one}: {res['recut']} von {res['frames']} Zeilen neu geschnitten, "
                   f"{res['crossed']} Zellen ueber PIECE_VISIBLE_MAX gekippt")
+
+    failed = _each_recording(
+        names, lambda one: matte_mod.recut_coverage(one, progress=len(names) == 1), say)
     print(f"[OK] {total} Zeilen neu geschnitten, {crossed} Zellen haben die Schwelle gewechselt "
           f"({len(names) - failed} von {len(names)} Aufnahmen)")
     # Eine uebersprungene Aufnahme traegt ihre Drift weiter; ein Exit 0 sagt das Gegenteil.
@@ -185,20 +185,18 @@ def occluders_close_seams(
     _one_or_all(name, all_sessions)
     names = _rg_recordings() if all_sessions else [name]
     total = {"closed": 0, "frames": 0, "crossed": 0}
-    failed = 0
-    for one in names:
-        try:
-            res = matte_mod.close_seams(one, dry_run=dry_run, progress=not all_sessions)
-        except (*LOOKUP_ERRORS, OSError) as e:
-            print(f"[ERR] {one}: {e}")
-            failed += 1
-            continue
+
+    def say(one: str, res: dict) -> None:
         for k in total:
             total[k] += res[k]
         if res["closed"]:
             print(f"[OK] {one}: {res['closed']}/{res['frames']} Alphas geschlossen, "
                   f"+{res['px']} px, {res['crossed']} Zellen wechseln die Schwelle"
                   f"{' (dry-run)' if dry_run else ''}")
+
+    failed = _each_recording(
+        names, lambda one: matte_mod.close_seams(one, dry_run=dry_run, progress=not all_sessions),
+        say, (*LOOKUP_ERRORS, OSError))
     if len(names) > 1:
         print(f"[OK] gesamt {total['closed']}/{total['frames']} Alphas, "
               f"{total['crossed']} Zellen wechseln PIECE_VISIBLE_MAX")
@@ -254,15 +252,10 @@ def occluders_status(
     from .. import matte as matte_mod
 
     names = [name] if name else _rg_recordings()
-    gaps = other = orphans = failed = 0
-    for n in names:
-        try:
-            res = matte_mod.matte_status(n)
-        except Exception as exc:  # noqa: BLE001
-            # Laut und im Exit-Code: ungezaehlt ist nicht null.
-            print(f"[FAIL] {n}: {exc}")
-            failed += 1
-            continue
+    gaps = other = orphans = 0
+
+    def say(n: str, res: dict) -> None:
+        nonlocal gaps, other, orphans
         gaps += len(res["missing"])
         other += len(res["missing_other"])
         orphans += len(res["orphans"])
@@ -270,6 +263,9 @@ def occluders_status(
             rest = f", {len(res['missing_other'])} nur mit --reason all" if res["missing_other"] else ""
             print(f"[!!] {n}: {res['matted']}/{res['dirty']} gemattet, "
                   f"{len(res['missing'])} fehlen{rest}, {len(res['orphans'])} Waisen")
+
+    # Laut und im Exit-Code: ungezaehlt ist nicht null.
+    failed = _each_recording(names, matte_mod.matte_status, say, (Exception,))
     tail = f", {other} nur mit --reason all" if other else ""
     print(f"[{'!!' if failed else 'OK'}] {len(names) - failed} von {len(names)} Aufnahmen "
           f"gemessen: {gaps} fehlende Matten{tail}, {orphans} Waisen")

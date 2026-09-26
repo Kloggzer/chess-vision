@@ -106,6 +106,21 @@ def _each_session(session: str | None, every: bool, fn: Callable[[str], dict],
     return len(ids), failed
 
 
+def _each_recording(names: list[str], fn: Callable[[str], dict], say: Callable[[str, dict], None],
+                    errors: tuple[type[Exception], ...] = LOOKUP_ERRORS) -> int:
+    """`fn` over recordings; a failure is an `[ERR]` line, not an abort. -> failed"""
+    failed = 0
+    for name in names:
+        try:
+            res = fn(name)
+        except errors as e:
+            print(f"[ERR] {name}: {e}")
+            failed += 1
+            continue
+        say(name, res)
+    return failed
+
+
 def _exit_on_bulk_failures(failed: int) -> None:
     if failed:
         raise typer.Exit(1)

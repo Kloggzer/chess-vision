@@ -10,7 +10,14 @@ from .. import config
 from .. import hand_flags as hand_flags_mod
 from ..ioutil import write_json
 from ..session_store.names import log_path
-from ._common import LOOKUP_ERRORS, _exit_on_bulk_failures, _one_or_all, csv_list, fail_on
+from ._common import (
+    LOOKUP_ERRORS,
+    _each_recording,
+    _exit_on_bulk_failures,
+    _one_or_all,
+    csv_list,
+    fail_on,
+)
 
 realgames_app = typer.Typer(
     help="Real games recorded by the tracker: confirm a candidate against the game that was played.",
@@ -226,19 +233,17 @@ def realgames_adopt_dirty(
     _one_or_all(name, all_recordings)
     names = [p.name for p in sorted(config.DATA.recordings.glob("*")) if log_path(p).exists()]
     total = 0
-    failed = 0
-    for target in (names if all_recordings else [name]):
-        try:
-            res = rg_export.adopt_reported_dirty(target)
-        except LOOKUP_ERRORS as e:
-            print(f"[ERR] {target}: {e}")
-            failed += 1
-            continue
+
+    def say(target: str, res: dict) -> None:
+        nonlocal total
         total += res["set"]
         if res["changed"]:
             print(f"[OK] {target}: {res['set']} von {res['reported']} gemeldeten Frames auf "
                   f"`occluded` gesetzt, {res['retracted']} widerrufene Meldungen zurueckgenommen "
                   f"(Backup {res['backup']})")
+
+    failed = _each_recording(names if all_recordings else [name], rg_export.adopt_reported_dirty,
+                             say)
     status = "FAIL" if failed else "OK"
     print(f"[{status}] {total} neu gemeldete Frames warten jetzt auf die Matte — "
           "`chesslab occluders alpha-worker`")

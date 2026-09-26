@@ -278,7 +278,7 @@ def test_cuda_graph_path_matches_eager(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_model_classes(tmp_path):
-    """model_classes liefert die Klassen aus der Run-config."""
+    """`run_spec` liefert die Klassen aus der Run-config."""
     run_dir = tmp_path / "run_mc"
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
@@ -286,7 +286,7 @@ def test_model_classes(tmp_path):
         "out_size": [96, 128],
     }), encoding="utf-8")
 
-    cls = serving.model_classes(run_dir)
+    cls = serving.run_spec(run_dir).classes
     assert cls == ["empty", "wK", "bK"]
 
 

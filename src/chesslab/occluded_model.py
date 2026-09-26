@@ -22,13 +22,12 @@ from .session_store.paths import read_session_meta
 from .state import GameState
 
 
-def model_classes(run_dir: Path) -> list[str]:
-    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
-    return list(cfg.get("classes", []))
-
-
 def run_config(run_dir: Path) -> dict:
     return json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+
+
+def model_classes(run_dir: Path) -> list[str]:
+    return list(run_config(run_dir).get("classes", []))
 
 
 def split_path(run_dir: Path) -> Path | None:

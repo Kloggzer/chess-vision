@@ -7,7 +7,7 @@ import weakref
 import numpy as np
 import torch
 
-from .data import board_accuracy
+from .data import board_accuracy, visible_board_items
 
 
 def get_device(require_gpu: bool):
@@ -138,7 +138,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     # strict: rows and predictions MUST align 1:1, or board accuracy scores a shifted pairing.
     every = [((r["session_id"], str(r["frame"])), bool(t == p))
              for r, t, p in zip(dataset.rows, trues, preds, strict=True)]
-    items = [cell for cell, keep in zip(every, eligible, strict=True) if keep]
+    visible = visible_board_items(dataset.rows, trues, preds)
     # Die HARTE Zahl geht ueber jede Zelle.
     board_acc = board_accuracy(every)
     # Zwei Zwillinge daneben: ohne die verdeckten Zellen, und mit einer Zelle Spielraum.
@@ -153,8 +153,8 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         "square_acc": square_acc,
         "macro_recall": macro_recall,
         "board_acc": board_acc,
-        "visible_board_acc": board_accuracy(items),
-        "board_acc_tol1": board_accuracy(items, tolerance=1),
+        "visible_board_acc": board_accuracy(visible),
+        "board_acc_tol1": board_accuracy(visible, tolerance=1),
         "trues": trues_a,
         "preds": preds_a,
         "classification_eligible": eligible,
