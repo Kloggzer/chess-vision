@@ -8,6 +8,7 @@ import json
 import math
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -19,7 +20,7 @@ from .matte_publish import publish, stage, staging
 from .session_store.log import read_log_rows
 from .session_store.matte import measured_coverage, read_matte
 from .session_store.names import BOARD_DIR, MATTE_DIR, MATTE_FILE
-from .session_store.paths import read_session_meta, session_dir
+from .session_store.paths import read_session_meta, session_dir, session_profile
 from .temporal_flags import load_flags, source_stamp
 
 
@@ -310,62 +311,91 @@ def matted_frames(rows: list[dict]) -> set[str]:
     return set(measured_coverage(rows))
 
 
-def adopt_proposals(session_id, *, method="local"):
-    """Proposals with a hand become matte rows for frames SAM never cut. SAM's rows and files are
-    never touched; our own (`source: temporal`) are replaced whole.
-    """
-    from .calibration import load_profile
-    from .cell_rule import PIECE_VISIBLE_MAX
-    from .matte import coverage_fields, coverage_of
+class _Proposals(NamedTuple):
+    recording: Path
+    directory: Path
+    profile: object
+    entries: dict[str, dict]
+    matte_path: Path
+    matte_stamp: tuple[int, str] | None
+    rows_before: list[dict]
+    kept_rows: list[dict]
+    stamp: object
 
+
+def _proposals(session_id, method: str, ours: tuple[str, ...]) -> _Proposals:
+    """What `adopt` and `upsert` start from; `kept_rows` drops the `ours` sources a rerun replaces."""
     recording, _ = session_dir(session_id)
     directory = config.DATA.reports / "temporal-mattes" / recording.name / method
-    report = directory / "proposals.jsonl"
-    if not report.is_file():
+    if not (directory / "proposals.jsonl").is_file():
         raise FileNotFoundError(f"{session_id}: no proposals — run session temporal-mattes first")
     require_fresh_proposals(directory, recording)
-    profile = load_profile(read_session_meta(recording)["profile"])
+    profile = session_profile(recording, allow_standin=False)
     entries = {Path(r["frame"]).stem: r for r in read_log_rows(recording)}
     matte_path = recording / MATTE_FILE
     matte_stamp = stamp_of(matte_path)
     rows_before = read_jsonl(matte_path)
-    kept_rows = [r for r in rows_before if r.get("source") != "temporal"]
-    ours = {r["frame"] for r in rows_before} - {r["frame"] for r in kept_rows}
+    # Dieselbe Herkunft wie SAMs Zeilen: diese Coverage ist gegen DIESEN Export geschnitten.
+    return _Proposals(recording, directory, profile, entries, matte_path, matte_stamp, rows_before,
+                      [r for r in rows_before if r.get("source") not in ours],
+                      provenance.source(recording))
+
+
+def _proposal_coverage(start: _Proposals, row: dict, entry: dict):
+    """`(alpha, coverage)` of one proposal, or None when no cell is over `PIECE_VISIBLE_MAX`."""
+    from .cell_rule import PIECE_VISIBLE_MAX
+    from .matte import coverage_of
+
+    alpha = cv2.imread(str(start.directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
+    coverage = coverage_of(alpha.astype(np.float32) / 255., entry, start.profile)
+    return (alpha, coverage) if max(coverage.values()) > PIECE_VISIBLE_MAX else None
+
+
+def _proposal_row(start: _Proposals, row: dict, entry: dict, coverage: dict, source: str,
+                  **extra) -> dict:
+    from .matte import coverage_fields
+
+    return {"frame": row["frame"], "ply": entry.get("ply"), "dirty_reason": entry.get("dirty_reason"),
+            "source": source, **extra, **({"_source": start.stamp} if start.stamp else {}),
+            "concepts": {"temporal": round(row["fraction_above_half"], 4)},
+            **coverage_fields(coverage)}
+
+
+def adopt_proposals(session_id, *, method="local"):
+    """Proposals with a hand become matte rows for frames SAM never cut. SAM's rows and files are
+    never touched; our own (`source: temporal`) are replaced whole.
+    """
+    start = _proposals(session_id, method, ("temporal",))
+    recording, kept_rows = start.recording, start.kept_rows
+    ours = {r["frame"] for r in start.rows_before} - {r["frame"] for r in kept_rows}
     # Wie `sam_matte`: eine Absage ist die JUENGERE Aussage und loescht die fruehere Messung.
     have = matted_frames(kept_rows)
-    # Dieselbe Herkunft wie SAMs Zeilen: diese Coverage ist gegen DIESEN Export geschnitten.
-    stamp = provenance.source(recording)
     (recording / MATTE_DIR).mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []
     with staging() as staged:
-        for row in read_jsonl(report):
-            stem, entry = row["frame"], entries.get(row["frame"])
+        for row in read_jsonl(start.directory / "proposals.jsonl"):
+            stem, entry = row["frame"], start.entries.get(row["frame"])
             if not row.get("alpha") or entry is None:
                 continue
             # A file without any row is ours: an aborted adopt leaves orphans.
             if stem in have:
                 kept += 1
                 continue
-            alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
-            coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
-            if max(coverage.values()) <= PIECE_VISIBLE_MAX:
+            measured = _proposal_coverage(start, row, entry)
+            if measured is None:
                 empty += 1
                 continue
-            stage(staged, stem, alpha, recording / MATTE_DIR / f"{stem}.webp")
-            fresh.append({"frame": stem, "ply": entry.get("ply"),
-                          "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
-                          **({"_source": stamp} if stamp else {}),
-                          "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                          **coverage_fields(coverage)})
+            stage(staged, stem, measured[0], recording / MATTE_DIR / f"{stem}.webp")
+            fresh.append(_proposal_row(start, row, entry, measured[1], "temporal"))
             adopted += 1
         # A SAM row that landed meanwhile makes the frame SAM's: its pixels stay, ours are dropped.
         publish(recording, "adopt",
-                lambda: write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+                lambda: write_rows_guarded(start.matte_path, kept_rows + fresh, start.matte_stamp,
                                            what=_CONTESTED.format(what="adopting")),
                 staged, _without("temporal"),
                 skip=lambda rows: matted_frames([r for r in rows if r.get("source") != "temporal"]))
-    return {"path": matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
+    return {"path": start.matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
             "replaced": len(ours)}
 
 
@@ -390,35 +420,22 @@ def upsert_proposals(session_id, *, method="local"):
     """Where SAM found NOTHING, temporal's matte replaces the frame whole — never per cell. Motion
     blur is what SAM misses; its file survives as `<stem>.sam.webp`.
     """
-    from .calibration import load_profile
     from .cell_rule import PIECE_VISIBLE_MAX
-    from .matte import FIXED_SUFFIX, coverage_fields, coverage_of
+    from .matte import FIXED_SUFFIX
 
-    recording, _ = session_dir(session_id)
-    directory = config.DATA.reports / "temporal-mattes" / recording.name / method
-    report = directory / "proposals.jsonl"
-    if not report.is_file():
-        raise FileNotFoundError(f"{session_id}: no proposals — run session temporal-mattes first")
-    # Dieselbe Wache wie `adopt_proposals`; hier werden GANZE Frames ersetzt.
-    require_fresh_proposals(directory, recording)
-    profile = load_profile(read_session_meta(recording)["profile"])
-    entries = {Path(r["frame"]).stem: r for r in read_log_rows(recording)}
-    matte_path = recording / MATTE_FILE
-    matte_stamp = stamp_of(matte_path)
-    rows_before = read_jsonl(matte_path)
-    kept_rows = [r for r in rows_before if r.get("source") not in ("upsert", "merged")]
-    replaced = len(rows_before) - len(kept_rows)
+    start = _proposals(session_id, method, ("upsert", "merged"))
+    recording, kept_rows = start.recording, start.kept_rows
+    replaced = len(start.rows_before) - len(kept_rows)
     mattes = recording / MATTE_DIR
     backups = {p.name.removesuffix(".sam.webp") for p in mattes.glob("*.sam.webp")}
     # SAMs Absage nimmt die fruehere Messung zurueck; sonst zaehlte die alte Zahl als `sam_found`.
     sam = measured_coverage(r for r in kept_rows if r.get("source") != "temporal")
     stamp_now = datetime.now(UTC).isoformat()
-    stamp = provenance.source(recording)
     upserted, found, fixed = 0, 0, 0
     fresh = []
     with staging() as staged:
-        for row in read_jsonl(report):
-            stem, entry = row["frame"], entries.get(row["frame"])
+        for row in read_jsonl(start.directory / "proposals.jsonl"):
+            stem, entry = row["frame"], start.entries.get(row["frame"])
             if not row.get("alpha") or entry is None or stem not in sam:
                 continue
             if (mattes / f"{stem}{FIXED_SUFFIX}").is_file():
@@ -427,22 +444,15 @@ def upsert_proposals(session_id, *, method="local"):
             if max(sam[stem]["coverage"].values(), default=0.) > PIECE_VISIBLE_MAX:
                 found += 1
                 continue
-            alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
-            coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
-            # Dieselbe Schwelle wie oben, kein zweiter Schnitt.
-            if max(coverage.values()) <= PIECE_VISIBLE_MAX:
+            measured = _proposal_coverage(start, row, entry)
+            if measured is None:
                 continue
-            stage(staged, stem, alpha, mattes / f"{stem}.webp")
-            fresh.append({"frame": stem, "ply": entry.get("ply"),
-                          "dirty_reason": entry.get("dirty_reason"), "source": "upsert",
-                          "merged_at": stamp_now,
-                          **({"_source": stamp} if stamp else {}),
-                          "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                          **coverage_fields(coverage)})
+            stage(staged, stem, measured[0], mattes / f"{stem}.webp")
+            fresh.append(_proposal_row(start, row, entry, measured[1], "upsert", merged_at=stamp_now))
             upserted += 1
 
         def write() -> None:
-            write_rows_guarded(matte_path, kept_rows + fresh, matte_stamp,
+            write_rows_guarded(start.matte_path, kept_rows + fresh, start.matte_stamp,
                                what=_CONTESTED.format(what="upserting"))
             # Frueheres Upsert zurueck auf SAMs Alpha; SAMs Datei bleibt `.sam.webp`.
             for stem in backups - staged.keys():
@@ -454,7 +464,7 @@ def upsert_proposals(session_id, *, method="local"):
             tmp.replace(target)
 
         publish(recording, "upsert", write, staged, _without("upsert"), place=place)
-    return {"path": matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
+    return {"path": start.matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
             "replaced": replaced}
 
 

@@ -34,7 +34,7 @@ def _session_for_worker(paths: config.Paths, monkeypatch, stems: list[str]) -> P
                      "dirty": True, "dirty_reason": "occluded"})
     write_jsonl(rec / "log.jsonl", rows)
     monkeypatch.setattr(matte, "read_log_rows", lambda _d: rows)
-    monkeypatch.setattr(matte, "read_session_meta", lambda _d: {"profile": "p"})
+    (rec / "session.yaml").write_text("profile: p\n", encoding="utf-8")
     monkeypatch.setattr(matte, "usable_board", lambda *_a: True)
     monkeypatch.setattr("chesslab.calibration.load_profile", lambda _n: object())
     monkeypatch.setattr(matte, "alpha_sam3",

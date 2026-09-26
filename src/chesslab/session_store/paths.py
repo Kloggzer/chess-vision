@@ -96,7 +96,8 @@ def session_profile(sdir: Path, *, allow_standin: bool = True):
             if not allow_standin:
                 raise
     elif not allow_standin:
-        raise FileNotFoundError(f"{sdir.name}: session.yaml nennt kein Profil — Geometrie laesst "
+        said = "nennt kein Profil" if meta_file.exists() else "fehlt"
+        raise FileNotFoundError(f"{sdir.name}: session.yaml {said} — Geometrie laesst "
                                 "sich hier nicht messen")
     side = float(config.DEFAULT_BOARD_SIZE)
     corners = [[0.0, 0.0], [side, 0.0], [side, side], [0.0, side]]

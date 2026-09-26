@@ -13,6 +13,7 @@ def _session(tmp_path, small_profile, board_size: int, border: int):
 
     d = tmp_path / "rg-s1"
     (d / "boards").mkdir(parents=True)
+    (d / "session.yaml").write_text("profile: p\n", encoding="utf-8")
     size = int(small_profile.board_size) + 2 * border
     cv2.imwrite(str(d / "boards" / "000001.webp"), np.full((size, size, 3), 120, np.uint8))
     return d, [{"frame": "frames/000001.png", "board": "boards/000001.webp",
@@ -25,7 +26,6 @@ def _wire(monkeypatch, d, rows, small_profile):
 
     monkeypatch.setattr(store_rec, "game_dir", lambda name: d)
     monkeypatch.setattr("chesslab.session_store.log.read_log_rows", lambda _d: rows)
-    monkeypatch.setattr("chesslab.session_store.paths.read_session_meta", lambda _d: {"profile": "p"})
     monkeypatch.setattr(calibration, "load_profile", lambda _n: small_profile)
 
 

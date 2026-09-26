@@ -73,7 +73,6 @@ def test_temporal_publish_works_while_alpha_worker_has_the_ledger_open(
 
     monkeypatch.setattr(calibration, "load_profile", lambda _name: object())
     monkeypatch.setattr(matte, "read_log_rows", lambda _recording: log)
-    monkeypatch.setattr(matte, "read_session_meta", lambda _recording: {"profile": "p"})
     monkeypatch.setattr(matte, "usable_board", lambda *_args: True)
     monkeypatch.setattr(matte, "alpha_sam3", blocked_sam)
     monkeypatch.setattr(matte, "coverage_of", lambda alpha, *_args: {"a1": float(alpha.mean())})
@@ -118,7 +117,7 @@ def test_alpha_rollback_does_not_replace_a_row_appended_after_the_last_guard(tmp
 
     monkeypatch.setattr(calibration, "load_profile", lambda _name: object())
     monkeypatch.setattr(matte, "read_log_rows", lambda _recording: log)
-    monkeypatch.setattr(matte, "read_session_meta", lambda _recording: {"profile": "p"})
+    (recording / "session.yaml").write_text("profile: p\n", encoding="utf-8")
     monkeypatch.setattr(matte, "usable_board", lambda *_args: True)
     monkeypatch.setattr(
         matte, "alpha_sam3", lambda _board: (np.ones((8, 8), np.float32), {"hand": 0.9}))

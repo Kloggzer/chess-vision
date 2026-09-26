@@ -117,6 +117,19 @@ def _notch_centre(win: np.ndarray, csp: int):
     return lo + float((seg * np.arange(len(seg))).sum() / total), depth
 
 
+def _huber_lstsq(m: np.ndarray, y: np.ndarray, iters: int) -> tuple[np.ndarray, np.ndarray]:
+    """`(solution, weights)` of `m @ x ≈ y`, Huber-reweighted from the MAD of the residual."""
+    w = np.ones(len(y))
+    sol = None
+    for _ in range(iters):
+        sw = np.sqrt(np.clip(w, 1e-6, None))
+        sol, *_ = np.linalg.lstsq(m * sw[:, None], y * sw, rcond=None)
+        r = np.abs(m @ sol - y)
+        s = max(0.4, 1.4826 * float(np.median(r)))
+        w = np.minimum(1.0, 1.5 * s / np.maximum(r, 1e-9))
+    return sol, w
+
+
 def _fit_axis(ks: np.ndarray, lever: np.ndarray, pos: np.ndarray, present: list[int],
               min_samples: int) -> dict[int, tuple[float, float]]:
     """One axis' nine lines from all band samples at once, as `{k: (slope, intercept)}`.
@@ -130,14 +143,7 @@ def _fit_axis(ks: np.ndarray, lever: np.ndarray, pos: np.ndarray, present: list[
     m[:, 0] = lever
     m[:, 1] = ks * lever
     m[np.arange(n), [cols[int(k)] for k in ks]] = 1.0
-    w = np.ones(n)
-    sol = None
-    for _ in range(5):
-        sw = np.sqrt(np.clip(w, 1e-6, None))
-        sol, *_ = np.linalg.lstsq(m * sw[:, None], pos * sw, rcond=None)
-        r = np.abs(m @ sol - pos)
-        s = max(0.4, 1.4826 * float(np.median(r)))
-        w = np.minimum(1.0, 1.5 * s / np.maximum(r, 1e-9))
+    sol, w = _huber_lstsq(m, pos, 5)
     out: dict[int, tuple[float, float]] = {}
     for k in present:
         # COUNTED at the Huber half-weight, not summed, as in `AxisFit.kt::WEIGHT_KEPT`: six samples
@@ -242,15 +248,7 @@ MIN_CURV_SAMPLES = 5
 
 def _quad_coeffs(u: np.ndarray, r: np.ndarray) -> tuple[float, float]:
     """Huber-refit `(d, c)` of `r ≈ d + c·u²` — the parabola the linear fit left in its residual."""
-    m = np.stack([np.ones_like(u), u * u], 1)
-    w = np.ones(len(u))
-    sol = None
-    for _ in range(3):
-        sw = np.sqrt(np.clip(w, 1e-6, None))
-        sol, *_ = np.linalg.lstsq(m * sw[:, None], r * sw, rcond=None)
-        e = np.abs(m @ sol - r)
-        s = max(0.4, 1.4826 * float(np.median(e)))
-        w = np.minimum(1.0, 1.5 * s / np.maximum(e, 1e-9))
+    sol, _ = _huber_lstsq(np.stack([np.ones_like(u), u * u], 1), r, 3)
     return float(sol[0]), float(sol[1])
 
 

@@ -25,7 +25,6 @@ def _recording(tmp_path: Path, monkeypatch, rows: list[dict]) -> Path:
     assert cv2.imwrite(str(rec / "mattes" / f"000001{matte.FIXED_SUFFIX}"), np.full((8, 8), 255, np.uint8))
     monkeypatch.setattr(calibration, "load_profile", lambda _name: object())
     monkeypatch.setattr(matte, "read_log_rows", lambda _rec: log)
-    monkeypatch.setattr(matte, "read_session_meta", lambda _rec: {"profile": "p"})
     monkeypatch.setattr(matte, "usable_board", lambda *_a: True)
     monkeypatch.setattr(matte, "coverage_of", lambda alpha, *_a: {"a1": float(alpha.mean())})
     monkeypatch.setattr(matte, "solid", lambda image: np.full_like(image, 255))

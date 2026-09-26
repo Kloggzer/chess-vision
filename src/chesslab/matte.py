@@ -23,7 +23,7 @@ from .matte_publish import publish, stage, staging
 from .session_store.log import read_log_rows
 from .session_store.matte import effective_rows, measured_coverage, read_matte
 from .session_store.names import log_path, matte_path, mattes_dir
-from .session_store.paths import read_session_meta
+from .session_store.paths import session_profile
 
 SAM3_REPO = "facebook/sam3"
 
@@ -379,14 +379,13 @@ def _crossed(was: dict[str, float], fresh: dict[str, float]) -> int:
 
 def _recut_start(name: str) -> tuple[Path, Path, object, dict[str, dict], tuple[int, str] | None]:
     """`(session_dir, matte.jsonl, profile, log row per board stem, ledger stamp)` of a recut."""
-    from .calibration import load_profile
     from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
     path = matte_path(session_dir)
     if not path.exists():
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
-    profile = load_profile(read_session_meta(session_dir)["profile"])
+    profile = session_profile(session_dir, allow_standin=False)
     entries = {Path(e["board"]).stem: e for e in read_log_rows(session_dir) if e.get("board")}
     return session_dir, path, profile, entries, stamp_of(path)
 
@@ -765,7 +764,6 @@ def alpha_worker(
     """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square; a kill loses at
     most the current frame. `limit` counts SUCCESSFUL alphas; `frames` ignores pile and limit.
     """
-    from .calibration import load_profile
     from .session_store.recording import game_dir
 
     session_dir = game_dir(name)
@@ -775,9 +773,7 @@ def alpha_worker(
             f"{name}: no exported session at {session_dir}"
         )
 
-    profile = load_profile(
-        read_session_meta(session_dir)["profile"],
-    )
+    profile = session_profile(session_dir, allow_standin=False)
 
     path = matte_path(session_dir)
 

@@ -88,14 +88,13 @@ def _cut_session(task) -> int:
     img_path, crop_bytes, wh, sid, frames = task
     import cv2
 
-    from ..calibration import load_profile
     from ..labeling import crop_square, usable_board
     from ..session_store.log import read_log_rows
-    from ..session_store.paths import read_session_meta
+    from ..session_store.paths import session_profile
     from ..session_store.recording import game_dir
 
     d = game_dir(sid[3:] if sid.startswith("rg-") else sid)
-    profile = load_profile(read_session_meta(d)["profile"])
+    profile = session_profile(d, allow_standin=False)
     rows = {Path(x["frame"]).stem: x for x in read_log_rows(d)}
 
     def cuts():

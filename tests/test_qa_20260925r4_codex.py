@@ -24,7 +24,7 @@ def _recording(tmp_path: Path, monkeypatch, rows: list[dict]) -> Path:
     write_jsonl(rec / "log.jsonl", log)
     write_jsonl(rec / "matte.jsonl", rows)
     monkeypatch.setattr(matte, "read_log_rows", lambda _d: log)
-    monkeypatch.setattr(matte, "read_session_meta", lambda _d: {"profile": "p"})
+    (rec / "session.yaml").write_text("profile: p\n", encoding="utf-8")
     monkeypatch.setattr(matte, "usable_board", lambda *_a: True)
     monkeypatch.setattr(calibration, "load_profile", lambda _n: object())
     monkeypatch.setattr(matte, "alpha_sam3", lambda _b: (np.ones((8, 8), np.float32), {"hand": 0.9}))
