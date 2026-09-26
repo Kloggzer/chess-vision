@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from ..ioutil import write_json
+from ..runs import read_run_config
 
 
 def fit_temperature(logits, trues, iters: int = 200, *, n_classes: int | None = None) -> float:
@@ -39,7 +39,7 @@ def fit_temperature(logits, trues, iters: int = 200, *, n_classes: int | None = 
 def _record_temperature(cfg_path: Path, temp: float | None, err: Exception | None = None) -> None:
     """Absent reads as 1,0 on the device, so a failed fit leaves `temperature_error` instead."""
     try:
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg = read_run_config(cfg_path.parent)
         if err is None:
             cfg["temperature"] = round(temp, 4)
             cfg.pop("temperature_error", None)

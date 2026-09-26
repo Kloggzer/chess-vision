@@ -404,11 +404,11 @@ def reliance_cmd(
     Writes `<run>/reliance.json` for reproducible before/after comparison. NOTE: the split shares
     the same physical board, so the shortcut inflates in-distribution recall — trust THIS metric
     over recall when judging robustness."""
+    from ..runs import lacks_run_config
     from ..training.gradcam import reliance_for_run
 
     run_dir = Path(run)
-    if not (run_dir / "config.json").exists():
-        print(f"[FAIL] no config.json in {run_dir} — first run `chesslab train`.")
+    if lacks_run_config(run_dir):
         raise typer.Exit(1)
     stats = reliance_for_run(run_dir, split=split, per_class=per_class)
     typer.echo(f"{'class':>8}  {'n':>4}  {'piece%':>7}  {'base':>5}  flag")

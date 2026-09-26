@@ -13,7 +13,7 @@ from torch.utils.data import Dataset
 
 from .. import config
 from ..cell_rule import brightness_of, coverage_of
-from .data import class_to_idx
+from .data import class_to_idx, complete_boards
 from .packs import PackedArg, _pack_index
 
 
@@ -582,21 +582,10 @@ class PackedBoardDataset(_PackedMemmaps, Dataset):
         from .boardnet import CELLS, square_index
 
         c2i = class_to_idx(classes)
-        boards: dict[tuple[str, str], list] = {}
-        for r in rows:
-            boards.setdefault((r["session_id"], r["frame"]), []).append(r)
-        keep = [v for v in boards.values() if len(v) == CELLS]
-        self.n_dropped = len(boards) - len(keep)
+        keep, self.n_dropped = complete_boards(rows, CELLS)
         if not keep:
-            raise ValueError(f"kein vollstaendiges Brett unter {len(boards)} — "
+            raise ValueError(f"kein vollstaendiges Brett unter {self.n_dropped} — "
                              "wurde der Split mit --max-empty-ratio ausgeduennt?")
-        for board in keep:
-            # 64 Zeilen sind noch kein Brett: ein doppeltes Feld verdeckt ein fehlendes.
-            if len({r["square"] for r in board}) != CELLS:
-                raise ValueError(
-                    f"Brett {board[0]['session_id']}/{board[0]['frame']}: {CELLS} Zeilen, aber "
-                    f"nur {len({r['square'] for r in board})} verschiedene Felder — "
-                    "doppelte Felder im Manifest, der Pool muss neu geschnitten werden")
         self.transform = transform
         self.rows = [r for board in keep for r in sorted(board, key=lambda r: square_index(r["square"]))]
         self._files, idx = _pack_index(self.rows, packed)

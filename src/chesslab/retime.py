@@ -4,7 +4,6 @@ read with the CNN and a monotone Viterbi (`docs/retime.md`).
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -183,6 +182,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     from .occluded_model import all_reads, model_classes
     from .realgames.decode import detect_rotation
     from .recording import Recording
+    from .runs import read_run_config
     from .session_store.boards import BOARD_ENCODE
     from .session_store.log import EXPORT_PROFILE
     from .session_store.recording import game_dir, load_candidate, video_fps, video_path
@@ -198,7 +198,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     fps = video_fps(candidate)
     phone = [int(m["frame"]) for m in moves]
     profile = load_profile(EXPORT_PROFILE)
-    cfg = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
+    cfg = read_run_config(model_dir)
     # Ohne Coverage-Kopf bliebe jede Zelle ungemessen und der Pfad ohne Emission: laut abbrechen.
     if cfg.get("head") != "occlusion" and not cfg.get("coverage_output"):
         raise ValueError(

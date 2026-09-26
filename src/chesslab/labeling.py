@@ -23,7 +23,6 @@ from .calibration import (
     GridMesh,
     board_corners_for_frame,
     crop_border_px,
-    load_profile,
     make_tracker,
     mesh_from_lines,
     square_to_crop_box,
@@ -53,10 +52,6 @@ _FILES = "abcdefgh"
 #: The label ledger, keyed like `judgedKeys` in `platform/app/lib/corrections.ts`.
 Corrections = dict[tuple[str, str, str], str]
 
-
-
-def _profile_for_session(meta: dict, profile: str | None):
-    return load_profile(profile or meta["profile"])
 
 def label_to_fen_char(label: str) -> str | None:
     """Class label -> FEN piece letter ('wP'->'P', 'bN'->'n'); empty/occluded -> None."""

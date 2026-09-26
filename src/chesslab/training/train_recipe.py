@@ -194,7 +194,7 @@ def warm_start(model, resume: str | None, backbone: str, device) -> str | None:
     # learns anew.
     resumed_from = None
     if resume:
-        from .data import read_run_config
+        from ..runs import read_run_config
         from .model import adopt_weights, checkpoint_of
 
         rd = config.DATA.models / resume

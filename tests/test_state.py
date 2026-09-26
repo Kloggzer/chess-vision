@@ -52,14 +52,6 @@ def test_illegal_san_raises():
         gs.push_san("e5")  # white pawn cannot reach e5 on move 1
 
 
-def test_illegal_and_malformed_uci_raise():
-    gs = GameState()
-    with pytest.raises(ValueError):
-        gs.push_uci("e2e5")  # illegal
-    with pytest.raises(ValueError):
-        gs.push_uci("zz99")  # malformed
-
-
 def test_undo_and_set_fen():
     gs = GameState()
     gs.push_san("e4")
@@ -69,11 +61,3 @@ def test_undo_and_set_fen():
     assert gs.label_for("f7") == "wQ"
     with pytest.raises(ValueError):
         gs.set_fen("not a real fen")
-
-
-def test_physical_inventory_violations_flags_extra_queen():
-    from chesslab.state import physical_inventory_violations
-
-    assert physical_inventory_violations(chess.Board().fen()) == []
-    fen = "Q3Q3/8/8/8/8/8/8/4K2k w - - 0 1"
-    assert physical_inventory_violations(fen) == ["wQ 2/1"]

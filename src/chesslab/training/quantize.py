@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import config
+from ..runs import lacks_run_config, read_run_config
 
 # Resolved lazily so the module imports without onnxruntime.
 _QUANT_TYPES = {"quint8", "qint8", "quint16", "qint16"}
@@ -153,8 +154,7 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
     was the only phantom-free graph measured. NOT verified on the device: confirm NPU placement
     first."""
     run_dir = Path(run)
-    if not (run_dir / "config.json").exists():
-        print(f"[FAIL] no config.json in {run_dir}.")
+    if lacks_run_config(run_dir):
         return 1
     fp32 = run_dir / "model.onnx"
     if not fp32.exists():
@@ -163,8 +163,6 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
     if activation_type not in _QUANT_TYPES or weight_type not in _QUANT_TYPES:
         print(f"[FAIL] quant types must be one of {sorted(_QUANT_TYPES)}.")
         return 1
-
-    from .data import read_run_config
 
     cfg = read_run_config(run_dir)
 

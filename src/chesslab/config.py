@@ -195,11 +195,6 @@ def loader_kwargs(num_workers: int | None = None, *, pin_memory: bool = True,
 
 DEFAULT_PATIENCE: int = 7
 
-# Pieces available PER COLOR in one set; the coverage generator places only that many per setup.
-# Legality does not matter: the FEN is only a label source.
-DEFAULT_INVENTORY: dict[str, int] = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1}
-
-
 def label_from_piece(symbol: str | None) -> str:
     """Map a python-chess piece symbol to a class label: 'P' -> 'wP', 'n' -> 'bN', None/'' ->
     'empty'.

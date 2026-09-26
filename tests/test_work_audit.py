@@ -84,7 +84,7 @@ def test_game_state_memoizes_fen_per_revision():
     try:
         game = GameState()
         assert game.fen() == game.fen()
-        game.push_uci("e2e4")
+        game.push_san("e4")
         assert game.fen() == game.fen()
     finally:
         deactivate(token)

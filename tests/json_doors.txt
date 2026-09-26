@@ -11,7 +11,6 @@
 1 src/chesslab/cli/train.py  # reliance.json neben dem Lauf, mehrzeiliger Aufruf
 2 src/chesslab/meshprep.py  # Scan-Berichte je Figur, ein Werkzeug, ein Aufruf
 1 src/chesslab/session_store/recording.py  # Payload, schon tmp+replace von Hand
-2 src/chesslab/training/evaluate.py  # config und model_card neben dem Lauf, mehrzeilige Aufrufe
 1 src/chesslab/occluded_model.py  # STREAMT Zeile fuer Zeile in die tmp, weil die Inferenz Minuten laeuft
 1 src/chesslab/sensor_audit.py  # Bericht an --out, ein Aufruf
 1 src/chesslab/training/pack_session.py  # manifest eines Session-Packs; ein Pack ist unveraenderlich
@@ -19,6 +18,5 @@
 1 scripts/backfill_brightness.py  # STREAMT in die tmp und haengt um; Streamen ist die Speicher-Entscheidung
 1 scripts/matte_audit.py  # dito, minutenlanger Lauf
 1 scripts/matte_cell_audit.py  # dito
-1 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
 1 scripts/plan_setups.py  # Bericht eines Aufrufs
 1 scripts/worker_probe.py  # Subprozess-Ausgabe in ein .log

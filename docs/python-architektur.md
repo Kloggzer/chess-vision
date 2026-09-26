@@ -43,8 +43,6 @@ Abhaengigkeiten laufen abwaerts: `realgames/*`, `sessions`, `session_*` -> `sess
   patcht `realgames.export.detect_rotation`, nicht `realgames.decode`. Lazy Importe lesen den
   Besitzer zur Laufzeit und brauchen nur ihn. `confirm` bindet `game_dir` in `realgames.confirm`
   UND `session_store.recording` — die Tests patchen beide.
-- `scripts/check_alignment.py` (Nutzer-Verbot) liest `sessions.session_dir` und
-  `sessions.missing_source_frames` — beide bleiben dort, weil `sessions.py` sie selbst benutzt.
 
 ## training/ (2026-09-23)
 
@@ -69,8 +67,8 @@ Leser. Schnitt nach Aufgabe:
 Zusammengefuehrt: `cell_rule.coverage_of`/`brightness_of` (vorher `torch_data` und `train`, dazu
 inline in `classification_eligible`); `dataset.load_manifest`/`load_split` (vorher auch in
 `training/data.py`, dort mit anderer Meldung); `data.dataset_paths`/`unnamed_pin` (Pfade und Pin-
-Riegel aus `train`, `run_eval` und dem geloeschten `run_data_paths`); `data.read_run_config` (evaluate, quantize,
-Warmstart); `pack_dataset._pack_chunk` dekodiert ueber `decode_crop` statt einer Kopie davon.
+Riegel aus `train`, `run_eval` und dem geloeschten `run_data_paths`); `runs.read_run_config` (torch-frei; evaluate, quantize,
+Warmstart, serving, retime, bake, Temperatur, occluded_model); `pack_dataset._pack_chunk` dekodiert ueber `decode_crop` statt einer Kopie davon.
 Ausserhalb von `training/` (2026-09-26): `sessions.sweep` (statt `fit_mesh_all`/`repair_mesh_all`/
 `mark_hands_all`); in `matte` `_recut_start` (Kopf der drei Recuts), `coverage_fields` (vorher sechs
 Kopien von `cells_over_half`) und `_crossed`; `dataset.write_dataset_files` (Manifest/Split/Stats fuer
@@ -82,8 +80,8 @@ und `upsert`.
   Messende/schreibende Aufrufer rufen `allow_standin=False` (`--profile` als `override=`);
   leeres oder profilloses `session.yaml` wirft `FileNotFoundError` statt `KeyError`/`TypeError`,
   ein fehlendes auch unter `override`. Die `session temporal-*`-Befehle und
-  `sensor_audit` melden das als `[ERR]`. `labeling._profile_for_session` lebt nur noch fuer
-  neun Skripte unter `scripts/`.
+  `sensor_audit` melden das als `[ERR]`. Seit 2026-09-26 ruft auch kein Skript mehr
+  `labeling._profile_for_session`.
 
 - **Rezept als ein Wert:** `run_train` haelt seine Argumente als `recipe`; die Schritte lesen
   daraus, was `run_train` nicht veraendert, und bekommen Abgeleitetes (`rot90`, Worker) explizit.
@@ -96,8 +94,6 @@ und `upsert`.
 
 ## Offen
 
-- `occluded_model.run_config`/`model_classes` lesen die `config.json` weiter selbst: ein Import aus
-  `training` zoege ueber `training/__init__.py` torch nach.
 - `--swa` mit `--batch-aug` starb im Charakterisierungslauf in `update_bn` (uint8-Batch ohne
   Photometrie) — unveraendert gelassen, darum faehrt kein Szenario beides.
 - SonarCloud-Umfang: `tests/test_sonar_scope.py` haelt ihn unter 46 000 ncloc (Sonar lehnt ab

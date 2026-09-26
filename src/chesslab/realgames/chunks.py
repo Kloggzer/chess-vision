@@ -8,7 +8,7 @@ from functools import partial
 from pathlib import Path
 
 from ..calibration import load_profile
-from .boards import FIT_FAILED, FIT_KEPT, FIT_SOURCE, fit_rows_to_grid, rewarp_boards
+from .boards import FIT_FAILED, FIT_KEPT, FIT_SOURCE, fit_rows_to_grid, fit_spread, rewarp_boards
 from .decode import stream_frames
 from .mesh import meshes_for_boards
 
@@ -91,15 +91,9 @@ def merge_fit_stats(parts: list[dict]) -> dict:
     recomputed from the rows, since an average of medians would not be.
     """
     rows = [row for part in parts for row in part["arrived"]]
-    # Nur GEMESSENE: ein FIT_FAILED-Row traegt das `align_worst_px` des letzten Exports, und
-    # `--workers 4` meldete sonst eine andere Streuung als `--workers 1`.
-    worsts = sorted(row["align_worst_px"] for row in rows
-                    if "align_worst_px" in row and row.get("corners_source") != FIT_FAILED)
     merged = {key: sum(part[key] for part in parts)
               for key in (FIT_SOURCE, FIT_KEPT, FIT_FAILED, "mesh", "hands", "late")}
-    return {**merged, "arrived": rows,
-            "median": worsts[len(worsts) // 2] if worsts else None,
-            "max": worsts[-1] if worsts else None}
+    return {**merged, "arrived": rows, **fit_spread(rows)}
 
 
 def fit_rows_parallel(rows: list[dict], profile_name: str, *, video: Path, rotate,

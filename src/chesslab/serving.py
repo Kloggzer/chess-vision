@@ -6,7 +6,6 @@ torch/PIL are imported lazily: on ROCm-Windows the CLI must start without the GP
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
@@ -16,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config
+from .runs import read_run_config
 
 log = logging.getLogger("chesslab.serving")
 
@@ -45,11 +45,7 @@ class RunSpec:
 def run_spec(run_dir: Path) -> RunSpec:
     """Resolve run specification for a model directory — from its config.json alone."""
     run_dir = Path(run_dir)
-    cfg_path = run_dir / "config.json"
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"No config.json in {run_dir}")
-
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg = read_run_config(run_dir)
     classes = cfg.get("classes", config.CLASSES)
     out_size_raw = cfg.get("out_size", [96, 128])
     out_size = (int(out_size_raw[0]), int(out_size_raw[1]))
@@ -131,7 +127,7 @@ def load_run(run_dir: Path, device: str = "cpu", weights: str | None = None):
                 log.info("model.onnx present but onnxruntime has no GPU provider — using "
                          "PyTorch on %s instead of silent CPU inference.", device)
             else:
-                cfg = json.loads((Path(run_dir) / "config.json").read_text(encoding="utf-8"))
+                cfg = read_run_config(run_dir)
                 model = _ONNXModel(str(onnx_path), device)
                 _CACHE[key] = (model, cfg)
                 return model, cfg

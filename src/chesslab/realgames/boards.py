@@ -143,6 +143,16 @@ def _fit_frame_geometry(frame, corners, profile):
     return quad, before, after, mesh
 
 
+def fit_spread(rows: list[dict]) -> dict:
+    """Median and max `align_worst_px` of the rows this pass MEASURED: a `FIT_FAILED` row still
+    carries the last export's number.
+    """
+    worsts = sorted(row["align_worst_px"] for row in rows
+                    if "align_worst_px" in row and row.get("corners_source") != FIT_FAILED)
+    return {"median": worsts[len(worsts) // 2] if worsts else None,
+            "max": worsts[-1] if worsts else None}
+
+
 def fit_rows_to_grid(rows: list[dict], profile, *,
                      frames: Iterator[tuple[dict, Any]], progress=None) -> dict:
     """Fit every written frame's quad to the board's OWN grid at export time (`frames`: caller's
@@ -155,7 +165,7 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
     from ..imgops import skin_patch
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
-    worsts, meshed, hands, late = [], 0, 0, 0
+    meshed, hands, late = 0, 0, 0
     pad = crop_border_px(profile)
     pairs = frames
     seen = []
@@ -199,14 +209,11 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
         counts[source] += 1
         if worst == worst:
             row["align_worst_px"] = round(float(worst), 2)
-            worsts.append(row["align_worst_px"])
-    worsts.sort()
     return {
         **counts,
         "mesh": meshed,
         "hands": hands,
         "late": late,
         "arrived": seen,
-        "median": worsts[len(worsts) // 2] if worsts else None,
-        "max": worsts[-1] if worsts else None,
+        **fit_spread(seen),
     }

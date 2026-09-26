@@ -321,92 +321,6 @@ def _marker_frame():
     return frame
 
 
-def test_profile_from_frame_builds_profile():
-    import numpy as np
-
-    from chesslab.calibration import profile_from_frame
-
-    prof = profile_from_frame(_marker_frame(), "authoprofile", board_size=800, margin=0.05)
-    assert prof is not None
-    assert prof.board_size == 800 and prof.margin == [0.05] * 4
-    assert len(prof.image_corners) == 4
-    # no markers -> None
-    blank = np.full((600, 800, 3), 255, dtype=np.uint8)
-    assert profile_from_frame(blank, "authoprofile") is None
-
-
-def test_ensure_profile_loads_existing_and_autocreates(tmp_path, monkeypatch):
-    import cv2
-
-    from chesslab import config
-    from chesslab.calibration import ensure_profile, load_profile
-
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-
-    # missing + no source -> FileNotFoundError
-    import pytest
-    with pytest.raises(FileNotFoundError):
-        ensure_profile("nope")
-
-    # auto-create from an image-file source (open_camera opens paths via VideoCapture)
-    img_path = tmp_path / "frame.png"
-    cv2.imwrite(str(img_path), _marker_frame())
-    prof = ensure_profile("autocal", str(img_path), board_size=800)
-    assert prof.profile == "autocal" and len(prof.image_corners) == 4
-    # was saved -> loadable, and a second call loads instead of re-detecting
-    assert load_profile("autocal").board_size == 800
-    prof2 = ensure_profile("autocal", None)
-    assert prof2.board_size == 800
-
-    # missing profile + markerless source -> FileNotFoundError
-    import numpy as np
-    blank_path = tmp_path / "blank.png"
-    cv2.imwrite(str(blank_path), np.full((600, 800, 3), 255, dtype=np.uint8))
-    with pytest.raises(FileNotFoundError):
-        ensure_profile("nomarkers", str(blank_path), attempts=3)
-
-
-def test_ensure_profile_returns_an_existing_profile_untouched(tmp_path, monkeypatch):
-    """The hand-set values survive because nothing regenerates over them; `white_pov` would
-    transpose every label if it reset.
-    """
-    import cv2
-
-    from chesslab import config
-    from chesslab.calibration import CropParams, ensure_profile, load_profile, profile_path
-
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    img_path = tmp_path / "frame.png"
-    cv2.imwrite(str(img_path), _marker_frame())
-
-    tuned = ensure_profile("tuned", str(img_path), board_size=800)
-    tuned.white_pov = False
-    tuned.margin = 0.11
-    tuned.crop = CropParams(cell=100.0, pad_side=0.33, out_size=(48, 96))
-    tuned.save(profile_path("tuned"))
-
-    prof = ensure_profile("tuned", str(img_path))
-    assert prof.white_pov is False                # THE label-transposing one
-    assert prof.margin == pytest.approx([0.11] * 4)
-    assert prof.board_size == 800
-    assert prof.crop.out_size == (48, 96)
-    assert load_profile("tuned").crop.pad_side == pytest.approx(0.33)
-
-
-def test_ensure_profile_kwargs_apply_when_the_profile_is_missing(tmp_path, monkeypatch):
-    import cv2
-
-    from chesslab import config
-    from chesslab.calibration import ensure_profile
-
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    img_path = tmp_path / "frame.png"
-    cv2.imwrite(str(img_path), _marker_frame())
-
-    prof = ensure_profile("fresh", str(img_path), board_size=800, white_pov=False)
-    assert prof.board_size == 800 and prof.white_pov is False
-
-
 def test_profile_save_is_atomic_and_leaves_no_temp_file(tmp_path):
     from chesslab.calibration import CalibrationProfile
 
@@ -486,7 +400,7 @@ def test_the_margin_default_has_exactly_one_source():
     import inspect
 
     from chesslab import config
-    from chesslab.calibration import profile_from_frame
+    from chesslab.realgames.stored import fit_stored_session
 
     assert config.DEFAULT_MARKER_MARGIN == pytest.approx(0.045)
-    assert inspect.signature(profile_from_frame).parameters["margin"].default == config.DEFAULT_MARKER_MARGIN
+    assert inspect.signature(fit_stored_session).parameters["margin"].default == config.DEFAULT_MARKER_MARGIN

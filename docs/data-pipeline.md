@@ -445,7 +445,7 @@ input size. The quad can drift within a session; say which frame you measured.
 ### 11.3 Each split is exactly one session — and val is not a clean holdout
 
 A test split of one session measures one camera framing through one profile. Val doubles as the
-checkpoint-selection set (`best.pt` maximises `checkpoint_score` on val at the crops' own size),
+checkpoint-selection set (`best.pt` maximises the checkpoint score (`checkpoint_metrics`) on val at the crops' own size),
 so a val-only resolution result is partly what selection produces. Do not read it as evidence.
 
 ### 11.4 `out_size` is where the crops were built, `infer_size` is what the net is fed

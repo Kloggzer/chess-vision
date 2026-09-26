@@ -4,7 +4,6 @@ card.
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,8 +47,21 @@ def unnamed_pin(ds_name: str, split_file: str | None,
     return None
 
 
-def read_run_config(run_dir: Path) -> dict:
-    return json.loads((Path(run_dir) / "config.json").read_text(encoding="utf-8"))
+def complete_boards(rows: list[dict], cells: int) -> tuple[list[list[dict]], int]:
+    """Frames with `cells` rows, first-seen order, and how many fell short; a doubled square hides
+    a missing one and refuses.
+    """
+    boards: dict[tuple, list[dict]] = {}
+    for r in rows:
+        boards.setdefault((r["session_id"], r["frame"]), []).append(r)
+    keep = [v for v in boards.values() if len(v) == cells]
+    for board in keep:
+        if len({r["square"] for r in board}) != cells:
+            raise ValueError(
+                f"Brett {board[0]['session_id']}/{board[0]['frame']}: {cells} Zeilen, aber "
+                f"nur {len({r['square'] for r in board})} verschiedene Felder — "
+                "doppelte Felder im Manifest, der Pool muss neu geschnitten werden")
+    return keep, len(boards) - len(keep)
 
 
 def filter_rows_by_split(rows: list[dict], split: dict, which: str) -> list[dict]:
@@ -144,14 +156,6 @@ def _macro_recall(trues: list[int], preds: list[int], n_classes: int) -> float:
             per_class_correct[t] += 1
     recalls = [per_class_correct[i] / per_class_total[i] for i in range(n_classes) if per_class_total[i] > 0]
     return sum(recalls) / len(recalls) if recalls else 0.0
-
-
-def checkpoint_score(rows: list[dict], classes: list[str],
-                     trues: list[int], preds: list[int]) -> tuple[float, float, float]:
-    """Sortable checkpoint score: (weighted score, occupied_board_acc, macro_recall), see
-    CHECKPOINT_WEIGHTS.
-    """
-    return checkpoint_metrics(rows, classes, trues, preds)[0]
 
 
 #: Beide Ebenen eines SICHTBAREN Feldes gleich gewichtet, plus die Konfidenz-AUROC als

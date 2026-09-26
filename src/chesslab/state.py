@@ -55,14 +55,6 @@ class GameState:
         self.board.push_san(san)
         self._revision += 1
 
-    def push_uci(self, uci: str) -> None:
-        move = chess.Move.from_uci(uci)
-        with measure("Legal move generations", (id(self), self._revision)):
-            if move not in self.board.legal_moves:
-                raise chess.IllegalMoveError(f"illegal move: {uci}")
-        self.board.push(move)
-        self._revision += 1
-
     def undo(self) -> chess.Move:
         """Take back the last half-move (live `undo`). Raises IndexError if empty."""
         move = self.board.pop()
@@ -111,24 +103,3 @@ def _child(board: chess.Board, move: chess.Move) -> chess.Board:
     nxt = board.copy(stack=False)
     nxt.push(move)
     return nxt
-
-
-def physical_inventory_violations(fen: str, inventory: dict[str, int] | None = None) -> list[str]:
-    """Labels that need more physical pieces than a set holds per color: a promoted second queen on
-    the real board is a chip, and labelling it a queen poisons the data.
-    """
-    inv = inventory or config.DEFAULT_INVENTORY
-    board = chess.Board(fen)
-    counts = {f"{color}{ptype}": 0 for color in ("w", "b") for ptype in inv}
-    for piece in board.piece_map().values():
-        color = "w" if piece.color == chess.WHITE else "b"
-        label = f"{color}{piece.symbol().upper()}"
-        counts[label] = counts.get(label, 0) + 1
-    out: list[str] = []
-    for label, count in sorted(counts.items()):
-        limit = inv.get(label[1], 0)
-        if count > limit:
-            out.append(f"{label} {count}/{limit}")
-    return out
-
-

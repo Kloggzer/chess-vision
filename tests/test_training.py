@@ -7,7 +7,6 @@ from chesslab.training.data import (
     board_accuracy,
     build_model_card,
     checkpoint_metrics,
-    checkpoint_score,
     filter_rows_by_split,
     occupancy_board_acc,
     occupancy_piece_breakdown,
@@ -158,7 +157,7 @@ def test_the_exported_graph_contains_activations(tmp_path):
     assert "Relu" in ops
 
 
-# --- checkpoint_score (torch-frei) -------------------------------------------------------
+# --- checkpoint_metrics: der gewichtete Score (torch-frei) -------------------------------------------------------
 
 
 def _crop_row(session="s0", frame=0, square="a1"):
@@ -176,7 +175,7 @@ def test_checkpoint_score_occ_perfect_types_wrong():
     # All truly occupied (wP), prediction guesses other pieces — occupancy remains correct
     trues = [classes.index("wP")] * 64
     preds = [classes.index("wN")] * 64
-    score, occ_board, mr = checkpoint_score(rows, classes, trues, preds)
+    score, occ_board, mr = checkpoint_metrics(rows, classes, trues, preds)[0]
     assert occ_board == 1.0        # alle Felder occupancy-korrekt
     assert score == pytest.approx(0.5)   # 0,45*0 + 0,45*1 + 0,10*0,5 (Kalibrierung neutral)
     assert mr < 1.0                # Typen falsch → macro_recall nicht perfekt
@@ -189,7 +188,7 @@ def test_checkpoint_score_one_occ_flip_per_frame():
     rows = [_crop_row(frame=i, square="a1") for i in range(4)]
     trues = [classes.index("empty")] * 4
     preds = [classes.index("wP")] * 4
-    score, occ_board, mr = checkpoint_score(rows, classes, trues, preds)
+    score, occ_board, mr = checkpoint_metrics(rows, classes, trues, preds)[0]
     assert occ_board == 0.0
     assert score == pytest.approx(0.05)   # beide Ebenen 0, nur die neutrale Kalibrierung
 
@@ -202,7 +201,6 @@ def test_checkpoint_metrics_reuses_the_score_breakdown():
 
     score, breakdown = checkpoint_metrics(rows, classes, trues, preds)
 
-    assert score == checkpoint_score(rows, classes, trues, preds)
     plain = occupancy_piece_breakdown(classes, trues, preds)
     # `checkpoint_metrics` haengt das Brett-Mass an, sonst identisch.
     extra = {"occupied_board_acc", "calibration",   # von checkpoint_metrics angehaengt
@@ -373,14 +371,14 @@ def test_class_weight_override_applies():
 
 
 def test_occupancy_breakdown_on_two_classes():
-    """`occupancy_piece_breakdown` / `checkpoint_score` must survive a 2-class list."""
+    """`occupancy_piece_breakdown` / `checkpoint_metrics` must survive a 2-class list."""
     classes = ["empty", "occupied"]
     trues = [0, 1, 1, 0]
     preds = [0, 1, 0, 0]
     bd = occupancy_piece_breakdown(classes, trues, preds)
     assert bd["occupied_acc"] == 0.75
     rows = [_crop("s0", "0", sq, "x") for sq in ("a1", "a2", "a3", "a4")]
-    score, occ_board, _ = checkpoint_score(rows, classes, trues, preds)
+    score, occ_board, _ = checkpoint_metrics(rows, classes, trues, preds)[0]
     assert occ_board == 0.0                       # ein Flip im einzigen Brett
     assert score == pytest.approx(0.6125)        # 0,45*0,5 + 0,45*0,75 + 0,10*0,5
 

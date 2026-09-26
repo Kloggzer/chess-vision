@@ -16,23 +16,20 @@ import numpy as np
 from . import provenance
 from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame, usable_board
+from .runs import read_run_config
 from .session_store.log import read_log_rows
 from .session_store.names import READS_FILE, log_path
 from .session_store.paths import read_session_meta
 from .state import GameState
 
 
-def run_config(run_dir: Path) -> dict:
-    return json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
-
-
 def model_classes(run_dir: Path) -> list[str]:
-    return list(run_config(run_dir).get("classes", []))
+    return list(read_run_config(run_dir).get("classes", []))
 
 
 def split_path(run_dir: Path) -> Path | None:
     """Where the run's training split should be — `None` when the run names no dataset."""
-    cfg = run_config(run_dir)
+    cfg = read_run_config(run_dir)
     dataset = cfg.get("dataset")
     if not dataset:
         return None
@@ -45,7 +42,7 @@ def trained_on(run_dir: Path) -> set[str]:
     """Session ids in the model's training split. The run's OWN `config.json["split"]` wins: the
     dataset directory can be rebuilt or deleted underneath it.
     """
-    embedded = (run_config(run_dir).get("split") or {}).get("splits")
+    embedded = (read_run_config(run_dir).get("split") or {}).get("splits")
     if embedded:
         return set(embedded.get("train") or [])
     split = split_path(run_dir)
@@ -66,7 +63,7 @@ def check_not_circular(run_dir: Path, session_id: str) -> None:
     """Refuse loudly: a model scoring its own training session is a mirror. An UNREADABLE split
     refuses too — no hits there does not mean "held out".
     """
-    embedded = (run_config(run_dir).get("split") or {}).get("splits")
+    embedded = (read_run_config(run_dir).get("split") or {}).get("splits")
     split = split_path(run_dir)
     if not embedded and split is None:
         raise ValueError(f"{run_dir.name} carries neither a `split` nor a dataset name, so its "

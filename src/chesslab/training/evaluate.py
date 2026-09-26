@@ -10,7 +10,8 @@ import numpy as np
 from .. import config
 from ..dataset import load_manifest, load_split
 from ..ioutil import write_json
-from .data import crop_of_rows, dataset_paths, filter_rows_by_split, read_run_config, unnamed_pin
+from ..runs import lacks_run_config, read_run_config
+from .data import complete_boards, crop_of_rows, dataset_paths, filter_rows_by_split, unnamed_pin
 from .model import stock_batchnorm
 
 
@@ -113,8 +114,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     from .torch_data import SquareDataset, eval_transform_for
 
     run_dir = Path(run)
-    if not (run_dir / "config.json").exists():
-        print(f"[FAIL] no config.json in {run_dir} — first run `chesslab train`.")
+    if lacks_run_config(run_dir):
         return 1
     model, cfg = load_run(run_dir)
     classes = cfg["classes"]
@@ -156,14 +156,14 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     if boards_only:
         # Ein Brett-Modell sieht nur VOLLSTAENDIGE Bretter; ohne diesen Schnitt vergleichen die
         # beiden Familien verschiedene Datensaetze.
-        from .boardnet import CELLS
-
-        groups: dict[tuple[str, str], list] = {}
-        for r in rows:
-            groups.setdefault((r["session_id"], r["frame"]), []).append(r)
-        kept = [r for v in groups.values() if len(v) == CELLS for r in v]
+        try:
+            boards, short = complete_boards(rows, BOARD_CELLS)
+        except ValueError as e:
+            print(f"[FAIL] {e}")
+            return 1
+        kept = [r for board in boards for r in board]
         print(f"[boards-only] {len(kept)} von {len(rows)} Zeilen "
-              f"({len(groups) - len(kept) // CELLS} unvollstaendige Bretter verworfen)")
+              f"({short} unvollstaendige Bretter verworfen)")
         rows = kept
     if not rows:
         print(f"[FAIL] {split_name} split is empty.")
@@ -399,8 +399,7 @@ def run_export(run: str, fmt: str = "torchscript",
     from .torch_data import infer_size_of, input_repr_of
 
     run_dir = Path(run)
-    if not (run_dir / "config.json").exists():
-        print(f"[FAIL] kein config.json in {run_dir}.")
+    if lacks_run_config(run_dir):
         return 1
     model, cfg = load_run(run_dir)
     model.eval()
@@ -440,8 +439,7 @@ def run_export(run: str, fmt: str = "torchscript",
         cfg["coverage_output"] = True
     if infer_size is not None or new_crop or covering:
         # Before tracing: the graph must be what the config declares.
-        (run_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
-                                             encoding="utf-8")
+        write_json(run_dir / "config.json", cfg)
 
     # ONE size per export, so TorchScript and ONNX agree.
     example = torch.randn(ONNX_BATCH, input_repr_of(cfg)[1], in_h, in_w)
@@ -511,7 +509,7 @@ def run_export(run: str, fmt: str = "torchscript",
         torch_version=torch.__version__, hip_version=getattr(torch.version, "hip", None),
         exported_formats=written, normalize=cfg.get("normalize"),
     )
-    (run_dir / "model_card.json").write_text(json.dumps(card, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_json(run_dir / "model_card.json", card)
     print(f"[OK] exportiert: {', '.join(written)} @ {in_w}x{in_h} + model_card.json -> {run_dir}")
     return 0
 

@@ -7,7 +7,7 @@ import pytest
 from chesslab import config, dataset_build
 from chesslab import dataset as dataset_mod
 from chesslab.training import pack_session, packs
-from chesslab.training.data import checkpoint_score
+from chesslab.training.data import checkpoint_metrics
 from chesslab.training.pack_session import _write_rows
 from conftest import write_jsonl
 
@@ -28,7 +28,7 @@ def test_checkpoint_tiebreakers_ignore_cells_masked_out_of_the_loss():
         {"session_id": "s", "frame": "1", "coverage": 1.0},
     ]
 
-    rank = checkpoint_score(rows, classes, [0, 0], [0, 1])
+    rank = checkpoint_metrics(rows, classes, [0, 0], [0, 1])[0]
 
     assert rank[1:] == (1.0, 1.0), (
         "a fully covered wrong cell lowered occupied-board accuracy or macro recall even though "

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import typer
@@ -299,16 +298,14 @@ def dataset_bake_cmd(
     Nur der FESTE Teil der Kette geht hier hinein; Augmentation bleibt im Loader, sonst saehe das
     Modell 60 Epochen lang dieselbe Verzerrung. Der Lauf braucht danach kein Flag: `train` liest
     `packed_meta.json` und laesst den Operator selbst aus (`training/pack_bake.py`)."""
+    from ..runs import read_run_config
     from ..training.pack_bake import bake_pack
     from ..training.packs import clahe_params
 
-    if model:
-        cfg = json.loads((Path(model) / "config.json").read_text(encoding="utf-8"))
-        params = clahe_params(cfg)
-    else:
-        params = {"clip": clahe_clip, "tile": clahe_tile, "min_mean": clahe_min_mean,
-                  "max_mean": clahe_max_mean, "denoise": clahe_denoise}
     with fail_on(ValueError, FileNotFoundError, FileExistsError):
+        params = clahe_params(read_run_config(model)) if model else {
+            "clip": clahe_clip, "tile": clahe_tile, "min_mean": clahe_min_mean,
+            "max_mean": clahe_max_mean, "denoise": clahe_denoise}
         bake_pack(name, out, params, force=force)
 
 
