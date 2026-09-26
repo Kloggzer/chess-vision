@@ -10,8 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-# `chesslab.cli.app` ist der Einstieg (registriert erst beim Paket-Import); check_alignment: Nutzer-Verbot.
-ALLOWED = {("chesslab.cli", "app"), ("scripts/check_alignment.py", None)}
+# `chesslab.cli.app` ist der Einstieg (registriert erst beim Paket-Import).
+ALLOWED = {("chesslab.cli", "app")}
 
 
 def _module(path: Path) -> str:

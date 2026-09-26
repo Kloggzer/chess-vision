@@ -57,11 +57,11 @@ def _disk_damage_env(tmp_path, monkeypatch, matte_rows):
     (sdir / "mattes").mkdir(parents=True)
     cv2.imwrite(str(sdir / "mattes" / "f1.png"), np.zeros((4, 4), np.uint8))
     (sdir / "mattes" / "f1.png").rename(sdir / "mattes" / "f1.webp")
-    monkeypatch.setattr(calibration, "load_profile", lambda _n: object())
-    monkeypatch.setattr("chesslab.session_store.paths.read_session_meta", lambda _d: {"profile": "p"})
+    make_profile(8, profile="t").save(calibration.profile_path("t"))
+    (sdir / "session.yaml").write_text("profile: t\n", encoding="utf-8")
     monkeypatch.setattr("chesslab.session_store.log.read_log_rows", lambda _d: [{"board": "boards/f1.webp"}])
     monkeypatch.setattr(labeling, "usable_board", lambda _e, _p: True)
-    monkeypatch.setattr(matte, "coverage_of", lambda _a, _e, _p: {"e4": 0.0})
+    monkeypatch.setattr(matte, "coverage_of", lambda _a, _e, p: {"e4": 0.0} if p.profile == "t" else {})
     return mod
 
 
@@ -280,14 +280,17 @@ def test_export_warp_benchmark_alternates_its_arms(tmp_path, monkeypatch):
 def test_border_probe_warps_the_frame_its_corners_belong_to(tmp_path, monkeypatch):
     import cv2
 
+    from chesslab import calibration, config
     from chesslab.realgames import decode as rg_decode
     from chesslab.session_store import recording as store_rec
 
     mod = load_script("border_probe")
-    sdir = tmp_path / "rec"
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+    make_profile(8, profile="t").save(calibration.profile_path("t"))
+    sdir = config.DATA.recordings / "rec"
     write_jsonl(sdir / "log.jsonl", [{"frame": "frames/000007.png", "board": "boards/000007.webp",
                                  "board_border": 12, "corners": [[0, 0]] * 4}])
-    monkeypatch.setattr(mod, "config", types.SimpleNamespace(DATA=types.SimpleNamespace(recordings=tmp_path)))
+    (sdir / "session.yaml").write_text("profile: t\n", encoding="utf-8")
 
     class Seeking:   # ein Seek auf n liefert Frame n + 1 — gemessen 2 von 7 Sonden
         def __init__(self, *_):
@@ -308,11 +311,10 @@ def test_border_probe_warps_the_frame_its_corners_belong_to(tmp_path, monkeypatc
     monkeypatch.setattr(rg_decode, "detect_rotation", lambda *a: None)
     monkeypatch.setattr(rg_decode, "stream_frames",
                         lambda video, rows, rot: iter([(rows[0], np.full((4, 4, 3), 7, np.uint8))]))
-    monkeypatch.setattr(mod, "read_session_meta", lambda d: {"profile": "p"})
-    monkeypatch.setattr(mod, "load_profile", lambda p: types.SimpleNamespace(board_size=8))
     seen = []
 
     def warp(frame, profile, corners, pad):
+        assert profile.profile == "t"
         seen.append(int(frame[0, 0, 0]))
         raise SystemExit(0)
 

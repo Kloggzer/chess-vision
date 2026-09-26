@@ -10,12 +10,12 @@ import cv2
 import numpy as np
 
 from chesslab import config
-from chesslab.calibration import load_profile
 from chesslab.cell_rule import PIECE_VISIBLE_MAX as VMAX
-from chesslab.ioutil import read_jsonl, write_json
+from chesslab.ioutil import write_json
 from chesslab.labeling import all_squares, board_source, crops_for_frame
+from chesslab.session_store.log import read_log_rows
 from chesslab.session_store.matte import read_matte
-from chesslab.session_store.paths import read_session_meta
+from chesslab.session_store.paths import session_profile
 
 
 def _num(v: float | None, width: int) -> str:
@@ -58,12 +58,11 @@ def main():
     args = ap.parse_args()
 
     sdir = config.DATA.recordings / args.session.replace("rg-", "", 1)
-    meta = read_session_meta(sdir)
-    profile = load_profile(meta["profile"])
+    profile = session_profile(sdir, allow_standin=False)
     matte = read_matte(sdir)
     squares = all_squares()
     rows = []
-    for r in read_jsonl(sdir / "log.jsonl"):
+    for r in read_log_rows(sdir):
         stem = Path(str(r.get("frame") or "")).stem
         if (r.get("board") or r.get("frame")) and stem in matte:
             rows.append((stem, r))

@@ -11,13 +11,14 @@ genau die Linie, an der `slice` schneidet. Weicht eine Rille davon ab, sieht man
 from __future__ import annotations
 
 import argparse
-import json
 import statistics as st
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
+
+from chesslab.session_store.log import ExportInterrupted, read_log_rows
 
 REC = Path("data/recordings")
 TILE, PAD, BAR = 280, 8, 16
@@ -26,10 +27,7 @@ TILE, PAD, BAR = 280, 8, 16
 def one_board(d: Path) -> tuple[np.ndarray, dict, float] | None:
     """Ein sauberes Brett der Aufnahme, seine Zeile, und der Median ihrer Ausrichtung."""
     rows, align = [], []
-    for line in (d / "log.jsonl").open(encoding="utf-8"):
-        if not line.strip():
-            continue
-        r = json.loads(line)
+    for r in read_log_rows(d):
         if r.get("align_worst_px") is not None:
             align.append(float(r["align_worst_px"]))
         if r.get("board") and r.get("grid_lines") and not r.get("dirty"):
@@ -54,7 +52,11 @@ def main() -> int:
     for d in sorted(REC.iterdir()):
         if not (d / "log.jsonl").is_file() or (names and d.name not in names):
             continue
-        got = one_board(d)
+        try:
+            got = one_board(d)
+        except ExportInterrupted as exc:
+            print(f"[i] {d.name}: uebersprungen — {exc}")
+            continue
         if got:
             found.append((d.name, *got))
     found.sort(key=lambda x: -x[3])

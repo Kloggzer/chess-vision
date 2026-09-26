@@ -14,17 +14,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.ioutil import iter_jsonl, read_jsonl
+from chesslab.session_store.log import read_log_rows
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
+from heldout_label_audit import judged  # noqa: E402
 
 REC = Path("data/recordings")
-
-
-def _jsonl(path: Path):
-    return read_jsonl(path)
 
 
 def session_facts(sid: str, window: int) -> dict:
@@ -32,14 +33,15 @@ def session_facts(sid: str, window: int) -> dict:
     rec = REC / sid.removeprefix("rg-")
     # `log.jsonl` schreibt den Frame als Pfad, Manifest und Matte als Stamm.
     frames_of: dict[int, list[str]] = defaultdict(list)
-    for r in _jsonl(rec / "log.jsonl"):
+    for r in read_log_rows(rec):
         frames_of[int(r["ply"])].append(Path(str(r["frame"])).stem)
     for v in frames_of.values():
         v.sort()
 
     risky: dict[str, set[str]] = defaultdict(set)      # frame -> Felder im Zugfenster
     moves = 0
-    for r in _jsonl(rec / "interval-check.jsonl"):
+    checks = read_jsonl(rec / "interval-check.jsonl")
+    for r in checks:
         moved = [str(s) for s in (r.get("moved") or [])]
         if not moved:
             continue
@@ -52,12 +54,8 @@ def session_facts(sid: str, window: int) -> dict:
         for f in frames_of.get(ply, [])[:window] if window else frames_of.get(ply, []):
             risky[f].update(moved)
 
-    human: set[tuple[str, str]] = set()
-    for name in ("reviewed.jsonl", "corrections.jsonl"):
-        for r in _jsonl(rec / name):
-            human.add((Path(str(r["frame"])).stem, str(r["square"])))
-    return {"risky": risky, "human": human, "moves": moves,
-            "unseen": sum(1 for r in _jsonl(rec / "interval-check.jsonl") if not r.get("seen"))}
+    return {"risky": risky, "human": judged(rec), "moves": moves,
+            "unseen": sum(1 for r in checks if not r.get("seen"))}
 
 
 def classify(coverage, seen_by_human: bool) -> str:

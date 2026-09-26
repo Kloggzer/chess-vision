@@ -10,11 +10,11 @@ import cv2
 import numpy as np
 
 from chesslab import config
-from chesslab.calibration import load_profile, warp_padded
-from chesslab.ioutil import read_jsonl
+from chesslab.calibration import warp_padded
 from chesslab.realgames import decode as rg_decode
 from chesslab.session_store import recording as store_rec
-from chesslab.session_store.paths import read_session_meta
+from chesslab.session_store.log import read_log_rows
+from chesslab.session_store.paths import session_profile
 
 
 def main():
@@ -25,8 +25,8 @@ def main():
     a = ap.parse_args()
 
     sdir = config.DATA.recordings / a.session
-    profile = load_profile(read_session_meta(sdir)["profile"])
-    rows = read_jsonl(sdir / "log.jsonl")
+    profile = session_profile(sdir, allow_standin=False)
+    rows = read_log_rows(sdir)
     row = next((r for r in rows if r.get("board") and r.get("frame") and not r.get("dirty")), None)
     if row is None:
         raise SystemExit("kein sauberes Brett mit Frame-Nummer")

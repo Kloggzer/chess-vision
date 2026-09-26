@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import load_script, write_jsonl
+from conftest import load_script, make_profile, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,8 +109,9 @@ def test_coverage_arms_feeds_the_hand_student_a_board_without_its_border(tmp_pat
     (tmp_path / "data" / "reports").mkdir(parents=True)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    monkeypatch.setattr(arms, "read_session_meta", lambda d: {"profile": "desktop"})
-    monkeypatch.setattr(arms, "load_profile", lambda name: None)
+    from chesslab import calibration
+    make_profile(side - 2 * border, profile="t").save(calibration.profile_path("t"))
+    (sdir / "session.yaml").write_text("profile: t\n", encoding="utf-8")
     monkeypatch.setattr(arms, "read_matte", lambda d: {"000001": {}})
     monkeypatch.setattr(arms, "crops_for_frame", lambda *a, **k: [None] * 64)
     # Wie das Profil und der Zuschnitt daneben: dieser Test isoliert den SCHUELER-Arm, nicht die

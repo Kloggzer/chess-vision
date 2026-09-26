@@ -15,10 +15,10 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from chesslab.ioutil import read_jsonl, write_json
-from chesslab.labeling import _profile_for_session, crop_square
+from chesslab.labeling import crop_square
 from chesslab.realgames.position import SETTLE_CELL_PX
 from chesslab.session_store.log import read_log
-from chesslab.session_store.paths import read_session_meta, session_dir
+from chesslab.session_store.paths import session_dir, session_profile
 
 
 def choose(candidates, count, rng, used):
@@ -43,7 +43,7 @@ def main():
     ap.add_argument('--seed', type=int, default=42)
     args = ap.parse_args()
     rec, _ = session_dir(args.session)
-    profile = _profile_for_session(read_session_meta(rec), None)
+    profile = session_profile(rec, allow_standin=False)
     log = {Path(r['frame']).stem: r for r in read_log(rec)}
     cells = read_jsonl(args.audit)
     cells = [r for r in cells if r['session'] == rec.name and r['group'] == 'neither'

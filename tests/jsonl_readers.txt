@@ -12,6 +12,4 @@
 #
 # Beim Bau der Ratsche waren es 30 Schnitte in src/chesslab und 61 in scripts.
 1 scripts/audit_disk_damage.py  # IST der Schadens-Auditor: braucht die rohe Zeile, ihren Index und das fehlende Umbruchzeichen
-1 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
 1 src/chesslab/labeling.py  # schreibt die ROHEN Zeilen weiter, die es liest - geparst waeren sie nicht mehr bytegleich
-1 scripts/board_grid_probe.py  # NICHT ANFASSEN (Nutzer-Verbot)

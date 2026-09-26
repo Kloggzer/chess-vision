@@ -27,6 +27,7 @@ from chesslab.ioutil import iter_jsonl, read_jsonl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 from coverage_errors import neighbours  # noqa: E402
+from heldout_label_audit import judged  # noqa: E402
 
 REC = Path("data/recordings")
 
@@ -34,20 +35,12 @@ REC = Path("data/recordings")
 HAND_BODY = 0.5
 
 
-def _jsonl(path: Path):
-    return read_jsonl(path)
-
-
 def session_facts(sid: str) -> dict:
     """Was die Aufnahme ueber ihre Frames sagt: Matte, Schmutz-Ablage, menschliche Sichtung."""
     rec = REC / sid.removeprefix("rg-")
-    matte = {Path(str(r["frame"])).stem: r for r in _jsonl(rec / "matte.jsonl")}
+    matte = {Path(str(r["frame"])).stem: r for r in read_jsonl(rec / "matte.jsonl")}
     dirty = {f.stem for f in (rec / "dirty").iterdir()} if (rec / "dirty").is_dir() else set()
-    human: set[tuple[str, str]] = set()
-    for name in ("reviewed.jsonl", "corrections.jsonl"):
-        for r in _jsonl(rec / name):
-            human.add((Path(str(r["frame"])).stem, str(r["square"])))
-    return {"matte": matte, "dirty": dirty, "human": human}
+    return {"matte": matte, "dirty": dirty, "human": judged(rec)}
 
 
 def classify(row: dict | None, reason: str, cov: float, square: str) -> str | None:

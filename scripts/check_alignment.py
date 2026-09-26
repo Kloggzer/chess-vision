@@ -37,13 +37,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import config, labeling, sessions  # noqa: E402
+from chesslab import config, sessions  # noqa: E402
 from chesslab.alignment import (  # noqa: E402
     correct_quad,
     frame_offsets,
 )
 from chesslab.calibration import warp_from_corners  # noqa: E402
-from chesslab.session_store.log import read_log_rows  # noqa: E402
+from chesslab.session_store.log import _write_log, backup_log, read_log, read_log_rows  # noqa: E402
+from chesslab.session_store.names import log_path  # noqa: E402
+from chesslab.session_store.paths import session_dir, session_profile  # noqa: E402
 
 
 def perturb(quad, dx: float, dy: float, slot: int = 0) -> list:
@@ -98,12 +100,7 @@ def apply_fix(d: Path, prof, flagged: list, max_off: float) -> None:
     The rows are marked `corners_source: "auto-corrected"`, so `chesslab slice` and the review UI
     both keep showing which geometry was measured and which was computed.
     """
-    import json
-    import shutil
-    import time
-
-    path = d / "log.jsonl"
-    rows = [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    rows = read_log(d)
     changed, refused = 0, 0
     for i, _off, _bad, worst, _u in flagged:
         e = rows[i]
@@ -125,12 +122,10 @@ def apply_fix(d: Path, prof, flagged: list, max_off: float) -> None:
     if not changed:
         print(f"\n  fix: nothing improved ({refused} refused) — log untouched")
         return
-    backup = path.with_suffix(f".jsonl.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    shutil.copy2(path, backup)
-    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
-                    encoding="utf-8")
+    backup = backup_log(log_path(d))
+    _write_log(d, rows)
     print(f"\n  fix: corrected {changed} frame(s), refused {refused} (no improvement). "
-          f"Backup: {backup.name}")
+          f"Backup: {backup}")
     print("     re-slice the session so the crops follow the new geometry")
 
 
@@ -229,7 +224,7 @@ def before_after_montage(d: Path, log: list, prof, flagged: list, out: str, n: i
     print(f"\n  wrote {out} — same square on both sides, green is where the crop will be cut")
 
 
-def main() -> None:
+def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--session", required=True)
     ap.add_argument("--max-off", type=float, default=6.0,
@@ -254,14 +249,14 @@ def main() -> None:
                          "picture that answers what a given number actually looks like")
     args = ap.parse_args()
 
-    # Aufnahmen liegen seit dem Umzug unter `recordings/`; `session_dir` kennt nur den alten Baum.
+    # Eine Aufnahme ohne `rg-` sucht `session_dir` unter `sessions/`.
     try:
-        d, _ = sessions.session_dir(args.session)
+        d, _ = session_dir(args.session)
     except FileNotFoundError:
         d = config.DATA.recordings / args.session
         if not d.is_dir():
             raise
-    prof = labeling._profile_for_session(labeling.read_session_meta(d), None)
+    prof = session_profile(d, allow_standin=False)
     log = read_log_rows(d)
     gone = sessions.missing_source_frames(d, log)
     if gone:
@@ -308,7 +303,8 @@ def main() -> None:
         before_after_montage(d, log, prof, flagged, args.before_after)
     if args.levels:
         levels_montage(d, log, prof, res, args.levels)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -27,7 +27,9 @@ import chess
 
 from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.ioutil import read_jsonl
+from chesslab.session_store.log import read_log_rows
 from chesslab.session_store.matte import read_matte as coverage_of
+from chesslab.session_store.names import CORRECTIONS_FILE, REVIEWED_FILE
 
 REC = Path("data/recordings")
 HELDOUT = "model-reads.heldout.jsonl"
@@ -46,19 +48,16 @@ def at(fen: str, square: str) -> str:
 
 
 def judged(session: Path) -> set[tuple[str, str]]:
-    """Was ein Mensch schon entschieden hat — das braucht keinen Audit mehr."""
-    out: set[tuple[str, str]] = set()
-    for name in ("reviewed.jsonl", "corrections.jsonl"):
-        for row in read_jsonl(session / name):
-            out.add((str(row["frame"]), str(row["square"])))
-    return out
+    """`(Frame-Stamm, Feld)`, die ein Mensch schon entschieden hat — beide Ledger der Aufnahme."""
+    return {(Path(str(row["frame"])).stem, str(row["square"]))
+            for name in (REVIEWED_FILE, CORRECTIONS_FILE) for row in read_jsonl(session / name)}
 
 
 class Session:
     """Die Aufnahme, so weit der Audit sie braucht: Ply und FEN je Frame."""
 
     def __init__(self, session: Path) -> None:
-        rows = [r for r in read_jsonl(session / "log.jsonl") if r.get("fen")]
+        rows = [r for r in read_log_rows(session) if r.get("fen")]
         self.dir = session
         self.fen = {Path(str(r["frame"])).stem: r["fen"] for r in rows}
         self.ply = {Path(str(r["frame"])).stem: int(r["ply"]) for r in rows}

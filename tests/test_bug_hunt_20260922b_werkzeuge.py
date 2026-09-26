@@ -11,7 +11,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-import board_parity  # noqa: E402
 import commit_truth  # noqa: E402
 import crop_parity  # noqa: E402
 import move_timing_audit  # noqa: E402
@@ -22,47 +21,10 @@ def _row(session: str, frame: str, square: str, label: str) -> dict:
     return {"session_id": session, "frame": frame, "square": square, "label": label}
 
 
-class _FakeStream:
-    """Was `Recording(...).frames()` liefert: ein schliessbarer Strom von (Index, Bild)."""
-
-    def __init__(self, items):
-        self._items = items
-
-    def __iter__(self):
-        return iter(self._items)
-
-    def close(self):
-        return None
-
-
 def _receipt(frame: int, board: int, out: int) -> dict:
     quad = [0, 0, board, 0, board, board, 0, board]
     return {"frame": frame, "boardSize": board, "quad": quad,
             "padSide": 0.05, "outW": out, "outH": out}
-
-
-def test_board_parity_meldet_keinen_erfolg_ohne_ein_einziges_verglichenes_brett(
-        tmp_path, monkeypatch):
-    """`board_parity` lief gruen durch, wenn KEIN rektifiziertes Bild zum Receipt passte.
-
-    Der Schleifenrumpf sprang per `continue` ueber jeden Frame, dessen Kotlin-PNG fehlte, und
-    danach stand nur noch `print(f"  -> {out}")` und `return 0`. Ein Lauf auf das falsche
-    Verzeichnis — oder auf einen `rectify`-Lauf, der nie geschrieben hat — war damit von einem
-    Lauf ohne jeden Unterschied nicht zu unterscheiden.
-    """
-    crop_dir, rect_dir, out = tmp_path / "crops", tmp_path / "rect", tmp_path / "out"
-    crop_dir.mkdir()
-    rect_dir.mkdir()
-    (crop_dir / "crops.jsonl").write_text(
-        json.dumps(_receipt(7, 64, 16)) + "\n", encoding="utf-8")
-
-    frame = np.zeros((64, 64, 3), np.uint8)
-    monkeypatch.setattr(board_parity, "Recording",
-                        lambda _v: type("R", (), {"frames": lambda _s: _FakeStream([(7, frame)])})())
-    monkeypatch.setattr(sys, "argv", ["board_parity", str(rect_dir), str(crop_dir),
-                                      "video.mp4", "--out", str(out)])
-
-    assert board_parity.main() == 1, "null verglichene Bretter duerfen kein Erfolg sein"
 
 
 def test_pack_parity_faellt_auf_gleiche_mengen_mit_verschieden_vielen_zeilen_herein():

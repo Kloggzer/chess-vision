@@ -29,8 +29,8 @@ ueber eine Nebendatei geschrieben und die bei einem Abbruch geraeumt.
 
 | Liste | Waechter | Stand 2026-09-26 |
 |---|---|---|
-| `tests/json_doors.txt` (wer SCHREIBT) | pytest | `src/`: 11 Stellen/9 Dateien, `scripts/`: 6/6 |
-| `tests/jsonl_readers.txt` (wer SCHNEIDET) | pytest | `src/`: 1/1, `scripts/`: 3 Stellen/3 Dateien |
+| `tests/json_doors.txt` (wer SCHREIBT) | pytest | `src/`: 9 Stellen/8 Dateien, `scripts/`: 5/5 |
+| `tests/jsonl_readers.txt` (wer SCHNEIDET) | pytest | `src/`: 1/1, `scripts/`: 1/1 |
 | `platform/app/jsonl-readers.txt` | `lib/jsonl-ratchet.test.ts` | 7 Stellen/6 Dateien |
 | `platform/app/write-doors.txt` | vitest | 3 Stellen in 2 Dateien |
 | `platform/app/route-coverage.txt` | `lib/route-coverage.test.ts` | 0 von 29 Routen ohne Test |

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -44,34 +43,3 @@ def test_check_setup_video_refuses_when_nothing_was_read(tmp_path, monkeypatch):
                                       "--fen", "8/8/8/8/8/8/8/8 w - - 0 1"])
     with pytest.raises(SystemExit):
         mod.main()
-
-
-# --- benchmark_training_feed: die Zeilennummer ist nicht die Packzeile ---------------------
-
-def _pack_dir(tmp_path: Path, paths: list[str], pack_paths: list[str], size: int = 2) -> Path:
-    dd = tmp_path / "ds"
-    dd.mkdir()
-    (dd / "manifest.jsonl").write_text(
-        "".join(json.dumps({"path": p}) + "\n" for p in paths), encoding="utf-8")
-    (dd / "packed_meta.json").write_text(
-        json.dumps({"n": len(pack_paths), "h": size, "w": size, "paths": pack_paths}),
-        encoding="utf-8")
-    (dd / "packed_images.u8").write_bytes(b"\0" * (len(pack_paths) * size * size * 3))
-    return dd
-
-
-def test_benchmark_feed_reads_the_pack_order_from_its_meta(tmp_path):
-    mod = load_script("benchmark_training_feed")
-    dd = _pack_dir(tmp_path, ["A", "B", "C"], ["C", "A", "B"])
-    image, shape, path2idx = mod.packed_source(dd)
-    assert Path(image) == dd / "packed_images.u8"
-    assert shape == (3, 2, 2)
-    assert path2idx == {"C": 0, "A": 1, "B": 2}
-
-
-def test_benchmark_feed_refuses_a_pack_of_the_wrong_size(tmp_path):
-    mod = load_script("benchmark_training_feed")
-    dd = _pack_dir(tmp_path, ["A", "B"], ["A", "B"])
-    (dd / "packed_images.u8").write_bytes(b"\0" * 7)
-    with pytest.raises(SystemExit):
-        mod.packed_source(dd)
