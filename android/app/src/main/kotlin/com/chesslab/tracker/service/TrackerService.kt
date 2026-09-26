@@ -418,11 +418,10 @@ class TrackerService :
             SessionSettingsHost(
                 BuildStamp(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()),
                 { settings.appSettings.value },
-                // The ENGINE's config, measured boardSize included — the stored knobs would claim 1600.
-                { engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps) },
+                { recordedConfig(settings.config.value, geometry) },
             )
         settings.config
-            .onEach { sessionSettings.configChanged(it.copy(boardSize = geometry.boardSize)) }
+            .onEach { sessionSettings.configChanged(recordedConfig(it, geometry)) }
             .launchIn(lifecycleScope)
         games =
             wireGameSession(
@@ -615,6 +614,13 @@ internal fun engineConfig(
     rate: FrameRateMode,
     deliveredFps: Double? = null,
 ): TrackerConfig = servingConfig(stored, geometry, spec, effectiveFrameRate(rate, deliveredFps)) { Log.w(TAG, it) }
+
+/** `settings.json` traegt die GESPEICHERTE Konfiguration samt gemessener Brettgroesse, beim Oeffnen wie bei jeder
+ *  Aenderung: die ausgelieferte am Anfang machte die erste Emission zur Schein-Aenderung. Bedient wird im Replay. */
+internal fun recordedConfig(
+    stored: TrackerConfig,
+    geometry: BoardGeometry,
+): TrackerConfig = stored.copy(boardSize = geometry.boardSize)
 
 /** Die BILDRATE gehoert dazu: sie ist restart-pflichtig und skaliert `motionThr` ueber `atFrameRate`. */
 internal data class RunSeed(

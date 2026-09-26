@@ -106,6 +106,35 @@ class ReplayConfigFileTest {
         assertEquals(0.30, config.motionThr)
     }
 
+    /** Alte `settings.json` ohne History trugen die AUSGELIEFERTE Konfiguration: nochmals bedient waere `motionThr`
+     *  bei 15 fps doppelt skaliert. */
+    @Test
+    fun `an old settings file with the served config is not served twice`() {
+        val served = TrackerConfig().copy(motionThr = 0.438)
+        val file = File(dir, "settings.json")
+        file.writeText("""{"recorded_at":"t","config":${envelope(served)},"history":[]}""")
+
+        assertEquals(0.438, ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false, engineFps = 15.0).motionThr, 1e-9)
+    }
+
+    @Test
+    fun `a settings file that says it carries the stored config is served like the phone`() {
+        val file = File(dir, "settings.json")
+        file.writeText(
+            """{"recorded_at":"t","config_kind":"stored","config":${envelope(TrackerConfig().copy(motionThr = 0.219))},"history":[]}""",
+        )
+
+        assertEquals(0.438, ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false, engineFps = 15.0).motionThr, 1e-9)
+    }
+
+    /** Der Regler in den Einstellungen: ein Handy mit 0,3 muss im Replay mit 0,3 laufen, nicht mit der Vorgabe. */
+    @Test
+    fun `a recorded taintIdentityThr reaches the replay`() {
+        val file = File(dir, "tracker_config_json.json")
+        file.writeText(envelope(TrackerConfig().copy(taintIdentityThr = 0.3)))
+        assertEquals(0.3, ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false).taintIdentityThr)
+    }
+
     @Test
     fun `the CLI arms override the file, their absence does not`() {
         val file = File(dir, "settings.json")

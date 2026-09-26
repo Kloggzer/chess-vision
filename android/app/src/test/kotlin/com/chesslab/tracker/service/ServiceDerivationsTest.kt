@@ -57,14 +57,22 @@ class ServiceDerivationsTest {
     }
 
     @Test
-    fun `engineConfig changes ONE thing at the reference rate without a spec`() {
-        // `taintIdentityThr` setzt die App selbst — sonst galt ein Schlagzug als Hand (19,5 s Stillstand).
+    fun `engineConfig changes nothing at the reference rate without a spec`() {
+        // `taintIdentityThr` 0,5 ist die Vorgabe selbst — sonst galt ein Schlagzug als Hand (19,5 s Stillstand).
         val stored = TrackerConfig(boardSize = 928, motionThr = 0.25)
 
         val out = engineConfig(stored, BoardGeometry(boardSize = 928), null, FrameRateMode.FPS30)
 
-        assertEquals(stored, out.copy(taintIdentityThr = stored.taintIdentityThr))
+        assertEquals(stored, out)
         assertEquals(0.5, out.taintIdentityThr, 0.0)
+    }
+
+    /** Ein Regler, der nichts tut, ist ein Fehler: der gespeicherte Wert gewinnt. */
+    @Test
+    fun `a stored taintIdentityThr reaches the engine`() {
+        val stored = TrackerConfig(boardSize = 928, taintIdentityThr = 0.3)
+
+        assertEquals(0.3, engineConfig(stored, BoardGeometry(boardSize = 928), null, FrameRateMode.FPS30).taintIdentityThr, 0.0)
     }
 
     @Test

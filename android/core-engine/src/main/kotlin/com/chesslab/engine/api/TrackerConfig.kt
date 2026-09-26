@@ -16,9 +16,9 @@ data class TrackerConfig(
     val maxChanged: Int = 5,
     // Ein Schlagzug auf ein besetztes Feld aendert die BELEGUNG nie — `cnnOcclusionFilter` haelt
     // ihn deshalb fuer einen Verdecker und nullt sein `z`. Ueber 0 fragt er zusaetzlich die
-    // IDENTITAET und taint nicht, wo das Modell sicher eine andere Figur liest als das Brett.
-    // 0 = aus, weil der Eingriff jede Python-Paritaet aendert.
-    val taintIdentityThr: Double = 0.0,
+    // IDENTITAET und taint nicht, wo das Modell sicher eine andere Figur liest als das Brett. 0 = aus
+    // (Python kannte ihn nicht); 0,5 gemessen 2026-09-19: ohne galt `Rxc8` als Hand, 19,5 s Stillstand.
+    val taintIdentityThr: Double = 0.5,
     val censusThr: Double = 40.0,
     val censusZWeight: Double = 1.0,
     val occlCensusThr: Double = 24.0,

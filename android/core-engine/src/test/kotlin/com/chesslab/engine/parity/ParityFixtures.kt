@@ -162,6 +162,8 @@ fun ParityEffectiveConfig.toTrackerConfig(): TrackerConfig {
         nudgeTimeoutS = nudgeTimeoutS,
         driftWindowS = driftWindowS,
         maxChanged = maxChanged,
+        // Python kannte den Identitaets-Riegel nicht.
+        taintIdentityThr = 0.0,
         censusThr = censusThr,
         censusZWeight = censusZWeight,
         occlCensusThr = occlCensusThr,

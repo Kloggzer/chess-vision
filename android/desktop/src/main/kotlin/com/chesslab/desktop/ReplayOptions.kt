@@ -6,9 +6,11 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.cnn.servingConfig
+import com.chesslab.tracker.record.CONFIG_KIND
 import com.chesslab.tracker.settings.ConfigCodec
 import com.chesslab.tracker.settings.knobFor
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import java.io.File
 
@@ -208,7 +210,8 @@ internal fun ReplayOptions.trackerConfig(
     warn: (String) -> Unit = { println("warn: $it") },
 ): TrackerConfig {
     // The recorded file FIRST, the geometry AFTER: a phone's recorded `boardSize` would poison another video's warp.
-    val base = configFile?.let(::loadRecordedConfig) ?: TrackerConfig()
+    val recorded = configFile?.let(::loadRecordedConfig)
+    val base = recorded?.config ?: TrackerConfig()
     val replay =
         base
             .copy(
@@ -218,11 +221,18 @@ internal fun ReplayOptions.trackerConfig(
                 // A file replay keeps the REPLAY's cadence; `set:observerIntervalS=<s>` for the phone's.
                 observerIntervalS = if (live) base.observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
             ).withOverrides(overrides)
+    // Schon bedient: nur die Geometrie dieses Laufs gehoert noch darauf.
+    if (recorded?.served == true) return replay.copy(boardSize = geometry.boardSize)
     return servingConfig(replay, geometry, spec, engineFps ?: MOTION_THR_REFERENCE_FPS, overrides.keys, warn)
 }
 
+private class RecordedConfig(
+    val config: TrackerConfig,
+    val served: Boolean,
+)
+
 /** Refuses loudly: ConfigCodec falls back to "defaults with a note", which would measure nothing. */
-private fun loadRecordedConfig(path: String): TrackerConfig {
+private fun loadRecordedConfig(path: String): RecordedConfig {
     val json = Json { allowSpecialFloatingPointValues = true }
     val root =
         runCatching { json.parseToJsonElement(File(path).readText()) }
@@ -238,8 +248,11 @@ private fun loadRecordedConfig(path: String): TrackerConfig {
         } else {
             "differs from defaults: " + changed.joinToString(" ") { "${it.key}=${it.get(decoded.config)}" }
         }
-    println("config: $path applied — $diff")
-    return decoded.config
+    // Vor `config_kind` trug der ERSTE Schreibvorgang die ausgelieferte Konfiguration; erst eine Aenderung
+    // (History) ersetzte sie durch die gespeicherte.
+    val served = obj["config"] != null && obj[CONFIG_KIND] == null && (obj["history"] as? JsonArray).isNullOrEmpty()
+    println("config: $path applied${if (served) " as SERVED (old settings.json) — not served again" else ""} — $diff")
+    return RecordedConfig(decoded.config, served)
 }
 
 /** EIN Leser fuer `set:` und `configs=`. Den Namen prueft erst [withOverrides]. */

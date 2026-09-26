@@ -35,12 +35,8 @@ fun TrackerConfig.withCoverageGateOf(
     return gated.copy(cnnConfThr = calibratedConfThr(cnnConfThr, spec.temperature, spec.classes.size))
 }
 
-// Gemessen 2026-09-19: ohne das galt `Rxc8` als Hand und kostete 19,5 s. 0,5 loest es, 0,7 nicht
-// mehr. Hier und nicht in `TrackerConfig`, weil die Vorgabe dort jede Python-Paritaet umwirft.
-private const val TAINT_IDENTITY_THR: Double = 0.5
-
 /** Handy UND Replay: sonst misst der Regressionssatz einen Tracker, den keiner faehrt. [fps] ist die Rate, mit
- *  der Bilder die Engine ERREICHEN; ein Knopf in [overridden] (`set:`) schlaegt die Vorgabe. */
+ *  der Bilder die Engine ERREICHEN; [overridden] nennt die `set:`-Knoepfe, damit ein verworfener gemeldet wird. */
 fun servingConfig(
     stored: TrackerConfig,
     geometry: BoardGeometry,
@@ -52,5 +48,4 @@ fun servingConfig(
     // Das Profil besitzt die Brettgroesse: `FrameLoop` verweigert eine Ebene, die seinen Kaesten widerspricht.
     (if (stored.boardSize == geometry.boardSize) stored else stored.copy(boardSize = geometry.boardSize))
         .withCoverageGateOf(spec, overridden, warn)
-        .let { if ("taintIdentityThr" in overridden) it else it.copy(taintIdentityThr = TAINT_IDENTITY_THR) }
         .atFrameRate(fps)

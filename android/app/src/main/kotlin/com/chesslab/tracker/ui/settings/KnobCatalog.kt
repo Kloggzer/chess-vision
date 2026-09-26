@@ -25,7 +25,7 @@ val NOT_A_SETTING: Map<String, String> =
         "taintIdentityThr" to
             "Keine Vorliebe, sondern eine Korrektur: ein Schlagzug auf ein besetztes Feld aendert die " +
             "BELEGUNG nicht und galt darum als Hand — gemessen 19,5 s Stillstand auf Rxc8 " +
-            "(`docs/tracker-flow.md`). Die App setzt den Wert selbst; im Spiel gibt " +
+            "(`docs/tracker-flow.md`). Die Vorgabe 0,5 ist gemessen; im Spiel gibt " +
             "es daran nichts zu drehen.",
         "alarmDeferObs" to
             "Not a preference but headroom: the desync streak advances at observation rate so blitz stays " +

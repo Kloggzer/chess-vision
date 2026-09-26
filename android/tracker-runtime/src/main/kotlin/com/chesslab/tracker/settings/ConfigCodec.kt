@@ -10,7 +10,12 @@ import kotlinx.serialization.json.Json
 /** Bump when a knob's MEANING changes **or a default moves for a measured reason**: a stored value shadows a new
  *  default forever (`motionRecencyS = 0.0` cost an evening of live play). A bump resets every knob;
  *  `onMeasuredBoard` keeps that from stopping detection. History: `git log` of this line. */
-const val CONFIG_SCHEMA_VERSION = 6
+const val CONFIG_SCHEMA_VERSION = 7
+
+// Schema 6 speicherte `taintIdentityThr = 0`, das nie lief: die Bedienung setzte 0,5 darueber. Nur DIESER Knopf
+// faellt auf die Vorgabe, die uebrigen Einstellungen bleiben.
+private const val SCHEMA_WITHOUT_TAINT = 6
+private val UNSERVED_IN_6 = setOf("taintIdentityThr")
 
 @Serializable
 private data class ConfigEnvelope(
@@ -46,6 +51,7 @@ object ConfigCodec {
         val envelope = runCatching { json.decodeFromString(ConfigEnvelope.serializer(), text) }.getOrNull()
         return when {
             envelope == null -> DecodeResult(defaults, "settings could not be read — reset to defaults")
+            envelope.version == SCHEMA_WITHOUT_TAINT -> DecodeResult(apply(defaults, envelope.values - UNSERVED_IN_6), null)
             envelope.version != CONFIG_SCHEMA_VERSION ->
                 DecodeResult(defaults, "settings schema ${envelope.version} is unknown — reset to defaults")
             else -> DecodeResult(apply(defaults, envelope.values), null)

@@ -16,6 +16,10 @@ import java.time.Instant
 
 const val SETTINGS_FILE = "settings.json"
 
+const val CONFIG_KIND = "config_kind"
+
+const val STORED_CONFIG = "stored"
+
 // NaN carries "no override" for the Int? knobs, inside the envelope and in history rows.
 private val JSON = Json { allowSpecialFloatingPointValues = true }
 
@@ -71,7 +75,9 @@ class SessionSettingsWriter(
                 put("recorded_at", openedAt)
                 put("app_version_name", build.versionName)
                 put("app_version_code", build.versionCode)
-                // `:desktop replay ... config=settings.json` reads this block verbatim.
+                // `:desktop replay ... config=settings.json` bedient diesen Block wie das Handy; ohne die Art hielte
+                // er ihn fuer eine alte, schon bediente Datei.
+                put(CONFIG_KIND, STORED_CONFIG)
                 put("config", JSON.parseToJsonElement(ConfigCodec.encode(config)))
                 put("app", appJson)
                 put("history", JsonArray(history))
