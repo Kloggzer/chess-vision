@@ -149,9 +149,9 @@ Recorded so nobody re-proposes them without new evidence.
 **Logit prior (superseded refusal, 2026-08-23).** The snapshot carries the conditioned view, the
 pixels-only view and the raw mass on forbidden labels as an explicit `invalid` outcome. Verify
 alone sees the conditioned view; recovery, resync, hand gates and the illegal-move alarm see raw.
-Lambda 4 is the default because over four fully swept videos (111 plies) it found 73 / missed 38 /
-invented 4 against 71/40/6 at lambda 0 (1 and 2: 68/43/5), never worse on a session. How the
-strength now rides in the model: `CLAUDE.md` (`prior_lambda`).
+Lambda 4 won over four fully swept videos (111 plies): found 73 / missed 38 / invented 4 against
+71/40/6 at lambda 0 (1 and 2: 68/43/5), never worse on a session. Today each model's `prior_lambda`
+carries it as a migration value, exactly 4,0 × T, not a per-model measurement (`docs/engine-fuzz.md`).
 
 ## Recovery
 
@@ -183,10 +183,9 @@ was introduced against, and the curve between is jagged. The limit is that `hits
 the step with payoff is a likelihood over the confident squares (`pOcc`, `pEmpty`, `conf`,
 `runnerUpConf` are already carried). Not built.
 
-**Labels that lost plies (2026-08-23).** Three `candidate.json` broke on a `cnn_pair` commit (bug
-fixed in `9f08b117`): the ply was in the `fen_after` chain but not the SAN list. Repaired by
-insertion only, inserted plies NOT marked reviewed, originals kept as `.bak.dropped-ply`;
-`tests/test_candidate_move_chains.py` guards both invariants.
+**Labels that lost plies (2026-08-23):** a `cnn_pair` commit put a ply into the `fen_after` chain
+but not the SAN list (fixed `9f08b117`, three labels repaired); `tests/test_candidate_move_chains.py`
+guards it.
 
 ### The chain is an instrument (`scripts/chain_decode.py`)
 
@@ -270,9 +269,9 @@ correlated*, below.
 
 ## Holds and deadlines (`specs/19`)
 
-- **Latency ≈ hold + 0.05–0.07 s** at 30 fps in every run. Kotlin's `motionHoldS` 0.20 is a
-  physical choice — the time a hand needs to leave the board. What commits earlier is
-  `commitHoldS` (`docs/commit-latency.md` §4).
+- **Latency ≈ hold + 0.05–0.07 s** at 30 fps in every run. `motionHoldS` was 0.20 as the time a
+  hand needs to leave the board; the optimiser set 0.1592 on 2026-09-20
+  (`docs/regression-reference.md`). What commits earlier is `commitHoldS` (`docs/commit-latency.md` §4).
 - **No threshold decision from one run.** The committed move list is not a smooth function of any
   parameter: `motion_hold_s` 0.40 → 9 plies, 0.35 → 18, 0.30 → 6, 0.25 → 14, 0.15 → 0.
 - **`verifyTimeoutS = 1.5`** bounds a stalled observer, which no model speed fixes. Over 66 pending

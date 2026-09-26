@@ -6,8 +6,8 @@ hatte kein Triton und konnte `torch.compile` nicht.
 
 ## 1. Das Rezept
 
-`--batch-aug --compile-batch-aug --compile-model --fused-adamw`, `--num-workers 2`
-(`BATCH_AUG_WORKERS`), `--patience 999`.
+`--batch-aug --compile-batch-aug --compile-model --fused-adamw` (zwei Worker sind unter
+`--batch-aug` die Vorgabe, `train_feed.BATCH_AUG_WORKERS`), `--patience 999`.
 
 - **Alle vier Schalter bleiben per Vorgabe AUS.** `--fused-adamw` verschiebt die Parameter um
   ~2,4e-7, die Compiler runden anders (Modellausgabe bis 2,5e-2), `--batch-aug` ist float statt

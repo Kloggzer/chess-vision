@@ -78,8 +78,8 @@ Karte entsteht; und `PIECE_VISIBLE_MAX` kennt die Helligkeitsmaske des Verlusts 
 **Behoben** (`908b6f78`): Stempel-Riegel in `_write_log`, `write_session` und
 `_filter_matte_frames` — ein langer Lauf, der sein Minuten altes Log ueber ein menschliches
 `unusable` schreiben wuerde, bekommt `Contested`. Ein Re-Export traegt `unusable` mit und verweigert,
-wenn ein Urteil wegfiele (`--drop-verdicts`). `upsert_proposals` stagt wie `close_seams`: neue
-Alphas als `<stem>.tmp.webp`, veroeffentlicht erst nach bestaetigtem Ledger (`_publish_upserts`).
+wenn ein Urteil wegfiele (`--drop-verdicts`). `upsert_proposals` stagt wie `close_seams`; seit
+`fce9821d` ueber `matte_publish` (`docs/session-mattes.md` §3).
 Verloren ging vorher nachweislich kein Urteil.
 
 ## H6 — die Temporal-Reihenfolge lebt nur in `cli/session.py`

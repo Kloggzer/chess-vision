@@ -79,8 +79,7 @@ Die Organisation `kloggzer` hat **50 000 ncloc**; das ganze Repo traegt **141 58
 
 **Draussen, mit Grund:** `android/app` ist die Compose-Huelle, `android/desktop` geht nie aufs
 Geraet, die Next-Seiten ausser den API-Routen sind UI ohne Vertrag, `scripts/` und `synth/` sind
-Messwerkzeug und Renderer. Das kostet am ehesten bei `scripts/`: dort lag ein halbes Jahr lang ein
-toter `sweep_prior_lambda.py`, den kein Werkzeug meldete.
+Messwerkzeug und Renderer. Das kostet am ehesten bei `scripts/`: toten Code dort meldet kein Werkzeug.
 
 `tests/test_sonar_scope.py` haelt den Umfang: er schlaegt bei 46 000 an, bevor SonarCloud ablehnt,
 und prueft, dass jeder genannte Pfad existiert. **Offen:** `sonar.projectKey` steht auf `CHANGEME`

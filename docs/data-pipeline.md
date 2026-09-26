@@ -93,9 +93,8 @@ and an undistorted set.
   15.2–16.6 px bow, grid mesh alone 0.9–1.1, fitted lens alone 3.0–4.4, both 0.4–0.7. On a 116 px
   cell the mesh's 1 px is under a percent. The wiring exists (`alignment.warp_for_grid`,
   `realgames.grid_line_fracs`, `LensModel.from_receipt`); no `lens.json` does.
-- **Re-export moves the matte's basis.** The stored `coverage` is a snapshot from matting; a
-  re-export shifts the corners and the number stays. `occluders recut-coverage --all` recomputes
-  it, and the `_source` stamp on `matte.jsonl` rows lets the chain (`chain_state`) reopen the step.
+- **Re-export moves the matte's basis:** stored `coverage` stays while the corners move; run
+  `occluders recut-coverage --all` (`docs/session-mattes.md` §1).
 
 ---
 
@@ -225,12 +224,13 @@ data/datasets/<name>/
 
 `dataset_build.build_dataset` runs strictly in this order:
 
-1. **Filter** the pool to `session_ids`.
+1. **Filter** the pool to `session_ids` (optionally `--per-position`, before the split).
 2. **Assign whole sessions to splits** on the RAW rows (`dataset.assign_sessions_to_splits`).
 3. **Dedup — TRAIN ONLY.** `dedup_phash` (OFF by default, §5.13) runs before `dedup_metadata`
-   (≤ `per_cell_cap` per `(session, square, label)`, default 4) — §5.11.
+   (≤ `per_cell_cap` per `(session, square, label)`, `--cap`, default 0 = off) — §5.11.
 4. **Collapse labels** to the target class list (`pieces13`, the default, drops `occluded` rows).
-5. Write manifest + split + stats, then **pack** into a memmap if ≥ 100,000 crops.
+5. Write manifest + split + stats, then **pack** into a memmap if ≥ 2,000 crops
+   (`_PACK_MIN_CROPS`).
 
 A variant that only re-SELECTS rows another dataset packed gets no second copy:
 `chesslab dataset pack <name> --from <owner>` writes `packed_from` into `packed_meta.json`
@@ -240,32 +240,18 @@ owner lacks a crop the variant needs. Rotation is a **train-time transform**
 
 ### 4.1 Session packs — the pixels once per session, not once per recipe
 
-```
-data/packs/<pack>/
-  packed_images.u8   # (N, H, W, 3) uint8 RGB, one crop per row
-  packed_meta.json   # n, h, w, digest, paths: the five keys `training/packs.py` requires
-  manifest.jsonl     # the slice's rows, each `path` an `mm://<pack>/<frame>/<square>`
-```
+`chesslab session pack --session <sid> --size 80` cuts a recording once into
+`data/packs/<sid>-<W>/` (`packed_images.u8`, `packed_meta.json`, `manifest.jsonl` with
+`mm://<pack>/<frame>/<square>` paths); `dataset build … --from-packs --pack-size 80x80` cites it.
+Format, writers, staleness and `--replace`: `docs/packs.md`.
 
-```bash
-uv run chesslab session pack --session <sid> --size 80    # cut the session ONCE, at model size
-uv run chesslab pack import <dir>                         # adopt a Kotlin labeled-video-pack
-uv run chesslab dataset build <name> --sessions s1,s2 --from-packs --pack-size 80x80
-```
-
-- **The directory name IS the pack name** = the first `mm://` segment of its rows. Python writes
-  `mm://<sid>-<W>/…` into `data/packs/<sid>-<W>/`, Kotlin writers `mm://<sid>/…`.
-  `packs.read_pack` refuses a directory whose rows disagree; nothing renames a pack.
-- **A pack's geometry is frozen** and it is immutable — `session pack` refuses to overwrite. All
-  packs in one dataset agree on `(h, w)`; `--pack-size` SELECTS, never resizes. `dataset.yaml`
-  carries `packs: […]`, which is what tells a pack-built dataset from a fused synth build.
+- **The directory name IS the pack name** = the first `mm://` segment of its rows (Kotlin writers
+  omit the `-<W>`); `packs.read_pack` refuses a directory whose rows disagree.
 - **One resample instead of two**, so pool path and pack path differ in pixels by design:
-  2026-09-05 on `rg-2026-08-08-11-59-12` at 80 px, same slice both arms, 50,310 rows each,
-  symmetric difference 0, mean absolute channel difference 1.684/255 (`scripts/pack_parity.py`,
-  which slices its own pool first — a stale `crops/default` alone produced 5,357 rows difference).
+  2026-09-05 on `rg-2026-08-08-11-59-12` at 80 px, 50,310 rows each, symmetric difference 0, mean
+  absolute channel difference 1.684/255 (`scripts/pack_parity.py`).
 - **`gradcam` and the legacy `scripts/*.py` readers cannot read a pack-built dataset**;
-  `load_packed` refuses it by name instead of serving wrong pixels. `train` and `eval` go through
-  `training.packs.resolve_dataset_packs`.
+  `load_packed` refuses it by name instead of serving wrong pixels.
 
 ---
 
@@ -356,12 +342,13 @@ uv run chesslab train --dataset real13-<date> …                         # 3. t
 
 ### 5.10 `per_cell_cap`, not phash, is what decides how much data you get
 
-`dedup_metadata` keeps at most `per_cell_cap` (default **4**) crops per (session, square, label).
-Harmless for a game; fatal for a `lighting-capture`, where the whole tuple space is 64 buckets and
-a 297-frame session collapses to 256 crops. Three stacked filters, each tuned for games — check
-them in this order when a build returns far less than expected:
+`dedup_metadata` keeps at most `per_cell_cap` crops per (session, square, label). **Off by default**
+(`config.DedupDefaults`, since `2232180e`): across positions it cut one game from 17,114 to 388
+crops, and for a `lighting-capture` (64 buckets) a 297-frame session collapsed to 256.
+`--max-class-ratio` is the instrument for balance. Check the stacked filters in this order when a
+build returns far less than expected:
 
-1. `per_cell_cap` — per tuple
+1. `per_cell_cap` (`--cap`) — per tuple
 2. `phash_hamming` — near-duplicate pixels (off by default, §5.13)
 3. `max_empty_ratio` — class balance on the train split (default 1.5)
 
@@ -402,13 +389,10 @@ the piece that never moved, exactly and without a visual guess.
 the recorded splits of `occ-real5nd` / `occ-real6` do not reproduce from their parameters. The
 only defence: reuse `split.json`, build twins with `--like`.
 
-### 5.15 A packed memmap can serve the pixels of a previous geometry — `occ-real5nd-13c` did
+### 5.15 A packed memmap can serve the pixels of a previous geometry
 
-`_manifest_digest` covers path + label + `out_size`, so it cannot see pixels that changed under an
-unchanged path — exactly what a re-slice does. `occ-real5nd-13c` was served poisoned. Closed by
-`_rewritten_since_pack`, which compares crop `(mtime, size)` against `crop_fingerprint` in
-`packed_meta` (not for `mm://` rows and not for old packs without a fingerprint). A false positive
-costs the slower loader; a false negative trains on the previous geometry with no warning.
+`_manifest_digest` cannot see pixels that changed under an unchanged path — `occ-real5nd-13c` was
+served poisoned after a re-slice. Guard and its blind spots: `docs/packs.md` §3.
 
 ---
 
@@ -519,35 +503,31 @@ The gate is `alignment.MAX_OFFSET_FRAC = 0.04` — a **fraction of a cell** (`Al
 all 18 grid lines read. It is argued from the repaired band here (damage from 3.2 %, repaired
 sessions 3.3 % median / 4.3 max) and has **never been swept against phantom count**.
 
-### 12.2 Why it went unnoticed for so long
+### 12.2 Why it went unnoticed
 
-`alignment.square_offsets` collapsed the board along each axis and averaged **tilt** away: 0.01 px
-for a 3.05 px shear. Its tests were directional (`assert loud > quiet`), which a metric reporting
-a third of the error passes. `tests/test_alignment.py` now pins it against analytic truth.
+`alignment.square_offsets` averaged **tilt** away (0.01 px for a 3.05 px shear), and its
+directional tests passed a metric reporting a third of the error. `tests/test_alignment.py` now
+pins it against analytic truth.
 
-### 12.3 What it cost — measured on the veto metric, same run, same code
-
-Only the corner quads changed (`occ-v6-f5nd`, 80 px, `occ-real6` test):
+### 12.3 What it cost — veto metric, same run, only the quads changed (`occ-v6-f5nd`, 80 px, `occ-real6` test)
 
 | geometry | phantoms | misses @ 0 phantoms | margin empty p99.9 / max |
 |---|---:|---:|---|
 | as recorded | 1 | 13 | 0.316 / 0.512 |
 | **re-aligned** | **0** | **3** | **0.050 / 0.093** |
 
-**The margin moved 5.5x** — after nine negative results in normalization, architecture, width and
-hard-negative fine-tuning, the thing holding it was where the crop box sat.
+The margin moved 5.5x, after nine negative results elsewhere (normalization, architecture, width,
+hard-negative fine-tuning).
 
 ### 12.4 What this invalidates
 
-- **Datasets built on the old geometry.** Not incrementally fixable (§5.9): re-slice, rebuild
-  under a new name, reuse the old `split.json` verbatim (§5.2).
-- **Every path-A number on record** — path A re-cuts through the current profile and logged
-  corners. A recalibration of `phone.yaml` six minutes after a dataset build silently broke a
-  reference row with an empty `git diff`. Hence: **every phase measures its own baseline in the
+- **Datasets on the old geometry:** re-slice, rebuild under a new name, reuse the old `split.json`
+  verbatim (§5.2, §5.9).
+- **Every path-A number on record** (path A re-cuts through the current profile; a recalibration
+  broke a reference row with an empty `git diff`): **every phase measures its own baseline in the
   same run as its candidate.**
-- **The hard-negative mining of 2026-07-21 and 2026-07-31.** 9 260 of 9 290 mined errors sat on
-  **dark** squares ("neighbour-crown bleed") — what a crop box displaced across a groove produces.
-  Re-mine, do not reuse.
+- **The hard-negative mining of 2026-07-21 and 2026-07-31:** 9 260 of 9 290 mined errors sat on
+  dark squares — the signature of a displaced box. Re-mine, do not reuse.
 
 ### 12.5 How to redo it
 

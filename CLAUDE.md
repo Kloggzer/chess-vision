@@ -102,17 +102,16 @@
 - **0,15 is calibrated against the groove sensor, not the image:** the model still reads 74 % at
   0,15–0,25 and falls under chance only from 0,6. `train --coverage-weight soft` follows the curve;
   **default stays `hard`**, and the METRIC always stays on 0,15 (`docs/class-scheme.md`).
-- **Stored `coverage` drifts against its crops** after a re-export.
+- **Stored `coverage` drifts against its crops** after a re-export: run
+  `chesslab occluders recut-coverage --all` (`docs/session-mattes.md` §1).
   2026-09-21 tragen **27** Aufnahmeverzeichnisse eine `matte.jsonl` (backups under `_pre-scan-20260906/` excluded;
-  `tests/test_claude_numbers.py` holds this number against the disk). Run
-  `chesslab occluders recut-coverage --all` after every re-export; `matte.jsonl` rows carry a
-  `_source` stamp and the chain (`chain_state`) reopens the matte rung. Rows WITHOUT a stamp stay valid.
+  `tests/test_claude_numbers.py` holds this number against the disk).
 - **Coverage Matte Trap:** `cell_rule.coverage_of` (the loader's reader) defaults unmatted crops to
   `coverage = 0.0`, indistinguishable from clear squares. Mixing matted and unmatted sessions in one
   occlusion-head build teaches that hands do not exist. Matted sessions only.
-- **SAM's refusal is not a clean board:** a `skipped` row (`zone too big`) carries neither
-  `concepts` nor `coverage`. **Wer `matte.jsonl` liest, prüft `coverage` auf `None`** — `None` means
-  unmeasured, not zero (`docs/session-mattes.md`).
+- **SAM's refusal is not a clean board:** **wer `matte.jsonl` liest, prüft `coverage` auf `None`**
+  (unmeasured, not zero; `{}` is measured-clear); the latest row per frame wins
+  (`docs/session-mattes.md` §3).
 
 ### 2. Data & Splits
 - **No training without memmap:** `_require_pack` aborts; `--allow-unpacked` only for sets under the
@@ -193,12 +192,13 @@
   `FileNotFoundError` is 500 — raise `Missing` only when the REQUESTED thing is absent
   (`docs/web-architektur.md`).
 - **Every `matte.jsonl` writer holds `locks.matte_ledger`** (`mattes/.publish.lock`, briefly, not
-  re-entrant; batch writers wait 60 s, the pen 15 s, under the worker deadline). Locking is being
-  reworked (2026-09-26) — read `docs/session-mattes.md` §3 and the code before relying on it.
+  re-entrant; batch writers wait 60 s, the pen 15 s, under the worker deadline). An alpha appears
+  ONLY via `chesslab.matte_publish` (stage tmp -> ledger -> rename -> retract on failure);
+  `docs/session-mattes.md` §3.
 
 ## Training: der Feed ist nicht mehr der Engpass
-- **`--num-workers 2`, not 8** (`config.DEFAULT_NUM_WORKERS` is still 8). Two are cold-safe; more
-  only hold memory. The worker count is not a free switch — loss is not bit-identical across counts.
+- **2 workers, not 8:** `--batch-aug` defaults to 2 (`train_feed.BATCH_AUG_WORKERS`); without it
+  `config.DEFAULT_NUM_WORKERS` is still 8. Two are cold-safe; more only hold memory. The worker count is not a free switch — loss is not bit-identical across counts.
 - **Always `--batch-aug`:** augmentation as one GPU batch op, 66x cheaper. Statistically the same
   recipe, not bit-identical (`docs/training-speed.md`).
 - **CLAHE belongs in the pack, not the loader** (`chesslab dataset bake`, `docs/packs.md`). Serving

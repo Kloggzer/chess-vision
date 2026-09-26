@@ -126,10 +126,9 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
 
 ## Offen fuer die naechste Runde
 
-- Die Tastatur-Registrierung ueber einen Ref (`labeln/stream`, `zuege/stream`) steht zweimal;
-  ohne DOM-Testbibliothek nicht absicherbar, deshalb geblieben. `FailureLine`, `MissingBox` und
-  `JobBadge` sind je EINE Komponente (`components/`); `crop-grid.tsx` hat noch einen eigenen
-  "Crop fehlt"-Kasten, die Kopfleisten in `app/strom/**` sind leicht auseinandergelaufen.
+- Erledigt (`0c5e6a24`): Tastatur ueber `components/use-window-keys.ts` (`useWindowKeys`, auch in
+  `historie/history-view`), `TOUCH` aus `components/ui/button.tsx`, gleiche Kopfleisten der vier
+  Stroeme. Bewusst geblieben: der kompakte "Crop fehlt"-Kasten in `crop-grid.tsx`.
 - Ein Service-Eingang je Ordner (`lib/session-store/index.ts`) erst, wenn die Waechter auf den
   Ordner statt auf Dateien zeigen koennen — heute pruefen sie Dateipfade.
 - Die Ratschen-Listen tragen weiter Einzeldateien; nach dem Umzug lohnt eine Zaehlung je Service.

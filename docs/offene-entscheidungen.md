@@ -30,8 +30,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 - 15 RNG je Loader-Worker: gebaut 2026-09-16; `--holdout-session` nagelt den Hand-Gate-Holdout
   fest, `DEFAULT_GATE` = `mnv3s-448-v3` (nicht schlechter, 0,85 statt 4,28 ms je Brett).
 - 16 `p5`/`p95` im Aufnahme-Auftrag: gebaut 2026-09-16.
-- 20 Acht Leser pruefen `coverage` truthy: gebaut, Commit `5c833c40` — eine leere Coverage `{}` ist
-  "gemessen, nichts verdeckt", nur ein FEHLENDES `coverage` ist ungemessen.
+- 20 Acht Leser pruefen `coverage` truthy: gebaut, Commit `5c833c40` (Regel: `docs/session-mattes.md` §3).
 - 22 Halbe letzte Zeile: gebaut 2026-09-16 — `ioutil` und `lib/atomic.ts` als Treuhand, der
   Zeilenumbruch entscheidet.
 - 23 `UtteranceQueue`: gebaut 2026-09-16, eine Generation je Spruch.
@@ -40,10 +39,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 - 26 `--smooth-iters` dreht die Figur: gebaut 2026-09-16, 0 von 12 Meshes betroffen.
 - 27 Postgres: verworfen 2026-09-16 (Nutzer). Geparkt: `compose.yaml`, `db/schema/`,
   `tests/test_db_contract.py`; `data/pgdata` (47 MB) kann weg, sobald der Nutzer es sagt.
-- 28 Messung, dann Absage: gebaut, Commit `5c833c40`. **Regel:** `matte.jsonl` ist eine HISTORIE,
-  je FRAME gilt die juengere Zeile, auf beiden Seiten (`labeling.read_matte`, `lib/session-store/matte.ts`).
-  Eine Zeile ohne `coverage` ist SAMs Absage — sie loescht eine fruehere Messung, der Frame ist
-  danach ungemessen, nicht sauber.
+- 28 Messung, dann Absage: gebaut, Commit `5c833c40` (Regel: `docs/session-mattes.md` §3).
 - 29 `recut_coverage` las das falsche Alpha: gefixt und repariert 2026-09-16 (139 Zeilen); vor dem
   16.09. gebaute Datensaetze tragen die alten Zahlen bis zum Neubau.
 - 32 Alarmspalte zaehlt Entscheidungen: erledigt, Commit `6c626891` (`scripts/compare_regression.py`).

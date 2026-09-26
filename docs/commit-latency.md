@@ -12,10 +12,11 @@ allen 15 Aufnahmen identisch zum Ausgang.
 | Stück | Median | was es ist |
 |---|---|---|
 | Stellung → ruhig | 0,2–0,4 s | der Nachlauf der Hand über dem Brett |
-| ruhig → Kandidat | 0,2 s | `motionHoldS` nach dem letzten Bewegungs-Frame, dazu die Settle-Frames |
+| ruhig → Kandidat | 0,2 s | `motionHoldS` (damals 0,20) nach dem letzten Bewegungs-Frame, dazu die Settle-Frames |
 | Kandidat → Commit | ~0 s | die CNN-Bestätigung — am PC synchron mit Cache |
 
-**Der Referenz-Hold bleibt 0,20 s** — das ist die Zeit des Arms, nicht die der Engine. 0,1 s
+**Der Referenz-Hold war 0,20 s** (seit 2026-09-20 0,1592, `docs/regression-reference.md`) — die
+Zeit des Arms, nicht die der Engine. 0,1 s
 kostete auf dem 30-fps-Satz ein Phantom (222741) und 11 Züge (233432); 50 ms ließen auf 11-59-12 den
 zurückgehenden Arm zur Referenz werden (8 267 Frames „ILLEGAL MOVE?"). Was früher committet, ist
 der getrennte Commit-Hold (§4).

@@ -89,7 +89,8 @@ caveat as AdaBN — our domains are resolutions. *Abstract only.*
 Ilya Loshchilov, Frank Hutter · 2017 · [arXiv:1711.05101](https://arxiv.org/abs/1711.05101)
 
 AdamW: decoupling weight decay from the gradient update improves Adam's generalization. The
-project uses `torch.optim.AdamW` but never sets `weight_decay` (§11). *Abstract only.*
+project uses `torch.optim.AdamW`; without `--weight-decay` it runs PyTorch's 0.01, the value every
+archived run had without anyone choosing it (§11). *Abstract only.*
 
 <a id="loshchilov-2016"></a>
 **SGDR: Stochastic Gradient Descent with Warm Restarts**
@@ -97,7 +98,7 @@ Ilya Loshchilov, Frank Hutter · 2016 · [arXiv:1608.03983](https://arxiv.org/ab
 
 The cosine schedule (Eq. 5): `η_t = η_min + ½(η_max − η_min)(1 + cos(π · T_cur / T_i))`.
 PyTorch's `CosineAnnealingLR` cites it and anneals without restarts over `T_max`. **Consequence:**
-`train.py` passes `T_max=epochs`, so a 60- and a 200-epoch run are different trajectories, not the
+`training/train_recipe.py` passes `T_max=epochs`, so a 60- and a 200-epoch run are different trajectories, not the
 same run observed longer, and a late plateau may be the cosine floor rather than convergence.
 *Body read (Eq. 5) via ar5iv; PyTorch documentation read separately.*
 
@@ -114,7 +115,8 @@ is tied to a run length fixed in advance. *Body read (§5.1) via ar5iv.*
 Leslie N. Smith · 2015 · [arXiv:1506.01186](https://arxiv.org/abs/1506.01186)
 
 The **LR range test**: raise the rate linearly over a few epochs, watch where accuracy stops
-improving. Never run here; the cheapest answer to whether `3e-4` is right. *Abstract only.*
+improving. `scripts/lr_range_test.py` implements it; no band is recorded in `docs/`, so whether
+`3e-4` is right stays open. *Abstract only.*
 
 <a id="smith-2018"></a>
 **A disciplined approach to neural network hyper-parameters: Part 1 -- learning rate, batch size,
@@ -161,7 +163,7 @@ Boris Ginsburg, Michael Houston, Oleksii Kuchaiev, Ganesh Venkatesh, Hao Wu · 2
 [arXiv:1710.03740](https://arxiv.org/abs/1710.03740)
 
 fp16 training with an fp32 master copy and **loss scaling** — `torch.amp.GradScaler` in
-`train.py` (`--no-amp` disables it). *Abstract only.*
+`training/train_recipe.py` (`--no-amp` disables it). *Abstract only.*
 
 ---
 
@@ -360,8 +362,9 @@ Danfeng Qin, Chas Leichner, Manolis Delakis, Marco Fornoni, Shixin Luo, Fan Yang
 Colby Banbury, Chengxi Ye, Berkin Akin, Vaibhav Aggarwal, Tenghui Zhu, Daniele Moro,
 Andrew Howard · 2024 · [arXiv:2404.10518](https://arxiv.org/abs/2404.10518)
 
-The `mobilenetv4_conv_small_*` backbones via timm. The 0.35 width that ships has no pretrained
-weights and trains from random init — the paper's numbers are not this model's. *Abstract only.*
+The `mobilenetv4_conv_small_*` backbones via timm (the hand gate's first student; none ships in
+the APK, `docs/training-speed.md` §5). The 0.35 width has no pretrained weights and trains from
+random init — the paper's numbers are not this model's. *Abstract only.*
 
 ---
 
@@ -470,15 +473,15 @@ reasoning was in `specs/31` (`git show fd9c1908:specs/31-cite-what-we-rely-on/ST
 
 | Decision | Where | Status |
 |---|---|---|
-| `lr = 3e-4` | `config.DEFAULT_LR` | Inherited; never swept, never range-tested. Also the rate of every BN-vs-GN comparison — see [bjorck-2018](#bjorck-2018). |
-| `weight_decay` at AdamW's default | `training/train.py` | Never chosen ([loshchilov-2017](#loshchilov-2017)). |
+| `lr = 3e-4` | `config.DEFAULT_LR` | Inherited; never swept, no range-test band recorded. Also the rate of every BN-vs-GN comparison — see [bjorck-2018](#bjorck-2018). |
+| `weight_decay` at AdamW's default 0.01 | `training/train_recipe.py` (`--weight-decay`) | Never chosen ([loshchilov-2017](#loshchilov-2017)). |
 | `epochs = 30`, `T_max = epochs` | `config.DEFAULT_EPOCHS` | The coupling is documented ([loshchilov-2016](#loshchilov-2016)), the number is not justified. |
 | `batch_size = 256` | `config.DEFAULT_BATCH_SIZE` | Chosen to fit VRAM. |
 | `max_empty_ratio = 1.5`, `max_class_ratio` | `dataset.subsample_classes` | [buda-2017](#buda-2017) recommends the opposite direction. |
 | Inverse-frequency class weights | `dataset.compute_class_weights` | [cui-2019](#cui-2019) argues against exactly this. |
 | Every augmentation magnitude | `config.AugmentPolicy` | Techniques cited in §5; numbers hand-set and unswept. |
 | `per_cell_cap`, phash hamming threshold | `config.DedupDefaults` | Measured here (`docs/data-pipeline.md` §5.13), not cited. |
-| `patience`, checkpoint metric | `training/train.py` | This project's own invention. |
+| `patience`, checkpoint metric | `config.DEFAULT_PATIENCE`, `CHECKPOINT_WEIGHTS` | This project's own invention. |
 | GroupNorm group count capped at 8 | `training/model.py:_gn_groups` | [wu-2018](#wu-2018) reports insensitivity over 64…2; never varied here. |
 
 ---

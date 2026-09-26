@@ -15,9 +15,21 @@ Die Alpha wird über das gespeicherte Brett gerechnet und hat dessen Maße (952 
   Matte durch denselben Mesh, handkorrigierte Alphas eingeschlossen — nie neu gerechnet.
 - **Alte `matte.jsonl`-Zahlen bleiben gültig:** gebogen gegen gerade nachgerechnet, Median-
   Abweichung 0,0000, max 0,047 gegen `PIECE_VISIBLE_MAX = 0,15`.
-- **Die gespeicherte `coverage` driftet nach einem Re-Export** (Ecken verschoben, Zahl stehen
-  geblieben): `occluders recut-coverage --all` rechnet sie aus den Alphas neu;
-  `docs/class-scheme.md`.
+
+**Die gespeicherte `coverage` driftet nach einem Re-Export** (gemessen 2026-09-16). Sie ist ein
+Schnappschuss vom Matten; ein Re-Export (`fit-stored`, Straightening, `carry_repaired_geometry`)
+verschiebt die Ecken, `crop_square` schneidet danach mit den neuen, die Zahl bleibt stehen.
+
+- **13 von 24 Aufnahmen** trugen eine nicht mehr reproduzierbare Coverage; 0,10 % der Zellen
+  überquerten `PIECE_VISIBLE_MAX`, fast alle auf der **Grundreihe** und als Totalkipper
+  0,000 → 1,000 — eine Hand im Bild, die mit dem Label der Figur im Verlust bleibt.
+- **`chesslab occluders recut-coverage --all` nach jedem Re-Export:** rechnet aus den Alphas mit
+  heutiger Geometrie neu, **SAM läuft nicht** (Minuten für den Korpus). `alpha: fixed`-Zeilen
+  (menschliche Zahlen) und Zeilen ohne Coverage (SAMs Absagen, §3) bleiben unangetastet. Die Zeilen
+  bekommen einen `_source`-Stempel, an dem die Kette (`chain_state`) die Sprosse wieder öffnet; Zeilen OHNE Stempel
+  bleiben gültig. Unter `train --coverage-weight soft` geht die Drift in jedes Gewicht ein, nicht
+  nur an der Schwelle.
+- `scripts/audit_disk_damage.py` zählt die Drift, ohne etwas anzufassen.
 
 ## 2. Warum SAM 3
 
@@ -71,17 +83,28 @@ statt Union.
 
 **Jeder Schreiber von `matte.jsonl` haelt `mattes/.publish.lock`** (`locks.matte_ledger`, seit
 2026-09-25): Alpha-Worker, adopt, upsert, recut, close_seams, prune, Trim. Nur um Ledger und
-Umbenennen, nie um SAM; Pixel erst nach ihrer Zeile, ein gescheitertes Umbenennen nimmt die Zeile
-zurueck. Der Worker haelt kein Append-Handle mehr offen (Windows verweigerte das Ersetzen).
-Der Web-Stift haelt ihn um `.fixed.webp`, `recut_fixed` prueft darunter die gelesenen Pixel erneut; Web-Schnitte bleiben draussen.
-Warten: Batch-Schreiber 60 s, der Stift 15 s (`web_cuts.PEN_LOCK_SECONDS`, unter der 20-s-Frist des
-Web-Workers — die Route soll die Absage sehen, keinen toten Worker). Stand 2026-09-26 im Umbau.
+Umbenennen, nie um SAM. Der Worker haelt kein Append-Handle mehr offen (Windows verweigerte das
+Ersetzen). Warten: Batch-Schreiber 60 s, der Stift 15 s (`web_cuts.PEN_LOCK_SECONDS`, unter der
+20-s-Frist des Web-Workers — die Route soll die Absage sehen, keinen toten Worker).
+
+**Ein Alpha erscheint nur über `chesslab.matte_publish`** (seit 2026-09-26; Alpha-Worker,
+close_seams, adopt, upsert): `staging()`/`stage()` legen die Pixel als `<stem>.tmp.webp` neben das
+Ziel, `publish()` schreibt unter dem Lock die Zeile, liest den Ledger stabil nach, benennt um und
+nimmt die Zeile eines gescheiterten Umbenennens stempelbewacht zurück — auch beim Upsert, der vorher
+eine Zeile ohne Pixel stehen ließ. Was beim Verlassen noch gestapelt liegt, wird gelöscht.
+Der Web-Stift hält den Lock um `.fixed.webp`, `recut_fixed` prüft darunter die gelesenen Pixel
+erneut; Web-Schnitte bleiben draußen.
 
 **SAMs Absage ist kein sauberes Brett.** Eine `matte.jsonl`-Zeile mit `skipped` (`zone too big`)
 trägt WEDER `concepts` NOCH `coverage`. Zweimal als "nichts gefunden" gelesen: `gate_label` lehrte
 dem Schüler die verdecktesten Bretter als handfrei, und `temporal_matte.adopt_proposals` zählte
 sie als gemattet, so dass sie mit `coverage = 0.0` ins Training gingen. `matte.matte_status` filtert
-richtig; **wer `matte.jsonl` liest, prüft `coverage` auf `None`.**
+richtig; **wer `matte.jsonl` liest, prüft `coverage` auf `None`** — nicht auf truthy: eine leere
+Coverage `{}` heißt "gemessen, nichts verdeckt".
+
+`matte.jsonl` ist eine **Historie**: je Frame gilt die jüngste Zeile, auf beiden Seiten
+(`session_store/matte.py`, `lib/session-store/matte.ts`). Eine spätere Absage löscht also eine
+frühere Messung — der Frame ist danach ungemessen, nicht sauber (Commit `5c833c40`).
 
 ## 4. Der Hand-Gate — SAM 3 auf den eigenen Aufbau destilliert
 

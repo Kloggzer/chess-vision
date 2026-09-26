@@ -136,20 +136,10 @@ Modell auf 33 % steht).
 - **Dunkelheit bleibt ein harter Ausschluss**; gewichtet wird nur die Verdeckung.
 - `config.json` nennt unter `soft` keine `visible_max`-Kante, die der Lauf nie hatte.
 
-### Die Coverage-Drift (gemessen 2026-09-16)
+### Die Coverage-Drift
 
-Die gespeicherte `coverage` ist ein Schnappschuss vom Matten. Ein Re-Export (`fit-stored`,
-Straightening, `carry_repaired_geometry`) verschiebt die Ecken; `crop_square` schneidet danach mit
-den neuen, die Zahl bleibt stehen.
-
-- **13 von 24 Aufnahmen** trugen eine nicht mehr reproduzierbare Coverage; 0,10 % der Zellen
-  überquerten `PIECE_VISIBLE_MAX`, fast alle auf der **Grundreihe** und als Totalkipper
-  0,000 → 1,000 — eine Hand im Bild, die mit dem Label der Figur im Verlust bleibt.
-- `chesslab occluders recut-coverage --all` rechnet aus den Alphas neu, mit heutiger Geometrie.
-  **SAM läuft nicht**, Minuten für den Korpus. `alpha: fixed`-Zeilen (menschliche Zahlen) und
-  Zeilen ohne Coverage (SAMs Absagen) bleiben unangetastet. **Nach jedem Re-Export fällig**; bei
-  `soft` geht die Drift in jedes Gewicht ein, nicht nur an der Schwelle.
-- `scripts/audit_disk_damage.py` zählt die Drift, ohne etwas anzufassen.
+Unter `soft` geht die nach einem Re-Export gedriftete `coverage` in jedes Gewicht ein, nicht nur an
+der Schwelle — Messung und `occluders recut-coverage --all`: `docs/session-mattes.md` §1.
 
 ## 6. Klassengewichte: dieselbe Zellmenge wie der Verlust (seit 2026-09-22)
 
