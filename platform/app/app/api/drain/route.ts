@@ -1,4 +1,4 @@
-import { errorJson } from "@/lib/http-error";
+import { Conflict, respond } from "@/lib/http-error";
 import { isJobStep } from "@/lib/job-steps";
 import { drainStatus, startDrain, stopDrain } from "@/lib/chain/drain";
 
@@ -7,21 +7,17 @@ export const dynamic = "force-dynamic";
 
 /** What the step panel on every page reads. */
 export async function GET() {
-  try {
-    return Response.json(await drainStatus());
-  } catch (error) {
-    return errorJson(error);
-  }
+  return respond(() => drainStatus());
 }
 
 // The only way a job ever starts: a press. `stop` ends the running drain after its recording.
 export async function POST(request: Request) {
-  try {
+  return respond(async () => {
     const body = (await request.json().catch(() => ({}))) as { step?: string; stop?: boolean };
     if (body.stop === true) {
       const stopped = await stopDrain();
-      if ("error" in stopped) return Response.json({ error: stopped.error }, { status: 409 });
-      return Response.json(await drainStatus());
+      if ("error" in stopped) throw new Conflict(stopped.error);
+      return await drainStatus();
     }
     const step = body.step ?? null;
     // `chain` folgt der Kette statt einer Sprosse und haelt an jedem Menschen-Tor.
@@ -29,9 +25,7 @@ export async function POST(request: Request) {
       return Response.json({ error: `"${body.step}" ist kein Schritt` }, { status: 400 });
     }
     const started = await startDrain(step);
-    if ("error" in started) return Response.json({ error: started.error }, { status: 409 });
-    return Response.json(await drainStatus());
-  } catch (error) {
-    return errorJson(error);
-  }
+    if ("error" in started) throw new Conflict(started.error);
+    return await drainStatus();
+  });
 }

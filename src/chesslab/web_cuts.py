@@ -29,7 +29,8 @@ from .imgops import resize_keep_aspect
 from .ioutil import read_jsonl
 from .labeling import crop_square
 from .matte import FIXED_SUFFIX
-from .session_store.names import log_path, mattes_dir
+from .session_store.matte import measured_coverage
+from .session_store.names import log_path, matte_path, mattes_dir
 from .session_store.recording import QUAD_FIT_NAME, candidate_path, game_dir
 from .web_ops import Missing
 
@@ -206,7 +207,15 @@ def _alpha(path: Path, name: str, stem: str):
     try:
         return _grey(path)
     except FileNotFoundError:
-        raise Missing(f"{name}/{stem}: no alpha") from None
+        raise _no_alpha(name, stem) from None
+
+
+def _no_alpha(name: str, stem: str) -> FileNotFoundError:
+    """Only a frame SAM never measured has no alpha to ask for; a measured one lost its file (500)."""
+    rows = measured_coverage(read_jsonl(matte_path(game_dir(name))))
+    if any(Path(str(f)).stem == stem and not r.get("skipped") for f, r in rows.items()):
+        return FileNotFoundError(f"{name}/{stem}: matte.jsonl measured this frame, its alpha is gone")
+    return Missing(f"{name}/{stem}: no alpha")
 
 
 def _leaves(rel: Path) -> bool:
@@ -287,7 +296,7 @@ def _session_board(name: str, stem: str, size: int, alpha: bool = False) -> str:
     except FileNotFoundError:
         if not alpha:
             raise
-        raise Missing(f"{name}/{stem}: no alpha") from None
+        raise _no_alpha(name, stem) from None
     return _encode(_field(raster, int(row["board_size"]), int(row.get("board_border", 0)), size))
 
 

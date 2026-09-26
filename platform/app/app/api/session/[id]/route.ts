@@ -1,4 +1,4 @@
-import { errorJson } from "@/lib/http-error";
+import { respond } from "@/lib/http-error";
 import { deleteSession, deletionCost } from "@/lib/chain/session-delete";
 
 /**
@@ -8,16 +8,14 @@ import { deleteSession, deletionCost } from "@/lib/chain/session-delete";
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/session/[id]">) {
   const { id } = await ctx.params;
-  try {
+  return respond(async () => {
     const body = (await request.json().catch(() => ({}))) as { dryRun?: boolean; confirm?: string };
     if (body.dryRun) {
       const answer = await deletionCost(id);
-      return "error" in answer ? Response.json(answer, { status: 400 }) : Response.json(answer.cost);
+      return "error" in answer ? Response.json(answer, { status: 400 }) : answer.cost;
     }
     if (body.confirm !== id) return Response.json({ error: "confirm must repeat the session id" }, { status: 400 });
     const answer = await deleteSession(id);
-    return "error" in answer ? Response.json(answer, { status: 400 }) : Response.json(answer);
-  } catch (error) {
-    return errorJson(error);
-  }
+    return "error" in answer ? Response.json(answer, { status: 400 }) : answer;
+  });
 }

@@ -1,7 +1,7 @@
 // Single door for every press; the lock is taken HERE, so no two heavy jobs can overlap.
 import { isJobStep } from "@/lib/job-steps";
 import { chainState, type ChainState } from "@/lib/chain/chain";
-import { claimHeavyLock, releaseHeavyLock } from "@/lib/chain/heavy-lock";
+import { claimHeavyLock, lockRefusal, releaseAfter } from "@/lib/chain/heavy-lock";
 import { modelReadRun } from "@/lib/chain/cli-args";
 import { enqueueChain, enqueueLabel, enqueuePhoneRecord } from "@/lib/chain/jobs";
 import { runningJob, type Job } from "@/lib/chain/slot";
@@ -37,21 +37,12 @@ export async function startStep(name: string, step: string, lens?: boolean,
   // What was PRESSED holds the lock and gets queued: on the fallback the two differ, and a lock
   // naming the step that refused would leave `phone-record` in `heavy.lock` while a replay runs.
   const requested = fallback ? "label" : state.step;
-  const lock = await claimHeavyLock(requested, name);
-  if ("blocked" in lock) return { error: lock.blocked, state, status: 409 };
-  if ("foreign" in lock) {
-    const { pid, job, name: holder } = lock.foreign;
-    return { error: `heavy.lock: pid ${pid} arbeitet an ${job} ${holder}`, state, status: 409 };
-  }
-  try {
-    if (requested === "label") return await enqueueLabel(name, lens);
-    if (requested === "phone-record") return await enqueuePhoneRecord(name);
-    return await enqueueChain(name, requested, also);
-  } catch (error) {
-    // Nothing was queued, so nothing will ever release it — the lock has to go back now.
-    await releaseHeavyLock().catch(() => undefined);
-    throw error;
-  }
+  const refusal = lockRefusal(await claimHeavyLock(requested, name));
+  if (refusal) return { error: refusal, state, status: 409 };
+  const queued = requested === "label" ? enqueueLabel(name, lens)
+    : requested === "phone-record" ? enqueuePhoneRecord(name) : enqueueChain(name, requested, also);
+  // Nothing was queued, so nothing will ever release it — the lock has to go back now.
+  return queued.catch(releaseAfter);
 }
 
 export function refused(result: Job | StepRefusal): result is StepRefusal {

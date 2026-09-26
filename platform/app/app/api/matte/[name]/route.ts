@@ -1,4 +1,4 @@
-import { errorJson } from "@/lib/http-error";
+import { respond } from "@/lib/http-error";
 import { recutMatte } from "@/lib/chain/matte-edit";
 
 /**
@@ -9,9 +9,5 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
   const { name } = await ctx.params;
   const body = (await request.json().catch(() => ({}))) as { recut?: boolean } | null;
   if (!body?.recut) return Response.json({ error: "body must be {recut:true}" }, { status: 400 });
-  try {
-    return Response.json(await recutMatte(name));
-  } catch (error) {
-    return errorJson(error);
-  }
+  return respond(() => recutMatte(name));
 }

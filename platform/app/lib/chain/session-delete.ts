@@ -3,6 +3,7 @@
  * Nothing is recounted here — a dialog promising other numbers than the deletion performs is
  * worse than no dialog, so both steps run one verb and this file only reads its output.
  */
+import { Conflict } from "@/lib/http-error";
 import { checkName } from "@/lib/session-store/recordings";
 import { busy } from "@/lib/chain/slot";
 import { runChesslabCapture } from "@/lib/chain/spawn";
@@ -43,14 +44,13 @@ export const lastLine = (stdout: string): string =>
  * Refused while the one job slot is taken: `delete_session` rewrites the shared manifests, and an
  * export running beside it is writing the same files.
  */
-function blocked(): string | null {
-  return busy() ? "ein Job läuft gerade — der schreibt womöglich dieselben Manifeste" : null;
+function refuseWhileBusy(): void {
+  if (busy()) throw new Conflict("ein Job läuft gerade — der schreibt womöglich dieselben Manifeste");
 }
 
 export async function deletionCost(id: string): Promise<{ cost: DeletionCost } | { error: string }> {
   const sid = checkName(id, "session id");
-  const stop = blocked();
-  if (stop) return { error: stop };
+  refuseWhileBusy();
   const run = await runChesslabCapture(["session", "delete", sid, "--dry-run"]);
   const cost = parseCost(run.stdout);
   if (run.code !== 0 || !cost) {
@@ -61,8 +61,7 @@ export async function deletionCost(id: string): Promise<{ cost: DeletionCost } |
 
 export async function deleteSession(id: string): Promise<{ deleted: string } | { error: string }> {
   const sid = checkName(id, "session id");
-  const stop = blocked();
-  if (stop) return { error: stop };
+  refuseWhileBusy();
   const run = await runChesslabCapture(["session", "delete", sid, "--yes"]);
   if (run.code !== 0) return { error: (run.stderr || run.stdout).trim() || `${run.command} exited ${run.code}` };
   return { deleted: lastLine(run.stdout) };

@@ -1,4 +1,4 @@
-import { BadRequest, errorJson, jsonBody } from "@/lib/http-error";
+import { BadRequest, jsonBody, respond } from "@/lib/http-error";
 import { appendUnusableCells, validateCell } from "@/lib/session-store/unusable-cells";
 
 /**
@@ -6,12 +6,10 @@ import { appendUnusableCells, validateCell } from "@/lib/session-store/unusable-
  * dort jede Zeile eine der 13 Identitaeten ist und Leser das voraussetzen duerfen.
  */
 export async function POST(request: Request) {
-  try {
+  return respond(async () => {
     const body = await jsonBody<{ rows?: unknown }>(request);
     if (!Array.isArray(body.rows)) throw new BadRequest("rows fehlt oder ist kein Array");
     const rows = body.rows.map(validateCell);
-    return Response.json({ written: await appendUnusableCells(rows) });
-  } catch (error) {
-    return errorJson(error);
-  }
+    return { written: await appendUnusableCells(rows) };
+  });
 }

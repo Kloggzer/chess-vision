@@ -1,16 +1,12 @@
 import { checkName, framePng, reviewFramePath } from "@/lib/session-store/recordings";
+import { errorText, respond } from "@/lib/http-error";
 import { isMissing } from "@/lib/measurement";
 
 /** Frames are streamed out of `data/` — never copied into the app. */
 export async function GET(_request: Request, ctx: RouteContext<"/api/frame/[name]/[stem]">) {
   const { name, stem } = await ctx.params;
-  try {
+  return respond(async () => {
     checkName(name, "game name");
-    checkName(stem, "frame");
-  } catch (error) {
-    return new Response(String(error), { status: 400 });
-  }
-  try {
     const bytes = await framePng(name, stem);
     // The bytes are served AS STORED — a run writes WebP, older ones left PNG behind, and
     // transcoding a 1.3 MB review board per request would buy nothing a re-run does not.
@@ -21,9 +17,5 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/frame/[name
         "cache-control": "public, max-age=3600",
       },
     });
-  } catch (error) {
-    // "nicht da" ist 404, alles andere 500 — sonst zeigt das `<img>` ein unlesbares File wie ein fehlendes.
-    const missing = isMissing(error);
-    return new Response(missing ? "no such frame" : String(error), { status: missing ? 404 : 500 });
-  }
+  }, (error) => (isMissing(error) ? new Response("no such frame", { status: 404 }) : errorText(error)));
 }

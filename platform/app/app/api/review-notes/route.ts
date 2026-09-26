@@ -1,11 +1,11 @@
-import { BadRequest, errorJson, jsonBody } from "@/lib/http-error";
+import { BadRequest, jsonBody, respond } from "@/lib/http-error";
 import { adoptDirty } from "@/lib/chain/adopt-dirty";
 import { recordingName } from "@/lib/session-store/session";
 import { appendReviewNotes, dropReviewNotes, validateNote } from "@/lib/session-store/review-notes";
 
 /** A verdict, never a label: nothing here reaches `corrections.jsonl` (CONCEPT.md 8c). */
 export async function POST(request: Request) {
-  try {
+  return respond(async () => {
     const body = await jsonBody<{ rows?: unknown; retract?: unknown }>(request);
     if (!Array.isArray(body.rows)) throw new BadRequest("rows fehlt oder ist kein Array");
     const rows = body.rows.map(validateNote);
@@ -16,8 +16,6 @@ export async function POST(request: Request) {
     const names = [...new Set(rows.flatMap((r) => (r.verdict === "dirty-frame" ? [recordingName(r.session_id)] : [])))];
     const starts = await Promise.all(names.map(async (name) => ({ name, ...(await adoptDirty(name)) })));
     const adoptFailed = starts.flatMap((s) => (s.started ? [] : [`adopt-dirty ${s.name}: ${s.error}`]));
-    return Response.json(retract && names.length === 0 ? { written } : { written, adoptFailed });
-  } catch (error) {
-    return errorJson(error);
-  }
+    return retract && names.length === 0 ? { written } : { written, adoptFailed };
+  });
 }

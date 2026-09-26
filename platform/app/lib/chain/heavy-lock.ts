@@ -115,6 +115,14 @@ export async function claimHeavyLock(job: string, name: string): Promise<{ held:
   return createLock(lock) ? { held: lock } : contested();
 }
 
+/** Warum der Slot nicht frei ist, als Satz fuer die 409 — `null`, wenn er uns gehoert. */
+export function lockRefusal(lock: Awaited<ReturnType<typeof claimHeavyLock>>): string | null {
+  if ("blocked" in lock) return lock.blocked;
+  if (!("foreign" in lock)) return null;
+  const { pid, job, name } = lock.foreign;
+  return `heavy.lock: pid ${pid} arbeitet an ${job} ${name}`;
+}
+
 /** The job's pid, once spawned — see `HeavyLock.childPid`. Silent if the lock is not ours. */
 export async function stampHeavyLockChild(childPid: number): Promise<void> {
   const current = await readHeavyLock();
@@ -128,5 +136,17 @@ export async function releaseHeavyLock(): Promise<void> {
   const current = readLockSync();
   if (current === "unreadable") return;
   if (current && current.pid !== process.pid) return;
-  await rm(heavyLockPath(), { force: true });
+  // Windows: a virus scanner holding the file for a moment answers EBUSY/EPERM, not a verdict.
+  await rm(heavyLockPath(), { force: true, maxRetries: 3 });
+}
+
+/** Nach einem Fehlschlag: die Sperre zurueck, dann der Fehler. Wirft die Freigabe, nennt er beides —
+ *  still verschluckt hielte die pid des Servers den Slot fuer jeden Python-Lauf. */
+export async function releaseAfter(error: unknown): Promise<never> {
+  try {
+    await releaseHeavyLock();
+  } catch (release) {
+    throw new Error(`${String(error)} — heavy.lock bleibt liegen (${heavyLockPath()}): ${String(release)}`, { cause: error });
+  }
+  throw error;
 }

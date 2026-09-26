@@ -1,4 +1,4 @@
-import { claimHeavyLock, releaseHeavyLock } from "@/lib/chain/heavy-lock";
+import { claimHeavyLock, lockRefusal, releaseAfter, releaseHeavyLock } from "@/lib/chain/heavy-lock";
 import { enqueueLabel } from "@/lib/chain/jobs";
 
 export const runtime = "nodejs";
@@ -9,25 +9,16 @@ export const dynamic = "force-dynamic";
 export async function POST(_request: Request, ctx: RouteContext<"/api/ingest/session/[name]/label">) {
   const { name } = await ctx.params;
   try {
-    const lock = await claimHeavyLock("label", name);
-    if ("blocked" in lock) return Response.json({ error: lock.blocked }, { status: 409 });
-    if ("foreign" in lock) {
-      const { pid, job, name: holder } = lock.foreign;
-      return Response.json({ error: `heavy.lock: pid ${pid} arbeitet an ${job} ${holder}` }, { status: 409 });
+    const refusal = lockRefusal(await claimHeavyLock("label", name));
+    if (refusal) return Response.json({ error: refusal }, { status: 409 });
+    const job = await enqueueLabel(name).catch(releaseAfter);
+    // `enqueueLabel` gibt einen VORHANDENEN Job zurueck, statt einzureihen — ein 202 darauf
+    // meldete "gestartet", waehrend nichts lief, und hielt den Riegel dabei fest.
+    if (job.kind !== "label") {
+      await releaseHeavyLock();
+      return Response.json({ error: `${name}: ${job.kind} laeuft bereits (${job.state})` }, { status: 409 });
     }
-    try {
-      const job = await enqueueLabel(name);
-      // `enqueueLabel` gibt einen VORHANDENEN Job zurueck, statt einzureihen — ein 202 darauf
-      // meldete "gestartet", waehrend nichts lief, und hielt den Riegel dabei fest.
-      if (job.kind !== "label") {
-        await releaseHeavyLock().catch(() => undefined);
-        return Response.json({ error: `${name}: ${job.kind} laeuft bereits (${job.state})` }, { status: 409 });
-      }
-      return Response.json(job, { status: 202 });
-    } catch (error) {
-      await releaseHeavyLock().catch(() => undefined);
-      throw error;
-    }
+    return Response.json(job, { status: 202 });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 400 });
   }
