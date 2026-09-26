@@ -5,12 +5,10 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
-// Ports of `calibration.py square_to_crop_box`, `square_center`, `crop_border_px` and `tracker.py square_region`.
+// Ports of `calibration.py square_to_crop_box` and `crop_border_px`; the detection region lives in `:core-engine`.
 // OpenCV-free ON PURPOSE (see Corners.kt).
 
 const val CROP_WARP_BORDER_CELLS: Double = 0.1
-
-const val SQUARE_REGION_INSET: Double = 0.16
 
 /** Python's `round()`: half-to-EVEN, i.e. `Math.rint` — NOT `Math.round` (half-up) nor `roundToInt`. */
 internal fun pyRound(v: Double): Int = Math.rint(v).toInt()
@@ -154,34 +152,4 @@ fun meshPoint(
         y = lineAt(mesh.ys, ty, mesh.cy, cv, x) * (1.0 - fv) + lineAt(mesh.ys, ty, mesh.cy, cv + 1, x) * fv
     }
     return doubleArrayOf(x, y)
-}
-
-fun squareCenter(
-    square: String,
-    geom: BoardGeometry,
-): IntArray {
-    val (col, row) = squareToColRow(square, geom.whitePov)
-    val cell = geom.cell
-    return intArrayOf(((col + HALF) * cell).toInt(), ((row + HALF) * cell).toInt())
-}
-
-/** INSET against grid-line/neighbour noise: the region the detection evidence is measured over, NOT the crop
- *  box. `extendUp` extends toward the image top; truncation (`int()`), not rounding. */
-fun squareRegion(
-    square: String,
-    boardSize: Int,
-    whitePov: Boolean,
-    inset: Double = SQUARE_REGION_INSET,
-    extendUp: Double = 0.0,
-): IntArray {
-    val (col, row) = squareToColRow(square, whitePov)
-    val cell = boardSize / BOARD_SIDE_D
-    val m = cell * inset
-    val y0 = row * cell + m - extendUp * cell
-    return intArrayOf(
-        (col * cell + m).toInt(),
-        max(0, y0.toInt()),
-        ((col + 1) * cell - m).toInt(),
-        ((row + 1) * cell - m).toInt(),
-    )
 }

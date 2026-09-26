@@ -3,6 +3,7 @@ package com.chesslab.desktop
 import com.chesslab.cnn.calibratedConfThr
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.withCoverageGateOf
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue

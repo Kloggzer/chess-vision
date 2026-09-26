@@ -5,6 +5,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.BUNDLED_MODELS
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.claheSpecFor
 import com.chesslab.tracker.cnn.modelConfigJson
 import com.chesslab.tracker.settings.FrameRateMode
 import org.junit.Assert.assertEquals

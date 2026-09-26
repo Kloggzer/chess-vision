@@ -84,6 +84,15 @@ class SquareGeometryTest {
     }
 
     @Test
+    fun regionsTileABoardNotDivisibleByEight() {
+        val a1 = squareRegion(Squares.index("a1"), 321, whitePov = true, inset = 0.0)
+        val b1 = squareRegion(Squares.index("b1"), 321, whitePov = true, inset = 0.0)
+        assertEquals(a1[2], b1[0], "cells must abut with inset 0")
+        assertEquals(0, a1[0])
+        assertEquals(321, squareRegion(Squares.index("h1"), 321, whitePov = true, inset = 0.0)[2])
+    }
+
+    @Test
     fun degenerateBoxHasZeroAreaAndYieldsZeroMean() {
         val boardSize = 320
         val degenerate = squareRegion(Squares.index("d4"), boardSize, whitePov = true, inset = 0.5)

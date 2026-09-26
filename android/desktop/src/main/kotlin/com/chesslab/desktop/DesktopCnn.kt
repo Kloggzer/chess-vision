@@ -1,7 +1,5 @@
 package com.chesslab.desktop
 
-import com.chesslab.cnn.calibratedConfThr
-import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ASSET_ROOT_DIR
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
@@ -112,26 +110,3 @@ fun desktopModelSpec(model: String): ModelSpec? =
     runCatching { ModelSpec.parse(desktopCnnAssets(model).stage().configJson) }
         .onFailure { println("no model spec for '$model' — crops keep the geometry's defaults (${it.message})") }
         .getOrNull()
-
-/** The coverage gate rides in the MODEL (`docs/occlusion-gate.md`), a factor seven between families. */
-fun TrackerConfig.withCoverageGateOf(
-    spec: ModelSpec?,
-    overridden: Set<String> = emptySet(),
-    warn: (String) -> Unit = { println("warn: $it") },
-): TrackerConfig {
-    if (spec?.coverageOutput == true && spec.coverageGate == null) {
-        warn(
-            "model declares coverage_output but no measured coverage_gate — " +
-                "pOccludedThr falls back to the legacy default 0.5 (docs/occlusion-gate.md)",
-        )
-    }
-    // Sonst misst ein A/B auf diesem Knopf zweimal dasselbe und nennt die Schwelle folgenlos.
-    if ("pOccludedThr" in overridden && spec?.coverageGate != null) {
-        warn("set:pOccludedThr wird vom coverage_gate des Modells (${spec.coverageGate}) verworfen")
-    }
-    // Nur MIT der Spalte, wie `:app`: ohne `coverage_output` ist `pOccluded` immer 0,0.
-    if (spec?.coverageOutput != true) return this
-    // Die Konfidenz-Huerde bedeutet je Modell etwas anderes, weil jedes anders ueberkonfident ist.
-    val gated = spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
-    return gated.copy(cnnConfThr = calibratedConfThr(cnnConfThr, spec.temperature, spec.classes.size))
-}

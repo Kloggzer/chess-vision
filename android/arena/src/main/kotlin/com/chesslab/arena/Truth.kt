@@ -1,7 +1,6 @@
 package com.chesslab.arena
 
-import com.github.bhlangonijr.chesslib.Board
-import com.github.bhlangonijr.chesslib.move.MoveList
+import com.chesslab.tracker.games.pgnSans
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -48,27 +47,5 @@ private fun candidatePlies(dir: File): List<TruthPly> {
 private fun pgnPlies(dir: File): List<String> {
     val file = File(dir, "reference.pgn")
     if (!file.isFile) return emptyList()
-    val body =
-        file
-            .readText()
-            .lineSequence()
-            .filterNot { it.startsWith("[") }
-            .joinToString(" ")
-            .replace(COMMENT, " ")
-            .replace(MOVE_NUMBER, " ")
-            .replace(RESULT, " ")
-    val board = Board()
-    val out = mutableListOf<String>()
-    for (token in body.split(WHITESPACE).filter { it.isNotBlank() }) {
-        val list = MoveList(board.fen)
-        list.loadFromSan(token)
-        out += list.toSanArray().first()
-        board.doMove(list.first())
-    }
-    return out
+    return pgnSans(file.readText())
 }
-
-private val COMMENT = Regex("\\{[^}]*\\}")
-private val MOVE_NUMBER = Regex("\\d+\\.(\\.\\.)?")
-private val RESULT = Regex("(1-0|0-1|1/2-1/2|\\*)")
-private val WHITESPACE = Regex("\\s+")

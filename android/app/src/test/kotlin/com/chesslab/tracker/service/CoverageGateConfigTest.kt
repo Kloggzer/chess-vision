@@ -5,6 +5,7 @@ import com.chesslab.cnn.calibratedConfThr
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.cnn.modelConfigJson
+import com.chesslab.tracker.cnn.withCoverageGateOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

@@ -2,8 +2,7 @@
 
 package com.chesslab.desktop
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
+import com.chesslab.tracker.io.Jsonl
 import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.imgcodecs.Imgcodecs
 import java.io.File
@@ -25,15 +24,9 @@ fun buildLegacySynthDataset(args: List<String>) {
     require(root.isDirectory && sourceManifest.isFile) { "legacy root and manifest must exist" }
     require(!outDir.exists()) { "refusing to overwrite existing dataset: ${outDir.absolutePath}" }
 
-    val sessions = linkedSetOf<String>()
-    sourceManifest.forEachLine { line ->
-        val row = Json.parseToJsonElement(line) as JsonObject
-        row["session_id"]
-            ?.jsonPrimitive
-            ?.content
-            ?.takeIf { it.startsWith(prefix) }
-            ?.let(sessions::add)
-    }
+    val source = Jsonl.strictRows(sourceManifest)
+    val sessions =
+        source.mapNotNullTo(HashSet()) { row -> row["session_id"]?.jsonPrimitive?.content?.takeIf { it.startsWith(prefix) } }
     require(sessions.size >= 3) { "need at least three matching synth sessions, found ${sessions.size}" }
     val ordered = sessions.sorted()
     val test = ordered.last()
@@ -48,14 +41,13 @@ fun buildLegacySynthDataset(args: List<String>) {
     File(outDir, "manifest.jsonl").bufferedWriter().use { rowsOut ->
         FileOutputStream(File(outDir, "packed_images.u8.partial")).use { imageOut ->
             listOf("train", "val", "test").forEach { role ->
-                sourceManifest.forEachLine { line ->
-                    val row = Json.parseToJsonElement(line) as JsonObject
-                    val session = row["session_id"]?.jsonPrimitive?.content ?: return@forEachLine
+                source.forEach { row ->
+                    val session = row["session_id"]?.jsonPrimitive?.content ?: return@forEach
                     if (!session.startsWith(prefix) || roleOf(session, training, validation, test) != role) {
-                        return@forEachLine
+                        return@forEach
                     }
                     val label = row.getValue("label").jsonPrimitive.content
-                    if (label !in LEGACY_CLASSES) return@forEachLine
+                    if (label !in LEGACY_CLASSES) return@forEach
                     val input = resolveLegacyPath(root, row.getValue("path").jsonPrimitive.content)
                     val image = Imgcodecs.imread(input.absolutePath)
                     require(!image.empty()) { "could not decode ${input.absolutePath}" }

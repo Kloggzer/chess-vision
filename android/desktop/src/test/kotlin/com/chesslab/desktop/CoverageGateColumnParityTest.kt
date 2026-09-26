@@ -2,6 +2,7 @@ package com.chesslab.desktop
 
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.withCoverageGateOf
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 

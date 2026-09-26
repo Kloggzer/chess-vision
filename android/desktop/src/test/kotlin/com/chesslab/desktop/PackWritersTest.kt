@@ -50,6 +50,30 @@ class PackWritersTest {
 
     @Test
     fun `legacy-synth-dataset packs every known label of the prefixed sessions`() {
+        val (root, manifest) = legacySynth()
+        val out = File(dir, "synth")
+
+        buildLegacySynthDataset(listOf(root.path, manifest.path, out.path))
+
+        assertEquals(6, assertPackConsistent(out, dir, "legacy"))
+        val first = File(out, "packed_images.u8").readBytes().take(PACK_CROP_BYTES).map { it.toInt() and 0xff }
+        assertEquals(listOf(200, 0, 0), first.take(3), "a BGR source lands as RGB")
+        assertEquals(setOf(200, 0), first.toSet(), "a flat crop stays flat through the resize")
+    }
+
+    /** PowerShells `Out-File` stempelt ein BOM: der Manifest-Leser geht durch `Jsonl` wie jeder andere. */
+    @Test
+    fun `legacy-synth-dataset reads a manifest with a byte order mark`() {
+        val (root, manifest) = legacySynth()
+        manifest.writeText("\uFEFF" + manifest.readText())
+        val out = File(dir, "synth")
+
+        buildLegacySynthDataset(listOf(root.path, manifest.path, out.path))
+
+        assertEquals(6, assertPackConsistent(out, dir, "legacy"))
+    }
+
+    private fun legacySynth(): Pair<File, File> {
         NativeCv.require()
         val root = File(dir, "legacy").apply { mkdirs() }
         val rows = StringBuilder()
@@ -67,15 +91,7 @@ class PackWritersTest {
             }
         }
         rows.append("""{"session_id":"other","label":"wP","path":"crops/s0-0.png","frame":"f","square":"a1"}""" + "\n")
-        val manifest = File(dir, "legacy.jsonl").apply { writeText(rows.toString()) }
-        val out = File(dir, "synth")
-
-        buildLegacySynthDataset(listOf(root.path, manifest.path, out.path))
-
-        assertEquals(6, assertPackConsistent(out, dir, "legacy"))
-        val first = File(out, "packed_images.u8").readBytes().take(PACK_CROP_BYTES).map { it.toInt() and 0xff }
-        assertEquals(listOf(200, 0, 0), first.take(3), "a BGR source lands as RGB")
-        assertEquals(setOf(200, 0), first.toSet(), "a flat crop stays flat through the resize")
+        return root to File(dir, "legacy.jsonl").apply { writeText(rows.toString()) }
     }
 
     private class Recording(

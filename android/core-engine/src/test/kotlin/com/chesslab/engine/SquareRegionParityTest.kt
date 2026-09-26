@@ -10,8 +10,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** `ClasspathPurityTest` keeps `:core-geometry` off this classpath, so the boxes exist twice — pinned to the
- *  same golden file. */
+/** The one Kotlin copy of `tracker.py square_region`, pinned to the file Python reads too. */
 class SquareRegionParityTest {
     private val cases =
         Json

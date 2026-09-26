@@ -42,34 +42,6 @@ class CropBoxTest {
     }
 
     @Test
-    fun `every fixture square region matches exactly`() {
-        val cases = GeometryFixtures.list(GeometryFixtures.geometryMeta()["squareRegions"])
-        assertTrue(cases.isNotEmpty(), "no squareRegions in the fixture")
-        for (raw in cases) {
-            val case = GeometryFixtures.map(raw)
-            val boardSize = GeometryFixtures.num(case["boardSize"]).toInt()
-            val whitePov = case["whitePov"] as Boolean
-            val inset = GeometryFixtures.num(case["inset"])
-            val extendUp = GeometryFixtures.num(case["extendUp"])
-            for ((square, expected) in GeometryFixtures.map(case["regions"])) {
-                assertEquals(
-                    GeometryFixtures.ints(expected),
-                    squareRegion(square, boardSize, whitePov, inset, extendUp).toList(),
-                    "squareRegion $square bs=$boardSize pov=$whitePov up=$extendUp",
-                )
-            }
-            for ((square, expected) in GeometryFixtures.map(case["centers"])) {
-                val geom = BoardGeometry(boardSize = boardSize, whitePov = whitePov)
-                assertEquals(
-                    GeometryFixtures.ints(expected),
-                    squareCenter(square, geom).toList(),
-                    "squareCenter $square bs=$boardSize pov=$whitePov",
-                )
-            }
-        }
-    }
-
-    @Test
     fun `default geometry crop boxes`() {
         val geom = BoardGeometry()
         assertEquals(200.0, geom.cell)
@@ -102,15 +74,5 @@ class CropBoxTest {
             squareToCropBox("h1", white, clamp = false),
             squareToCropBox("a8", black, clamp = false),
         )
-    }
-
-    @Test
-    fun `square region tiles the board without gaps at a size not divisible by eight`() {
-        // 400 is divisible by eight; 321 is the pathological case.
-        val region = squareRegion("a1", 321, whitePov = true, inset = 0.0)
-        val next = squareRegion("b1", 321, whitePov = true, inset = 0.0)
-        assertEquals(region[2], next[0], "cells must abut with inset 0")
-        assertEquals(0, region[0])
-        assertEquals(321, squareRegion("h1", 321, whitePov = true, inset = 0.0)[2])
     }
 }

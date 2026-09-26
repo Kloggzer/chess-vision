@@ -11,14 +11,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import com.chesslab.cnn.calibratedConfThr
 import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.atFrameRate
 import com.chesslab.geometry.BoardGeometry
-import com.chesslab.geometry.CropClahe
 import com.chesslab.tracker.BuildConfig
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.BoardExposureGovernor
@@ -36,6 +34,8 @@ import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.cnn.cnnAssetsFrom
+import com.chesslab.tracker.cnn.cropClaheFor
+import com.chesslab.tracker.cnn.withCoverageGateOf
 import com.chesslab.tracker.diagnostics.DiagnosticsLog
 import com.chesslab.tracker.diagnostics.androidHostIdentity
 import com.chesslab.tracker.diagnostics.diagnosticsDir
@@ -617,12 +617,6 @@ private fun onMeasuredBoard(
  *  ausgelieferten Modell ab, und nichts anderes merkt es. */
 internal fun gridArmFor(spec: ModelSpec?): Boolean = spec?.coverageOutput != true
 
-/** Aus der `config.json` des Modells: ein CLAHE-Modell ohne CLAHE zu bedienen ist eine stille Train/Serve-Luecke. */
-internal fun claheSpecFor(spec: ModelSpec?): ModelSpec? = spec?.takeIf { it.claheClip > 0.0 }
-
-internal fun cropClaheFor(spec: ModelSpec?): CropClahe? =
-    claheSpecFor(spec)?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }
-
 internal fun engineConfig(
     stored: TrackerConfig,
     geometry: BoardGeometry,
@@ -631,7 +625,7 @@ internal fun engineConfig(
     deliveredFps: Double? = null,
 ): TrackerConfig =
     onMeasuredBoard(stored, geometry)
-        .withCoverageGateOf(spec)
+        .withCoverageGateOf(spec) { Log.w(TAG, it) }
         .copy(taintIdentityThr = TAINT_IDENTITY_THR)
         .atFrameRate(effectiveFrameRate(rate, deliveredFps))
 
@@ -714,22 +708,3 @@ private suspend fun declaredModelSpec(
             ModelSpec.parse(cnnAssetsFrom(context, app.modelDir, app.modelAsset).stage().configJson)
         }.getOrNull()
     }
-
-/** Die Schwelle folgt aus der Guete des MODELLS, keine Engine-Konstante (`docs/occlusion-gate.md`). */
-internal fun TrackerConfig.withCoverageGateOf(
-    spec: ModelSpec?,
-    warn: (String) -> Unit = { Log.w(TAG, it) },
-): TrackerConfig {
-    if (spec?.coverageOutput == true && spec.coverageGate == null) {
-        warn(
-            "model declares coverage_output but no measured coverage_gate — " +
-                "pOccludedThr falls back to the legacy default 0.5 (docs/occlusion-gate.md)",
-        )
-    }
-    // Nur MIT der Spalte: ohne `coverage_output` ist `pOccluded` immer 0,0, die Schwelle wuerde gegen
-    // nichts verglichen.
-    if (spec?.coverageOutput != true) return this
-    // Die Konfidenz-Huerde bedeutet je Modell etwas anderes, weil jedes anders ueberkonfident ist.
-    val gated = spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
-    return gated.copy(cnnConfThr = calibratedConfThr(cnnConfThr, spec.temperature, spec.classes.size))
-}

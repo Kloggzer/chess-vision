@@ -396,8 +396,6 @@ fun DangerAction(
 
 private val ACTION_PADDING = PaddingValues(horizontal = Space.sm, vertical = Space.xs)
 
-/** **Primitive — chip.** Selected is the FURNITURE colour and a border, never the accent. */
-@OptIn(ExperimentalMaterial3Api::class)
 /** **Primitive — severity stripe.** Three levels, no more; NOT for a row that merely differs. */
 @Composable
 fun SeverityStripe(

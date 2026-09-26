@@ -23,7 +23,7 @@ class SquareGeometryParityTest {
     private fun where(case: Map<String, Any?>) = "${case["square"]}@${case["boardSize"]}/${case["padSide"]}/pov=${case["whitePov"]}"
 
     @Test
-    fun `crop box, border and centre match the shared fixture`() {
+    fun `crop box and border match the shared fixture`() {
         assertTrue(cases.size >= 100, "fixture shrank: ${cases.size}")
         for (case in cases) {
             val g = geom(case)
@@ -35,28 +35,8 @@ class SquareGeometryParityTest {
                 squareToCropBox(square, g, clamp = false).toList(),
                 "unclamped ${where(case)}",
             )
-            assertEquals(GeometryFixtures.ints(case["center"]), squareCenter(square, g).toList(), "centre ${where(case)}")
             val colRow = squareToColRow(square, g.whitePov)
             assertEquals(GeometryFixtures.num(case["col"]).toInt() to GeometryFixtures.num(case["row"]).toInt(), colRow)
-        }
-    }
-
-    @Test
-    fun `square regions match the shared fixture`() {
-        val inset =
-            GeometryFixtures.num(
-                GeometryFixtures.map(GeometryFixtures.jsonObject("_geometry/square_geometry_parity.json"))["inset"],
-            )
-        for (case in cases) {
-            val square = case["square"] as String
-            val bs = GeometryFixtures.num(case["boardSize"]).toInt()
-            val pov = case["whitePov"] as Boolean
-            assertEquals(GeometryFixtures.ints(case["region"]), squareRegion(square, bs, pov, inset).toList(), where(case))
-            assertEquals(
-                GeometryFixtures.ints(case["regionExtendUp25"]),
-                squareRegion(square, bs, pov, inset, extendUp = 0.25).toList(),
-                "extendUp ${where(case)}",
-            )
         }
     }
 

@@ -1,7 +1,8 @@
 package com.chesslab.desktop
 
+import com.chesslab.tracker.games.fensAfterSans
+import com.chesslab.tracker.games.pgnSans
 import com.github.bhlangonijr.chesslib.Board
-import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -57,7 +58,7 @@ internal fun scoreMoves(
         val runStretch = run.subList(j, j + len)
         for (k in 0 until len) found += labelStretch[k] to runStretch[k]
         if (!same) reordered += ReorderedStretch(labelStretch, runStretch)
-        fen = here?.let { fensAfter(it, labelStretch.map { ply -> ply.san }).lastOrNull() }
+        fen = here?.let { fensAfterSans(it, labelStretch.map { ply -> ply.san }).lastOrNull() }
         i += len
         j += len
     }
@@ -121,25 +122,9 @@ private fun reorderedLength(
     label: List<ScoredPly>,
     run: List<ScoredPly>,
 ): Int? {
-    val a = fensAfter(fen, label.take(REORDER_LOOKAHEAD).map { it.san })
-    val b = fensAfter(fen, run.take(REORDER_LOOKAHEAD).map { it.san })
+    val a = fensAfterSans(fen, label.take(REORDER_LOOKAHEAD).map { it.san })
+    val b = fensAfterSans(fen, run.take(REORDER_LOOKAHEAD).map { it.san })
     return (1..minOf(a.size, b.size)).firstOrNull { position(a[it - 1]) == position(b[it - 1]) }
-}
-
-private fun fensAfter(
-    fen: String,
-    sans: List<String>,
-): List<String> {
-    val board = Board()
-    board.loadFromFen(fen)
-    val out = mutableListOf<String>()
-    for (san in sans) {
-        val list = MoveList(board.fen)
-        if (!runCatching { list.loadFromSan(san) }.isSuccess || list.isEmpty()) break
-        board.doMove(list.first())
-        out += board.fen
-    }
-    return out
 }
 
 /** Castling and clocks are not what the camera sees. */
@@ -164,7 +149,7 @@ internal fun labelPlies(candidate: File): List<ScoredPly> {
     }
 }
 
-/** Ohne sie faellt `fensAfter` schon auf dem ersten SAN aus, und ein vertauschter Abtausch zaehlt als Phantom. */
+/** Ohne sie faellt `fensAfterSans` schon auf dem ersten SAN aus, und ein vertauschter Abtausch zaehlt als Phantom. */
 internal fun startFenOf(candidate: File): String =
     Json
         .parseToJsonElement(candidate.readText())
@@ -183,34 +168,6 @@ private fun candidatePlies(candidate: File): List<ScoredPly> {
         )
     }
 }
-
-private fun pgnSans(
-    text: String,
-    startFen: String,
-): List<String> {
-    val body =
-        text
-            .lineSequence()
-            .filterNot { it.startsWith("[") }
-            .joinToString(" ")
-            .replace(PGN_COMMENT, " ")
-            .replace(PGN_NUMBER, " ")
-            .replace(PGN_RESULT, " ")
-    val board = Board().apply { loadFromFen(startFen) }
-    val out = mutableListOf<String>()
-    for (token in body.split(PGN_SPACE).filter { it.isNotBlank() }) {
-        val list = MoveList(board.fen)
-        list.loadFromSan(token)
-        out += list.toSanArray().first()
-        board.doMove(list.first())
-    }
-    return out
-}
-
-private val PGN_COMMENT = Regex("""\{[^}]*\}""")
-private val PGN_NUMBER = Regex("""\d+\.(\.\.)?""")
-private val PGN_RESULT = Regex("""(1-0|0-1|1/2-1/2|\*)""")
-private val PGN_SPACE = Regex("""\s+""")
 
 /** Three numbers, three lists, no average — und das MODELL: ohne den Namen ist die Zahl nicht zuzuordnen. */
 internal fun printScore(

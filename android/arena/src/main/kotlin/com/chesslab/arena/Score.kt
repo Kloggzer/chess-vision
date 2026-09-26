@@ -1,7 +1,7 @@
 package com.chesslab.arena
 
-import com.github.bhlangonijr.chesslib.Board
-import com.github.bhlangonijr.chesslib.move.MoveList
+import com.chesslab.engine.api.STARTPOS
+import com.chesslab.tracker.games.fensAfterSans
 
 data class TruthPly(
     val san: String,
@@ -94,20 +94,9 @@ private fun matched(
 }
 
 /** Placement only: the camera cannot see whose turn it is or castling rights. */
-private fun placements(sans: List<String>): List<String> {
-    val board = Board()
-    val out = mutableListOf(placementOf(board))
-    for (san in sans) {
-        val list = MoveList(board.fen)
-        val played = runCatching { list.loadFromSan(san) }.isSuccess
-        if (!played || list.isEmpty()) break
-        board.doMove(list.first())
-        out += placementOf(board)
-    }
-    return out
-}
+private fun placements(sans: List<String>): List<String> = (listOf(STARTPOS) + fensAfterSans(STARTPOS, sans)).map(::placementOf)
 
-private fun placementOf(board: Board): String = board.fen.substringBefore(' ')
+private fun placementOf(fen: String): String = fen.substringBefore(' ')
 
 /** Longest common subsequence of shared boards; the final pair is the end of whichever ran out first. */
 private fun commonAnchors(

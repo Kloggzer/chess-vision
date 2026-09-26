@@ -8,7 +8,8 @@ import com.chesslab.geometry.CropClahe
 import com.chesslab.geometry.Undistorter
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.cnn.Attached
-import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.cropClaheFor
+import com.chesslab.tracker.cnn.withCoverageGateOf
 import com.chesslab.tracker.geometry.cropLine
 import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.log.TrackerLog
@@ -82,7 +83,7 @@ internal fun replayRun(
             options
                 .copy(overrides = alle)
                 .trackerConfig(geometry, live = camera != null, emulatedFps = (source.fps / stride).takeIf { stride > 1 })
-                .withCoverageGateOf(spec, alle.keys)
+                .withCoverageGateOf(spec, alle.keys) { println("warn: $it") }
         }
         val config = configFor(emptyMap())
         println("board located from its markers: ${geometry.boardSize} px warp  ·  ${options.withPriorOf(spec)}")
@@ -216,7 +217,7 @@ internal fun replayRun(
                 priorLambda = options.priorLambda,
                 priorSafety = options.priorSafety,
                 startFen = recordedStartFen(options, video),
-                cropClahe = cropClaheOf(spec),
+                cropClahe = cropClaheFor(spec),
             )
         val stack = rig.mainStack(config, session?.collector, options.motionDump, trace)
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
@@ -564,7 +565,3 @@ private fun recordedFrameGate(
     if (options.fps != null) println("  fps=${options.fps} ignored — the recording's own measurement wins")
     return RecordedFrameGate(times)
 }
-
-/** Wie `TrackerService`: der Desktop baute sie nie und servierte `p4a-80-clahe` rohe Crops. */
-private fun cropClaheOf(spec: ModelSpec?): CropClahe? =
-    spec?.takeIf { it.claheClip > 0.0 }?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }
