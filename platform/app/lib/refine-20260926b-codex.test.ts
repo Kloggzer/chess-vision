@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useWindowKeys } from "@/components/use-window-keys";
 import { pageKey } from "@/lib/keys";
@@ -45,7 +44,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 function render(handler: (event: KeyboardEvent) => void) {
   slotAt = 0;
-  useWindowKeys(handler);
+  const hook = useWindowKeys; // a hand renderer, not a component: the hook runs outside React
+  hook(handler);
   const effects = pending;
   pending = [];
   effects.forEach((effect) => effect());
