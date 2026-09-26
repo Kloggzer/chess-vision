@@ -53,7 +53,8 @@ messbar. Referenz nach Anker-Fix (`9cc951a3`) und `cleanCommitsOnly`: **`15-50-2
 der Konfiguration des Handys (`servingConfig`): `motionThr` skaliert jetzt auch ohne Bildsprung mit
 der Engine-Rate, und die v2-Videos haben 15 fps. Die vier Reorder-Halbzuege werden erkannt,
 `taintIdentityThr` 0,5 ist neutral (`tmp/batch/serving-v2`, `-v2-taint0`). v1 unveraendert
-396/3/0/8 (`tmp/batch/serving-v1`).
+396/3/0/8 (`tmp/batch/serving-v1`); nach `ff92051b` (Vorgabe 0,5 in `TrackerConfig`) beide Saetze
+unveraendert (`tmp/batch/taintdefault-v1`, `-v2`).
 
 ## Was der Hauptsatz NICHT messen kann: die Hand-Achse
 

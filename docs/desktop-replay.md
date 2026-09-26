@@ -91,6 +91,14 @@ Phantom auf rec-20260807. Die Settings halten die Codec-Vorgaben; nichts darf da
 LESEN, den der Lauf besitzt. `config=<datei>` nimmt eine AUFGEZEICHNETE Config als Basis; die
 Geometrie gewinnt trotzdem.
 
+## Der Replay bedient wie das Handy (`b2d11570`)
+
+Handy und Replay teilen `ModelServing.servingConfig` (tracker-runtime): Brettgroesse aus der
+Geometrie, `coverage_gate`/Temperatur aus dem Modell, `motionThr x 30 / fps` mit der Rate, mit der
+Bilder die Engine ERREICHEN (vorher nur beim Ueberspringen; die v2-Videos haben 15 fps). Ein
+`settings.json` mit `"config_kind": "stored"` wird so bedient; ein altes ohne `config_kind` und ohne
+History trug schon die bediente Config und bekommt nur die Geometrie (`ff92051b`).
+
 ## `quiet` macht einen Replay skriptbar
 
 Mit Fenster ist Break-on-stuck richtig; ohne Fenster wartete ein Batch ewig auf eine Taste. `drive`

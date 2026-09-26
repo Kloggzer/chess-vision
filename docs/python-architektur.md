@@ -68,7 +68,8 @@ Zusammengefuehrt: `cell_rule.coverage_of`/`brightness_of` (vorher `torch_data` u
 inline in `classification_eligible`); `dataset.load_manifest`/`load_split` (vorher auch in
 `training/data.py`, dort mit anderer Meldung); `data.dataset_paths`/`unnamed_pin` (Pfade und Pin-
 Riegel aus `train`, `run_eval` und dem geloeschten `run_data_paths`); `runs.read_run_config` (torch-frei; evaluate, quantize,
-Warmstart, serving, retime, bake, Temperatur, occluded_model); `pack_dataset._pack_chunk` dekodiert ueber `decode_crop` statt einer Kopie davon.
+Warmstart, serving, retime, bake, Temperatur, occluded_model); `data.complete_boards` (`evaluate --boards-only`
+und `PackedBoardDataset`; vorher zaehlte der Eval ein Brett mit doppeltem Feld mit, `8b8cfdb1`); `pack_dataset._pack_chunk` dekodiert ueber `decode_crop` statt einer Kopie davon.
 Ausserhalb von `training/` (2026-09-26): `sessions.sweep` (statt `fit_mesh_all`/`repair_mesh_all`/
 `mark_hands_all`); in `matte` `_recut_start` (Kopf der drei Recuts), `coverage_fields` (vorher sechs
 Kopien von `cells_over_half`) und `_crossed`; `dataset.write_dataset_files` (Manifest/Split/Stats fuer
@@ -80,8 +81,8 @@ und `upsert`.
   Messende/schreibende Aufrufer rufen `allow_standin=False` (`--profile` als `override=`);
   leeres oder profilloses `session.yaml` wirft `FileNotFoundError` statt `KeyError`/`TypeError`,
   ein fehlendes auch unter `override`. Die `session temporal-*`-Befehle und
-  `sensor_audit` melden das als `[ERR]`. Seit 2026-09-26 ruft auch kein Skript mehr
-  `labeling._profile_for_session`.
+  `sensor_audit` melden das als `[ERR]`. `labeling._profile_for_session` ist geloescht
+  (`8b8cfdb1`), auch die Skripte laden ueber `session_profile`.
 
 - **Rezept als ein Wert:** `run_train` haelt seine Argumente als `recipe`; die Schritte lesen
   daraus, was `run_train` nicht veraendert, und bekommen Abgeleitetes (`rot90`, Worker) explizit.

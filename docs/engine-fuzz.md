@@ -90,5 +90,5 @@ Zeit, zusammen 20–25 Läufe):
 | `zThr`, `censusThr` | ungeprüft, tragen den Frame-Diff | Empfindlichkeit, je 1 Lauf |
 | `desyncStandoffObsN = 12` | erklärter Platzhalter | am Verlust-Verhalten |
 
-**Die Naht zuerst:** `taintIdentityThr` steht in der Engine auf 0 und in der App auf 0,5. Der Wert,
-der aufs Gerät geht, wird von keinem Paritätstest gefahren.
+**Die Naht ist zu** (`ff92051b`): die Vorgabe 0,5 steht in `TrackerConfig`, Handy und Replay fahren
+sie; nur die Python-Paritäts-Fixtures setzen ausdrücklich 0.

@@ -159,7 +159,7 @@
   regression reference **396/3/0 at 8 desync episodes** (v2: 146/0/0 at 0) (`docs/regression-reference.md`; count
   episodes, not `ALARM latched` lines).
 - **Power:** `docs/android-performance.md`. Whoever touches the frame rate must move `motionThr`
-  with it (`TrackerService.engineConfig()` scales `x 30 / fps`).
+  with it (`ModelServing.servingConfig` scales `x 30 / fps`, phone and replay alike).
 - **Producer order:** `session settle-scan` writes `settle_dev` before `realgames position-flags`
   can lay anything out; an unmeasured cell shows `—`, not `0`. The chain has it as a rung between
   `export` and `matte`.

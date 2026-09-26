@@ -421,9 +421,9 @@ jedes sicher gelesene besetzte Feld ab. `TaintIdentityTest` hält beide Richtung
 kein Verdecker, dieselbe Figur (Hand darüber) → weiter Verdecker. Mit dem korrigierten Vergleich
 committet `Rxc8+` bei Frame 202 statt 432, **15,4 s früher**; der Rest frameidentisch.
 
-**Wo der Wert steht:** Engine-Vorgabe **0** (sonst reißen die Python-Paritätstests), die App setzt
-**0,5** (`TAINT_IDENTITY_THR` in `TrackerService.engineConfig`), `NOT_A_SETTING`, kein Regler im
-Spiel (Nutzer).
+**Wo der Wert steht:** Vorgabe **0,5** in `TrackerConfig` (`ff92051b`; die Python-Paritäts-Fixtures
+setzen ausdrücklich 0), `NOT_A_SETTING`, kein Regler im Spiel (Nutzer). Schema 7 setzt den bei
+Schema 6 gespeicherten Wert 0 zurück, die übrigen Einstellungen bleiben.
 
 **Der Regressionssatz misst diese Achse nicht:** 396/3/0/171 bei 5 Alarmen mit intaktem UND mit
 abgeschaltetem Verdeckungsschutz. „Regressionssatz unverändert" sagt hier weniger, als es klingt.

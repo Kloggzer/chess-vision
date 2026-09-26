@@ -53,7 +53,7 @@ Anlass: das Telefon entlud sich am Ladegeraet, 16 -> 14 % ueber zwei Stunden, So
 **Die Bewegungsschwelle haengt an der Bildperiode.** `RoiMotion` misst den Anteil geaenderter
 Pixel gegen den VORIGEN Frame; bei 15 fps ueberstreicht dieselbe Hand die doppelte Flaeche
 (Median-Verhaeltnis 2,01, saettigend bei grossen Bewegungen). Deshalb rechnet
-`TrackerService.engineConfig()` `motionThr × 30 / fps`; bei 30 fps ist der Faktor 1 und jede alte
+`ModelServing.servingConfig` (Handy und Replay) `motionThr × 30 / fps`; bei 30 fps ist der Faktor 1 und jede alte
 Messung gilt. Zehn Recordings, 328 Label-Plies:
 
 | Satz | gefunden / verpasst / erfunden |

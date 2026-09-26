@@ -25,8 +25,11 @@ recording ends
   `session.yaml`, `settings.json`, reference frames) plus every game record (`.json`, `.pgn`) whose
   `sessionId` names it. `training-video-pack` labels frames at the phone's own commit times from
   `log.jsonl`, anchored at `session.yaml::video_pre_roll_ns`. `settings.json` is the provenance
-  (full `TrackerConfig`, model, EP, resolution, build, knob history) that
-  `:desktop … replay <video> config=<settings.json>` consumes.
+  (the STORED `TrackerConfig` with the measured board size, `"config_kind": "stored"`, model, EP,
+  resolution, build, knob history) that `:desktop … replay <video> config=<settings.json>` consumes;
+  the replay serves it through `servingConfig` exactly like the phone. An older file without
+  `config_kind` and without history carried the already-served config and is not served again
+  (`ff92051b`).
 - **Nothing is deleted on the phone.** A sent session gets `transfer.json`; the list marks it
   *on the PC*.
 
