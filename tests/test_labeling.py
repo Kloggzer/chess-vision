@@ -130,8 +130,7 @@ def test_run_slice_publishes_completed_batch_on_keyboard_interrupt(tmp_path, mon
     monkeypatch.setattr(labeling, "variant_paths", lambda tag: (tmp_path / "manifest", tmp_path))
     monkeypatch.setattr(locks, "pool_lock", lambda *args, **kwargs: nullcontext())
     monkeypatch.setattr(store_paths, "session_dir", lambda sid: (tmp_path / sid, sid))
-    monkeypatch.setattr(labeling, "read_session_meta", lambda path: {"profile": "test"})
-    monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, profile: object())
+    monkeypatch.setattr(labeling, "session_profile", lambda *_a, **_k: object())
     monkeypatch.setattr(labeling, "slice_session", fake_slice_session)
     monkeypatch.setattr(
         labeling, "_replace_sessions_in_manifest",

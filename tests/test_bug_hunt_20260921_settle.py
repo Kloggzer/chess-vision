@@ -7,7 +7,7 @@ import numpy as np
 import yaml
 
 from chesslab import config, session_boards, sessions
-from chesslab.calibration import CalibrationProfile, crop_border_px
+from chesslab.calibration import CalibrationProfile, crop_border_px, profile_path
 from chesslab.session_store import recording as store_rec
 from conftest import make_profile, write_jsonl
 
@@ -55,7 +55,7 @@ def test_the_settle_scan_keeps_an_unmeasured_hand_frame_out_of_the_reference(
     (sdir / "matte.jsonl").write_text(
         "".join(json.dumps({"frame": f"{i:06d}", "coverage": {}}) + "\n" for i in range(5)),
         encoding="utf-8")
-    monkeypatch.setattr("chesslab.labeling.load_profile", lambda name: prof)
+    prof.save(profile_path("t"))
 
     session_boards.settle_scan_session("rg-s1")
 

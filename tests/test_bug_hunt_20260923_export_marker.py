@@ -8,13 +8,14 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from chesslab import config, ioutil, session_boards, sessions
+from chesslab import calibration, config, ioutil, session_boards, sessions
 from chesslab.cli import app
 from chesslab.realgames import confirm as rg_confirm
 from chesslab.realgames import export as rg_export
 from chesslab.realgames import timeline as rg_timeline
 from chesslab.session_store import log as store_log
 from chesslab.session_store import recording as store_rec
+from conftest import make_profile
 
 
 def _session(tmp_path, monkeypatch, *, marker=True):
@@ -23,6 +24,7 @@ def _session(tmp_path, monkeypatch, *, marker=True):
     (sdir / "boards").mkdir(parents=True)
     (sdir / "dirty").mkdir()
     (sdir / "session.yaml").write_text("session_id: rg-g\nprofile: desktop\n", encoding="utf-8")
+    make_profile().save(calibration.profile_path("desktop"))
     rows = [{"frame": f"frames/{i:06d}.png", "board": f"boards/{i:06d}.webp", "ply": 1, "fen": "x",
              "corners": [[0, 0], [8, 0], [8, 8], [0, 8]]} for i in (144, 900)]
     rows.append({"frame": "frames/001000.png", "board": "dirty/001000.webp", "ply": 1, "fen": "x",
@@ -75,7 +77,7 @@ def test_temporal_pass_refuses(tmp_path, monkeypatch):
     before = (sdir / "log.jsonl").read_bytes()
     result = CliRunner().invoke(app, ["session", "temporal-pass", "g"])
     _refused(result, sdir, before)
-    assert isinstance(result.exception, ValueError), "erbt von ValueError, die CLI-Faenger greifen"
+    assert "[ERR]" in result.output, "erbt von ValueError, `fail_on` greift"
 
 
 def test_model_read_refuses(tmp_path, monkeypatch):
@@ -92,10 +94,7 @@ def test_model_read_refuses(tmp_path, monkeypatch):
 
 
 def test_slice_refuses(tmp_path, monkeypatch):
-    from chesslab import labeling
-
     sdir, _ = _session(tmp_path, monkeypatch)
-    monkeypatch.setattr(labeling, "_profile_for_session", lambda *_a: object())
     before = (sdir / "log.jsonl").read_bytes()
     result = CliRunner().invoke(app, ["slice", "--session", "rg-g"])
     assert result.exit_code == 1 and "[FAIL] rg-g" in result.output, result.output
@@ -113,10 +112,7 @@ def test_adopt_dirty_refuses(tmp_path, monkeypatch):
 
 def test_the_marker_setters_and_a_human_verdict_read_past_it(tmp_path, monkeypatch):
     """`rewarp` raeumt den Marker, `flag_frame` ist ein Urteil, das der Export hinueber traegt."""
-    from chesslab import labeling
-
     sdir, _ = _session(tmp_path, monkeypatch)
-    monkeypatch.setattr(labeling, "_profile_for_session", lambda *_a: object())
     assert len(store_log.read_log(sdir, under_export=True)) == 3
     with pytest.raises(sessions.NothingToDo, match="candidate.json"):
         session_boards.rewarp_boards_session("rg-g")

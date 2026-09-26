@@ -15,7 +15,7 @@ from tests.test_store_straightening import (  # noqa: E402
 
 from chesslab.realgames.boards import straighten_boards  # noqa: E402
 from chesslab.session_store.names import MATTE_DIR  # noqa: E402
-from conftest import write_jsonl  # noqa: E402
+from conftest import make_profile, write_jsonl  # noqa: E402
 
 
 def _matte(sdir, stem: str):
@@ -62,7 +62,7 @@ def test_the_first_pass_still_pulls_both(tmp_path):
 def test_write_boards_session_asks_for_boards_only(tmp_path, monkeypatch):
     # Die Naht selbst, am echten Aufruf: der Schalter nuetzt nichts, solange der Aufrufer ihn
     # nicht setzt. Video und Frames fehlen hier, also schneidet ein Stellvertreter die Bretter.
-    from chesslab import config, labeling, session_boards
+    from chesslab import calibration, config, session_boards
     from chesslab.realgames import boards as rg_boards
     from chesslab.session_store.recording import game_dir
 
@@ -83,8 +83,8 @@ def test_write_boards_session_asks_for_boards_only(tmp_path, monkeypatch):
         return {"board": f"boards/{job[1][-10:-4]}.webp"}
 
     monkeypatch.setattr(session_boards, "missing_source_frames", lambda *_a: None)
-    monkeypatch.setattr(labeling, "_profile_for_session", lambda *_a: None)
-    monkeypatch.setattr("chesslab.session_store.paths.read_session_meta", lambda *_a: {})
+    (sdir / "session.yaml").write_text("profile: t\n", encoding="utf-8")
+    make_profile().save(calibration.profile_path("t"))
     monkeypatch.setattr(rg_boards, "board_from_frame", cut)
     monkeypatch.setattr(rg_boards, "straighten_boards", spy)
 

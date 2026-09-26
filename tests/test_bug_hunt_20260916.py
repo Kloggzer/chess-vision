@@ -108,7 +108,7 @@ def test_the_soft_coverage_weight_honours_visible_max():
 
 def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path, monkeypatch):
     """Der Pop laeuft ueber ALLE `todo`-Zeilen, zurueckgeschrieben wird nur die gelungene."""
-    from chesslab import calibration, config, labeling, session_boards
+    from chesslab import calibration, config, session_boards
     from chesslab.realgames import boards as rg_boards
 
     bs, border = 64, 4
@@ -130,7 +130,7 @@ def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path,
     corners = [[0.0, 0.0], [float(bs), 0.0], [float(bs), float(bs)], [0.0, float(bs)]]
     prof = make_profile(bs, corners=corners, profile="t", camera_index=-1, source="test")
     monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
-    monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, name: prof)
+    prof.save(calibration.profile_path("t"))
     monkeypatch.setattr(calibration, "straighten_board", lambda board, *a, **kw: board)
 
     def _board(job):

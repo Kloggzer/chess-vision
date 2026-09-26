@@ -80,15 +80,19 @@ def frame_path(sdir: Path, entry: dict) -> Path:
     return path
 
 
-def session_profile(sdir: Path, *, allow_standin: bool = True):
-    """The calibration profile a session was captured against, or a neutral stand-in so it stays
-    reviewable. `allow_standin=False` for callers that MEASURE or MUTATE geometry.
+def session_profile(sdir: Path, *, allow_standin: bool = True, override: str | None = None):
+    """The calibration profile a session was captured against (or `override`), or a neutral
+    stand-in so it stays reviewable. `allow_standin=False` for callers that MEASURE or MUTATE
+    geometry; they refuse a session without session.yaml even under an override.
     """
     from .. import calibration
 
     meta_file = meta_path(sdir)
+    if not allow_standin and not meta_file.exists():
+        raise FileNotFoundError(f"{sdir.name}: session.yaml fehlt — Geometrie laesst sich hier "
+                                "nicht messen")
     meta = yaml.safe_load(meta_file.read_text(encoding="utf-8")) if meta_file.exists() else {}
-    profile_name = (meta or {}).get("profile")
+    profile_name = override or (meta or {}).get("profile")
     if profile_name:
         try:
             return calibration.load_profile(profile_name)
@@ -96,8 +100,7 @@ def session_profile(sdir: Path, *, allow_standin: bool = True):
             if not allow_standin:
                 raise
     elif not allow_standin:
-        said = "nennt kein Profil" if meta_file.exists() else "fehlt"
-        raise FileNotFoundError(f"{sdir.name}: session.yaml {said} — Geometrie laesst "
+        raise FileNotFoundError(f"{sdir.name}: session.yaml nennt kein Profil — Geometrie laesst "
                                 "sich hier nicht messen")
     side = float(config.DEFAULT_BOARD_SIZE)
     corners = [[0.0, 0.0], [side, 0.0], [side, side], [0.0, side]]

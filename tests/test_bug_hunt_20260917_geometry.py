@@ -8,7 +8,7 @@ import numpy as np
 import yaml
 
 from chesslab import config, session_boards
-from chesslab.calibration import CalibrationProfile, crop_border_px
+from chesslab.calibration import CalibrationProfile, crop_border_px, profile_path
 from chesslab.session_store import recording as store_rec
 from conftest import make_profile, write_jsonl
 
@@ -59,7 +59,7 @@ def test_the_settle_scan_refuses_a_board_that_is_not_the_crop_raster(tmp_path, m
              "board_size": small, "board_border": border}
             for i in range(1, 9)]
     _session(tmp_path, monkeypatch, rows, small, border)
-    monkeypatch.setattr("chesslab.labeling.load_profile", lambda name: prof)
+    prof.save(profile_path("t"))
 
     result = session_boards.settle_scan_session("rg-s1")
 
@@ -96,6 +96,6 @@ def test_the_settle_scan_still_scores_a_board_in_the_profiles_own_scale(tmp_path
              "board_size": SIDE, "board_border": border}
             for i in range(1, 9)]
     _session(tmp_path, monkeypatch, rows, SIDE, border)
-    monkeypatch.setattr("chesslab.labeling.load_profile", lambda name: prof)
+    prof.save(profile_path("t"))
 
     assert session_boards.settle_scan_session("rg-s1")["scored"] == 8

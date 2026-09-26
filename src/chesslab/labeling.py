@@ -43,7 +43,7 @@ from .session_store.names import (
     matte_path,
     unusable_cells_path,
 )
-from .session_store.paths import read_session_meta
+from .session_store.paths import read_session_meta, session_profile
 from .state import GameState
 from .work_audit import current as current_work_audit
 from .work_audit import measure
@@ -695,8 +695,8 @@ def run_slice(
                             # Die Kette VERGLEICHT den Stempel; ohne diesen Check truege ein
                             # direktes `slice` die Coverage eines aelteren Schnitts ins Manifest.
                             provenance.check(session_dir, matte_path(session_dir))
-                            meta = read_session_meta(session_dir)
-                            prof = _profile_for_session(meta, profile)
+                            prof = session_profile(session_dir, allow_standin=False,
+                                                   override=profile)
                             stats = slice_session(
                                 session_dir, profile=prof, manifest_path=manifest_path,
                                 squares_root=squares_root, pad_side=pad_side,
@@ -741,8 +741,7 @@ def _preview_session(session_id: str, profile: str | None) -> int:
 
     session_dir, _ = _resolve(session_id)
     try:
-        meta = read_session_meta(session_dir)
-        prof = _profile_for_session(meta, profile)
+        prof = session_profile(session_dir, allow_standin=False, override=profile)
         log = read_log_rows(session_dir)
     except Exception as e:  # noqa: BLE001
         print(f"[FAIL] {e}")

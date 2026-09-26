@@ -75,7 +75,15 @@ Ausserhalb von `training/` (2026-09-26): `sessions.sweep` (statt `fit_mesh_all`/
 `mark_hands_all`); in `matte` `_recut_start` (Kopf der drei Recuts), `coverage_fields` (vorher sechs
 Kopien von `cells_over_half`) und `_crossed`; `dataset.write_dataset_files` (Manifest/Split/Stats fuer
 klassischen und Synth-Bau); `matte_publish` als einziger Weg, ein Alpha zu veroeffentlichen
-(`docs/session-mattes.md` §3).
+(`docs/session-mattes.md` §3); `temporal_matte._proposals` als gemeinsamer Vorspann von `adopt`
+und `upsert`.
+
+- **Profil einer Aufnahme: EIN Weg** (2026-09-26), `session_store.paths.session_profile`.
+  Messende/schreibende Aufrufer rufen `allow_standin=False` (`--profile` als `override=`);
+  leeres oder profilloses `session.yaml` wirft `FileNotFoundError` statt `KeyError`/`TypeError`,
+  ein fehlendes auch unter `override`. Die `session temporal-*`-Befehle und
+  `sensor_audit` melden das als `[ERR]`. `labeling._profile_for_session` lebt nur noch fuer
+  neun Skripte unter `scripts/`.
 
 - **Rezept als ein Wert:** `run_train` haelt seine Argumente als `recipe`; die Schritte lesen
   daraus, was `run_train` nicht veraendert, und bekommen Abgeleitetes (`rot90`, Worker) explizit.

@@ -13,6 +13,7 @@ from chesslab.calibration import (
     crop_border_px,
     mesh_from_lines,
     mesh_point,
+    profile_path,
     smooth_mesh_curvature,
     straighten_board,
 )
@@ -228,8 +229,8 @@ def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypat
     fresh = {"x": x, "y": list(x), "tx": [0.01] * 9, "ty": [0.0] * 9}
     answers = iter([fresh, None])
     monkeypatch.setattr(rg_mesh, "grid_line_fracs", lambda *a, **k: next(answers))
-    monkeypatch.setattr("chesslab.labeling._profile_for_session", lambda meta, name: _profile(
-        {"boardSize": 800, "padSide": 0.05, "whitePov": True}))
+    _profile({"boardSize": 800, "padSide": 0.05, "whitePov": True}).save(
+        profile_path("test"))
 
     first = sessions.fit_mesh_session("meshy")
     rows = store_log.read_log(tmp_path / "data" / "sessions" / "meshy")
@@ -268,8 +269,7 @@ def _measured_session(tmp_path, monkeypatch, answers):
         yaml.safe_dump({"session_id": "carry", "profile": "test", "mode": "live"}), encoding="utf-8")
     it = iter(answers)
     monkeypatch.setattr(rg_mesh, "grid_line_fracs", lambda *a, **k: next(it, None))
-    monkeypatch.setattr("chesslab.labeling._profile_for_session", lambda meta, name: _profile(
-        {"boardSize": 8, "padSide": 0.05, "whitePov": True}))
+    _profile({"boardSize": 8, "padSide": 0.05, "whitePov": True}).save(profile_path("test"))
     return sdir
 
 

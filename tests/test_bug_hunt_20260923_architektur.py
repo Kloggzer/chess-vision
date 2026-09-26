@@ -20,7 +20,7 @@ from chesslab import (
     temporal_matte,
 )
 from chesslab.session_store import log as store_log
-from conftest import write_jsonl
+from conftest import make_profile, write_jsonl
 
 
 def _recording(tmp_path: Path, monkeypatch, name: str = "g") -> Path:
@@ -43,11 +43,11 @@ def _recording(tmp_path: Path, monkeypatch, name: str = "g") -> Path:
                                        "0 von 27 betroffen, offene-entscheidungen A1")
 def test_rewritten_boards_drop_the_settle_measurement(tmp_path, monkeypatch):
     """Die Pixel-Seite derselben Luecke: `settle_for_ply` hat die ALTEN Bretter gemessen."""
-    from chesslab import labeling
+    from chesslab import calibration
     from chesslab.realgames import boards as rg_boards
 
     rec = _recording(tmp_path, monkeypatch)
-    monkeypatch.setattr(labeling, "_profile_for_session", lambda _meta, _x: object())
+    make_profile().save(calibration.profile_path("p"))
     monkeypatch.setattr(rg_boards, "board_from_frame",
                         lambda _job: {"board": "boards/000001.webp", "board_size": 928})
     monkeypatch.setattr(rg_boards, "straighten_boards",

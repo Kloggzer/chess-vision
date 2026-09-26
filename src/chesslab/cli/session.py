@@ -125,7 +125,8 @@ def session_temporal_scan(
     """Measure SAM-free image anomalies and refresh the Strittig audit cards."""
     from .. import position_flags, temporal_flags
 
-    result = temporal_flags.scan_session(session, cut=cut)
+    with fail_on(FileNotFoundError, ValueError, tag="ERR"):
+        result = temporal_flags.scan_session(session, cut=cut)
     flags = position_flags.position_flags()
     print(f"[OK] {result['cells']} cells measured; {result['flags']} temporal candidates -> {result['path']}")
     print(f"[OK] {flags['flags']} combined audit cards -> {flags['path']}")
@@ -153,8 +154,10 @@ def session_temporal_mattes(
     if device != "cpu" and workers > 1:
         print("[ERR] --device cuda runs in one process; drop --workers.")
         raise typer.Exit(1)
-    result = propose_session(session, method=method, low=low, high=high, max_gap_s=max_gap_s,
-                             peers=peers, refine=refine, rgba=rgba, workers=workers, device=device)
+    with fail_on(FileNotFoundError, ValueError, tag="ERR"):
+        result = propose_session(session, method=method, low=low, high=high,
+                                 max_gap_s=max_gap_s, peers=peers, refine=refine, rgba=rgba,
+                                 workers=workers, device=device)
     print(f"[OK] {result['proposed']} automatic mask proposals; {result['skipped']} without suitable references -> {result['path']}")
     print("[INFO] SAM masks and training coverage were not overwritten.")
 
@@ -167,7 +170,8 @@ def session_temporal_adopt(
     """Turn temporal mask proposals with a hand into matte rows for the matte lane."""
     from ..temporal_matte import adopt_proposals
 
-    r = adopt_proposals(session, method=method)
+    with fail_on(FileNotFoundError, ValueError, tag="ERR"):
+        r = adopt_proposals(session, method=method)
     print(f"[OK] {r['adopted']} temporal mattes adopted, {r['empty']} empty, {r['replaced']} replaced, "
           f"{r['kept_sam']} frames already had a SAM row -> {r['path']}")
 
@@ -180,7 +184,8 @@ def session_temporal_upsert(
     """Where SAM found nothing on a frame, temporal's matte replaces it whole."""
     from ..temporal_matte import upsert_proposals
 
-    r = upsert_proposals(session, method=method)
+    with fail_on(FileNotFoundError, ValueError, tag="ERR"):
+        r = upsert_proposals(session, method=method)
     print(f"[OK] {r['upserted']} frames upserted, {r['sam_found']} where SAM found a hand, "
           f"{r['fixed']} hand-fixed left alone, {r['replaced']} earlier upserts redone -> {r['path']}")
 
@@ -207,32 +212,33 @@ def session_temporal_pass(
 
     session = name if name.startswith("rg-") else f"rg-{name}"
     started = datetime.now(UTC).isoformat()
-    scan = temporal_flags.scan_session(session)
-    print(f"[OK] scan: {scan['cells']} cells, {scan['flags']} candidates", flush=True)
-    mattes = propose_session(session, method=method, workers=workers)
-    print(f"[OK] mattes: {mattes['proposed']} proposals, {mattes['skipped']} skipped", flush=True)
-    adopted = adopt_proposals(session, method=method)
-    print(f"[OK] adopt: {adopted['adopted']} new, {adopted['kept_sam']} SAM kept", flush=True)
-    if adopted["adopted"]:
-        # Its own process: SAM's ROCm teardown wedges, and `alpha-worker` leaves via os._exit.
-        code = subprocess.call([sys.executable, "-m", "chesslab.cli", "occluders", "alpha-worker",
-                                session[3:], "--temporal"])
-        if code != 0:
-            print(f"[ERR] alpha-worker --temporal exited {code}")
-            raise typer.Exit(1)
-    upsert = upsert_proposals(session, method=method)
-    print(f"[OK] upsert: {upsert['upserted']} frames, {upsert['sam_found']} stay with SAM", flush=True)
-    pruned = prune_dead_rows(session)
-    print(f"[OK] prune: {pruned['dropped']} superseded temporal rows dropped", flush=True)
-    seen = pass_inputs(session)
-    flags = position_flags.position_flags()
-    print(f"[OK] {flags['flags']} audit cards -> {flags['path']}", flush=True)
-    report = write_pass_report(session, {
-        "started": started, "finished": datetime.now(UTC).isoformat(),
-        "candidates": scan["flags"], "proposals": mattes["proposed"],
-        "adopted": adopted["adopted"], "upserted": upsert["upserted"],
-        "sam_found": upsert["sam_found"]}, inputs=seen)
-    print(f"[OK] pass -> {report}")
+    with fail_on(FileNotFoundError, ValueError, tag="ERR"):
+        scan = temporal_flags.scan_session(session)
+        print(f"[OK] scan: {scan['cells']} cells, {scan['flags']} candidates", flush=True)
+        mattes = propose_session(session, method=method, workers=workers)
+        print(f"[OK] mattes: {mattes['proposed']} proposals, {mattes['skipped']} skipped", flush=True)
+        adopted = adopt_proposals(session, method=method)
+        print(f"[OK] adopt: {adopted['adopted']} new, {adopted['kept_sam']} SAM kept", flush=True)
+        if adopted["adopted"]:
+            # Its own process: SAM's ROCm teardown wedges, and `alpha-worker` leaves via os._exit.
+            code = subprocess.call([sys.executable, "-m", "chesslab.cli", "occluders", "alpha-worker",
+                                    session[3:], "--temporal"])
+            if code != 0:
+                print(f"[ERR] alpha-worker --temporal exited {code}")
+                raise typer.Exit(1)
+        upsert = upsert_proposals(session, method=method)
+        print(f"[OK] upsert: {upsert['upserted']} frames, {upsert['sam_found']} stay with SAM", flush=True)
+        pruned = prune_dead_rows(session)
+        print(f"[OK] prune: {pruned['dropped']} superseded temporal rows dropped", flush=True)
+        seen = pass_inputs(session)
+        flags = position_flags.position_flags()
+        print(f"[OK] {flags['flags']} audit cards -> {flags['path']}", flush=True)
+        report = write_pass_report(session, {
+            "started": started, "finished": datetime.now(UTC).isoformat(),
+            "candidates": scan["flags"], "proposals": mattes["proposed"],
+            "adopted": adopted["adopted"], "upserted": upsert["upserted"],
+            "sam_found": upsert["sam_found"]}, inputs=seen)
+        print(f"[OK] pass -> {report}")
 
 
 @session_app.command("boards")

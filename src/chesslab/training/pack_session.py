@@ -44,12 +44,12 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
                        pad_side: float | None = None,
                        replace: bool = False) -> dict:
     """Cut every crop of `session_id` at `size` px into `data/packs/<session_id>-<size>/`."""
-    from ..labeling import _profile_for_session, iter_session_crops
-    from ..session_store.paths import read_session_meta, session_dir
+    from ..labeling import iter_session_crops
+    from ..session_store.paths import session_dir, session_profile
 
     name = f"{session_id}-{size}"
     session_path, _ = session_dir(session_id, paths)
-    prof = _profile_for_session(read_session_meta(session_path), profile)
+    prof = session_profile(session_path, allow_standin=False, override=profile)
     # BEFORE the cut: a verdict written meanwhile reads as a mismatch, never as frozen.
     stamp = {"ledgers": ledger_stamps(session_path)}
     crops = ((crop[:, :, ::-1], row) for crop, row in

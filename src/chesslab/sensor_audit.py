@@ -18,7 +18,6 @@ from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.labeling import (
     SETTLE_SEEN_MIN,
-    _profile_for_session,
     all_squares,
     crop_square,
     usable_board,
@@ -27,7 +26,7 @@ from chesslab.realgames.position import SETTLE_CELL_PX, SETTLE_MIN_FRAMES, cell_
 from chesslab.session_store.log import read_log
 from chesslab.session_store.matte import read_matte
 from chesslab.session_store.names import BOARD_DIR
-from chesslab.session_store.paths import read_session_meta, session_dir
+from chesslab.session_store.paths import session_dir, session_profile
 
 GROUPS = ('both', 'matte_only', 'grooves_only', 'neither', 'matte_unknown')
 
@@ -71,7 +70,7 @@ def summary(values):
 def audit(rec, *, temporal=False, seen_min=SETTLE_SEEN_MIN, contrast_floor=8.0,
           reference_stock="boards", skipped=None):
     # `skipped` is the caller's counter; `temporal_flags.scan_session` writes JSON, not prose.
-    profile = _profile_for_session(read_session_meta(rec), None)
+    profile = session_profile(rec, allow_standin=False)
     mattes = read_matte(rec)
     rows = read_log(rec)
     by_interval = defaultdict(list)
@@ -145,7 +144,11 @@ def main():
     args = ap.parse_args()
     if not 0 <= args.seen_min <= 1 or not math.isfinite(args.contrast_floor) or args.contrast_floor <= 0:
         ap.error('seen-min must be in [0, 1]; contrast-floor must be finite and positive')
-    rec, _ = session_dir(args.session)
+    try:
+        rec, _ = session_dir(args.session)
+        session_profile(rec, allow_standin=False)
+    except FileNotFoundError as e:
+        ap.exit(1, f'[ERR] {e}\n')
     args.out.parent.mkdir(parents=True, exist_ok=True)
     groups = defaultdict(list)
     with args.out.open('w', encoding='utf-8') as output:

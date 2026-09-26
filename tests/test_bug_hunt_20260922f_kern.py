@@ -8,7 +8,7 @@ from collections import Counter
 import numpy as np
 import pytest
 
-from chesslab import ingest, locks, occluded_model, sensor_audit
+from chesslab import calibration, config, ingest, locks, occluded_model, sensor_audit
 from chesslab.calibration import crop_border_px
 from chesslab.cell_rule import PIECE_VISIBLE_MAX
 from chesslab.labeling import all_squares
@@ -104,8 +104,9 @@ def _audited_session(monkeypatch, tmp_path, row_overrides=None, matte=None):
         seen_args.update(board_size=board_size, pad=pad)
         return {}
 
-    monkeypatch.setattr(sensor_audit, "_profile_for_session", lambda meta, _x: prof)
-    monkeypatch.setattr(sensor_audit, "read_session_meta", lambda rec: {"profile": "mutprobe"})
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+    prof.save(calibration.profile_path("mutprobe"))
+    (tmp_path / "session.yaml").write_text("profile: mutprobe\n", encoding="utf-8")
     monkeypatch.setattr(sensor_audit, "read_matte", lambda rec: matte or {})
     monkeypatch.setattr(sensor_audit, "read_log", lambda rec: [row])
     monkeypatch.setattr(sensor_audit, "usable_board", lambda r, p: True)

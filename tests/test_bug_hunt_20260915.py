@@ -97,7 +97,7 @@ def test_write_boards_keeps_the_store_of_rows_it_never_rewrites(tmp_path, monkey
     import cv2
     import numpy as np
 
-    from chesslab import labeling, session_boards
+    from chesslab import session_boards
     from chesslab.realgames import boards as rg_boards
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
@@ -116,9 +116,6 @@ def test_write_boards_keeps_the_store_of_rows_it_never_rewrites(tmp_path, monkey
     _profile_yaml(config.DATA, board_size=bs)
 
     monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
-    monkeypatch.setattr(labeling, "_profile_for_session",
-                        lambda meta, name: __import__("chesslab.calibration", fromlist=["x"])
-                        .load_profile("t"))
     monkeypatch.setattr(rg_boards, "board_from_frame", lambda job: None)
 
     session_boards.write_boards_session("rg-rec")

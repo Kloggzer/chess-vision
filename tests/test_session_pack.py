@@ -70,11 +70,11 @@ def test_slice_output_is_byte_identical_after_the_seam(tmp_path):
 
 
 def _pack_paths(tmp_path, monkeypatch) -> config.Paths:
-    from chesslab import labeling
+    from chesslab import calibration
 
-    monkeypatch.setattr(labeling, "_profile_for_session",
-                        lambda meta, profile: make_profile())
-    return config.Paths(root=tmp_path)
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+    make_profile().save(calibration.profile_path("test"))
+    return config.DATA
 
 
 def _pack_rows(name: str, paths: config.Paths) -> list[dict]:

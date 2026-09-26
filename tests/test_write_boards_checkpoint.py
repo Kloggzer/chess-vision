@@ -6,7 +6,7 @@ import json
 import numpy as np
 import pytest
 
-from chesslab import config, labeling, session_boards
+from chesslab import calibration, config, session_boards
 from chesslab.realgames import boards as rg_boards
 from conftest import make_profile, write_jsonl
 
@@ -44,7 +44,7 @@ def test_a_killed_write_boards_leaves_the_straightened_flag_on_disk(tmp_path, mo
     write_jsonl(sdir / "log.jsonl", rows)
 
     monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
-    monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, name: _profile())
+    _profile().save(calibration.profile_path("t"))
     monkeypatch.setattr(rg_boards, "STRAIGHTEN_CHECKPOINT", 1)
 
     def _board(job):
@@ -54,8 +54,6 @@ def test_a_killed_write_boards_leaves_the_straightened_flag_on_disk(tmp_path, mo
         return {"board": rel, "board_size": BS, "board_border": BORDER}
 
     monkeypatch.setattr(rg_boards, "board_from_frame", _board)
-
-    from chesslab import calibration
 
     calls = {"n": 0}
     real = calibration.straighten_board

@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from chesslab import config, labeling, session_boards
+from chesslab import calibration, config, session_boards
 from chesslab.realgames import boards as rg_boards
 from chesslab.session_store.log import export_interrupted
 from conftest import make_profile, write_jsonl
@@ -29,9 +29,8 @@ def test_write_boards_killed_while_cutting_leaves_the_marker(tmp_path, monkeypat
     (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
     write_jsonl(sdir / "log.jsonl", rows)
     monkeypatch.setattr(session_boards, "session_dir", lambda sid, paths=None: (sdir, False))
-    monkeypatch.setattr(labeling, "_profile_for_session",
-                        lambda meta, name: make_profile(BS, corners=corners, profile="t",
-                                                        camera_index=-1, source="test"))
+    make_profile(BS, corners=corners, profile="t", camera_index=-1,
+                 source="test").save(calibration.profile_path("t"))
     real, calls = rg_boards.write_board, []
 
     def killed(*a, **kw):

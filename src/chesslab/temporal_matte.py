@@ -15,12 +15,12 @@ import numpy as np
 
 from . import config, locks, provenance
 from .ioutil import read_jsonl, stamp_of, write_atomic, write_rows, write_rows_guarded
-from .labeling import _profile_for_session, usable_board
+from .labeling import usable_board
 from .matte_publish import publish, stage, staging
 from .session_store.log import read_log_rows
 from .session_store.matte import measured_coverage, read_matte
 from .session_store.names import BOARD_DIR, MATTE_DIR, MATTE_FILE
-from .session_store.paths import read_session_meta, session_dir, session_profile
+from .session_store.paths import session_dir, session_profile
 from .temporal_flags import load_flags, source_stamp
 
 
@@ -248,7 +248,7 @@ def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
         raise ValueError("Require finite 0 <= low < high and positive max-gap-s")
     recording, _ = session_dir(session_id)
     stamp = source_stamp(recording)
-    profile = _profile_for_session(read_session_meta(recording), None)
+    profile = session_profile(recording, allow_standin=False)
     entries = read_log_rows(recording)
     # Our coverage must not count, or an adopted frame drops out of the next run and `adopt` deletes
     # its own row.
