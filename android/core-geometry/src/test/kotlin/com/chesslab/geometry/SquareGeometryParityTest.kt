@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** The file `tests/test_square_geometry_parity.py` and `lib/square-geometry-parity.test.ts` read. */
+/** The file `tests/test_square_geometry_parity.py` reads too. */
 class SquareGeometryParityTest {
     private val cases =
         GeometryFixtures
