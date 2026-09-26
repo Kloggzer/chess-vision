@@ -38,7 +38,7 @@ in den Verlust eingehen. Warum `occluded` ein Ausgang und keine Klasse ist:
 `platform/app/lib/classes.ts` spiegelt Python. `LEGACY_LABEL = "occluded"` bleibt lesbar, hat aber
 nichts mehr zu lesen: unter `data/recordings/*/` und `data/sessions_archive/*/` liegen 18 563
 Korrekturzeilen, keine mit `occluded` (2026-09-22). `/corpus` wählt das Schema per `classScheme()`
-(`platform/app/lib/corpus.ts`) aus `dataset.yaml`, sonst aus der Klassenliste.
+(`platform/app/lib/corpus/corpus.ts`) aus `dataset.yaml`, sonst aus der Klassenliste.
 
 ### Handy — sieben Modelle, alle mit Coverage und gemessenem Gate
 
@@ -85,7 +85,7 @@ Fünf Trainingsrunden, gegen den Champion im selben Lauf. Befunde:
 
 ### Die Falle: fehlende Coverage heißt nicht „frei“
 
-`training/torch_data.py` (`coverage_of`) liest eine fehlende `coverage` als 0,0. Ein Crop aus einer
+`cell_rule.coverage_of` (vom Loader `training/torch_data.py` gerufen) liest eine fehlende `coverage` als 0,0. Ein Crop aus einer
 nie gematteten Session trainiert also als freies Feld. Wer gemattete und ungemattete Sessions in
 **einen** Occlusion-Lauf mischt, bringt dem Kopf bei, dass es Hände nicht gibt.
 

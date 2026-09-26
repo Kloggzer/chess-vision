@@ -35,7 +35,7 @@ git submodule update --init --depth 1 android/third_party/stockfish
 ```
 
 The first configure downloads the two NNUE nets and checks their SHA-256 — a download failure is a
-real failure. Unit tests and lint need neither (`FakeAnalysisEngine`). No binary or net is
+real failure. Unit tests and lint need neither (`ScriptedEngineProcess`). No binary or net is
 committed.
 
 ## Start the app

@@ -7,13 +7,12 @@
 ## Mission
 - **Goal:** auto-labeled image dataset of physical chess pieces (fixed camera); labels from FEN,
   64 examples per photo; trains a per-square classifier.
-- **Tracker** lives in `android/` (Kotlin). Python is dataset building, training and export only
-  (`chesslab track` deleted 2026-08-07, `track_feedback.py` and the capture rig 2026-08-20).
+- **Tracker** lives in `android/` (Kotlin). Python is dataset building, training and export only.
+  The web app (`platform/app`) asks Python instead of mirroring it (`docs/web-ruft-python.md`).
 
 ## Architecture & Data Flow
 - **Path:** Camera -> Frame-Diff/Legacy Check -> Commit; the CNN path is asynchronous and sparse.
-  `docs/tracker-flow.md` records a measured break ("no snapshot ever reached the engine"); a later
-  replay saw `CnnSnapshot.gridOccluded` reach the verify ladder — unconfirmed live, re-measure first.
+  Whether CNN snapshots reach the engine live is unconfirmed — re-measure first (`docs/tracker-flow.md`).
 - **Data pipeline** (`docs/data-pipeline.md`): Sessions -> Slice -> Crop Pool -> Dataset. `unusable`
   is not retroactive; parking does not prune the pool.
 - **Temporal pass:** `session temporal-pass` sits between `matte` and `model-read`. SAM is the base;
@@ -56,14 +55,11 @@
 - **Geometry:** squares `a1`..`h8`; corners `[a8, h8, h1, a1]`.
 - **Config:** paths/parameters in YAML; classes only in `config.CLASSES`.
 - **Cache:** per-session crop counts via `manifest_cache.py` (mtime-keyed).
-- **Comments:** target **3 lines**; say *why*, never what the code says; longer prose goes to
-  `docs/` with a one-line pointer. **Default is NO comment** — a comment longer than its function is
-  wrong, delete it (user, 2026-08-15). **The three guards are off by one:** Kotlin fails at
-  `run >= LIMIT` (a block of exactly 5 already fails; KDoc `/**` and `*/` count), TS and Python at
-  `worst > LIMIT` (5 passes, 6 fails). Write for the Kotlin rule. Budgets
-  (`android/config/comment-budget.txt`, `platform/app/comment-budget.txt`,
-  `tests/comment_budget.txt`) may only shrink; after cleaning a Kotlin file run
-  `uv run python android/scripts/comment_budget.py`.
+- **Comments:** **default is NO comment**; target 3 lines, say *why*, longer prose goes to `docs/`
+  with a pointer (user, 2026-08-15). **Guards are off by one:** Kotlin fails at `run >= 5` (KDoc
+  `/**` and `*/` count), TS and Python at `> 5` — write for Kotlin. Budgets
+  (`android/config/comment-budget.txt`, `platform/app/comment-budget.txt`, `tests/comment_budget.txt`)
+  only shrink; after cleaning Kotlin run `uv run python android/scripts/comment_budget.py`.
 
 ## Known Pitfalls (Critical)
 
@@ -92,8 +88,7 @@
 - **Occlusion:** a model without coverage output (or `occluded` class) has `pOccluded = 0`; the CNN
   arm is blind there and hand verification needs the **model-free** arm (`gridOccluded`). That arm
   only runs for such models today (all bundled ones declare `coverage_output`). Its gate counts only
-  HAND-SHAPED flags (>= 1 orthogonally adjacent pair): any-flag blanks a replay on one leaning piece,
-  a count of 3 lets the leaving hand's 2-flag tail through (003957: 38/67 -> 67/67, 0 invented).
+  HAND-SHAPED flags (>= 1 orthogonally adjacent pair) — `docs/occluder-plates.md`.
 - **Normalization:** BatchNorm works; the learning rate is the critical factor. Never rank
   normalizers at one shared rate.
 - **Metrics:** `val_acc` correlates inversely with the veto metric; use `sweep_infer_size.py`.
@@ -111,8 +106,8 @@
   2026-09-21 tragen **27** Aufnahmeverzeichnisse eine `matte.jsonl` (backups under `_pre-scan-20260906/` excluded;
   `tests/test_claude_numbers.py` holds this number against the disk). Run
   `chesslab occluders recut-coverage --all` after every re-export; `matte.jsonl` rows carry a
-  `_source` stamp and `chain.ts` reopens the matte rung. Rows WITHOUT a stamp stay valid.
-- **Coverage Matte Trap:** `training/torch_data.py` (`coverage_of`) defaults unmatted crops to
+  `_source` stamp and the chain (`chain_state`) reopens the matte rung. Rows WITHOUT a stamp stay valid.
+- **Coverage Matte Trap:** `cell_rule.coverage_of` (the loader's reader) defaults unmatted crops to
   `coverage = 0.0`, indistinguishable from clear squares. Mixing matted and unmatted sessions in one
   occlusion-head build teaches that hands do not exist. Matted sessions only.
 - **SAM's refusal is not a clean board:** a `skipped` row (`zone too big`) carries neither
@@ -158,7 +153,7 @@
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules). Emulator via
   `scripts/android-emulator.ps1` (never `installEmulator`, devices are shared).
 - **Coverage:** not currently measured; calls and traps in `docs/quality-tooling.md`.
-- **References:** `docs/tracker-flow.md`, `docs/occlusion-gate.md`, `docs/tracker-flow.md`;
+- **References:** `docs/tracker-flow.md`, `docs/occlusion-gate.md`;
   regression reference **396/3/0 at 8 desync episodes** (`docs/regression-reference.md`; count
   episodes, not `ALARM latched` lines).
 - **Power:** `docs/android-performance.md`. Whoever touches the frame rate must move `motionThr` with it
@@ -167,9 +162,13 @@
   can lay anything out; an unmeasured cell shows `—`, not `0`. The chain has it as a rung between
   `export` and `matte`.
 - **Provenance, not existence:** `pass.json`, `model-reads.jsonl` and `matte.jsonl` carry `_source`
-  (`chesslab.provenance`); `chain.ts` compares. A file WITHOUT a stamp stays valid.
+  (`chesslab.provenance`); `chain_state` compares. A file WITHOUT a stamp stays valid.
+- **Freshness has ONE layer, `chesslab.provenance`:** `version`/`memo` for process caches,
+  `same_file`/`inputs_moved` for stored `ms:bytes`. No own mtime comparison
+  (`docs/architektur-review-python-2026-09-23.md` H3).
 - **`.export-running` blocks the follow-up steps** until a new export finishes (`session_store/log.py`,
-  `chain.ts`).
+  `chain_state`). `read_log` is for writers (stamp, empty log raises), `read_log_rows` for readers
+  (`[]`); both refuse under the marker.
 - **`log.jsonl` writers are stamp-guarded** in Python and web: `Contested` instead of overwriting.
 - **JSON trustee:** all `.json`/`.jsonl` I/O goes through `chesslab.ioutil`
   (`read_jsonl`, `write_rows`, `append_rows`, `*_guarded`), `platform/app/lib/jsonl.ts` +
@@ -181,6 +180,21 @@
   cache looks like a clean "no difference" (`docs/desktop-replay.md`).
 - **Temperature is read:** `calibratedConfThr` translates `cnnConfThr` through each model's T;
   `priorOnTempered` makes `prior_lambda` mean what it says (history: `docs/regression-reference.md`).
+
+## Web app -> Python worker
+- **No TS copy of Python/Kotlin logic:** routes ask ONE warm worker (`lib/py/worker.ts` ->
+  `chesslab.web_serve`, ops in `web_ops.py`, cuts in `web_cuts.py`, JPEG). Deadline 20 s.
+- **Windows DLL trap:** cv2 imported lazily inside an op thread hangs while stdin has a read
+  pending. Every module an op imports lazily belongs in `web_ops.preload`.
+- **Cuts run on 4 threads (`PARALLEL_OPS`), everything else in order.** An op that writes a file a
+  cut reads goes into `WRITE_OPS` — Windows refuses to replace an open file.
+- **HTTP errors only via `lib/http-error.ts`** (`respond` wraps every route): 400 `BadRequest`, 404
+  `NotFound`/ENOENT/Python `Missing`, 409 `Contested`/`Conflict`, else 500. A bare Python
+  `FileNotFoundError` is 500 — raise `Missing` only when the REQUESTED thing is absent
+  (`docs/web-architektur.md`).
+- **Every `matte.jsonl` writer holds `locks.matte_ledger`** (`mattes/.publish.lock`, briefly, not
+  re-entrant; batch writers wait 60 s, the pen 15 s, under the worker deadline). Locking is being
+  reworked (2026-09-26) — read `docs/session-mattes.md` §3 and the code before relying on it.
 
 ## Training: der Feed ist nicht mehr der Engpass
 - **`--num-workers 2`, not 8** (`config.DEFAULT_NUM_WORKERS` is still 8). Two are cold-safe; more
@@ -213,8 +227,7 @@
   stretches, never round-robin. **A section never pools its own mesh** — the parent computes it.
 - **Rotation:** OpenCV auto-rotates by metadata; `_combined_rotation` merges both, angles ADD.
 - **GPU does not help here** (OpenCL transfer, no hardware decode on this machine).
-- **Cached mesh map 23 -> 7 s: not re-measured** since `benchmark_export_warp.py` alternates order
-  (2026-09-23) — `docs/export-decode.md`.
+- **Cached mesh map 23 -> 7 s is an upper bound** (pre-ABBA run) — `docs/export-decode.md`.
 - **A second export run is faster without being better** (warm-started corners): never A/B two runs
   of the same session.
 

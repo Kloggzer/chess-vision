@@ -1,8 +1,8 @@
 # Architektur-Review Python: fuenf Hypothesen, was davon offen ist (2026-09-23)
 
 Quelle: externes Review (Codex). Jeder Befund wurde am Code belegt und mit einem Test festgehalten
-(`tests/test_bug_hunt_20260923_architektur.py`, `tests/test_bug_hunt_20260923_mattestand.py`,
-`platform/app/lib/chain-mattestand.test.ts`). Entscheidungen: `docs/offene-entscheidungen.md`,
+(`tests/test_bug_hunt_20260923_architektur.py`, `tests/test_bug_hunt_20260923_mattestand.py`;
+die Web-Seite rechnet seit `docs/web-ruft-python.md` Schritt 2 in `chain_state`). Entscheidungen: `docs/offene-entscheidungen.md`,
 A1–A5.
 Die Zahlen sind vom 2026-09-23, gezaehlt auf der Platte.
 
@@ -10,7 +10,7 @@ Die Zahlen sind vom 2026-09-23, gezaehlt auf der Platte.
 |---|---|---|
 | H2 | Settle-Daten ueberleben eine Geometrie-Reparatur | **offen**, geparkt (0 Faelle) |
 | H3 | vier Aktualitaets-Uhren | Matte/Profil behoben; Altbestand und Gegenrichtung offen |
-| H4 | Zellregel vor dem Training kopiert | behoben (`cell_rule.py`) |
+| H4 | Zellregel vor dem Training kopiert | behoben (`cell_rule.py`); A5 offen |
 | H5 | Schreibschutz pro Datei, nicht pro Sessionzustand | behoben (`908b6f78`) |
 | H6 | Temporal-Reihenfolge nur in `cli/session.py` | behoben; 63 Frames warten auf einen neuen Pass |
 
@@ -19,7 +19,7 @@ Die Zahlen sind vom 2026-09-23, gezaehlt auf der Platte.
 **Offen** (`test_rewritten_boards_drop_the_settle_measurement`, `xfail`). Nur
 `settle_scan_session` raeumt `settle_dev`/`settle_seen`/`settle_left`; `write_boards_session`,
 `fit_mesh_session`, `rewarp_boards_session`, `straighten_boards_session` und `adopt_corners` lassen
-sie stehen. `chain.ts::exportedSession` haelt die Sprosse `settle-scan` fuer erledigt, sobald EINE
+sie stehen. `chain_state` (`settled`) haelt die Sprosse `settle-scan` fuer erledigt, sobald EINE
 Zeile `settle_dev` traegt — nach einer Geometrie-Reparatur wird sie also uebersprungen. Ein
 Re-Export ist sauber (`REPAIRED_KEYS` traegt die Settle-Felder nicht).
 
@@ -31,7 +31,7 @@ darueber waere nur im Backup-Vergleich sichtbar.
 
 `provenance.session_stamp` (nur `log.jsonl`) stempelt Matte-Zeilen, `pass.json`,
 `model-reads.jsonl`; `temporal_flags.source_stamp` (Log, `session.yaml`, Bretter, Profil) stempelt
-Scan und Vorschlaege; `training.pack` hat eigene Fingerabdruecke fuer Packs.
+Scan und Vorschlaege; `training/packs.py` hat eigene Fingerabdruecke fuer Packs.
 
 - **Behoben:** `pass.json` traegt `_inputs` (`temporal_matte.pass_inputs`): `matte` als `ms:bytes`
   der `matte.jsonl` und `scan` = `source_stamp`. Getrennter Schluessel, damit `_source` seine Form
@@ -66,8 +66,7 @@ Scan und Vorschlaege; `training.pack` hat eigene Fingerabdruecke fuer Packs.
 ## H4 — die Zellregel ist im Training zentral, davor nicht
 
 **Behoben:** `chesslab/cell_rule.py` (torch-frei) haelt `PIECE_VISIBLE_MAX`, `CELL_DARK_MIN` und
-`classification_eligible`. **Offen, klein:** `matte.close_seams`/`recut_coverage` importieren
-weiter lokal aus `training/occlusion.py`; der torch-Import koennte dort entfallen.
+`classification_eligible`; `matte.py` importiert nichts mehr aus `training/`.
 
 **Offen als Entscheidung (A5):** die Leser vor dem Training (Slice, Position-/Audit-Flags,
 Temporal) begruenden "ohnehin maskiert" nur fuer die Vorgabe `hard`. Unter `--coverage-weight soft`

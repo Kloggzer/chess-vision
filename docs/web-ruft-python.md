@@ -20,7 +20,7 @@ Hitze: **Zelle** = je `<img>` im Raster (60 je Seite), **Liste** = je Aufnahme a
 | 7 | `chain/chain.ts` Provenienz: `stampOf`, `headerOf`, `stillCurrent`, `sameLog`, `passOf`, `sameFile`, `inputsMoved` (~110); `exportedSession` mit Literal `>= 5` | `chainState` -> `/`, `/reparatur`, `/api/chain`, `queues.ts` | **Liste** | `chain.test.ts` (kein gemeinsames Fixture) | `provenance.py` `same_log`, `check`, `inputs_moved` (erledigt: `chain_status`); `realgames/position.SETTLE_MIN_FRAMES = 5` |
 | 8 | `label/lanes.ts` `reachesPool` (440-448, "Spiegelt `slice_session`"), `visible` (340-344) | `openBoards`/`openCells` -> `/strom/labeln` | **Strom** | `lanes.test.ts` | `labeling._slice_session`; `cell_rule.classification_eligible` |
 | 9 | `corpus/pool.ts` `foldPool`, `dedupCorrections`, `sessionLogs` (~120 von 167) | `/corpus` | Seite | `pool.test.ts` (170) | `labeling.load_corrections` + Slice-Pool |
-| 10 | `lib/classes.ts` `IDENTITY_CLASSES`, `PIECE_VISIBLE_MAX` (34) | Palette (Client), Lanes, Korpus | Konstante | keiner | `config.IDENTITY_CLASSES`, `training/occlusion.PIECE_VISIBLE_MAX` |
+| 10 | `lib/classes.ts` `IDENTITY_CLASSES`, `PIECE_VISIBLE_MAX` (34) | Palette (Client), Lanes, Korpus | Konstante | keiner | `config.IDENTITY_CLASSES`, `cell_rule.PIECE_VISIBLE_MAX` |
 | 11 | `lib/fen.ts` `fenLabels` (27) | `components/board-paint.tsx` (**Client**), `label-stream`, `pool`, `history-load` | Strom | `fen-labels-parity.test.ts` + `tests/data/fen_labels_parity.json` | `state.GameState.label_for` |
 | 12 | `review-cards.ts` `REVIEW_SPREAD = 3` | Karten | Seite | `review-cards.test.ts` | `retime.REVIEW_CONTEXT + 1` |
 
@@ -129,7 +129,9 @@ Paritaetstests weniger; `chess.js` faellt als Abhaengigkeit.
 - **TS**: `lib/py/worker.ts` (neue Schicht `py` direkt ueber dem Kern, `service-deps.test.ts`),
   `lib/py/ops.ts` fuer die reinen Ops. Ein Worker je Prozess auf `globalThis`, ids, Zeitlimit
   (20 s, dann Kill und Neustart), Neustart nach Tod, `PyOpFailed` (Python lehnte ab) bzw.
-  `PyWorkerDown` (keiner antwortete, mit stderr-Schwanz) — die Routen antworten darauf 500.
+  `PyWorkerDown` (keiner antwortete, mit stderr-Schwanz) — die Routen antworten darauf 500, ausser
+  Pythons `Missing` (404); die Regel steht seit 2026-09-25 in `lib/http-error.ts`
+  (`docs/web-architektur.md`).
   `killTree` und `repoDir` liegen jetzt in `lib/py/worker.ts`, `chain/spawn.ts`/`cli-args.ts`
   reichen sie weiter.
 - **Start**: `.venv/Scripts/python.exe -c "from chesslab.web_serve import main; main()"` (seit
@@ -271,8 +273,9 @@ Paritaetstests weniger; `chess.js` faellt als Abhaengigkeit.
 - **JPEG statt WebP**: cv2 kodiert eine 128-px-Zelle in 0,04 ms statt 1,3 ms (720-px-Brett 1,1
   statt 39 ms), 4,3 statt 2,7 KB. Der Worker arbeitet seriell, der Kodierer war die halbe Seite
   (WebP: Seite warm 160 ms gegen 65 ms TS). `CUT_MIME` = `image/jpeg`.
-- **Vorwaermen**: `instrumentation.ts` ruft zusaetzlich `warm_cuts` (Import von cv2/`labeling`,
-  ~120 ms), sonst zahlt die erste Zelle ihn.
+- **Vorwaermen**: `instrumentation.ts` ruft zusaetzlich `warm_cuts`; die Importe (cv2,
+  `labeling`, ~120 ms) laedt `serve` vor der ersten Op ausser `ping` (`web_ops.preload`, siehe
+  "Paralleler Worker"), sonst zahlt die erste Zelle sie.
 
 **Latenz** (`/api/cell` und `/api/board` direkt ueber die Route-Handler, Aufnahme
 `2026-09-06-21-29-35`; Seite = 60 Zellen 128 px aus 22 Brettern, 6 parallel wie ein Browser;
@@ -321,11 +324,8 @@ Anfragen parallel an (cv2 gibt die GIL frei) — nicht Teil dieses Schritts.
   Arbeit in fremder Bearbeitung, also nur `frame_dirty`.
 - Kaltstart ohne Vorwaermen bleibt ueber den Zielen; mit `instrumentation.ts` siehe "Latenz".
 - Kalte Zellseite +40-100 ms gegen TS (serielles Dekodieren, s. Schritt 4).
-- Stale Verweise ausserhalb dieses Bereichs: `docs/data-pipeline.md` (Z. 77 `lib/crops.ts`
-  `cutSource`, Z. 162 `lib/warp.ts`), `docs/web-architektur.md` (Z. 11, 71 `crops`, `stored`,
-  `matte-fix`), Kommentare in `calibration.py` (`sampleBoxMesh`), `CropBox.kt`,
-  `MeshPointParityTest.kt`, `SquareGeometryParityTest.kt` und `square_geometry_parity.json`
-  (nennen `lib/warp.ts`/`square-geometry-parity.test.ts`).
+- Stale Verweis im Code: `SquareGeometryParityTest.kt` und `square_geometry_parity.json` nennen
+  noch `lib/square-geometry-parity.test.ts`.
 
 ## Latenz (2026-09-23)
 
@@ -351,12 +351,9 @@ Lesarten, 161 MB `model-reads.jsonl`, 868 928 Zeilen).
 
 **Was sich geaendert hat**
 
-- `stream_admission.read_cells`: ein Muster ueber die Bytes (die Zeilenform von
-  `occluded_model.read_session`), das nur gilt, wenn es JEDE Datenzeile trifft — sonst, und bei
-  halber letzter Zeile, Leerzeile, Kopf mittendrin, Escape, anderer Reihenfolge oder NaN, entscheidet
-  `iter_jsonl` wie bisher. Die Regel wird je (Coverage, Helligkeits-Token) EINMAL gerufen statt je
-  Zelle. Korpus: 0 Abweichungen gegen den JSON-Weg (83 471 gesperrte Zellen, 130 Bretter), keine
-  Datei faellt auf den JSON-Weg. Das Log liegt nicht mehr als Zeilenliste im Worker.
+- `stream_admission.read_cells`: die Regel wird je (Coverage, Helligkeits-Token) EINMAL gerufen
+  statt je Zelle; das Log liegt nicht mehr als Zeilenliste im Worker. (Ein Regex-Schnellweg ueber
+  die Bytes kam hier dazu und ist seit 2026-09-24 wieder weg, s. "Absicherung".)
 - `chain_state._stem` ohne `Path` (gleichwertig, 19 Randfaelle in `test_chain_state.py`).
 - Worker-Einstieg `chesslab.web_serve` (ohne `chesslab.cli`: 195 statt 220-236 ms Import), importiert
   `web_ops` vor der ersten Anfrage; Antwort ohne Leerzeichen (`separators`). `ping` meldet `cli`.
@@ -397,8 +394,10 @@ Aufruf neu — je rot.
 und `corpus_pool` (`labeling`) `cv2` und numpy. Jetzt erst in der Op, die sie braucht: Import 190-205
 -> 104-110 ms, 390 -> 200 Module; `ping` meldet `cv2: false` (`tests/test_web_worker.py`).
 
-**Paralleler Worker (2026-09-24)**: `cut_cell`/`cut_board`/`cut_matte` laufen auf 4 Threads
-(`web_ops.PARALLEL_OPS`, cv2 gibt den GIL frei), jede andere Op der Reihe nach auf einem. Antworten
+**Paralleler Worker (2026-09-24)**: `cut_cell`/`cut_board`/`cut_matte` laufen auf
+`web_serve.CUT_THREADS` = 4 Threads (`web_ops.PARALLEL_OPS`, cv2 gibt den GIL frei), jede andere Op
+der Reihe nach auf einem. Schnitt und Schreib-Op (`WRITE_OPS`: `pen`, `confirm`) ueberlappen in
+keiner Richtung — Windows verweigert das Ersetzen einer offenen Datei. Antworten
 kommen in Fertig-Reihenfolge, `worker.ts` ordnet ueber `id`. Frischer Worker, 60 Zellen aus 60
 kalten Brettern gleichzeitig: seriell 962-968 ms, parallel 274-286 ms; 64 Felder EINES Bretts
 72-74 gegen 69-70 ms (erst mit Single-Flight auf Log-Parsen und Dekodieren, vorher 188 ms).

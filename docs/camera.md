@@ -79,7 +79,8 @@ eine der Zahlen merklich bewegt.
 sqrt(N). `NoiseFloor` misst `busyLevel` ueber Paare ruhiger Bretter und schreibt es als `noise=` auf
 die Perf-Zeile. Median vor dem Umbau 1,09, danach 2,63 — **kein Gewinn sichtbar**; `busy` traegt
 Warp-Zittern, Schattendrift und Restbewegung, nicht Sensorrauschen. Bei ruhigem Brett ist
-`3 * busy` rund 1,0-1,2 und damit unter `ChangeEvidence.FLOOR_THR` 4,0; ein Rauschgewinn darunter
+`3 * busy` rund 1,0-1,2 und lag damit unter der Schwelle 4,0 der inzwischen entfernten
+`ChangeEvidence`-Engine (`d8453566`); ein Rauschgewinn darunter
 erreicht die Zugentscheidung nicht, er zahlt sich wenn ueberhaupt im CNN-Crop aus. Ein sauberer A/B
 (gleiche Stellung, mit und ohne `iso_exp_priority`) fehlt.
 
@@ -119,7 +120,7 @@ verworfen oder verdoppelt.
 ### Der Vorlauf-Ring
 
 Eine Aufnahme startet ARMIERT: Encoder laeuft, Muxer nie geoeffnet, Samples gehen in einen
-`PreRollRing` (`PRE_ROLL_SECONDS`, `PRE_ROLL_MAX_BYTES`). Erst `keep` (erster committeter Zug)
+`PreRollRing` (`PRE_ROLL_SECONDS`, `PRE_ROLL_CEILING_BYTES`). Erst `keep` (erster committeter Zug)
 oeffnet die Datei und schreibt den Ring mit auf null rebasierter PTS. Ein Lauf, der nie behalten
 wird, schreibt NICHTS — Aufbau und Kalibrierung waren am 2026-08-13/14 neun von elf Aufnahmen
 (4,7 GB). Ring und Live-Pfad teilen eine Uhr (`originUs`), an der Naht ueberlappt nichts. `keep`

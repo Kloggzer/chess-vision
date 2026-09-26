@@ -41,7 +41,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 - 27 Postgres: verworfen 2026-09-16 (Nutzer). Geparkt: `compose.yaml`, `db/schema/`,
   `tests/test_db_contract.py`; `data/pgdata` (47 MB) kann weg, sobald der Nutzer es sagt.
 - 28 Messung, dann Absage: gebaut, Commit `5c833c40`. **Regel:** `matte.jsonl` ist eine HISTORIE,
-  je FRAME gilt die juengere Zeile, auf beiden Seiten (`labeling.read_matte`, `lib/matte.ts`).
+  je FRAME gilt die juengere Zeile, auf beiden Seiten (`labeling.read_matte`, `lib/session-store/matte.ts`).
   Eine Zeile ohne `coverage` ist SAMs Absage — sie loescht eine fruehere Messung, der Frame ist
   danach ungemessen, nicht sauber.
 - 29 `recut_coverage` las das falsche Alpha: gefixt und repariert 2026-09-16 (139 Zeilen); vor dem
@@ -66,7 +66,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 - A3 Schreibschutz je Datei: gebaut 2026-09-23 — `_write_log` bewacht (`write_rows_guarded`,
   `Contested`), der Export traegt `HUMAN_KEYS = ("unusable",)` und verweigert mit
   `VerdictsWouldDrop`, wenn ein Urteil auf einem nicht mehr gewaehlten Frame laege
-  (`--drop-verdicts` nur ausdruecklich); `trim_session` schreibt erst das Log; `lib/frame-flag.ts`
+  (`--drop-verdicts` nur ausdruecklich); `trim_session` schreibt erst das Log; `lib/session-store/frame-flag.ts`
   schreibt bewacht (409). `upsert_proposals` stagt wie `close_seams`.
 - A5 `PIECE_VISIBLE_MAX` in `chesslab/cell_rule.py` haelt die Regel torch-frei.
   Neu zu entscheiden erst, wenn `--coverage-weight soft` Vorgabe werden soll (26 357 Matte-Zellen
@@ -78,14 +78,16 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
   Sprosse `confirm` wieder; ohne Stempel gilt `confirmRefUnknown`.
 - W4–W5 Meldung/Widerruf und abgebrochener Export (2026-09-23): `adopt_reported_dirty` gleicht in
   beide Richtungen ab, `dirty_source=reported` wird abgeleitet, nicht getragen; unter
-  `.export-running` wirft jedes `read_log` `ExportInterrupted` (Ausnahme `under_export=True`:
-  `rewarp`, `write-boards`, `flag_frame`). Rest: Korpus-Berichte (`position-flags`, `frame_hands`)
-  brechen an EINER abgebrochenen Aufnahme ab; `hand_gate.gate_session` prueft den Marker nicht.
+  `.export-running` wirft jedes `read_log`/`read_log_rows` `ExportInterrupted` (Ausnahme
+  `under_export=True`: `rewarp`, `write-boards`, `flag_frame`); `position-flags` und `frame_hands`
+  ueberspringen die Aufnahme und nennen sie. Rest: `hand_gate.gate_rows` liest das Log roh und
+  prueft den Marker nicht.
 - Sekundenachse in `docs/tracker-flow.md`: neu gemessen 2026-09-22, Aussage zu
   `cnnCooldownS` haelt.
-- Leser-Ratsche ueber den Syntaxbaum statt `splitlines()`: gebaut 2026-09-17.
+- Leser-Ratsche ueber den Syntaxbaum statt `splitlines()`: gebaut 2026-09-17. `tests/json_doors.txt`
+  sieht seit dem Umbau auf den Syntaxbaum auch den Anhaenge-Modus; roh `"a"` oeffnet nur noch `ioutil`.
 - Neun `xfail(strict)` warten weiter auf ein menschliches Ja zur Verhaltensaenderung.
-- Vertauschter Aufbau b8/c8 und f1/g1: 239 Korrekturen 2026-09-17, Wache `lib/setup-swap.ts` (sie
+- Vertauschter Aufbau b8/c8 und f1/g1: 239 Korrekturen 2026-09-17, Wache `lib/label/setup-swap.ts` (sie
   nennt die Felder, die eine Aufnahme durchgehend anders fuehrt). Unbeurteilt bleibt
   `2026-08-08-11-59-12` g7 (FEN `bB`, Modell 98 % `bP`).
 - Held-out-Labelaudit (09-17/18): kein Labelfehler auf den Aufnahmen (733 von 739 gesichtet),
@@ -246,15 +248,6 @@ Sprachen) oder die Regel "ein Pfad, ein Schreiber".
 `per_position: 16` nachtragen (schreibt in `data/`, braucht ein Ja) — oder `--like` auf einem
 Spender ohne den Schluessel verweigern wie beim `blind`-Riegel.
 
-## Die Ratsche `tests/json_doors.txt` sieht den Anhaenge-Modus nicht (2026-09-22)
-
-`doors_in` kennt `"a"` nicht und prueft je ZEILE, sieht also auch ein mehrzeiliges
-`path.open(\n "a", ...)` nicht. Rohe Anhaenge offen in `session_writer.py` (`log.jsonl`),
-`training/train.py` (`metrics.jsonl`), `scripts/fix_ply_offset.py`; `matte.alpha_worker` und
-`sessions._record_archive_reason` sind umgestellt. Bei `os._exit` sind abgerissene Schwaenze der
-Normalfall (4 von 1 536 `.jsonl` auf Puffergrenzen). **Empfehlung:** Syntaxbaum statt Zeilen-Regex,
-mit Gegenprobe fuer beide Formen, und die drei Stellen gleichzeitig auf `append_rows`.
-
 ## `split-f*.json` nach `drop_dead_rows`: nachziehbar ist nur, was das Manifest deckt
 
 `drop_dead_rows.py` rechnet Split-Dateien seit 2026-09-22 neu (bitgleich, wenn nichts fehlt). Die
@@ -388,7 +381,7 @@ deshalb kein Fix (er kostete jedem Frame seine Messung). Festgehalten als `xfail
 **Wird die Zahl nicht mehr 0, bauen** — als Raeumen plus Knopf an der Kette.
 
 **A2 — `pass.json` und der Scan haben verschiedene Uhren.** Gebaut: `pass.json` traegt `_inputs`
-(`matte`, `scan`), `chain.ts::inputsMoved` prueft; Altbestand (alle 27) gilt als "Stand unbekannt".
+(`matte`, `scan`), `provenance.inputs_moved` prueft (Kette und `check` gleich); Altbestand (alle 27) gilt als "Stand unbekannt".
 **Zu entscheiden:** (a) `recut-coverage --all` (rechnet Drift nach, stempelt 8 554 Matte-Zeilen
 ohne `_source`; aendert Trainings-Coverage, also mit Datensatz-Neubau); (b) Profil in
 `provenance.source` aufnehmen.
@@ -412,8 +405,8 @@ Die Fixes stehen unter Erledigt. Offen:
 - `pack_dataset_sessions.py`: die Mtime gegen das Spender-Manifest bleibt fuer PIXEL und meldet
   nach einem Umhaengen (v6) `STALE?` falsch. **Zu entscheiden:** Export-Stempel der `log.jsonl` in
   den Pack (wie `ledgers.json`), dann faellt die Mtime.
-- Die Zahlen in `docs/training-speed.md` ("fused saved too little"),
-  `docs/training-speed.md` und CLAUDE.md (Export 23 -> 7 s) stammen aus Laeufen vor ABBA.
+- Die Zahlen in `docs/training-speed.md` ("fused saved too little") und CLAUDE.md (Export
+  23 -> 7 s) stammen aus Laeufen vor ABBA.
 
 ## N1–N3. Die Naht `core-engine` / `tracker-runtime` (2026-09-21, nicht gebaut)
 

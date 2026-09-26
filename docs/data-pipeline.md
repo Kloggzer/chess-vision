@@ -95,7 +95,7 @@ and an undistorted set.
   `realgames.grid_line_fracs`, `LensModel.from_receipt`); no `lens.json` does.
 - **Re-export moves the matte's basis.** The stored `coverage` is a snapshot from matting; a
   re-export shifts the corners and the number stays. `occluders recut-coverage --all` recomputes
-  it, and the `_source` stamp on `matte.jsonl` rows lets `chain.ts` reopen the step.
+  it, and the `_source` stamp on `matte.jsonl` rows lets the chain (`chain_state`) reopen the step.
 
 ---
 
@@ -265,7 +265,7 @@ uv run chesslab dataset build <name> --sessions s1,s2 --from-packs --pack-size 8
   which slices its own pool first — a stale `crops/default` alone produced 5,357 rows difference).
 - **`gradcam` and the legacy `scripts/*.py` readers cannot read a pack-built dataset**;
   `load_packed` refuses it by name instead of serving wrong pixels. `train` and `eval` go through
-  `training.pack.resolve_dataset_packs`.
+  `training.packs.resolve_dataset_packs`.
 
 ---
 
@@ -475,7 +475,7 @@ Keys in a run's `config.json`, deliberately separate (`specs/22`, `specs/45`):
   model's serving resolution = edit `infer_size`, re-export, ship.
 - **`pad_side`** (since 2026-08-06) — what the crop CONTAINS, in cells around the square. Written
   by `train` from the dataset's rows (a dataset whose sessions disagree declares nothing); read by
-  `serving.run_spec` → `crops_for_model` and by the app's `ModelSpec` → `withCropOf`. Absence
+  `serving.run_spec` (`RunSpec.pad_side`) and by the app's `ModelSpec` → `withCropOf`. Absence
   means **legacy**, never a default, and the consumer says so (`[LEGACY]`, `declaredPads: null`).
   `config.CROP.pad_side` and the Android mirrors are 0.05; a profile STORED earlier may still say
   0.10, and only the model's declaration overrides it.

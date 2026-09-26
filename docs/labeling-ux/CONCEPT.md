@@ -25,7 +25,7 @@ Each of these was paid for with a measurement or a complaint:
 
 - **Cell grids group by square, not by score** — score order scattered a square's crops over six
   pages (*"ich sehe immer noch alte Bilder"*, 2026-08-09).
-- **Flags are a selection** (`lib/selection.ts`): confirm commits what is shown, not what was
+- **Flags are a selection** (`lib/label/selection.ts`): confirm commits what is shown, not what was
   proposed.
 - **`judged` bright vs dim** — the board never implies untouched cells were reviewed.
 - **Two ledgers** — `reviewed` must not pollute `corrections.jsonl`, a global training input.
@@ -93,7 +93,7 @@ human re-learns lighting and camera at every switch. Balance is a selection prob
 bookmark work). Since 2026-09-07 they are cut by the QUESTION, not by the producer (*"ich verstehe
 die schon gar nicht mehr"*): `Strittig` (cells: audit, model ≠ FEN including the `Klassenwand`
 query, position, hand; anything over `PIECE_VISIBLE_MAX` drops out because the loss masks it
-anyway), `Stichprobe`, `Bretter` (every board), and the frame lane (`lib/lanes.ts`).
+anyway), `Stichprobe`, `Bretter` (every board), and the frame lane (`lib/label/lanes.ts`).
 
 - **The chip prints one number**; unit and denominator sit in its tooltip.
 - **An unavailable lane shows `—`, never `0`.** `0` claims there is no such work; `—` says the

@@ -2,20 +2,20 @@
 
 ## 1. Die vier `pack`-Artefakte
 
-Vier Dinge heissen `pack`, jedes mit eigener `manifest.jsonl`; zwei trennt **ein Buchstabe im
-Modulnamen** (`training/pack.py` gegen `training/packs.py`). Die Module werden nicht umbenannt —
-die Namen unten gelten in Doku, Commits und Gespräch.
+Vier Dinge heissen `pack`, jedes mit eigener `manifest.jsonl`. Die Namen unten gelten in Doku,
+Commits und Gespräch. Gelesen wird jeder Memmap-Pack über `training/packs.py` (die eine
+Leseschicht, `docs/python-architektur.md`).
 
 | Name | Liegt in | Modul |
 |---|---|---|
-| **Datensatz-Pack** | `data/datasets/<name>/` | `training/pack.py` |
-| **Session-Pack** | `data/packs/<session>-<size>/` | `training/packs.py`, `pack_session.py` |
+| **Datensatz-Pack** | `data/datasets/<name>/` | `training/pack_dataset.py` |
+| **Session-Pack** | `data/packs/<session>-<size>/` | `training/pack_session.py` |
 | **Kotlin-Pack** | `data/realgames/<n>/training-pack/` | `desktop/LabeledVideoPack.kt` |
 | **Crop-Pool** | `data/crops/<tag>/` | `labeling.py` |
 
 Geschrieben von `chesslab dataset build`, `chesslab session pack`, `labeled-video-pack` (Desktop)
 und `chesslab slice`; gelesen von `PackedSquareDataset`, `MultiPack`/`--from-packs`,
-`chesslab pack import`/`lib/packs.ts` und vom Menschen (Labeling-Lane) bzw. `dataset build`.
+`chesslab pack import`/`lib/corpus/packs.ts` und vom Menschen (Labeling-Lane) bzw. `dataset build`.
 
 - **Der Crop-Pool ist der einzige mit echten Dateien** (`<label>/*.webp`, 128 px) — das Artefakt
   für den MENSCHEN. Die drei anderen sind Memmaps für das Modell.
@@ -25,9 +25,6 @@ und `chesslab slice`; gelesen von `PackedSquareDataset`, `MultiPack`/`--from-pac
   Datensatz zitiert ihn, statt die Pixel zu kopieren.
 - **Kotlin-Pack**: dasselbe `mm://`-Format, ohne `-<size>`-Suffix, mit `summary.json` daneben.
   `data/realgames/` existiert nicht mehr (2026-09-22) — die Zeile beschreibt das Format.
-- **Falle:** `training/packs.py` importiert `_manifest_digest` aus `training/pack.py`. Wer die
-  beiden verwechselt, findet eine Funktion desselben Namens, die auf einer anderen
-  `manifest.jsonl` rechnet.
 
 ## 2. Session-Packs: jede Aufnahme einmal, jeder Datensatz nur ein Zitat (2026-09-11)
 
@@ -40,7 +37,7 @@ unter `data/packs/<session>-<größe>/`; drei Datensatz-Varianten kosten 1 GB st
 | Aufnahme | Schreiber | Pixelquelle |
 |---|---|---|
 | `rg-…` mit `boards/` | `pack_session.write_session_pack` | Brett, über `crop_square` |
-| `comp-…` (nur Pool) | `pack_session.write_pool_pack` | `pack.decode_crop` auf die Pool-`.webp` |
+| `comp-…` (nur Pool) | `pack_session.write_pool_pack` | `pack_dataset.decode_crop` auf die Pool-`.webp` |
 
 - Für ein Komposit ist der Pool die Quelle — „beide aus der Quelle schneiden“ ist eingehalten.
 - **Der Pool muss benannt werden** (`--pool`): 104 von 160 Aufnahmen liegen in mehr als einem Pool,
@@ -49,7 +46,7 @@ unter `data/packs/<session>-<größe>/`; drei Datensatz-Varianten kosten 1 GB st
 - **Der Pack friert ein, was der Slice skaliert hat**: Kompositen mit `board_size` 656/672 haben
   eine Crop-Box von 90–92 px und sind bei 128 px **1,4× hochinterpoliert** — 105 152 Zeilen, 12,5 %.
   Keine neue Verschlechterung (der Monolith trug dieselben Bytes), aber wer sie aus der Quelle neu
-  schneiden will (`pack.pack_from_source`, ohne Aufrufer), muss die Packs neu schreiben.
+  schneiden will, muss die Packs neu schreiben.
 
 ### Bitgleich zum Monolithen
 
@@ -96,7 +93,7 @@ genommen. (Geparkt unter `data/_parked/`, frisch neu geschrieben.)
 
 - **Nach jedem Re-Slice einer Aufnahme deren Packs wegwerfen und neu schreiben**
   (`chesslab session pack --replace`). Ein Pack ist unveränderlich, einen Mittelweg gibt es nicht.
-- Gehütet wird seit 2026-09-20 über `_rewritten_since_pack` (`training/pack.py`): `(mtime, size)`
+- Gehütet wird seit 2026-09-20 über `_rewritten_since_pack` (`training/packs.py`): `(mtime, size)`
   jedes Crops gegen `crop_fingerprint` aus `packed_meta`. **Blind** bei `mm://`-Zeilen (keine Datei)
   und bei Altpacks ohne Fingerabdruck.
 - `scripts/pack_dataset_sessions.py` meldet Packs, die älter sind als das Spender-Manifest, als

@@ -229,10 +229,8 @@ The details and the traps: [`docs/data-pipeline.md`](docs/data-pipeline.md) §1.
 optics are measured from the footage itself when they are wanted at all, by
 `android :desktop undistort`, which writes the model beside the frames as `lens.json`.
 
-Python's `chesslab lens` went on 2026-08-21 with the whole `data/lens/calib.npz` path (1 159 lines
-plus 713 of tests). It solved intrinsics from many board POSES, which a camera on a fixed mount
-cannot supply — it refused for that reason and had never once run on this machine. What replaced it
-is `calibration.LensModel.from_receipt`, thirteen lines that read Kotlin's `lens.json`.
+Python reads that model through `calibration.LensModel.from_receipt` (Python's own `chesslab lens`
+was deleted on 2026-08-21: a fixed mount cannot supply the board poses it needed).
 
 Whether the optics are worth applying at all was settled by measurement, not by argument: in the
 composed warp they take the residual bow from 1.91 px to 1.64 px on a 116 px cell, and a blind A/B
@@ -271,9 +269,8 @@ Output is `data/crops/default/<class>/…webp` plus one manifest line per crop i
 `data/crops/default/manifest.jsonl` — a pool describes itself, and `--variant-tag X` puts both
 under `data/crops/X/`.
 
-The capture rig (`chesslab collect` and its OpenCV dashboard) was **deleted on 2026-08-20**:
-every session now arrives from the phone tracker or from `chesslab ingest`. `SessionWriter`,
-the one piece worth keeping, lives on in `src/chesslab/session_writer.py`.
+Every session arrives from the phone tracker or from `chesslab ingest` (the local capture rig is
+gone since 2026-08-20; `src/chesslab/session_writer.py` survived it).
 
 ### Datasets
 
@@ -362,11 +359,11 @@ in reverse.
 
 ## The web UI
 
-Being rebuilt. The FastAPI + React UI was deleted on 2026-08-07 together with the Python
-tracker: everything it could still do that the CLI could not is now a command
-(`chesslab session scan | autofix | adopt | flag | review | archive | restore | trim`),
-except placing board corners by hand, which needs an image to click on and comes back with the
-new one.
+`platform/app` (Next.js, [`platform/app/README.md`](platform/app/README.md)): the chain as buttons,
+the labeling streams, confirm and the matte pen. It starts jobs as CLI processes and asks one warm
+Python worker (`chesslab web-worker`) for every domain rule instead of rebuilding it
+([`docs/web-ruft-python.md`](docs/web-ruft-python.md)). Geometry repair stays on the CLI
+(`chesslab session scan | autofix | adopt | flag | archive | restore | trim`).
 
 ## Recordings from the phone, over Wi-Fi
 

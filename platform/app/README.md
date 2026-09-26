@@ -1,7 +1,8 @@
 # chesslab platform app — labeling front-end
 
-Local Next.js front-end for `data/recordings/` (specs/53 phase 03). Nothing here imports chesslab;
-the file formats are the only bridge.
+Local Next.js front-end for `data/recordings/` (specs/53 phase 03). Nothing here imports chesslab:
+jobs run as CLI processes, domain rules (LCS, chain state, stream admission, pool, cell cuts, the
+matte pen) are answered by one warm Python worker (`docs/web-ruft-python.md`).
 
 **A recording is one folder, and everything that only says something about it lives inside** — the
 import (`candidate.json`, `video.mp4`, `files/`, `review/`, `review-extra/`), what was cut from it
@@ -13,10 +14,11 @@ this app touches only `data/labels/review-notes.jsonl` and its own `data/inbox/`
 
 1. `echo CHESSLAB_DATA_DIR=C:/Users/<you>/project/chess-vision/data > .env.local` (absolute path to `data/`).
 2. `npm install && npm run dev` → http://localhost:3000 lists the candidates.
-3. `/confirm/<name>` compares `candidate.json` against `reference.pgn` (LCS over SANs, mirroring
-   `src/chesslab/realgames/confirm.py:lcs_report`) and shows the unmatched plies with their review frame.
-4. Confirm writes `confirmed` / `confirmed_at` / `reviewed_plies` into `candidate.json` — atomically,
-   touching nothing else. `npm run lint`, `npx tsc --noEmit`, `npm test` are the gate.
+3. `/confirm/<name>` compares `candidate.json` against `reference.pgn` (LCS over SANs, computed by
+   the worker op `lcs_report` = `realgames/confirm.py`) and shows the unmatched plies with their review frame.
+4. Confirm writes `confirmed` / `confirmed_at` / `reviewed_plies` into `candidate.json` through the
+   worker op `confirm` — atomically, stamp-guarded, touching nothing else. `npm run lint`,
+   `npx tsc --noEmit`, `npm test` are the gate.
 
 ## `/strom/einpflegen` — every recording by the step it waits for
 
@@ -62,7 +64,7 @@ Zwei Urteile, verschieden schwer. **⏎ matten lassen** schreibt `matte-wanted` 
 `review-notes.jsonl`; `chesslab occluders alpha-worker <name> --wanted` holt genau diese Stems
 (`alpha_worker(frames=…)` übergeht beide Filter), und ab der Matte sind die Crops Sache der
 Strittig-Lane. **unbrauchbar** setzt `unusable` auf der Log-Zeile (`lib/session-store/frame-flag.ts`: Sicherung,
-dann tmp+rename wie `sessions._write_log`) — `slice_session` und `alpha_worker` überspringen die
+dann tmp+rename wie `session_store.log._write_log`) — `slice_session` und `alpha_worker` überspringen die
 Zeile beide, und `loadLabelStream` nimmt sie aus dem Strom. Ein Frame verlässt die Lane mit jedem
 der beiden Urteile, und auch dann, wenn eine Matte da ist. Beides über `POST /api/frame-verdict`.
 
@@ -74,7 +76,7 @@ zurück. NICHT in `corrections.jsonl`: dort ist jede Zeile eine der 13 Identitä
 und `iter_session_crops` macht aus einer markierten Zelle keine Manifest-Zeile mehr.
 
 - Corrections go out through `POST /api/corrections` — appended to that recording's own
-  `data/recordings/<name>/corrections.jsonl` in the schema of `specs/53-cnn-headroom/entry.md`.
+  `data/recordings/<name>/corrections.jsonl` (read by `labeling.load_corrections`).
   The rows stay a **global training input** (park them between experiments); only the file moved
   next to the recording it judges, so a re-slice can never carry a human's ruling away. It holds
   identity labels only, and the writer validates rather than trusting the client.
@@ -83,8 +85,7 @@ und `iter_session_crops` macht aus einer markierten Zelle keine Manifest-Zeile m
   stored board with `labeling.crop_square` — a cell IS the training crop. A bundle without
   `log.jsonl` falls back to the phone's JPEGs (`files/sessions/`).
 - Without `model-reads.jsonl` a session is NOT MEASURED: the identity lanes print `—` with the
-  reason, never `0`. One session of 43 carries reads (2026-08-19); a corpus-wide run waits on a
-  retrained model.
+  reason, never `0` (27 of 51 recordings carried reads on 2026-09-23).
 
 ## `/transfers` — the phone's recordings arrive by themselves
 
@@ -124,13 +125,13 @@ with one sentence beside it saying what the step does (`app/chain-actions.tsx`, 
 the state), so a stale tab cannot export an unconfirmed candidate. `{step: "adopt-pgn"}` copies a
 transferred phone game's `.pgn` in as `reference.pgn` — never over an existing one.
 
-The two chesslab steps are spawned as a CLI (`uv`, or `CHESSLAB_UV`), never imported: the file
-formats stay the only bridge. They share the packs' single-slot queue — same machine, same CPU.
+The two chesslab steps are spawned as a CLI (`uv`, or `CHESSLAB_UV`), never imported. They share
+the packs' single-slot queue — same machine, same CPU.
 
 Questions a request waits on go to ONE warm Python per server, `chesslab web-worker` (JSON lines,
 `lib/py/worker.ts`), started from `<repo>/.venv` or `CHESSLAB_PYTHON` — the web app asks Python
 instead of rebuilding it (`docs/web-ruft-python.md`). A dead worker is a 500 with its reason, never a
-silent TS fallback.
+silent TS fallback; the HTTP mapping of every route error is `lib/http-error.ts`.
 
 While a job runs the card polls `GET /api/chain/<name>/progress` every two seconds and shows what
 the tool has actually reached: its position in the recording (against `video_duration_ns` from the
@@ -179,7 +180,7 @@ starting the dev server must not touch the corpus.
   a `chesslab` run started in a terminal is visible there, not silently overrun.
 
 `slice`, `dataset build` and `train` are **not** in this vocabulary, and the slot stays a single
-serialized promise chain — the same one worker `lib/chain/jobs.ts` has always had.
+serialized promise chain (`lib/chain/slot.ts`).
 
 ## The queues, and "nutzlos"
 

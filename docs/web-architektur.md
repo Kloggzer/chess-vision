@@ -14,7 +14,7 @@ schrieb, baute sich den Pfad selbst, und zwei Seiten/Routen gingen direkt an `no
 | LabelService | `lib/label/` | Lanes, Strom, Seiten, Karten, Historie — fast alles rein (Client-tauglich) |
 | Corpus | `lib/corpus/` | Datensaetze, Pool, Packs, Perf, Provenienz |
 | Reports | `lib/reports/` | die READ-ONLY-Berichte unter `data/reports/` (`audit-flags`, `hand-flags`, ...) |
-| Kern | `lib/*.ts` | Politik und reine Helfer: `atomic`, `jsonl`, `measurement`, `serialize`, `warp`, `fen`, `classes`, `query`, ... |
+| Kern | `lib/*.ts` | Politik und reine Helfer: `atomic`, `jsonl`, `measurement`, `http-error`, `serialize`, `fen`, `classes`, `query`, ... |
 | py | `lib/py/` | der warme Python-Worker (`worker.ts`) und seine reinen Ops (`ops.ts`) |
 
 Abhaengigkeiten laufen abwaerts, festgeschrieben seit Runde 3 (`lib/service-deps.test.ts`):
@@ -24,10 +24,11 @@ Geschwister und kennen einander nicht; `lib/` importiert nichts aus `app/`/`comp
 neuer Ordner unter `lib/` braucht eine Schicht. Derselbe Waechter verbietet Importzyklen in `lib/`,
 seit Runde 4 auch ueber `app/` und `components/` (samt dem, was sie aus `lib/` ziehen).
 
-**Fachregeln rechnet Python, nicht die Web-App** (`docs/web-ruft-python.md`, Stand Schritt 3): LCS,
+**Fachregeln rechnet Python, nicht die Web-App** (`docs/web-ruft-python.md`, Schritte 0-5): LCS,
 Referenz und Bestaetigung, Kettenstand (`chain_status`: Export, Matte-Census, Herkunftsstempel,
 `confirmedAgainst`), Zulassung im Strom (`admission`: `frame_dirty`, `classification_eligible`) und der
-Korpus-Pool. Die Services lesen dafuer nicht selbst, sie fragen den Worker — gebuendelt je Seite.
+Korpus-Pool, dazu Zellen, Bretter und Matten schneiden (`web_cuts.py`, JPEG) und der Matte-Stift
+(`pen`). Die Services lesen dafuer nicht selbst, sie fragen den Worker — gebuendelt je Seite.
 
 ## Regeln und ihre Waechter
 
@@ -48,12 +49,16 @@ Korpus-Pool. Die Services lesen dafuer nicht selbst, sie fragen den Worker — g
   die Fehlerklassen (`Contested`, `isMissing`, `absentOnly`). Waechter: `lib/route-boundary.test.ts`.
   Umgestellt: `POST /api/pgn` (Logik jetzt `session-store/reference.ts#saveReference`), die
   Confirm-Seite (`readReferenceBytes`), die Board-Route (`hasExport`).
-- **HTTP-Fehler an EINER Stelle** (`lib/http-error.ts`, 2026-09-25): `BadRequest` -> 400, `NotFound`,
-  ENOENT und Pythons `Missing` -> 404, `Contested` -> 409, alles andere (auch `PyWorkerDown` und ein
-  nackter `FileNotFoundError` aus Python — eine interne Datei fehlt) -> 500. `Missing` werfen nur die
-  Eingaenge in `web_ops.py`/`web_cuts.py` (Aufnahme, Frame, Alpha, Kandidat). `startDrain` meldet
-  nur Absagen als 409. Bewusst ausserhalb: `api/ingest/**` (Handy liest den Status). Waechter:
-  `lib/qa-20260925-offen-*.test.ts`, `tests/test_qa_20260925_offen.py`.
+- **HTTP-Fehler an EINER Stelle** (`lib/http-error.ts`, 2026-09-25): jede Route hat `respond(work,
+  onError)` als Rumpf. `BadRequest` -> 400, `NotFound`, ENOENT und Pythons `Missing` -> 404,
+  `Contested` und `Conflict` (Slot, Sperre) -> 409, alles andere (auch `PyWorkerDown` und ein nackter
+  `FileNotFoundError` aus Python — eine interne Datei fehlt) -> 500. `Missing` werfen nur die
+  Eingaenge in `web_ops.py`/`web_cuts.py` (Aufnahme, Frame, Kandidat); beim Alpha nur, wenn SAM den
+  Frame nie gemessen hat — gemessen, aber Datei weg ist 500 (`web_cuts._no_alpha`). `startDrain`
+  meldet nur Absagen als 409; eine gescheiterte `heavy.lock`-Freigabe wird laut (`chain/heavy-lock.ts`
+  `releaseAfter`, `lockRefusal`). Bewusst ausserhalb: `api/ingest/**` (Handy liest den Status).
+  Waechter: `lib/qa-20260925-offen-*.test.ts`, `lib/qa-20260926-*.test.ts`,
+  `tests/test_qa_20260925_offen.py`, `tests/test_qa_20260926_web.py`.
 - Lesen weiter ueber `lib/jsonl.ts`, Schreiben ueber `lib/atomic.ts` mit Stempel-Riegel,
   ENOENT ueber `lib/measurement.ts` — die Ratschen (`*.txt`) zogen beim Umzug nur die Pfade mit.
 - `lib/client-boundary.test.ts` kennt Module jetzt am Pfad unter `lib/` statt am Dateinamen —
@@ -125,9 +130,6 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
   ohne DOM-Testbibliothek nicht absicherbar, deshalb geblieben. `FailureLine`, `MissingBox` und
   `JobBadge` sind je EINE Komponente (`components/`); `crop-grid.tsx` hat noch einen eigenen
   "Crop fehlt"-Kasten, die Kopfleisten in `app/strom/**` sind leicht auseinandergelaufen.
-- `chain/chain.ts` nennt `log`/`matte`/`modelReads` weiter ueber `recordingFile` zum Stempeln.
 - Ein Service-Eingang je Ordner (`lib/session-store/index.ts`) erst, wenn die Waechter auf den
   Ordner statt auf Dateien zeigen koennen — heute pruefen sie Dateipfade.
 - Die Ratschen-Listen tragen weiter Einzeldateien; nach dem Umzug lohnt eine Zaehlung je Service.
-- `docs/` ausserhalb dieser Datei nennt vereinzelt alte Pfade (`lib/data.ts`, `lib/lanes.ts`,
-  `lib/jobs.ts::packArgs` in `phone-transfer.md` — heute `lib/chain/cli-args.ts`).

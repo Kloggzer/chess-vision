@@ -74,6 +74,8 @@ statt Union.
 Umbenennen, nie um SAM; Pixel erst nach ihrer Zeile, ein gescheitertes Umbenennen nimmt die Zeile
 zurueck. Der Worker haelt kein Append-Handle mehr offen (Windows verweigerte das Ersetzen).
 Der Web-Stift haelt ihn um `.fixed.webp`, `recut_fixed` prueft darunter die gelesenen Pixel erneut; Web-Schnitte bleiben draussen.
+Warten: Batch-Schreiber 60 s, der Stift 15 s (`web_cuts.PEN_LOCK_SECONDS`, unter der 20-s-Frist des
+Web-Workers — die Route soll die Absage sehen, keinen toten Worker). Stand 2026-09-26 im Umbau.
 
 **SAMs Absage ist kein sauberes Brett.** Eine `matte.jsonl`-Zeile mit `skipped` (`zone too big`)
 trägt WEDER `concepts` NOCH `coverage`. Zweimal als "nichts gefunden" gelesen: `gate_label` lehrte
@@ -109,7 +111,8 @@ dazwischen kein Lehrer. `skipped`-Zeilen sind ungemessen, nicht frei (§3).
   Veto zählt der Recall: `pick_threshold` nimmt die höchste Schwelle, die ihn hält. Gespeichert wird
   die Epoche mit dem besten `gate_score`, die letzte als `last.pt` daneben.
 
-**Ergebnis** (`mobilenetv4_conv_small` @ 640 px, vier zurückgehaltene Sessions, 2 641 Bretter):
+**Ergebnis des ersten Schülers** (`mobilenetv4_conv_small` @ 640 px, vier zurückgehaltene Sessions, 2 641 Bretter;
+ausgeliefert ist seit 2026-09-16 `hand_gate.DEFAULT_GATE` = `mnv3s-448-v3`, `docs/offene-entscheidungen.md` Punkt 15):
 Veto-Recall 1,0000 bei 5 von 994 sauberen Brettern verworfen; Felder über `PIECE_VISIBLE_MAX`
 Recall 0,9852, Präzision 0,9810; Coverage-MAE 0,0042 (der Occlusion-Kopf des Zell-Klassifikators:
 0,0162); **2,1 ms je Brett** gebatcht gegen SAMs 2,76 s. Im Frame-Scan 9,0 ms je Frame.
