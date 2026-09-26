@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
 import { BadRequest } from "@/lib/http-error";
+import { absentOnly } from "@/lib/measurement";
 import { gameDir } from "@/lib/session-store/recordings";
 import { serialize } from "@/lib/serialize";
 
@@ -22,14 +23,9 @@ const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 
 /** The record on disk, undone ones included — null when nobody ever flagged this game. */
 export async function readUseless(name: string): Promise<UselessFlag | null> {
-  try {
-    return JSON.parse(await readFile(path.join(gameDir(name), FILE), "utf8")) as UselessFlag;
-  } catch (e) {
-    // Ein Fehler beim Nachsehen ist kein Urteil: alles zu fangen las eine kaputte Datei als "nie
-    // geflaggt", die Kette lief wieder an, und `setUseless(false)` fiel auf `!current` lautlos aus.
-    if ((e as { code?: string })?.code === "ENOENT") return null;
-    throw e;
-  }
+  // Ein Fehler beim Nachsehen ist kein Urteil: eine kaputte Datei als "nie geflaggt" liess die Kette anlaufen.
+  const text = await readFile(path.join(gameDir(name), FILE), "utf8").catch(absentOnly);
+  return text === null ? null : (JSON.parse(text) as UselessFlag);
 }
 
 /** The flag as the UI means it: set, and not taken back. */

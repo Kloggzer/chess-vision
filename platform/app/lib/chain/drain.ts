@@ -1,4 +1,5 @@
 // No ticker, no timer, no work on import: every job starts on a press.
+import { messageOf } from "@/lib/answer";
 import { adoptFailures, clearAdoptFailures } from "@/lib/chain/chain";
 import { refused, startStep } from "@/lib/chain/run";
 import { jobs, lastByStep, stopRunning } from "@/lib/chain/jobs";
@@ -97,7 +98,7 @@ function keepDraining(drain: Drain): void {
       engine.drain = null;
     })
     .catch((error: unknown) => {
-      engine.errors.push(error instanceof Error ? error.message : String(error));
+      engine.errors.push(messageOf(error));
       engine.drain = null;
     });
 }

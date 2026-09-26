@@ -2,6 +2,7 @@
  *  dazu die zwei Spawner, die den Prozess in `queue.live` halten, damit Stopp ihn findet. */
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { messageOf } from "@/lib/answer";
 import { stampHeavyLockChild } from "@/lib/chain/heavy-lock";
 import {
   type ChesslabStep, chesslabArgs, desktopBinary, desktopWorkDir, labelArgs, lensFor, modelReadRun,
@@ -30,7 +31,7 @@ export async function guard(job: Job, run: () => Promise<void>): Promise<void> {
     await record({
       ...job,
       state: "failed",
-      reason: `the job threw before it could report: ${error instanceof Error ? error.message : String(error)}`,
+      reason: `the job threw before it could report: ${messageOf(error)}`,
       finishedAt: new Date().toISOString(),
     }).catch(() => undefined);
   }
@@ -51,7 +52,7 @@ async function runDesktop(binary: string, args: string[], running: Job, log: str
       child = spawnTool(binary, args, cwd);
     } catch (error) {
       // A job that cannot even start must say so.
-      sink.end(`\nspawn threw: ${error instanceof Error ? error.message : String(error)}\n`);
+      sink.end(`\nspawn threw: ${messageOf(error)}\n`);
       resolve(-1);
       return;
     }
@@ -113,12 +114,11 @@ export async function runPack(job: Job): Promise<void> {
     try {
       pack = await verifyPack(out);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
       await record({
         ...running,
         state: "failed",
         code,
-        reason: `unsafe or incomplete training pack: ${detail}`,
+        reason: `unsafe or incomplete training pack: ${messageOf(error)}`,
         finishedAt: new Date().toISOString(),
       });
       return;
@@ -254,7 +254,7 @@ function appended(args: string[], running: Job, log: string): Promise<number> {
     try {
       child = spawnTool(uvBinary(), args, repoDir());
     } catch (error) {
-      sink.end(`\nspawn threw: ${error instanceof Error ? error.message : String(error)}\n`);
+      sink.end(`\nspawn threw: ${messageOf(error)}\n`);
       resolve(-1);
       return;
     }

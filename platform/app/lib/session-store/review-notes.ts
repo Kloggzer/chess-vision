@@ -134,10 +134,7 @@ async function bySession(): Promise<BySession> {
   const value: BySession = new Map();
   // Nur ein FEHLENDES Ledger ist "noch keine Urteile". Jeder andere Lesefehler als "" loeschte jedes
   // Urteil aller Sitzungen, und der Cache hielte die Luege bis zur naechsten mtime.
-  const text = await readFile(file, "utf8").catch((e) => {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return "";
-  });
+  const text = (await readFile(file, "utf8").catch(absentOnly)) ?? "";
   // Eine kaputte Zeile MITTENDRIN verliert sonst ein Urteil lautlos; der Schwanz eines laufenden
   // Anhaengens ist dagegen erwartbar.
   const read = readJsonl(text);

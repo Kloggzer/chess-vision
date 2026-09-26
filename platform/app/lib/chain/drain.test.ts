@@ -212,3 +212,15 @@ test("die Kette buendelt das Matten weiterhin", async () => {
   expect(fake.start.mock.calls.length).toBe(1);
   expect(fake.start.mock.calls[0][3]).toEqual(["2026-08-14-09-23-19"]);
 });
+
+test.each([
+  ["a plain string", "platte weg", "platte weg"],
+  ["an Error", new Error("worker tot"), "worker tot"],
+])("a later start that rejects with %s lands in the status as its text", async (_what, thrown, said) => {
+  fake.rows = [row("2026-08-14-09-23-19", "export"), row("VID_20260726_233432", "export")];
+  fake.start.mockImplementationOnce(async (name: string) => job(name)).mockRejectedValueOnce(thrown);
+
+  await startDrain("export");
+  await idle();
+  expect((await drainStatus()).error).toBe(said);
+});

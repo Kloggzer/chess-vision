@@ -9,7 +9,7 @@ import { isIdentity } from "@/lib/classes";
 import { checkName, gameDir, requireRecording } from "@/lib/session-store/recordings";
 import { recordingName, sessionId } from "@/lib/session-store/session";
 import { jsonlRowsStrict } from "@/lib/jsonl";
-import { stampOrMissing } from "@/lib/measurement";
+import { absentOnly, stampOrMissing } from "@/lib/measurement";
 
 /** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
 export type Correction = {
@@ -112,10 +112,7 @@ async function ledgerRows(name: string, ledger: Ledger): Promise<Parsed> {
   let seq = 0;
   // Nur ein fehlendes Ledger ist "noch keine Urteile". Jeder andere Lesefehler waere sonst als
   // leere Datei durchgereicht, und die Lane zeigt geloeschte Urteile als "nie gefaellt".
-  const text = await readFile(file, "utf8").catch((e) => {
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return "";
-  });
+  const text = (await readFile(file, "utf8").catch(absentOnly)) ?? "";
   for (const line of jsonlRowsStrict(file, text)) {
     const row = line as unknown as CorrectionRow;
     const session = bySession.get(row.session_id) ?? new Map<string, Standing>();

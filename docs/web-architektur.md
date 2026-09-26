@@ -76,7 +76,7 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
 - `chain/jobs.ts` (1106 Zeilen) nach Aufgaben geteilt: `slot` (der gepinnte Slot, `busy`,
   `runningJob`, `whenIdle`, Typ `Job`), `ledger` (`jobs.jsonl` schreiben/lesen, `jobHistory`),
   `runners` (je Job-Art ein Lauf, die zwei Spawner mit `queue.live`), `spawn` (`spawnTool`,
-  `killTree`, `runChesslabCapture`), `job-log` (Log-Senke, `refusalOf`, `lastRunOf`, `jobLogTail`),
+  `killTree`, `runChesslabCapture`), `job-log` (Log-Senke, `refusalOf`, `lastRunOf`, `logTail`, `jobLogTail`),
   `cli-args` (Binaries und Kommandozeilen, von `cli-parity` gehalten), `pack` (`packInputs`,
   `verifyPack`); `jobs` bleibt Einreihen, Stopp und die Ledger-Sicht (187 Zeilen).
 - Der Stift ruft den Worker (`chain/matte-edit.ts` -> `web_cuts.pen`), `chain.ts` liest `candidate.json`/`reference.pgn`
@@ -123,6 +123,18 @@ Je Schritt `npx vitest run` gruen, je Service eine Gegenprobe (Regel aushebeln -
   `candidate.json` ueber `peekCandidate` liest — EACCES wirft die ganze Karte, halb geschrieben
   heisst `confirm`, nie `label`; `runLabel` prueft `hasCandidateFile` selbst und ueberschreibt nie.
   Festgehalten in `lib/chain/game-info.test.ts` (Gegenprobe: `peekCandidate` mit blankem Fang -> rot).
+
+## Runde 5 (2026-09-26)
+
+- **Jeder Client-Abruf ueber `fetchJson`** (`lib/answer.ts`: `fetch` + `readAnswer`, abgerissenes
+  Netz und Absage kommen beide als Rejection). Ratsche `lib/client-fetch.test.ts`: kein nacktes
+  `fetch(` in `app/` und `components/`.
+- **`messageOf`** (`lib/answer.ts`, Kern) ist der eine Fehlertext aus `unknown`; `chain/drain` und
+  `chain/runners` nutzen ihn statt fuenf Kopien (`lib/chain/runners.test.ts`, `drain.test.ts`).
+- **`logTail`** (`chain/job-log.ts`) liest das Log-Ende fuer `progress` und `jobLogTail`;
+  **`ledgerRows`** (`chain/ledger.ts`) liest `jobs.jsonl` einmal mit `absentOnly`.
+- `session-store/meta`, `useless`, `corrections`, `review-notes` lesen ueber `absentOnly` statt eines
+  eigenen ENOENT-Fangs (`lib/session-store/absent-only.test.ts`: fehlt, EISDIR, EACCES, kaputtes JSON).
 
 ## Offen fuer die naechste Runde
 

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
 import { BadRequest } from "@/lib/http-error";
+import { absentOnly } from "@/lib/measurement";
 import { gameDir, recordingFile } from "@/lib/session-store/recordings";
 import { serialize } from "@/lib/serialize";
 
@@ -15,14 +16,9 @@ const TITLE_MAX = 120;
 const ARCHIVED_AT = /^archived_at:\s*(\S.*)$/m;
 
 export async function loadMeta(name: string): Promise<UiMeta> {
-  try {
-    return JSON.parse(await readFile(path.join(gameDir(name), FILE), "utf8")) as UiMeta;
-  } catch (e) {
-    // NUR "nicht da" ist leer. Eine kaputte Datei als `{}` zu lesen liess `saveMeta` darauf
-    // schreiben und nahm dabei ein gesetztes `archived` mit.
-    if ((e as { code?: string })?.code === "ENOENT") return {};
-    throw e;
-  }
+  // Eine kaputte Datei als `{}` zu lesen liess `saveMeta` darauf schreiben und nahm `archived` mit.
+  const text = await readFile(path.join(gameDir(name), FILE), "utf8").catch(absentOnly);
+  return text === null ? {} : (JSON.parse(text) as UiMeta);
 }
 
 /** Merge [patch] into the stored meta. An empty title deletes it — the dir name is the fallback. */
@@ -51,14 +47,9 @@ export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
 /** The PIPELINE's own archive stamp, `session.yaml`'s `archived_at`. Read as text: one top-level
  *  scalar, and the app carries no YAML parser. */
 export async function archivedAt(name: string): Promise<string | null> {
-  try {
-    const yaml = await readFile(recordingFile(name, "session"), "utf8");
-    return ARCHIVED_AT.exec(yaml)?.[1]?.trim() ?? null;
-  } catch (e) {
-    // Nur ENOENT ist „nie archiviert"; ein EACCES gab eine ausgemusterte Aufnahme wieder zum Labeln frei.
-    if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    return null;
-  }
+  // Nur ENOENT ist „nie archiviert"; ein EACCES gab eine ausgemusterte Aufnahme wieder zum Labeln frei.
+  const yaml = await readFile(recordingFile(name, "session"), "utf8").catch(absentOnly);
+  return yaml === null ? null : (ARCHIVED_AT.exec(yaml)?.[1]?.trim() ?? null);
 }
 
 /** Two files, two owners, and EITHER retires a game — reading only the UI flag let a Python-archived
