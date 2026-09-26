@@ -49,6 +49,12 @@ messbar. Referenz nach Anker-Fix (`9cc951a3`) und `cleanCommitsOnly`: **`15-50-2
 `Rxe8#`), der bekannte Reorder-Fall. `cleanCommitsOnly` holte die Zuege ohne Verzugskosten
 (`scripts/commit_lag.py`: Median 0,33 s, p90 1,14 s ueber 142 Plies).
 
+**Seit `b2d11570` (2026-09-26): 146/0/0 bei 0 Desync** (`16-26-22` 59/0/0). Der Replay rechnet mit
+der Konfiguration des Handys (`servingConfig`): `motionThr` skaliert jetzt auch ohne Bildsprung mit
+der Engine-Rate, und die v2-Videos haben 15 fps. Die vier Reorder-Halbzuege werden erkannt,
+`taintIdentityThr` 0,5 ist neutral (`tmp/batch/serving-v2`, `-v2-taint0`). v1 unveraendert
+396/3/0/8 (`tmp/batch/serving-v1`).
+
 ## Was der Hauptsatz NICHT messen kann: die Hand-Achse
 
 Er traegt 24 verdeckte Frames auf 11 001 (0,2 %). Jede boolesche Wache einzeln abgeschaltet

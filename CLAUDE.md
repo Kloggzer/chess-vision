@@ -156,7 +156,7 @@
   `scripts/android-emulator.ps1` (never `installEmulator`, devices are shared).
 - **Coverage:** not currently measured; calls and traps in `docs/quality-tooling.md`.
 - **References:** `docs/tracker-flow.md`, `docs/occlusion-gate.md`;
-  regression reference **396/3/0 at 8 desync episodes** (`docs/regression-reference.md`; count
+  regression reference **396/3/0 at 8 desync episodes** (v2: 146/0/0 at 0) (`docs/regression-reference.md`; count
   episodes, not `ALARM latched` lines).
 - **Power:** `docs/android-performance.md`. Whoever touches the frame rate must move `motionThr`
   with it (`TrackerService.engineConfig()` scales `x 30 / fps`).
