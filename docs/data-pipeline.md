@@ -1,7 +1,8 @@
 # The data pipeline — where a crop comes from
 
 > The **real-camera half** and what both halves share: the crop pool, dataset builds, and the
-> traps. The Blender half is `docs/synth-pipeline.md`. Section numbers are cited from code and are
+> traps. The Blender half is `docs/synth-pipeline.md`; the register of source recordings is
+> `docs/recordings.md`. Section numbers are cited from code and are
 > kept stable; 6, 7, 9 and 10 (the July 2026 parking inventory) were dropped on 2026-09-23.
 
 ---
